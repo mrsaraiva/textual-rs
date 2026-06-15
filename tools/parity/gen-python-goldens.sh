@@ -131,4 +131,8 @@ CASE=docs_colored_text   && want "$@" && run_case "$CASE" "$PY_DOCS/themes" "" "
 CASE=docs_stopwatch01    && want "$@" && run_case "$CASE" "$PY_DOCS/tutorial" "" "stopwatch01.py"
 CASE=docs_stopwatch02    && want "$@" && run_case "$CASE" "$PY_DOCS/tutorial" "" "stopwatch02.py"
 
+CASE=docs_stopwatch03    && want "$@" && run_case "$CASE" "$PY_DOCS/tutorial" "" "stopwatch03.py"
+CASE=docs_stopwatch04    && want "$@" && run_case "$CASE" "$PY_DOCS/tutorial" "" "stopwatch04.py"
+CASE=docs_option_list_tables && want "$@" && run_case "$CASE" "$PY_DOCS/widgets" "" "option_list_tables.py"
+
 echo "done."

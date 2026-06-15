@@ -650,6 +650,33 @@ const CASES: &[Case] = &[
         status: Status::Pass,
     },
     Case {
+        name: "docs_stopwatch03",
+        example: "stopwatch03",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_stopwatch04",
+        example: "stopwatch04",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_option_list_tables",
+        example: "option_list_tables",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
         name: "docs_checkbox",
         example: "checkbox",
         args: &[],
@@ -1135,6 +1162,9 @@ pty_case!(docs_progress_bar, "docs_progress_bar");
 pty_case!(docs_progress_bar_gradient, "docs_progress_bar_gradient");
 pty_case!(docs_button, "docs_button");
 pty_case!(docs_checkbox, "docs_checkbox");
+pty_case!(docs_stopwatch03, "docs_stopwatch03");
+pty_case!(docs_stopwatch04, "docs_stopwatch04");
+pty_case!(docs_option_list_tables, "docs_option_list_tables");
 pty_case!(docs_prevent, "docs_prevent");
 pty_case!(docs_colored_text, "docs_colored_text");
 pty_case!(docs_stopwatch01, "docs_stopwatch01");
