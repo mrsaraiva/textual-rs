@@ -578,6 +578,33 @@ const CASES: &[Case] = &[
         status: Status::Pass,
     },
     Case {
+        name: "docs_data_table_renderables",
+        example: "data_table_renderables",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_collapsible_nested",
+        example: "collapsible_nested",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_collapsible_custom_symbol",
+        example: "collapsible_custom_symbol",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
         name: "docs_content_switcher",
         example: "content_switcher",
         args: &[],
@@ -1000,6 +1027,9 @@ pty_case!(docs_progress_bar, "docs_progress_bar");
 pty_case!(docs_progress_bar_gradient, "docs_progress_bar_gradient");
 pty_case!(docs_button, "docs_button");
 pty_case!(docs_data_table_labels, "docs_data_table_labels");
+pty_case!(docs_data_table_renderables, "docs_data_table_renderables");
+pty_case!(docs_collapsible_nested, "docs_collapsible_nested");
+pty_case!(docs_collapsible_custom_symbol, "docs_collapsible_custom_symbol");
 pty_case!(json_tree_initial, "json_tree_initial");
 pty_case!(json_tree_add_node, "json_tree_add_node");
 pty_case!(dictionary_initial, "dictionary_initial");
