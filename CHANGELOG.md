@@ -7,6 +7,20 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-15 (feat(widgets): OptionList multi-row options + TextArea gutter width)
+
+- **feat(widgets/OptionList): render multi-row option content (line-based model)**
+  - OptionList capped every option at one display row, collapsing multi-row Rich
+    renderables (e.g. tables) to their first line. Reworked to a line-based model
+    mirroring Python `OptionList._lines`: `render_rich_lines` returns all display
+    lines (splitting on line-control segments AND embedded `\n`), with `item_height`/
+    `total_lines`/`line_map`; render, scroll offset, `ensure_visible`, mouse/hover
+    hit-testing, and `layout_height` all work in line space. (`src/widgets/option_list.rs`)
+- **fix(widgets/TextArea): line-number gutter uses a 2-cell margin**
+  - The gutter was `digits + 1` (one trailing space); Python uses `digits + 2`
+    (`f"{n:>digits}  "`), so every code line was shifted 1 cell left. Now matches.
+    (`src/widgets/text_area.rs`) Fixes text_area_example + text_area_selection.
+
 ### 2026-06-15 (fix(layout): don't double-count a bordered auto-height leaf's chrome)
 
 - **fix(layout): auto-height measurement adds only margin to a leaf's outer height**

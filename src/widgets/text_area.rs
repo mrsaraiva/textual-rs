@@ -815,8 +815,8 @@ impl TextArea {
             return 0;
         }
         let digits = self.lines.len().max(1).to_string().len();
-        // Right aligned number + trailing space.
-        digits + 1
+        // Right aligned number + 2-cell margin (matches Python Textual gutter_margin).
+        digits + 2
     }
 
     fn cursor_cell_x(&self) -> usize {
@@ -1749,8 +1749,8 @@ impl Widget for TextArea {
             if gutter_w > 0 {
                 let gutter_text = if row < self.lines.len() {
                     let line_no = row.saturating_add(1);
-                    let digits = gutter_w.saturating_sub(1).max(1);
-                    format!("{line_no:>digits$} ")
+                    let digits = gutter_w.saturating_sub(2).max(1);
+                    format!("{line_no:>digits$}  ")
                 } else {
                     " ".repeat(gutter_w)
                 };
