@@ -383,10 +383,22 @@ pub(crate) fn measure_intrinsic_content_width(
     })
 }
 
+/// Does the style declare a *dynamic* (non-fixed) height? Mirrors Python
+/// `StylesBase.is_dynamic_height`: an EXPLICITLY set height whose unit is one of
+/// `auto`/`fr`/`%`. An UNSET height (`None`) or a fixed `cells` height is not
+/// dynamic. (Python's set is `{AUTO, FRACTION, PERCENT}` — `vw`/`vh` excluded.)
+fn is_dynamic_height(style: &Style) -> bool {
+    matches!(
+        style.height,
+        Some(Scalar::Auto) | Some(Scalar::Fraction(_)) | Some(Scalar::Percent(_))
+    )
+}
+
 pub(crate) fn measure_intrinsic_content_height(
     tree: &WidgetTree,
     node: NodeId,
     viewport: (u16, u16),
+    avail_content_h: u16,
 ) -> Option<u16> {
     let node_ref = tree.get(node)?;
     if let Some(h) = node_ref
@@ -403,9 +415,8 @@ pub(crate) fn measure_intrinsic_content_height(
     let style = get_node_style(tree, node);
     let layout = style.layout.unwrap_or(crate::style::Layout::Vertical);
 
-    let mut vertical_sum: u16 = 0;
-    let mut horizontal_max: u16 = 0;
-    let mut any = false;
+    // Collect displayed children + their resolved styles once.
+    let mut displayed: Vec<(NodeId, Style)> = Vec::new();
     for child in children {
         let Some(child_ref) = tree.get(child) else {
             continue;
@@ -417,13 +428,38 @@ pub(crate) fn measure_intrinsic_content_height(
         if child_style.display == Some(crate::style::Display::None) {
             continue;
         }
-        let outer = measure_child_outer_height(tree, child, &child_style, viewport);
-        any = true;
+        displayed.push((child, child_style));
+    }
+    if displayed.is_empty() {
+        return None;
+    }
+
+    // Python parity (`Layout.get_content_height`): a non-docked auto container
+    // whose displayed children are ALL dynamic-height is arranged against the
+    // FULL container height (`Size(width, container.height)`), so `fr` children
+    // fill it. When at least one child is `fr`, that arrangement's total height
+    // equals the available content height (the `fr` consumes the remaining
+    // space). Without this an auto container around a `1fr` child (e.g.
+    // `Center > Middle(1fr)`) collapses to the child's minimum and cannot center.
+    // Scoped narrowly to the all-dynamic + has-`fr` case to preserve the
+    // size-to-content behaviour of every other auto container.
+    let all_dynamic = displayed.iter().all(|(_, cs)| is_dynamic_height(cs));
+    let any_fraction = displayed
+        .iter()
+        .any(|(_, cs)| matches!(cs.height, Some(Scalar::Fraction(_))));
+    if style.dock.is_none() && all_dynamic && any_fraction && avail_content_h > 0 {
+        return Some(avail_content_h);
+    }
+
+    let mut vertical_sum: u16 = 0;
+    let mut horizontal_max: u16 = 0;
+    for (child, child_style) in &displayed {
+        // Recursive measurement keeps the existing "arrange at 0" behaviour
+        // (pass 0) — only a directly-laid-out auto container gets the real
+        // available height from the layout call sites.
+        let outer = measure_child_outer_height(tree, *child, child_style, viewport);
         vertical_sum = vertical_sum.saturating_add(outer);
         horizontal_max = horizontal_max.max(outer);
-    }
-    if !any {
-        return None;
     }
     Some(match layout {
         crate::style::Layout::Horizontal => horizontal_max,
@@ -497,7 +533,7 @@ fn measure_child_outer_height(
             *n
         }
         None | Some(Scalar::Auto) | Some(Scalar::Fraction(_)) => {
-            measure_intrinsic_content_height(tree, node, viewport).unwrap_or(0)
+            measure_intrinsic_content_height(tree, node, viewport, 0).unwrap_or(0)
         }
         Some(other) => resolve_scalar_to_cells(other, 0, viewport.1),
     };

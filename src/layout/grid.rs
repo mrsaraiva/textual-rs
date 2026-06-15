@@ -363,7 +363,8 @@ pub fn layout_grid(
                 .and_then(|n| n.widget.layout_height())
                 .and_then(|h| u16::try_from(h).ok())
                 .or_else(|| {
-                    measure_intrinsic_content_height(tree, child, viewport)
+                    let avail_content_h = cell_h.saturating_sub(own_v_chrome);
+                    measure_intrinsic_content_height(tree, child, viewport, avail_content_h)
                         .map(|h| h.saturating_add(own_v_chrome))
                 })
         } else {

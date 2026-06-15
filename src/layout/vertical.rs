@@ -157,7 +157,16 @@ pub fn layout_vertical(
             intrinsic_width = measure_intrinsic_content_width(tree, child, viewport);
         }
         if intrinsic_height.is_none() && height_is_explicit_auto {
-            intrinsic_height = measure_intrinsic_content_height(tree, child, viewport)
+            // Available CONTENT height this auto container would receive (its
+            // outer fill minus own margins + border/padding). Lets Python's
+            // all-dynamic-children rule fill an `fr` child (e.g. `Center >
+            // Middle(1fr)`); `measure_intrinsic_content_height` adds chrome back
+            // via the caller's `+ own_v_chrome`.
+            let avail_content_h = available
+                .height
+                .saturating_sub(style.effective_margin().top + style.effective_margin().bottom)
+                .saturating_sub(own_v_chrome);
+            intrinsic_height = measure_intrinsic_content_height(tree, child, viewport, avail_content_h)
                 .map(|h| h.saturating_add(own_v_chrome));
         }
         let mut spec = extract_child_spec(

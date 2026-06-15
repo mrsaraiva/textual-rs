@@ -58,8 +58,16 @@ pub fn layout_horizontal(
                 intrinsic_width = measure_intrinsic_content_width(tree, child, viewport);
             }
             if intrinsic_height.is_none() && height_is_auto {
-                intrinsic_height = measure_intrinsic_content_height(tree, child, viewport)
-                    .map(|h| h.saturating_add(own_v_chrome));
+                // Available CONTENT height this auto child would receive (full
+                // container height minus own margins + chrome) so Python's
+                // all-dynamic-children rule can fill an `fr`-height child.
+                let avail_content_h = available
+                    .height
+                    .saturating_sub(style.effective_margin().top + style.effective_margin().bottom)
+                    .saturating_sub(own_v_chrome);
+                intrinsic_height =
+                    measure_intrinsic_content_height(tree, child, viewport, avail_content_h)
+                        .map(|h| h.saturating_add(own_v_chrome));
             }
             let mut spec = extract_child_spec(
                 &style,
