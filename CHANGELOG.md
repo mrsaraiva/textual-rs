@@ -7,6 +7,23 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-15 (fix(layout): auto-height container fills an `fr` child / Center+Middle)
+
+- **fix(layout): an `auto`-height container whose children are all dynamic-height
+  fills an `fr` child instead of collapsing**
+  - Mirrors Python `Layout.get_content_height`: a non-docked `height: auto`
+    container whose displayed children all have a dynamic height (`auto`/`fr`/`%`)
+    is measured against the full container height, so an `fr` child fills it.
+    Previously such a container collapsed to the child's minimum — e.g.
+    `Center(height:auto) > Middle(height:1fr)` was 1 row tall, so vertical
+    centering (`Middle`'s `align-vertical: middle`) had no slack. Scoped to the
+    all-dynamic + has-`fr` case to preserve size-to-content for every other auto
+    container. Fixes `Center`/`Middle` vertical centering (progress_bar_gradient).
+- **fix(widgets/ProgressBar): keep half-cell precision in the filled bar**
+  - The render passed a pre-rounded integer fill length to the `Bar` renderable,
+    dropping the half-cell (`╸`/`╺`) that Python produces by passing the
+    fractional `width * percentage`. Now passes the fractional extent.
+
 ### 2026-06-15 (fix(widgets/ListView): nav bindings hidden from the Footer)
 
 - **fix(widgets/ListView): cursor/select bindings no longer leak into the Footer**

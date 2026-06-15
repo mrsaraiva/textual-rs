@@ -464,8 +464,11 @@ impl ProgressBar {
         let style = crate::css::resolve_component_style(self, &[component])
             .to_rich()
             .unwrap_or_else(rich_rs::Style::new);
-        let filled = ((pct * width as f64).round() as usize).min(width);
-        let text: String = Bar::new((0.0, filled as f32), style, style)
+        // Python passes the FRACTIONAL highlight extent (`size.width * percentage`)
+        // to the Bar renderable, which rounds to the nearest half-cell (`╸`/`╺`).
+        // Pre-rounding to an integer here would drop that half-cell precision.
+        let highlight_end = (pct * width as f64).min(width as f64) as f32;
+        let text: String = Bar::new((0.0, highlight_end), style, style)
             .width(width)
             .render_for_width(width)
             .iter()
@@ -494,8 +497,8 @@ impl ProgressBar {
         let style = crate::css::resolve_component_style(self, &[component])
             .to_rich()
             .unwrap_or_else(rich_rs::Style::new);
-        let filled = ((pct * width as f64).round() as usize).min(width);
-        let segments: Vec<Segment> = Bar::new((0.0, filled as f32), style, style)
+        let highlight_end = (pct * width as f64).min(width as f64) as f32;
+        let segments: Vec<Segment> = Bar::new((0.0, highlight_end), style, style)
             .width(width)
             .gradient(start, end)
             .render_for_width(width)
