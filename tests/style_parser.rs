@@ -89,6 +89,53 @@ Input {
 }
 
 #[test]
+fn stylesheet_parser_skips_block_comments() {
+    // `/* */` comments may appear before/between rules and inside blocks. They
+    // must be stripped so the rule that follows a comment is still parsed (a
+    // comment-before-rule previously folded into the selector and dropped it).
+    let css = r#"
+/* leading comment */
+Label {
+    /* inline comment */
+    height: 3; /* trailing comment */
+}
+/* comment between rules */
+Input {
+    width: 5;
+}
+"#;
+    let sheet = StyleSheet::parse(css);
+    let rules = sheet.rules();
+    assert_eq!(
+        rules.len(),
+        2,
+        "both rules should survive comment stripping"
+    );
+    assert_eq!(
+        rules[0].style().height,
+        Some(textual::style::Scalar::Cells(3))
+    );
+    assert_eq!(
+        rules[1].style().width,
+        Some(textual::style::Scalar::Cells(5))
+    );
+}
+
+#[test]
+fn stylesheet_parser_handles_unterminated_comment() {
+    // An unterminated `/*` consumes to end of input (standard CSS) without
+    // panicking; the preceding rule is still parsed.
+    let css = "Label { height: 2; }\n/* dangling comment with no close";
+    let sheet = StyleSheet::parse(css);
+    let rules = sheet.rules();
+    assert_eq!(rules.len(), 1);
+    assert_eq!(
+        rules[0].style().height,
+        Some(textual::style::Scalar::Cells(2))
+    );
+}
+
+#[test]
 fn parse_color_like_supports_transparent_and_ansi_names() {
     use textual::style::parse_color_like;
 

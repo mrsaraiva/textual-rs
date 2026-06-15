@@ -35,7 +35,40 @@ impl StyleSheet {
     }
 }
 
-fn parse_with_issues(input: &str) -> (StyleSheet, Vec<CssParseIssue>) {
+/// Replace `/* ... */` comment spans with whitespace before parsing.
+///
+/// The stylesheet parser scans the raw text for `{`/`}`, so a comment would
+/// otherwise be folded into the following selector and silently drop that rule.
+/// Comments are replaced (not removed) with spaces — newlines preserved — so
+/// surrounding token positions and line structure are kept stable. CSS comments
+/// do not nest; an unterminated `/*` consumes to end of input (standard CSS).
+fn strip_css_comments(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    let mut chars = input.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '/' && chars.peek() == Some(&'*') {
+            chars.next(); // consume '*'
+            out.push(' ');
+            out.push(' ');
+            while let Some(c2) = chars.next() {
+                if c2 == '*' && chars.peek() == Some(&'/') {
+                    chars.next(); // consume '/'
+                    out.push(' ');
+                    out.push(' ');
+                    break;
+                }
+                out.push(if c2 == '\n' { '\n' } else { ' ' });
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+fn parse_with_issues(raw_input: &str) -> (StyleSheet, Vec<CssParseIssue>) {
+    let stripped = strip_css_comments(raw_input);
+    let input = stripped.as_str();
     let mut sheet = StyleSheet::new();
     let mut issues = Vec::new();
     let mut pos = 0usize;

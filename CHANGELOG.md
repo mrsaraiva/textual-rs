@@ -7,6 +7,15 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-14 (feat(css): support `/* */` block comments in stylesheets)
+
+- **feat(css): the stylesheet parser now strips `/* */` comments**
+  - The parser scans raw text for `{`/`}`, so a comment before a rule was folded into the
+    following selector and silently dropped that rule. `parse_with_issues`
+    (`src/css/selectors/parser.rs`) now strips `/* */` spans up front (replaced with whitespace,
+    newlines preserved, so token positions stay stable; an unterminated `/*` consumes to EOF, per
+    standard CSS). Comments may now appear before/between rules and inside blocks.
+
 ### 2026-06-14 (feat(layout): block-wise align + bottom-up auto-size container measurement)
 
 - **feat(layout): `align` translates the whole arrangement by a single offset (block centering)**
