@@ -533,6 +533,24 @@ const CASES: &[Case] = &[
         status: Status::Pass,
     },
     Case {
+        name: "docs_sparkline_colors",
+        example: "sparkline_colors",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_progress_bar",
+        example: "progress_bar",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
         name: "docs_content_switcher",
         example: "content_switcher",
         args: &[],
@@ -950,6 +968,8 @@ pty_case!(docs_selection_list_selections, "docs_selection_list_selections");
 pty_case!(docs_selection_list_tuples, "docs_selection_list_tuples");
 pty_case!(docs_sparkline, "docs_sparkline");
 pty_case!(docs_sparkline_basic, "docs_sparkline_basic");
+pty_case!(docs_sparkline_colors, "docs_sparkline_colors");
+pty_case!(docs_progress_bar, "docs_progress_bar");
 pty_case!(json_tree_initial, "json_tree_initial");
 pty_case!(json_tree_add_node, "json_tree_add_node");
 pty_case!(dictionary_initial, "dictionary_initial");

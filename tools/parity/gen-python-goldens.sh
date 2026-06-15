@@ -106,6 +106,9 @@ CASE=docs_question02     && want "$@" && run_case "$CASE" "$PY_DOCS/app"    "" "
 CASE=docs_question03     && want "$@" && run_case "$CASE" "$PY_DOCS/app"    "" "question03.py"
 CASE=docs_question_title01 && want "$@" && run_case "$CASE" "$PY_DOCS/app"  "" "question_title01.py"
 CASE=docs_question_title02 && want "$@" && run_case "$CASE" "$PY_DOCS/app"  "" "question_title02.py"
+# Widgets group (../textual/docs/examples/widgets/<name>.py).
+CASE=docs_progress_bar   && want "$@" && run_case "$CASE" "$PY_DOCS/widgets" "" "progress_bar.py"
+CASE=docs_sparkline_colors && want "$@" && run_case "$CASE" "$PY_DOCS/widgets" "" "sparkline_colors.py"
 CASE=docs_suspend        && want "$@" && run_case "$CASE" "$PY_DOCS/app"    "" "suspend.py"
 CASE=docs_suspend_process && want "$@" && run_case "$CASE" "$PY_DOCS/app"   "" "suspend_process.py"
 
