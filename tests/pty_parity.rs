@@ -614,6 +614,42 @@ const CASES: &[Case] = &[
         status: Status::Pass,
     },
     Case {
+        name: "docs_prevent",
+        example: "prevent",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_colored_text",
+        example: "colored_text",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_stopwatch01",
+        example: "stopwatch01",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_stopwatch02",
+        example: "stopwatch02",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
         name: "docs_checkbox",
         example: "checkbox",
         args: &[],
@@ -1099,6 +1135,10 @@ pty_case!(docs_progress_bar, "docs_progress_bar");
 pty_case!(docs_progress_bar_gradient, "docs_progress_bar_gradient");
 pty_case!(docs_button, "docs_button");
 pty_case!(docs_checkbox, "docs_checkbox");
+pty_case!(docs_prevent, "docs_prevent");
+pty_case!(docs_colored_text, "docs_colored_text");
+pty_case!(docs_stopwatch01, "docs_stopwatch01");
+pty_case!(docs_stopwatch02, "docs_stopwatch02");
 pty_case!(docs_log, "docs_log");
 pty_case!(docs_rich_log, "docs_rich_log");
 pty_case!(docs_option_list_options, "docs_option_list_options");

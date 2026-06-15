@@ -126,4 +126,9 @@ CASE=docs_sparkline_colors && want "$@" && run_case "$CASE" "$PY_DOCS/widgets" "
 CASE=docs_suspend        && want "$@" && run_case "$CASE" "$PY_DOCS/app"    "" "suspend.py"
 CASE=docs_suspend_process && want "$@" && run_case "$CASE" "$PY_DOCS/app"   "" "suspend_process.py"
 
+CASE=docs_prevent        && want "$@" && run_case "$CASE" "$PY_DOCS/events" "" "prevent.py"
+CASE=docs_colored_text   && want "$@" && run_case "$CASE" "$PY_DOCS/themes" "" "colored_text.py"
+CASE=docs_stopwatch01    && want "$@" && run_case "$CASE" "$PY_DOCS/tutorial" "" "stopwatch01.py"
+CASE=docs_stopwatch02    && want "$@" && run_case "$CASE" "$PY_DOCS/tutorial" "" "stopwatch02.py"
+
 echo "done."
