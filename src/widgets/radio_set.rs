@@ -230,10 +230,12 @@ impl Widget for RadioSet {
     }
 
     fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
-        self.buttons
-            .drain(..)
-            .map(|b| Box::new(b) as Box<dyn Widget>)
-            .collect()
+        // RadioSet renders its buttons INLINE (see `render`) and handles
+        // navigation/selection itself, so the buttons must stay in `self`.
+        // Draining them into the arena left `self.buttons` empty — `render`,
+        // `layout_height`, and `content_width` then saw no buttons (blank box,
+        // height 1). Keep them internal (monolithic widget); do not drain.
+        Vec::new()
     }
 
     fn focusable(&self) -> bool {
@@ -359,11 +361,10 @@ impl Widget for RadioSet {
                 let is_pressed = self.cursor.selected() == Some(row);
                 let is_hovered_row = self.hovered_index == Some(row);
 
-                let glyph = if is_pressed || button.value() {
-                    "●"
-                } else {
-                    "○"
-                };
+                // Python's ToggleButton always renders the inner glyph (`●`);
+                // the selected state is conveyed by the button color (the `-on`
+                // class below), not by swapping the glyph for an empty `○`.
+                let glyph = "●";
 
                 // Build component-style classes for the glyph and label.
                 let mut glyph_classes = vec!["radio-button--button"];
@@ -421,7 +422,9 @@ impl Widget for RadioSet {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        Some(self.buttons.len().max(1))
+        // One row per button + own border/padding chrome (default `border: tall`
+        // adds 2). The layout side adds only margin (extract_child_spec).
+        Some(self.buttons.len().max(1) + super::helpers::resolved_vertical_chrome(self))
     }
 
     fn content_width(&self) -> Option<usize> {
@@ -597,11 +600,16 @@ mod tests {
     }
 
     #[test]
-    fn take_composed_children_drains_buttons() {
+    fn take_composed_children_keeps_buttons_internal() {
+        // RadioSet renders its buttons inline and handles its own navigation,
+        // so it does NOT drain them into the arena (draining left it blank).
         let mut set = RadioSet::from_labels(&["A", "B", "C"]);
         let children = set.take_composed_children();
-        assert_eq!(children.len(), 3);
-        assert!(set.is_empty());
+        assert!(
+            children.is_empty(),
+            "buttons must stay internal, not drained"
+        );
+        assert_eq!(set.len(), 3, "buttons remain available for inline render");
     }
 
     // ── P1-14 dispatch-context regression tests ─────────────────────────

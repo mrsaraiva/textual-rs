@@ -221,10 +221,29 @@ impl Widget for Checkbox {
 
     fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
-        let state = if self.checked { "☑" } else { "☐" };
-        let line = rich_rs::set_cell_size(&format!("{state} {}", self.label), width);
+        // Python's `ToggleButton` renders `▐X▌` — the `X` is ALWAYS present; the
+        // checked state is conveyed by the button color (`.toggle--button`, which
+        // brightens via `&.-on > .toggle--button` since `self` carries `-on` when
+        // checked), not by swapping the glyph. `self` exposes its `-on` class to
+        // off-tree resolution via its seed classes.
+        let button_style = crate::css::resolve_component_style(self, &["toggle--button"])
+            .to_rich()
+            .unwrap_or_else(rich_rs::Style::new);
+        let label_style = crate::css::resolve_component_style(self, &["toggle--label"])
+            .to_rich()
+            .unwrap_or_else(rich_rs::Style::new);
+        // Side half-blocks use the button background as their foreground.
+        let mut side_style = rich_rs::Style::new();
+        side_style.color = button_style.bgcolor;
+
+        let segs = [
+            Segment::styled("▐".to_string(), side_style),
+            Segment::styled("X".to_string(), button_style),
+            Segment::styled("▌".to_string(), side_style),
+            Segment::styled(format!(" {}", self.label), label_style),
+        ];
         let mut out = Segments::new();
-        out.push(Segment::new(line));
+        out.extend(super::helpers::adjust_line_length_no_bg(&segs, width));
         out
     }
 

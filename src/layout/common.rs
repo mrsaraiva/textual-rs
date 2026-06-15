@@ -77,6 +77,20 @@ fn horizontal_chrome(
     margin.left + border_left + padding.left + padding.right + border_right + margin.right
 }
 
+/// A node's OWN box chrome (border + padding, excluding margin), as `(horizontal,
+/// vertical)`. Used to make a bottom-up-measured container's intrinsic size
+/// chrome-inclusive — `measure_intrinsic_content_*` returns only the children's
+/// summed extents (it is called recursively and must not double-count the node's
+/// own chrome), so the call site adds the container's own border+padding to match
+/// the contract that a widget's reported intrinsic is its content + own chrome.
+pub(crate) fn own_box_chrome(style: &Style) -> (u16, u16) {
+    let (bt, bb, bl, br) = border_spacing(style);
+    let padding = style.effective_padding();
+    let h = (bl as u16) + (br as u16) + padding.left + padding.right;
+    let v = (bt as u16) + (bb as u16) + padding.top + padding.bottom;
+    (h, v)
+}
+
 pub(crate) fn resolve_scalar_to_cells(
     scalar: &Scalar,
     parent_size: u16,

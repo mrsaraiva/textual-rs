@@ -112,11 +112,19 @@ pub fn layout_vertical(
             matches!(style.width.as_ref(), Some(crate::style::Scalar::Auto));
         let height_is_explicit_auto =
             matches!(style.height.as_ref(), Some(crate::style::Scalar::Auto));
+        // The measured value is the children's content extent; add the
+        // container's OWN border+padding so the intrinsic is chrome-inclusive
+        // (matching what a conforming `layout_height()`/`content_width()` would
+        // report). Without this, a measured auto container with its own border
+        // (e.g. RadioSet `border: tall`) is clipped by that border.
+        let (own_h_chrome, own_v_chrome) = super::common::own_box_chrome(&style);
         if intrinsic_width.is_none() && width_is_explicit_auto {
-            intrinsic_width = measure_intrinsic_content_width(tree, child, viewport);
+            intrinsic_width = measure_intrinsic_content_width(tree, child, viewport)
+                .map(|w| w.saturating_add(own_h_chrome));
         }
         if intrinsic_height.is_none() && height_is_explicit_auto {
-            intrinsic_height = measure_intrinsic_content_height(tree, child, viewport);
+            intrinsic_height = measure_intrinsic_content_height(tree, child, viewport)
+                .map(|h| h.saturating_add(own_v_chrome));
         }
         let mut spec = extract_child_spec(
             &style,

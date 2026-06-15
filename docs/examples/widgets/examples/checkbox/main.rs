@@ -31,7 +31,7 @@ impl TextualApp for CheckboxApp {
         // ChildDecl::from(widget).with_id(...) assigns a CSS id to a widget
         // that does not have its own with_id() builder method.
         let vs = VerticalScroll::new().with_compose(vec![
-            ChildDecl::from(Checkbox::new("Arrakis \u{1F613}")),
+            ChildDecl::from(Checkbox::new("Arrakis :sweat:")),
             ChildDecl::from(Checkbox::new("Caladan")),
             ChildDecl::from(Checkbox::new("Chusuk")),
             ChildDecl::from(Checkbox::new("[b]Giedi Prime[/b]")),

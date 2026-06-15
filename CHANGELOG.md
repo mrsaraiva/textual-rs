@@ -7,6 +7,22 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-15 (fix: RadioSet/Checkbox toggle glyphs + drained-auto-container chrome)
+
+- **fix(layout): bottom-up-measured auto containers include their own border/padding**
+  - `measure_intrinsic_content_*` returns only children's summed extents (it recurses, so it must
+    not double-count). The call sites in `layout_vertical`/`layout_horizontal` now add the
+    container's own border+padding (`own_box_chrome`) to the measured intrinsic, so a `height:auto`
+    container with a border (e.g. `RadioSet { border: tall }`) is no longer clipped by it.
+- **fix(widgets/RadioSet): keep buttons internal; report full height**
+  - `RadioSet` renders its buttons inline but also drained them into the arena, leaving the inline
+    render blank (height 1). It no longer drains (monolithic, as its render/navigation assume) and
+    `layout_height` adds its border/padding chrome. The inner radio glyph is now always `●` (Python
+    `ToggleButton` shows it always; selected state is color-only), not toggled `●`/`○`.
+- **fix(widgets/Checkbox): render `▐X▌` like Python's ToggleButton**
+  - Was `☐`/`☑`. Now renders `▐X▌` (the `X` always present; checked state via the `.toggle--button`
+    color), matching Python and `SelectionList`.
+
 ### 2026-06-15 (fix(OptionList): remove hardcoded double indent on plain options)
 
 - **fix(widgets/OptionList): plain options no longer double-indent**

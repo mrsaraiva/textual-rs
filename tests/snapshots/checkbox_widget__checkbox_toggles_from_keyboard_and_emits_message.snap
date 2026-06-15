@@ -1,8 +1,8 @@
 ---
 source: tests/checkbox_widget.rs
-assertion_line: 26
 expression: buf.debug_dump()
 ---
 lines:
-0: "☑ remember me   "
+0: "▐X▌ remember me "
 meta:
+(15,0): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true)}) }

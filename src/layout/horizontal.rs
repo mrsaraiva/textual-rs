@@ -43,11 +43,16 @@ pub fn layout_horizontal(
             // limited to containers the author deliberately marked `auto`.
             let width_is_auto = matches!(style.width.as_ref(), Some(crate::style::Scalar::Auto));
             let height_is_auto = matches!(style.height.as_ref(), Some(crate::style::Scalar::Auto));
+            // Add the container's OWN border+padding to the measured (children-only)
+            // intrinsic so it is chrome-inclusive (see vertical.rs for rationale).
+            let (own_h_chrome, own_v_chrome) = super::common::own_box_chrome(&style);
             if intrinsic_width.is_none() && width_is_auto {
-                intrinsic_width = measure_intrinsic_content_width(tree, child, viewport);
+                intrinsic_width = measure_intrinsic_content_width(tree, child, viewport)
+                    .map(|w| w.saturating_add(own_h_chrome));
             }
             if intrinsic_height.is_none() && height_is_auto {
-                intrinsic_height = measure_intrinsic_content_height(tree, child, viewport);
+                intrinsic_height = measure_intrinsic_content_height(tree, child, viewport)
+                    .map(|h| h.saturating_add(own_v_chrome));
             }
             let mut spec = extract_child_spec(
                 &style,
