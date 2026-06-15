@@ -21,6 +21,7 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 PYTHON="${PYTHON:-/tmp/textual-venv/bin/python}"
 PY_EXAMPLES="${TEXTUAL_PY_EXAMPLES:-$REPO_ROOT/../textual/examples}"
+PY_DOCS="${TEXTUAL_PY_DOCS:-$REPO_ROOT/../textual/docs/examples}"
 GOLDEN_DIR="$REPO_ROOT/tests/pty_parity/golden"
 FIXTURE_DIR="$REPO_ROOT/tests/pty_parity/fixtures/sample_dir"
 SOCKET="parity-golden-$$"
@@ -88,5 +89,20 @@ CASE=json_tree_initial     && want "$@" && run_case "$CASE" "$PY_EXAMPLES" ""  "
 CASE=json_tree_add_node    && want "$@" && run_case "$CASE" "$PY_EXAMPLES" "a" "json_tree.py"
 CASE=dictionary_initial    && want "$@" && run_case "$CASE" "$PY_EXAMPLES" ""  "dictionary.py"
 CASE=code_browser_initial  && want "$@" && run_case "$CASE" "$FIXTURE_DIR" ""  "$PY_EXAMPLES/code_browser.py" "./"
+
+# Docs examples (../textual/docs/examples/<group>/<name>.py). Golden name is the
+# manifest case name (docs_<name>); the manifest's `example` field is <name>.
+CASE=docs_center02       && want "$@" && run_case "$CASE" "$PY_DOCS/how-to" "" "center02.py"
+CASE=docs_center03       && want "$@" && run_case "$CASE" "$PY_DOCS/how-to" "" "center03.py"
+CASE=docs_center04       && want "$@" && run_case "$CASE" "$PY_DOCS/how-to" "" "center04.py"
+CASE=docs_center06       && want "$@" && run_case "$CASE" "$PY_DOCS/how-to" "" "center06.py"
+CASE=docs_center07       && want "$@" && run_case "$CASE" "$PY_DOCS/how-to" "" "center07.py"
+# NOTE: app examples event01 (bg-color only), simple01/02 (empty App), and
+# widgets02/03/04 (Welcome mounts only on keypress) have EMPTY initial plain-text
+# screens, so they aren't strict-harness cases (the harness needs a non-empty
+# stable screen). They remain faithful ports under docs/examples/app.
+CASE=docs_question01     && want "$@" && run_case "$CASE" "$PY_DOCS/app"    "" "question01.py"
+CASE=docs_suspend        && want "$@" && run_case "$CASE" "$PY_DOCS/app"    "" "suspend.py"
+CASE=docs_suspend_process && want "$@" && run_case "$CASE" "$PY_DOCS/app"   "" "suspend_process.py"
 
 echo "done."

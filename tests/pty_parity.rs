@@ -320,6 +320,81 @@ const CASES: &[Case] = &[
         golden_replacements: &[],
         status: Status::Pass,
     },
+    // how-to center variants — verified at parity via scoreboard-docs.sh after
+    // the text-align + transparent-wrapper auto-sizing fundamentals landed.
+    Case {
+        name: "docs_center02",
+        example: "center02",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_center03",
+        example: "center03",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_center04",
+        example: "center04",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_center06",
+        example: "center06",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_center07",
+        example: "center07",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    // app examples (docs/examples/app) with non-empty initial screens.
+    Case {
+        name: "docs_question01",
+        example: "question01",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_suspend",
+        example: "suspend",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_suspend_process",
+        example: "suspend_process",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
     Case {
         name: "docs_footer",
         example: "footer",
@@ -814,6 +889,14 @@ pty_case!(docs_radio_button, "docs_radio_button");
 pty_case!(docs_data_table_cursors, "docs_data_table_cursors");
 pty_case!(docs_data_table_sort, "docs_data_table_sort");
 pty_case!(docs_center01, "docs_center01");
+pty_case!(docs_center02, "docs_center02");
+pty_case!(docs_center03, "docs_center03");
+pty_case!(docs_center04, "docs_center04");
+pty_case!(docs_center06, "docs_center06");
+pty_case!(docs_center07, "docs_center07");
+pty_case!(docs_question01, "docs_question01");
+pty_case!(docs_suspend, "docs_suspend");
+pty_case!(docs_suspend_process, "docs_suspend_process");
 pty_case!(docs_footer, "docs_footer");
 pty_case!(docs_header, "docs_header");
 pty_case!(docs_header_app_title, "docs_header_app_title");
