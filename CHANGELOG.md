@@ -7,6 +7,24 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-15 (fix(Digits): honor parent-forwarded text-align; OptionList scrollbar)
+
+- **fix(renderables/Digits): honor the parent-forwarded `justify` (text-align)**
+  - `Digits::render` always re-resolved its own `Digits` type meta (default
+    `text-align: left`), ignoring the `options.justify` that the render path
+    forwards from a node's resolved `text-align` (engine #19). So a typed wrapper
+    like `class TimeDisplay(Digits)` with `text-align: center` couldn't center its
+    glyphs. Now `Digits::render` uses the forwarded justify when set, falling back
+    to its own text-align. Fixes tutorial stopwatch03/04 (TimeDisplay centering).
+- **feat(widgets/OptionList): real vertical scrollbar**
+  - OptionList had no scrollbar mechanism (flat self-scroll). Added a dedicated
+    `ScrollBar` child + `scroll_virtual_content_size`/`scroll_offset_f32`/
+    `on_message(ScrollbarScrollTo)` (mirroring RichLog), registered
+    `OPTION_LIST_VSCROLLBAR_ID` in render.rs. The host-scrollbar layout now keeps
+    the outer box for chrome-bearing self-rendering hosts (OptionList) while
+    chrome-less hosts (Log/RichLog) keep the viewport box (no regression). Fixes
+    option_list_tables (the vbar thumb now renders via the #40 clip fix).
+
 ### 2026-06-15 (fix(runtime): dedicated scrollbar thumb no longer clipped away)
 
 - **fix(runtime): paint a dedicated scrollbar into its gutter (don't clip it out)**

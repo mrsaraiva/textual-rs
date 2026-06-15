@@ -7,9 +7,11 @@ use crate::message::*;
 #[path = "toggle_option.rs"]
 pub(crate) mod toggle_option;
 
-use super::{NodeSeed, Widget, helpers::adjust_line_length_no_bg};
+use super::{NodeSeed, ScrollBar, Widget, helpers::adjust_line_length_no_bg};
 use toggle_option::OptionCursorState;
 pub use toggle_option::{OptionId, OptionItem};
+
+pub(crate) const OPTION_LIST_VSCROLLBAR_ID: &str = "__option_list_vscrollbar";
 
 /// A scrollable, navigable list of selectable options.
 ///
@@ -24,6 +26,7 @@ pub struct OptionList {
     hovered_index: Option<usize>,
     viewport_height: usize,
     scroll_step: usize,
+    scrollbar_extracted: bool,
     seed: NodeSeed,
 }
 
@@ -40,6 +43,7 @@ impl OptionList {
             hovered_index: None,
             viewport_height: 1,
             scroll_step: 1,
+            scrollbar_extracted: false,
             seed,
         }
     }
@@ -256,6 +260,29 @@ impl OptionList {
         self.items.iter().map(|item| self.item_height(item)).sum()
     }
 
+    /// Widest option content in cells, excluding widget chrome (padding/border).
+    /// Mirrors the inner-width computation used by [`Widget::content_width`].
+    fn content_width_inner(&self) -> usize {
+        self.items
+            .iter()
+            .map(|item| match item {
+                OptionItem::Option {
+                    prompt, content, ..
+                } => {
+                    let text_width = if let Some(rich) = content {
+                        rich.cell_len()
+                    } else {
+                        rich_rs::cell_len(prompt)
+                    };
+                    text_width.saturating_add(2) // 2-char indent
+                }
+                OptionItem::Separator => 3,
+            })
+            .max()
+            .unwrap_or(2)
+            .max(1)
+    }
+
     /// Flat list of `(item_index, line_offset)` entries, one per display line,
     /// in order. Mirrors Python `OptionList._lines`.
     fn line_map(&self) -> Vec<(usize, usize)> {
@@ -414,7 +441,7 @@ impl OptionList {
         self.viewport_height.saturating_sub(1).max(1)
     }
 
-    fn scroll_offset(&mut self, delta_rows: isize, ctx: &mut EventCtx) {
+    fn scroll_by_rows(&mut self, delta_rows: isize, ctx: &mut EventCtx) {
         let before = self.offset;
         if delta_rows.is_negative() {
             self.offset = self.offset.saturating_sub(delta_rows.unsigned_abs());
@@ -587,7 +614,7 @@ impl Widget for OptionList {
         if delta_y == 0 {
             return;
         }
-        self.scroll_offset(
+        self.scroll_by_rows(
             delta_y.saturating_mul(self.scroll_step as i32) as isize,
             ctx,
         );
@@ -699,25 +726,7 @@ impl Widget for OptionList {
     }
 
     fn content_width(&self) -> Option<usize> {
-        let content_width = self
-            .items
-            .iter()
-            .map(|item| match item {
-                OptionItem::Option {
-                    prompt, content, ..
-                } => {
-                    let text_width = if let Some(rich) = content {
-                        rich.cell_len()
-                    } else {
-                        rich_rs::cell_len(prompt)
-                    };
-                    text_width.saturating_add(2) // 2-char indent
-                }
-                OptionItem::Separator => 3,
-            })
-            .max()
-            .unwrap_or(2)
-            .max(1);
+        let content_width = self.content_width_inner();
         let meta = crate::css::selector_meta_generic(self);
         let resolved = crate::css::resolve_style(self, &meta);
         let padding = resolved.effective_padding();
@@ -738,6 +747,48 @@ impl Widget for OptionList {
 
     fn take_node_seed(&mut self) -> NodeSeed {
         std::mem::take(&mut self.seed)
+    }
+
+    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+        if self.scrollbar_extracted {
+            return Vec::new();
+        }
+        self.scrollbar_extracted = true;
+        let mut vbar = ScrollBar::new(true, 2);
+        vbar.seed.css_id = Some(OPTION_LIST_VSCROLLBAR_ID.to_string());
+        vec![Box::new(vbar)]
+    }
+
+    fn on_message(&mut self, event: &MessageEvent, ctx: &mut EventCtx) {
+        let Some(payload) = event.downcast_ref::<ScrollbarScrollTo>() else {
+            return;
+        };
+        if payload.axis != ScrollbarAxis::Vertical {
+            return;
+        }
+        let next = (payload.offset.max(0.0).round() as usize).min(self.max_offset());
+        if next != self.offset {
+            self.offset = next;
+            ctx.request_repaint();
+        }
+        ctx.set_handled();
+    }
+
+    fn scroll_offset(&self) -> (usize, usize) {
+        (0, self.offset)
+    }
+
+    fn scroll_offset_f32(&self) -> (f32, f32) {
+        (0.0, self.offset as f32)
+    }
+
+    fn scroll_virtual_content_size(&self) -> Option<(usize, usize)> {
+        // Width: the widest option content (no chrome) so the host reserves a
+        // horizontal lane only on genuine overflow. Height: the total flattened
+        // display-line count so a vertical lane appears when the list overflows
+        // the viewport. OptionList renders its own content (no child widgets),
+        // so the host falls back to this for the virtual extent.
+        Some((self.content_width_inner().max(1), self.total_lines().max(1)))
     }
 }
 
@@ -1167,5 +1218,101 @@ mod tests {
             &mut ctx,
         );
         assert!(!ctx.handled());
+    }
+
+    // ── Dedicated vertical scrollbar (host-scrollbar path, mirrors RichLog) ──
+
+    #[test]
+    fn tree_mode_extracts_dedicated_scrollbar_child() {
+        let mut list = OptionList::with_items(vec![OptionItem::new("A")]);
+        let mut children = list.take_composed_children();
+        assert_eq!(children.len(), 1);
+        assert_eq!(
+            children[0].take_node_seed().css_id.as_deref(),
+            Some(OPTION_LIST_VSCROLLBAR_ID)
+        );
+        // Extraction is idempotent: a second call yields no further children.
+        assert!(list.take_composed_children().is_empty());
+    }
+
+    #[test]
+    fn scroll_virtual_content_size_reports_total_lines() {
+        let items: Vec<_> = (0..20)
+            .map(|i| OptionItem::new(format!("Item {i}")))
+            .collect();
+        let list = OptionList::with_items(items);
+        let (_w, h) = list.scroll_virtual_content_size().unwrap();
+        assert_eq!(h, 20);
+    }
+
+    #[test]
+    fn scrollbar_message_updates_offset() {
+        let items: Vec<_> = (0..20)
+            .map(|i| OptionItem::new(format!("Item {i}")))
+            .collect();
+        let mut list = OptionList::with_items(items);
+        list.on_layout(40, 5); // viewport 5 lines, 20 lines total -> overflow
+
+        let mut ctx = EventCtx::default();
+        list.on_message(
+            &MessageEvent::new(
+                NodeId::default(),
+                ScrollbarScrollTo {
+                    axis: ScrollbarAxis::Vertical,
+                    offset: 4.0,
+                    animate: false,
+                    scroll_duration: None,
+                },
+            ),
+            &mut ctx,
+        );
+        assert!(ctx.handled());
+        assert_eq!(list.offset_for_click(), 4);
+        assert_eq!(list.scroll_offset_f32(), (0.0, 4.0));
+    }
+
+    #[test]
+    fn scrollbar_message_clamps_to_max_offset() {
+        let items: Vec<_> = (0..10)
+            .map(|i| OptionItem::new(format!("Item {i}")))
+            .collect();
+        let mut list = OptionList::with_items(items);
+        list.on_layout(40, 6); // max offset = 10 - 6 = 4
+
+        let mut ctx = EventCtx::default();
+        list.on_message(
+            &MessageEvent::new(
+                NodeId::default(),
+                ScrollbarScrollTo {
+                    axis: ScrollbarAxis::Vertical,
+                    offset: 999.0,
+                    animate: false,
+                    scroll_duration: None,
+                },
+            ),
+            &mut ctx,
+        );
+        assert_eq!(list.offset_for_click(), 4);
+    }
+
+    #[test]
+    fn scrollbar_message_ignores_horizontal_axis() {
+        let mut list = OptionList::with_items(vec![OptionItem::new("A"), OptionItem::new("B")]);
+        list.on_layout(40, 5);
+        let mut ctx = EventCtx::default();
+        list.on_message(
+            &MessageEvent::new(
+                NodeId::default(),
+                ScrollbarScrollTo {
+                    axis: ScrollbarAxis::Horizontal,
+                    offset: 1.0,
+                    animate: false,
+                    scroll_duration: None,
+                },
+            ),
+            &mut ctx,
+        );
+        assert!(!ctx.handled());
+        assert_eq!(list.offset_for_click(), 0);
     }
 }

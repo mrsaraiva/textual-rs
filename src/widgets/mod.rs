@@ -97,6 +97,7 @@ pub(crate) use log::LOG_VSCROLLBAR_ID;
 pub use log::Log;
 pub use markdown_viewer::{MarkdownTableOfContents, MarkdownViewer, Navigator};
 pub use masked_input::MaskedInput;
+pub(crate) use option_list::OPTION_LIST_VSCROLLBAR_ID;
 pub use option_list::{OptionItem, OptionList};
 pub use placeholder::{Placeholder, PlaceholderVariant};
 pub use pretty::Pretty;

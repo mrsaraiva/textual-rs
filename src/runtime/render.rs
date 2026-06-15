@@ -13,7 +13,8 @@ use crate::style::{
 use crate::widget_tree::WidgetTree;
 use crate::widgets::{
     APP_ROOT_HSCROLLBAR_ID, APP_ROOT_SCROLLBAR_CORNER_ID, APP_ROOT_VSCROLLBAR_ID,
-    DATA_TABLE_HSCROLLBAR_ID, KEY_PANEL_VSCROLLBAR_ID, LOG_VSCROLLBAR_ID, Overlay,
+    DATA_TABLE_HSCROLLBAR_ID, KEY_PANEL_VSCROLLBAR_ID, LOG_VSCROLLBAR_ID,
+    OPTION_LIST_VSCROLLBAR_ID, Overlay,
     RICH_LOG_VSCROLLBAR_ID, SCROLL_VIEW_HSCROLLBAR_ID, SCROLL_VIEW_SCROLLBAR_CORNER_ID,
     SCROLL_VIEW_VSCROLLBAR_ID, ScrollBar, ScrollbarPolicy, Toast, Widget,
     border_spacing_from_style, crop_line_horizontal,
@@ -1272,6 +1273,7 @@ fn node_is_dedicated_scrollbar(tree: &WidgetTree, node_id: NodeId) -> bool {
                 | SCROLL_VIEW_SCROLLBAR_CORNER_ID
                 | LOG_VSCROLLBAR_ID
                 | RICH_LOG_VSCROLLBAR_ID
+                | OPTION_LIST_VSCROLLBAR_ID
                 | KEY_PANEL_VSCROLLBAR_ID
                 | DATA_TABLE_HSCROLLBAR_ID
         )
@@ -2274,9 +2276,12 @@ fn host_scrollbar_children(tree: &WidgetTree, parent: NodeId) -> ScrollbarHostCh
             Some(APP_ROOT_SCROLLBAR_CORNER_ID | SCROLL_VIEW_SCROLLBAR_CORNER_ID) => {
                 children.corner = Some(child_id)
             }
-            Some(LOG_VSCROLLBAR_ID | RICH_LOG_VSCROLLBAR_ID | KEY_PANEL_VSCROLLBAR_ID) => {
-                children.vertical = Some(child_id)
-            }
+            Some(
+                LOG_VSCROLLBAR_ID
+                | RICH_LOG_VSCROLLBAR_ID
+                | OPTION_LIST_VSCROLLBAR_ID
+                | KEY_PANEL_VSCROLLBAR_ID,
+            ) => children.vertical = Some(child_id),
             _ => {}
         }
     }
@@ -2362,15 +2367,16 @@ fn apply_host_scrollbar_layout(tree: &mut WidgetTree, viewport: (u16, u16)) {
             continue;
         }
 
-        let (content_rect, style, offset_x, offset_y) = {
+        let (content_rect, outer_rect, style, offset_x, offset_y) = {
             let Some(node) = tree.get(node_id) else {
                 continue;
             };
             let content_rect = node.content_rect;
+            let outer_rect = node.layout_rect;
             let (offset_x, offset_y) = node.widget.scroll_offset_f32();
             let meta = node_selector_meta(tree, node_id);
             let style = resolve_node_style(tree, node_id, &meta);
-            (content_rect, style, offset_x, offset_y)
+            (content_rect, outer_rect, style, offset_x, offset_y)
         };
         let content_w = content_rect.x1.saturating_sub(content_rect.x0).max(1) as usize;
         let content_h = content_rect.y1.saturating_sub(content_rect.y0).max(1) as usize;
@@ -2438,7 +2444,19 @@ fn apply_host_scrollbar_layout(tree: &mut WidgetTree, viewport: (u16, u16)) {
         if let Some(node) = tree.get_mut(node_id) {
             node.content_rect = viewport_rect;
             if !has_content_children {
-                node.layout_rect = viewport_rect;
+                // Self-rendering hosts (no content children: RichLog, Log,
+                // OptionList, …) reserve the scrollbar lane out of their CONTENT
+                // box. For a CHROME-LESS host (no border/padding: Log, RichLog)
+                // the layout box and content box coincide, so the box tracks the
+                // viewport exactly as before. For a host WITH chrome (border or
+                // padding: OptionList) the outer box is fixed by layout and must
+                // be preserved — collapsing it to the content viewport would drop
+                // the border frame and the reserved gutter.
+                let has_chrome = outer_rect.x0 != content_rect.x0
+                    || outer_rect.y0 != content_rect.y0
+                    || outer_rect.x1 != content_rect.x1
+                    || outer_rect.y1 != content_rect.y1;
+                node.layout_rect = if has_chrome { outer_rect } else { viewport_rect };
             }
             node.widget
                 .set_virtual_content_size(geometry.content_width, geometry.content_height);
