@@ -7,6 +7,15 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-15 (feat(widgets/DataTable): per-row labels)
+
+- **feat(widgets/DataTable): per-row labels render as a non-data label column**
+  - Added `DataTable::add_row_labeled(row, label)` (Python `add_row(..., label=…)`).
+    When any row is labelled and `show_row_labels` is set, a label column is
+    rendered as a prefix to the left of the data cells (header label cell blank),
+    sized to the widest label, and included in the table's content width. The
+    label column is not a data/cursor column. Fixes the `data_table_labels` demo.
+
 ### 2026-06-15 (fix(layout): auto-height container fills an `fr` child / Center+Middle)
 
 - **fix(layout): an `auto`-height container whose children are all dynamic-height

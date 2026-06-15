@@ -52,6 +52,9 @@ pub struct DataTable {
     headers: Vec<String>,
     row_keys: Vec<RowKey>,
     rows: Vec<Vec<String>>,
+    /// Optional per-row label (parallel to `rows`). When any row has a label and
+    /// `show_row_labels` is set, a non-data label column is rendered as a prefix.
+    row_labels: Vec<Option<String>>,
     column_widths: Vec<usize>,
     selected: usize,
     offset: usize,
@@ -86,6 +89,7 @@ impl DataTable {
             headers: Vec::new(),
             row_keys: Vec::new(),
             rows: Vec::new(),
+            row_labels: Vec::new(),
             column_widths: Vec::new(),
             selected: 0,
             offset: 0,
@@ -177,6 +181,25 @@ impl DataTable {
         self.row_keys.push(key.clone());
         self.rows
             .push(row.into_iter().map(|value| value.to_string()).collect());
+        self.row_labels.push(None);
+        self.clamp_indices();
+        self.recompute_column_widths();
+        key
+    }
+
+    /// Add a row with a row label (Python `add_row(..., label=…)`). When any row
+    /// is labelled and `show_row_labels` is set, a non-data label column is
+    /// rendered as a prefix to the left of the data cells.
+    pub fn add_row_labeled<S, L>(&mut self, row: Vec<S>, label: L) -> RowKey
+    where
+        S: ToString,
+        L: Into<String>,
+    {
+        let key = self.generate_row_key();
+        self.row_keys.push(key.clone());
+        self.rows
+            .push(row.into_iter().map(|value| value.to_string()).collect());
+        self.row_labels.push(Some(label.into()));
         self.clamp_indices();
         self.recompute_column_widths();
         key
@@ -194,6 +217,7 @@ impl DataTable {
         self.row_keys.push(key.clone());
         self.rows
             .push(row.into_iter().map(|value| value.to_string()).collect());
+        self.row_labels.push(None);
         self.clamp_indices();
         self.recompute_column_widths();
         Some(key)
@@ -423,6 +447,9 @@ impl DataTable {
         let index = self.row_keys.iter().position(|k| k == row_key)?;
         self.row_keys.remove(index);
         let row_data = self.rows.remove(index);
+        if index < self.row_labels.len() {
+            self.row_labels.remove(index);
+        }
         self.clamp_indices();
         self.recompute_column_widths();
         Some(row_data)
@@ -435,6 +462,9 @@ impl DataTable {
         }
         self.row_keys.remove(index);
         let row_data = self.rows.remove(index);
+        if index < self.row_labels.len() {
+            self.row_labels.remove(index);
+        }
         self.clamp_indices();
         self.recompute_column_widths();
         Some(row_data)
@@ -444,6 +474,7 @@ impl DataTable {
     pub fn clear(&mut self, clear_columns: bool) {
         self.rows.clear();
         self.row_keys.clear();
+        self.row_labels.clear();
         self.next_row_key = 0;
         if clear_columns {
             self.headers.clear();
@@ -476,6 +507,9 @@ impl DataTable {
         let sorted_keys: Vec<RowKey> = indices.iter().map(|&i| self.row_keys[i].clone()).collect();
         self.rows = sorted_rows;
         self.row_keys = sorted_keys;
+        if self.row_labels.len() == indices.len() {
+            self.row_labels = indices.iter().map(|&i| self.row_labels[i].clone()).collect();
+        }
         self.clamp_indices();
     }
 
@@ -825,6 +859,21 @@ impl DataTable {
         &self.column_widths
     }
 
+    /// Width of the non-data row-label column, or 0 when no row is labelled or
+    /// labels are hidden. Mirrors Python: the label column appears only when at
+    /// least one row has a label AND `show_row_labels` is set.
+    fn label_col_width(&self) -> usize {
+        if !self.show_row_labels {
+            return 0;
+        }
+        self.row_labels
+            .iter()
+            .filter_map(|l| l.as_deref())
+            .map(rich_rs::cell_len)
+            .max()
+            .unwrap_or(0)
+    }
+
     fn ensure_visible(&mut self, height: usize) {
         if self.rows.is_empty() || height == 0 {
             self.offset = 0;
@@ -916,6 +965,7 @@ impl Default for DataTable {
             headers: Vec::new(),
             row_keys: Vec::new(),
             rows: Vec::new(),
+            row_labels: Vec::new(),
             column_widths: Vec::new(),
             selected: 0,
             offset: 0,
@@ -1538,6 +1588,7 @@ impl Widget for DataTable {
 
         let column_widths = self.column_widths();
         let rendered_columns = self.rendered_column_indices();
+        let label_col_width = self.label_col_width();
         let cursor_type = self.cursor_type;
         let show_cursor = self.node_state().focused && cursor_type != CursorType::None;
 
@@ -1614,6 +1665,7 @@ impl Widget for DataTable {
                 column_widths,
                 &rendered_columns,
                 width,
+                (label_col_width > 0).then_some(("", label_col_width, header_style)),
                 |col_idx| {
                     let target = (usize::MAX, col_idx);
                     if show_cursor && should_highlight(cursor_coord, target, cursor_type) {
@@ -1649,11 +1701,17 @@ impl Widget for DataTable {
             } else {
                 normal_style
             };
+            let row_label = self
+                .row_labels
+                .get(row_idx)
+                .and_then(|l| l.as_deref())
+                .unwrap_or("");
             emit_row_per_cell(
                 row,
                 column_widths,
                 &rendered_columns,
                 width,
+                (label_col_width > 0).then_some((row_label, label_col_width, row_base_style)),
                 |col_idx| {
                     let target = (row_idx, col_idx);
                     let is_fixed_target = row_idx < fixed_data_rows || col_idx < self.fixed_columns;
@@ -1702,9 +1760,13 @@ impl Widget for DataTable {
         let widths = self.column_widths();
         let cells_width = widths.iter().copied().sum::<usize>();
         let gaps_width = columns.saturating_sub(1).saturating_mul(2);
+        // Non-data row-label column (width + its 2-cell gap), when shown.
+        let label_width = self.label_col_width();
+        let label_extra = if label_width > 0 { label_width + 2 } else { 0 };
         // Add CELL_PADDING for the leading 1-space left pad (matches Python DataTable.cell_padding=1).
         let content_width = cells_width
             .saturating_add(gaps_width)
+            .saturating_add(label_extra)
             .saturating_add(CELL_PADDING)
             .max(1);
         let meta = crate::css::selector_meta_generic(self);
@@ -1793,6 +1855,9 @@ fn emit_row_per_cell(
     column_widths: &[usize],
     rendered_columns: &[usize],
     total_width: usize,
+    // Non-data row-label column rendered as a prefix: (text, width, style).
+    // `width == 0` means no label column (the common, unlabelled case).
+    label: Option<(&str, usize, rich_rs::Style)>,
     style_for_col: impl Fn(usize) -> rich_rs::Style,
     gap_style: rich_rs::Style,
     out: &mut Segments,
@@ -1807,6 +1872,18 @@ fn emit_row_per_cell(
     // Leading space (left pad of first cell).
     out.push(Segment::styled(" ".repeat(CELL_PADDING), gap_style));
     used += CELL_PADDING;
+    // Row-label column: padded to its width, then a 2-cell gap to the data
+    // cells (Python renders the label column as a non-data leading column).
+    if let Some((label_text, label_width, label_style)) = label
+        && label_width > 0
+    {
+        out.push(Segment::styled(
+            rich_rs::set_cell_size(label_text, label_width),
+            label_style,
+        ));
+        out.push(Segment::styled("  ", gap_style));
+        used += label_width + 2;
+    }
     for (i, col_idx) in rendered_columns.iter().copied().enumerate() {
         let col_w = column_widths.get(col_idx).copied().unwrap_or(0);
         if i > 0 {
