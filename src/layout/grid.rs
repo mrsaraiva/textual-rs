@@ -2,9 +2,46 @@ use crate::node_id::NodeId;
 use crate::style::{BoxSizing, KeylineType, Scalar, Style};
 use crate::widget_tree::WidgetTree;
 
-use super::common::{get_node_style, resolve_scalar_to_cells};
+use super::common::{
+    get_node_style, measure_intrinsic_content_height, measure_intrinsic_content_width,
+    own_box_chrome, resolve_scalar_to_cells,
+};
 use super::region::{Region, border_spacing};
 use super::resolve_1d::{Edge, layout_resolve_1d};
+
+/// Resolve a child's OUTER size (excluding margin) on one axis within its grid
+/// cell, mirroring Python's `widget._get_box_model(cell_size)` (layouts/grid.py):
+/// an UNSET dimension (or `1fr`) fills the cell, `auto` sizes to the child's
+/// content, and an explicit size resolves against the cell. Python does NOT
+/// stretch a child to its cell height unless it asks to (`100%`/`1fr`) — so a
+/// `height: auto` Button sits at its natural height, top-aligned, instead of
+/// filling a tall grid row.
+fn resolve_grid_box_dim(
+    scalar: Option<&Scalar>,
+    cell_outer: u16,
+    margin_total: u16,
+    viewport_size: u16,
+    own_chrome: u16,
+    box_sizing: BoxSizing,
+    intrinsic_outer: Option<u16>,
+) -> u16 {
+    let avail = cell_outer.saturating_sub(margin_total);
+    match scalar {
+        // Unset or fractional → fill the cell (a single grid cell is the whole
+        // track, so `1fr` resolves to the full available space).
+        None | Some(Scalar::Fraction(_)) => avail,
+        Some(Scalar::Auto) => intrinsic_outer.unwrap_or(avail).min(avail),
+        Some(s) => {
+            let cells = resolve_scalar_to_cells(s, avail, viewport_size);
+            let outer = if box_sizing == BoxSizing::BorderBox {
+                cells
+            } else {
+                cells.saturating_add(own_chrome)
+            };
+            outer.min(avail)
+        }
+    }
+}
 fn grid_scalar_to_edge(scalar: &Scalar, parent_size: u16, viewport_size: u16) -> Edge {
     match scalar {
         Scalar::Auto => Edge {
@@ -305,8 +342,51 @@ pub fn layout_grid(
             .y
             .saturating_add(cell_y)
             .saturating_add(margin.top);
-        let mut layout_w = cell_w.saturating_sub(margin.left + margin.right);
-        let mut layout_h = cell_h.saturating_sub(margin.top + margin.bottom);
+
+        // Size the child by its OWN box model within the cell (Python grid:
+        // `widget._get_box_model(cell_size)`), not by stretching it to the cell.
+        // Only `auto` dimensions need an intrinsic measurement.
+        let (own_h_chrome, own_v_chrome) = own_box_chrome(&style);
+        let intrinsic_w_outer = if matches!(style.width.as_ref(), Some(Scalar::Auto)) {
+            // `content_width()`/`auto_content_width()` and the container fallback
+            // both report PURE content width, so add the child's own chrome.
+            measure_intrinsic_content_width(tree, child, viewport)
+                .map(|w| w.saturating_add(own_h_chrome))
+        } else {
+            None
+        };
+        let intrinsic_h_outer = if matches!(style.height.as_ref(), Some(Scalar::Auto)) {
+            // `layout_height()` is already the OUTER height (content + own
+            // border/padding); only the drained-container fallback returns pure
+            // content and needs the chrome added.
+            tree.get(child)
+                .and_then(|n| n.widget.layout_height())
+                .and_then(|h| u16::try_from(h).ok())
+                .or_else(|| {
+                    measure_intrinsic_content_height(tree, child, viewport)
+                        .map(|h| h.saturating_add(own_v_chrome))
+                })
+        } else {
+            None
+        };
+        let mut layout_w = resolve_grid_box_dim(
+            style.width.as_ref(),
+            cell_w,
+            margin.left + margin.right,
+            viewport.0,
+            own_h_chrome,
+            box_sizing,
+            intrinsic_w_outer,
+        );
+        let mut layout_h = resolve_grid_box_dim(
+            style.height.as_ref(),
+            cell_h,
+            margin.top + margin.bottom,
+            viewport.1,
+            own_v_chrome,
+            box_sizing,
+            intrinsic_h_outer,
+        );
 
         // Apply max-width constraint.
         if let Some(ref s) = style.max_width {

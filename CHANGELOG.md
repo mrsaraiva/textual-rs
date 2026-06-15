@@ -7,6 +7,19 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-15 (fix(layout/grid): size grid children by their own box model)
+
+- **fix(layout/grid): grid children are sized by their own box model within the cell,
+  not stretched to fill it**
+  - `layout_grid` set every child to the full cell size (minus margin), so a
+    `height: auto` widget (e.g. a `Button`) was stretched to fill a tall grid row
+    instead of sitting at its natural height. Now each child resolves its own
+    `width`/`height` against the cell — unset/`1fr` fills, `auto` sizes to content,
+    explicit resolves against the cell — mirroring Python's
+    `widget._get_box_model(cell_size)` (`layouts/grid.py`). Children with `100%`
+    (e.g. five_by_five `GameCell`) still fill, so no regression there.
+  - Fixes the docs app grid examples: question02/03, question_title01/02.
+
 ### 2026-06-15 (fix(layout/text): text-align + transparent-wrapper auto-sizing)
 
 - **fix(widgets): `text-align: center/right/justify` now honored for Label/Static**
