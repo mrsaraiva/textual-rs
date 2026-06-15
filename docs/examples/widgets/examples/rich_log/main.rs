@@ -21,7 +21,7 @@ const SWIM_ROWS: &[&[&str]] = &[
     &["4", "Joseph Schooling", "Singapore", "50.39"],
     &["2", "Michael Phelps", "United States", "51.14"],
     &["5", "Chad le Clos", "South Africa", "51.14"],
-    &["6", "Laszlo Cseh", "Hungary", "51.14"],
+    &["6", "László Cseh", "Hungary", "51.14"],
     &["3", "Li Zhuhao", "China", "51.26"],
     &["8", "Mehdy Metella", "France", "51.58"],
     &["7", "Tom Shields", "United States", "51.73"],
