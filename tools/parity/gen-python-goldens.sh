@@ -108,6 +108,7 @@ CASE=docs_question_title01 && want "$@" && run_case "$CASE" "$PY_DOCS/app"  "" "
 CASE=docs_question_title02 && want "$@" && run_case "$CASE" "$PY_DOCS/app"  "" "question_title02.py"
 # Widgets group (../textual/docs/examples/widgets/<name>.py).
 CASE=docs_button         && want "$@" && run_case "$CASE" "$PY_DOCS/widgets" "" "button.py"
+CASE=docs_checkbox       && want "$@" && run_case "$CASE" "$PY_DOCS/widgets" "" "checkbox.py"
 CASE=docs_data_table_labels && want "$@" && run_case "$CASE" "$PY_DOCS/widgets" "" "data_table_labels.py"
 CASE=docs_data_table_renderables && want "$@" && run_case "$CASE" "$PY_DOCS/widgets" "" "data_table_renderables.py"
 CASE=docs_data_table_fixed && want "$@" && run_case "$CASE" "$PY_DOCS/widgets" "" "data_table_fixed.py"

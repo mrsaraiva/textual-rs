@@ -569,6 +569,15 @@ const CASES: &[Case] = &[
         status: Status::Pass,
     },
     Case {
+        name: "docs_checkbox",
+        example: "checkbox",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
         name: "docs_data_table_labels",
         example: "data_table_labels",
         args: &[],
@@ -1044,6 +1053,7 @@ pty_case!(docs_sparkline_colors, "docs_sparkline_colors");
 pty_case!(docs_progress_bar, "docs_progress_bar");
 pty_case!(docs_progress_bar_gradient, "docs_progress_bar_gradient");
 pty_case!(docs_button, "docs_button");
+pty_case!(docs_checkbox, "docs_checkbox");
 pty_case!(docs_data_table_labels, "docs_data_table_labels");
 pty_case!(docs_data_table_renderables, "docs_data_table_renderables");
 pty_case!(docs_data_table_fixed, "docs_data_table_fixed");
