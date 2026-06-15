@@ -7,6 +7,23 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-15 (fix(widgets/Toast): severity border, word-wrap, side margin)
+
+- **fix(widgets/Toast): paint the severity `▌` border in off-tree composition**
+  - The runtime composes toasts off the arena tree via `render_styled()`/
+    `selector_meta_generic()`, which read `style_classes()`. `Toast` didn't
+    override it, so the severity class (`-information`/`-warning`/`-error`) was
+    invisible and `Toast.-warning { border-left: outer $warning }` never matched.
+    Store the class in a field + override `style_classes()`.
+- **fix(widgets/Toast): word-wrap long messages** (Python `Static`/`Content`):
+    `render` wrapped via `Text::wrap()` at the content-box width; `layout_height`
+    counts wrapped lines.
+- **fix(runtime): toast side margin 1, not 2** — Python's `ToastRack` has
+    `overflow-y: scroll` (1-col gutter), so the toast box sits 1 col from the
+    right edge. (`TOAST_SIDE_MARGIN`) Rust toast output is now byte-identical to
+    Python. (Not in the strict PTY harness: notifications auto-dismiss → flaky
+    golden.)
+
 ### 2026-06-15 (feat(widgets): OptionList multi-row options + TextArea gutter width)
 
 - **feat(widgets/OptionList): render multi-row option content (line-based model)**

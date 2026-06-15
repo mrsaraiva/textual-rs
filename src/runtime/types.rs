@@ -161,7 +161,9 @@ impl AppNotification {
 
 pub(crate) const DEFAULT_NOTIFICATION_TIMEOUT: Duration = Duration::from_secs(5);
 pub(crate) const TOAST_GAP_ROWS: usize = 1;
-pub(crate) const TOAST_SIDE_MARGIN: usize = 2;
+// Python's `ToastRack` has `overflow-y: scroll`, reserving a 1-col gutter, so
+// the toast box sits 1 col in from the right edge (margin 1, not 2).
+pub(crate) const TOAST_SIDE_MARGIN: usize = 1;
 
 pub(crate) struct StylesheetWatcher {
     pub(crate) path: PathBuf,

@@ -35,6 +35,13 @@ pub struct Toast {
     message: String,
     title: Option<String>,
     severity: ToastSeverity,
+    /// CSS classes carried by this toast (currently the severity class such as
+    /// `-information`). Stored as a field so off-tree style resolution
+    /// (`selector_meta_generic`/`render_styled`) can see them via
+    /// `style_classes()`; the runtime composes toasts off-tree, so without this
+    /// the severity-scoped rules (e.g. `Toast.-warning { border-left: ... }`)
+    /// would never match.
+    classes: Vec<String>,
     timeout_remaining: u64,
     dismissed: bool,
     seed: NodeSeed,
@@ -43,12 +50,14 @@ pub struct Toast {
 impl Toast {
     pub fn new(message: impl Into<String>, severity: ToastSeverity) -> Self {
         let message = message.into();
+        let classes = vec![severity.class_name().to_string()];
         let mut seed = NodeSeed::default();
-        seed.classes.push(severity.class_name().to_string());
+        seed.classes = classes.clone();
         Self {
             message,
             title: None,
             severity,
+            classes,
             timeout_remaining: DEFAULT_TIMEOUT,
             dismissed: false,
             seed,
@@ -83,23 +92,67 @@ impl Toast {
         ctx.set_handled();
     }
 
-    /// Parse a line with Rich markup and return width-adjusted segments.
+    /// Parse a markup line and word-wrap it to `width`, returning one
+    /// rendered segment-line per wrapped visual line.
     ///
-    /// Uses `rich_rs::markup::render()` for full markup support (bold, italic,
-    /// underline, colors, nesting). Falls back to plain text on parse error.
-    fn render_markup_line(line: &str, width: usize, console: &Console) -> Vec<Segment> {
+    /// Mirrors Python `Toast`, which is a `Static` returning `Content` that
+    /// wraps at the content width. Uses `rich_rs::markup::render()` for full
+    /// markup support (bold, italic, underline, colors, nesting); falls back to
+    /// plain text on parse error.
+    fn render_markup_line(line: &str, width: usize, console: &Console) -> Vec<Vec<Segment>> {
+        let width = width.max(1);
         let text = match rich_rs::markup::render(line, false) {
             Ok(t) => t,
             Err(_) => Text::plain(line),
         };
         let options = ConsoleOptions {
-            size: (width.max(1), 1),
-            max_width: width.max(1),
+            size: (width, 1),
+            max_width: width,
             no_wrap: true,
             ..console.options().clone()
         };
-        let segments: Vec<Segment> = text.render(console, &options).into_iter().collect();
-        adjust_line_length_no_bg(&segments, width.max(1))
+        text.wrap(width, None, None, 8, false)
+            .into_iter()
+            .map(|wrapped| {
+                let segments: Vec<Segment> =
+                    wrapped.render(console, &options).into_iter().collect();
+                adjust_line_length_no_bg(&segments, width)
+            })
+            .collect()
+    }
+
+    /// Number of visual lines a markup source produces once word-wrapped to
+    /// `width` (newline-split first, then word-wrapped each segment).
+    fn wrapped_line_count(source: &str, width: usize) -> usize {
+        let width = width.max(1);
+        source
+            .lines()
+            .map(|line| {
+                let text = match rich_rs::markup::render(line, false) {
+                    Ok(t) => t,
+                    Err(_) => Text::plain(line),
+                };
+                text.wrap(width, None, None, 8, false).len().max(1)
+            })
+            .sum()
+    }
+
+    /// Resolve the toast content-box width (CSS `width` minus border + padding).
+    /// Falls back to the value the runtime composes toasts at (60).
+    fn content_box_width(&self) -> usize {
+        let meta = crate::css::selector_meta_generic(self);
+        let resolved = crate::css::resolve_style(self, &meta);
+        let outer = match resolved.width {
+            Some(crate::style::Scalar::Cells(c)) => c as usize,
+            _ => 60,
+        };
+        let padding = resolved.effective_padding();
+        let (_, _, border_left, border_right) =
+            super::helpers::border_spacing_from_style(&resolved);
+        outer
+            .saturating_sub(padding.left as usize + padding.right as usize)
+            .saturating_sub(border_left + border_right)
+            .max(1)
     }
 
     /// Compute the visual width of a markup line (excluding tags).
@@ -186,10 +239,15 @@ impl Widget for Toast {
                 out.push(Segment::new(" ".repeat(width)));
             }
         } else {
-            let lines: Vec<&str> = self.message.lines().collect();
-            let line_count = lines.len();
-            for (index, line) in lines.into_iter().enumerate() {
-                out.extend(Self::render_markup_line(line, width, console));
+            // Word-wrap each source line at the content width, mirroring
+            // Python's `Static`/`Content` behavior.
+            let mut wrapped: Vec<Vec<Segment>> = Vec::new();
+            for line in self.message.lines() {
+                wrapped.extend(Self::render_markup_line(line, width, console));
+            }
+            let line_count = wrapped.len();
+            for (index, segs) in wrapped.into_iter().enumerate() {
+                out.extend(segs);
                 if index + 1 < line_count {
                     out.push(Segment::line());
                 }
@@ -201,10 +259,11 @@ impl Widget for Toast {
 
     fn layout_height(&self) -> Option<usize> {
         let title_lines = if self.title.is_some() { 1 } else { 0 };
+        let content_width = self.content_box_width();
         let message_lines = if self.message.is_empty() {
             0
         } else {
-            self.message.lines().count().max(1)
+            Self::wrapped_line_count(&self.message, content_width).max(1)
         };
         let content_lines = (title_lines + message_lines).max(1);
 
@@ -221,6 +280,10 @@ impl Widget for Toast {
 
     fn style_type(&self) -> &'static str {
         "Toast"
+    }
+
+    fn style_classes(&self) -> &[String] {
+        &self.classes
     }
 
     fn set_inline_style(&mut self, style: crate::style::Style) {
@@ -326,6 +389,79 @@ mod tests {
         assert!(
             text.contains("Press ctrl+q to quit the app"),
             "message should be visible in toast frame: {text:?}"
+        );
+    }
+
+    /// The severity class is exposed off-tree via `style_classes()`, so the
+    /// `Toast.-<severity> { border-left: outer ... }` rule resolves and the
+    /// `▌` marker is painted even when the runtime composes the toast off the
+    /// arena tree.
+    #[test]
+    fn toast_renders_border_left_marker() {
+        let sheet = crate::css::default_widget_stylesheet();
+        let _guard = crate::css::set_style_context(sheet);
+
+        let toast = Toast::new("It's a trap!", ToastSeverity::Error);
+        assert_eq!(toast.style_classes(), &["-error".to_string()]);
+
+        let console = Console::new();
+        let mut options = console.options().clone();
+        let width = 60usize;
+        let height = toast.layout_height().expect("toast layout height");
+        options.size = (width, height);
+        options.max_width = width;
+        options.max_height = height;
+
+        let rendered = toast.render_styled(&console, &options);
+        let lines = Segment::split_and_crop_lines(rendered, width, None, true, false);
+        let lines = Segment::set_shape(&lines, width, Some(height), None, false);
+        let frame = FrameBuffer::from_lines(&lines, width, height, None);
+        let text = frame.as_plain_lines().join("\n");
+
+        assert!(
+            text.contains('▌'),
+            "border-left outer marker should be painted: {text:?}"
+        );
+    }
+
+    /// A long message word-wraps at the content width (Python `Static`/`Content`
+    /// behavior) and `layout_height()` accounts for the wrapped lines.
+    #[test]
+    fn toast_long_message_wraps_to_multiple_lines() {
+        let sheet = crate::css::default_widget_stylesheet();
+        let _guard = crate::css::set_style_context(sheet);
+
+        let toast = Toast::new(
+            "Now witness the firepower of this fully ARMED and OPERATIONAL battle station!",
+            ToastSeverity::Warning,
+        )
+        .with_title("Possible trap detected");
+
+        // title (1) + wrapped message (2) + padding top/bottom (2) = 5
+        let height = toast.layout_height().expect("toast layout height");
+        assert_eq!(height, 5, "wrapped toast should be 5 rows tall");
+
+        let console = Console::new();
+        let mut options = console.options().clone();
+        let width = 60usize;
+        options.size = (width, height);
+        options.max_width = width;
+        options.max_height = height;
+
+        let rendered = toast.render_styled(&console, &options);
+        let lines = Segment::split_and_crop_lines(rendered, width, None, true, false);
+        let lines = Segment::set_shape(&lines, width, Some(height), None, false);
+        let frame = FrameBuffer::from_lines(&lines, width, height, None);
+        let rows: Vec<String> = frame.as_plain_lines();
+
+        // The message must break before OPERATIONAL, not truncate it.
+        assert!(
+            rows.iter().any(|r| r.contains("ARMED and") && !r.contains("OPERATIONAL")),
+            "first message line should end at 'ARMED and': {rows:?}"
+        );
+        assert!(
+            rows.iter().any(|r| r.contains("OPERATIONAL battle station!")),
+            "wrapped continuation line should be present: {rows:?}"
         );
     }
 }
