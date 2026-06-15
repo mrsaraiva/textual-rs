@@ -1032,18 +1032,20 @@ impl Widget for DataTable {
     }
 
     fn bindings(&self) -> Vec<BindingDecl> {
+        // Python's DataTable declares all of these with show=False — they must
+        // not leak into the Footer (which should show only app-level bindings).
         vec![
-            BindingDecl::new("up", "cursor_up", "Move cursor up"),
-            BindingDecl::new("down", "cursor_down", "Move cursor down"),
-            BindingDecl::new("left", "cursor_left", "Move cursor left"),
-            BindingDecl::new("right", "cursor_right", "Move cursor right"),
+            BindingDecl::new("up", "cursor_up", "Move cursor up").hidden(),
+            BindingDecl::new("down", "cursor_down", "Move cursor down").hidden(),
+            BindingDecl::new("left", "cursor_left", "Move cursor left").hidden(),
+            BindingDecl::new("right", "cursor_right", "Move cursor right").hidden(),
             BindingDecl::new("pageup", "scroll_up", "Page up").hidden(),
             BindingDecl::new("pagedown", "scroll_down", "Page down").hidden(),
             BindingDecl::new("home", "scroll_home", "Move to start").hidden(),
             BindingDecl::new("end", "scroll_end", "Move to end").hidden(),
             BindingDecl::new("ctrl+home", "scroll_top", "Move to first row").hidden(),
             BindingDecl::new("ctrl+end", "scroll_bottom", "Move to last row").hidden(),
-            BindingDecl::new("enter,space", "select_cursor", "Activate cell"),
+            BindingDecl::new("enter,space", "select_cursor", "Activate cell").hidden(),
         ]
     }
 

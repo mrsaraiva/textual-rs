@@ -7,6 +7,15 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-15 (fix(DataTable): nav bindings hidden from the Footer)
+
+- **fix(widgets/DataTable): cursor/select bindings no longer leak into the Footer**
+  - `DataTable::bindings()` declared its `up`/`down`/`left`/`right`/`enter,space` bindings with
+    `show=true`, so a focused DataTable flooded the `Footer` with its navigation hints (overflowing
+    the app's own bindings). Marked them `.hidden()` to match Python (all DataTable bindings are
+    `show=False`). Fixes the `data_table_sort` footer.
+
+
 ### 2026-06-15 (fix: RadioSet/Checkbox toggle glyphs + drained-auto-container chrome)
 
 - **fix(layout): bottom-up-measured auto containers include their own border/padding**
