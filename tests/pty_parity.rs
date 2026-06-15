@@ -258,6 +258,15 @@ const CASES: &[Case] = &[
         status: Status::Pass,
     },
     Case {
+        name: "docs_digits",
+        example: "digits",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
         name: "docs_content_switcher",
         example: "content_switcher",
         args: &[],
@@ -645,6 +654,7 @@ pty_case!(docs_tree, "docs_tree");
 pty_case!(docs_label, "docs_label");
 pty_case!(docs_static, "docs_static");
 pty_case!(docs_link, "docs_link");
+pty_case!(docs_digits, "docs_digits");
 pty_case!(json_tree_initial, "json_tree_initial");
 pty_case!(json_tree_add_node, "json_tree_add_node");
 pty_case!(dictionary_initial, "dictionary_initial");
