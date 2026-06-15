@@ -7,6 +7,19 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-15 (fix(runtime): dedicated scrollbar thumb no longer clipped away)
+
+- **fix(runtime): paint a dedicated scrollbar into its gutter (don't clip it out)**
+  - For self-scrolling hosts with no content children (Log/RichLog/KeyPanel),
+    `apply_host_scrollbar_layout` shrinks the host `layout_rect` to the viewport
+    (excluding the scrollbar gutter). The parent then clips the host's descendants
+    to that shrunk rect, so the dedicated scrollbar child (which sits in the
+    gutter) was entirely outside the clip and its thumb/track were dropped. In
+    `render_tree_node`, expand the clip for `is_dedicated_scrollbar` children to
+    cover their own layout rect (bounded by the frame) — applied only to that
+    child's context, so siblings are unaffected. Fixes the missing vertical
+    scrollbar thumb in `log` (and `rich_log`).
+
 ### 2026-06-15 (fix(widgets/Toast): severity border, word-wrap, side margin)
 
 - **fix(widgets/Toast): paint the severity `▌` border in off-tree composition**

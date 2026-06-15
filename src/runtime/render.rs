@@ -930,6 +930,31 @@ fn render_tree_node(
         } else {
             base_child_ctx
         };
+        if is_dedicated_scrollbar {
+            // A dedicated scrollbar lives in the host's reserved gutter, which is
+            // OUTSIDE the host's (viewport-shrunk) content box. The clip inherited
+            // from the host therefore excludes the lane and would erase the bar.
+            // Expand the clip to cover the scrollbar's own layout rect (bounded by
+            // the frame) so the thumb glyphs and track paint into the gutter.
+            if let Some(child) = tree.get(child_id) {
+                let rect = child.layout_rect;
+                let frame_clip = ClipRect::for_frame(frame);
+                let lane_clip = ClipRect {
+                    x0: i32::from(rect.x0) + unclipped_child_ctx.origin_x,
+                    y0: i32::from(rect.y0) + unclipped_child_ctx.origin_y,
+                    x1: i32::from(rect.x1) + unclipped_child_ctx.origin_x,
+                    y1: i32::from(rect.y1) + unclipped_child_ctx.origin_y,
+                };
+                if let Some(lane_clip) = lane_clip.intersect(frame_clip) {
+                    next_ctx.clip = ClipRect {
+                        x0: next_ctx.clip.x0.min(lane_clip.x0),
+                        y0: next_ctx.clip.y0.min(lane_clip.y0),
+                        x1: next_ctx.clip.x1.max(lane_clip.x1),
+                        y1: next_ctx.clip.y1.max(lane_clip.y1),
+                    };
+                }
+            }
+        }
         if use_scroll_ctx {
             if let Some(child) = tree.get(child_id) {
                 let rect = child.layout_rect;
