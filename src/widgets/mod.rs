@@ -12,7 +12,7 @@ mod directory_tree;
 mod footer;
 mod header;
 mod help_panel;
-mod helpers;
+pub(crate) mod helpers;
 mod input;
 mod input_chrome;
 mod key_panel;

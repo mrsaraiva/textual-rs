@@ -229,7 +229,9 @@ impl Widget for Checkbox {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        Some(1)
+        // 1 content row + own border/padding chrome (the default `border: tall`
+        // adds 2 rows). The layout side adds only margin (extract_child_spec).
+        Some(1 + super::helpers::resolved_vertical_chrome(self))
     }
 
     fn set_inline_style(&mut self, style: crate::style::Style) {

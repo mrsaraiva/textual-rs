@@ -7,6 +7,19 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-15 (fix(widgets): Checkbox/Switch/Digits auto-height include border chrome)
+
+- **fix(widgets): `Checkbox`/`Switch`/`Digits` report their border/padding in `layout_height()`**
+  - These returned content-only heights (`1`/`1`/`3`), so under `height: auto` with a border
+    (`border: tall`/`double`) the layout allocated only the content rows and clipped the border —
+    a bordered checkbox/switch showed just its top border, a bordered Digits lost 2 of its 3 glyph
+    rows. They now add their resolved vertical chrome (new shared helper
+    `helpers::resolved_vertical_chrome`), conforming to the documented contract that
+    `layout_height()` reports the OUTER auto height (content + own border + padding) — the same
+    contract `Input`, `SelectionList`, `Pretty`, `SelectCurrent`, and five_by_five's `GameCell`
+    already follow. Fixed per-widget (not centrally) to avoid double-counting for widgets that
+    already include chrome.
+
 ### 2026-06-14 (feat(css): support `/* */` block comments in stylesheets)
 
 - **feat(css): the stylesheet parser now strips `/* */` comments**
