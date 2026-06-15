@@ -2352,20 +2352,25 @@ fn apply_host_scrollbar_layout(tree: &mut WidgetTree, viewport: (u16, u16)) {
 
         let (virtual_w, virtual_h, mut has_content_children) =
             host_content_extent(tree, node_id, content_rect, scrollbar_children);
-        let mut geometry = {
-            let policy = ScrollbarPolicy::from_style(&style, 2, 1);
-            // Pass the ACTUAL virtual content extent per axis (not clamped up to
-            // the viewport). Clamping virtual_w up to content_w made a host whose
-            // content is narrower than its box (e.g. a self-rendering DataTable
-            // with `virtual_w=13` in a 120-wide box) appear to exactly fill the
-            // width — so once the vertical lane reserved 2 cells, the clamped
-            // width (120) "overflowed" the reduced viewport (118) and a spurious
-            // horizontal scrollbar was reserved. Use the real extent so a lane is
-            // reserved only on genuine overflow.
-            policy.resolve(content_w, content_h, virtual_w, virtual_h)
-        };
+        // Pass the ACTUAL virtual content extent per axis (not clamped up to the
+        // viewport) so a lane is reserved only on genuine overflow (see the
+        // ScrollbarPolicy::resolve note about the phantom cross-axis scrollbar).
+        let mut geometry =
+            ScrollbarPolicy::from_style(&style, 2, 1).resolve(content_w, content_h, virtual_w, virtual_h);
 
-        if geometry.viewport_width != content_w || geometry.viewport_height != content_h {
+        // Re-layout the children at the resolved viewport, then recompute, until
+        // the reserved lanes stabilize (capped). The children were initially laid
+        // out at the full content box, so the first pass may over-reserve (e.g. a
+        // child that measured tall before its own `on_layout` corrected its
+        // width). Re-laying out and recomputing converges, and crucially
+        // RE-EXPANDS the children when a lane turns out to be unneeded — without
+        // this the gutter was reserved on a stale measurement and never released.
+        let mut laid_out_w = content_w;
+        let mut laid_out_h = content_h;
+        for _ in 0..3 {
+            if geometry.viewport_width == laid_out_w && geometry.viewport_height == laid_out_h {
+                break;
+            }
             if let Some(id) = scrollbar_children.vertical {
                 set_runtime_display(tree, id, false);
             }
@@ -2375,7 +2380,6 @@ fn apply_host_scrollbar_layout(tree: &mut WidgetTree, viewport: (u16, u16)) {
             if let Some(id) = scrollbar_children.corner {
                 set_runtime_display(tree, id, false);
             }
-
             crate::layout::resolve_layout(
                 tree,
                 node_id,
@@ -2387,14 +2391,13 @@ fn apply_host_scrollbar_layout(tree: &mut WidgetTree, viewport: (u16, u16)) {
                 ),
                 viewport,
             );
-
-            geometry = {
-                let (virtual_w, virtual_h, had_children) =
-                    host_content_extent(tree, node_id, content_rect, scrollbar_children);
-                has_content_children = had_children;
-                let policy = ScrollbarPolicy::from_style(&style, 2, 1);
-                policy.resolve(content_w, content_h, virtual_w, virtual_h)
-            };
+            laid_out_w = geometry.viewport_width;
+            laid_out_h = geometry.viewport_height;
+            let (virtual_w, virtual_h, had_children) =
+                host_content_extent(tree, node_id, content_rect, scrollbar_children);
+            has_content_children = had_children;
+            geometry = ScrollbarPolicy::from_style(&style, 2, 1)
+                .resolve(content_w, content_h, virtual_w, virtual_h);
         }
 
         let viewport_rect = crate::widget_tree::Rect {

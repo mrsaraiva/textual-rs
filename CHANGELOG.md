@@ -7,6 +7,18 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-15 (fix(scrollbar): re-expand content when a reserved gutter is unneeded)
+
+- **fix(runtime): scrollbar gutter converges (re-expands when not needed)**
+  - The host-scrollbar pass laid children out at a reduced viewport when the first
+    measurement reserved a lane, but if a later (corrected) measurement showed no
+    overflow it never re-laid-out at the full width — leaving the gutter reserved
+    forever. Common trigger: a `Markdown` child measured tall before its
+    `on_layout` corrected its width, reserving a vertical gutter that stuck. The
+    pass now iterates (capped) — re-laying out at the resolved viewport and
+    recomputing until the reserved lanes stabilize — so an unneeded gutter is
+    released and the children re-expand. Fixes `collapsible`.
+
 ### 2026-06-15 (fix(scrollbar): no spurious cross-axis scrollbar on partial content)
 
 - **fix(scrollbar): reserve a scrollbar lane only on genuine overflow**
