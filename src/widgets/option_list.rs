@@ -582,9 +582,12 @@ impl Widget for OptionList {
                             // Rich content: render Text, apply option style as base.
                             self.render_rich_line(rich, style, width, console, options)
                         } else {
-                            // Plain text fallback.
+                            // Plain text fallback. No hardcoded indent: the
+                            // `OptionList` default `padding: 0 1` supplies the
+                            // single-space inset (Python parity); a hardcoded
+                            // 2-space prefix double-indented every option.
                             adjust_line_length_no_bg(
-                                &[Segment::styled(format!("  {prompt}"), style)],
+                                &[Segment::styled(prompt.to_string(), style)],
                                 width,
                             )
                         };

@@ -7,6 +7,15 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-15 (fix(OptionList): remove hardcoded double indent on plain options)
+
+- **fix(widgets/OptionList): plain options no longer double-indent**
+  - The plain-text render path hardcoded a 2-space prefix on every option, on top of the
+    `OptionList` default `padding: 0 1` — so options rendered 3 columns in from the border instead
+    of Python's 1. Dropped the hardcoded prefix; the CSS padding alone supplies the single-space
+    inset (Python parity). `SelectionList` (own button prefix) and the closed `Select` are
+    unaffected.
+
 ### 2026-06-15 (fix(widgets): Checkbox/Switch/Digits auto-height include border chrome)
 
 - **fix(widgets): `Checkbox`/`Switch`/`Digits` report their border/padding in `layout_height()`**
