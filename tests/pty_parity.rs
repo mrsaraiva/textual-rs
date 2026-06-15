@@ -596,6 +596,15 @@ const CASES: &[Case] = &[
         status: Status::Pass,
     },
     Case {
+        name: "docs_collapsible",
+        example: "collapsible",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
         name: "docs_collapsible_nested",
         example: "collapsible_nested",
         args: &[],
@@ -1038,6 +1047,7 @@ pty_case!(docs_button, "docs_button");
 pty_case!(docs_data_table_labels, "docs_data_table_labels");
 pty_case!(docs_data_table_renderables, "docs_data_table_renderables");
 pty_case!(docs_data_table_fixed, "docs_data_table_fixed");
+pty_case!(docs_collapsible, "docs_collapsible");
 pty_case!(docs_collapsible_nested, "docs_collapsible_nested");
 pty_case!(docs_collapsible_custom_symbol, "docs_collapsible_custom_symbol");
 pty_case!(json_tree_initial, "json_tree_initial");
