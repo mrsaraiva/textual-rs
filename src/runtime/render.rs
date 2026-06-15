@@ -2354,12 +2354,15 @@ fn apply_host_scrollbar_layout(tree: &mut WidgetTree, viewport: (u16, u16)) {
             host_content_extent(tree, node_id, content_rect, scrollbar_children);
         let mut geometry = {
             let policy = ScrollbarPolicy::from_style(&style, 2, 1);
-            policy.resolve(
-                content_w,
-                content_h,
-                virtual_w.max(content_w),
-                virtual_h.max(content_h),
-            )
+            // Pass the ACTUAL virtual content extent per axis (not clamped up to
+            // the viewport). Clamping virtual_w up to content_w made a host whose
+            // content is narrower than its box (e.g. a self-rendering DataTable
+            // with `virtual_w=13` in a 120-wide box) appear to exactly fill the
+            // width — so once the vertical lane reserved 2 cells, the clamped
+            // width (120) "overflowed" the reduced viewport (118) and a spurious
+            // horizontal scrollbar was reserved. Use the real extent so a lane is
+            // reserved only on genuine overflow.
+            policy.resolve(content_w, content_h, virtual_w, virtual_h)
         };
 
         if geometry.viewport_width != content_w || geometry.viewport_height != content_h {
@@ -2390,12 +2393,7 @@ fn apply_host_scrollbar_layout(tree: &mut WidgetTree, viewport: (u16, u16)) {
                     host_content_extent(tree, node_id, content_rect, scrollbar_children);
                 has_content_children = had_children;
                 let policy = ScrollbarPolicy::from_style(&style, 2, 1);
-                policy.resolve(
-                    content_w,
-                    content_h,
-                    virtual_w.max(content_w),
-                    virtual_h.max(content_h),
-                )
+                policy.resolve(content_w, content_h, virtual_w, virtual_h)
             };
         }
 

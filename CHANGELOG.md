@@ -7,6 +7,20 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-15 (fix(scrollbar): no spurious cross-axis scrollbar on partial content)
+
+- **fix(scrollbar): reserve a scrollbar lane only on genuine overflow**
+  - `ScrollbarPolicy::resolve` (and the host-scrollbar call sites) clamped the
+    virtual content extent up to the widget size. For a self-rendering scrollable
+    whose content is narrower/shorter than its box (e.g. a `DataTable` filling a
+    120-wide box with only ~13 cols of columns), the clamp made the content appear
+    to exactly fill the box — so as soon as one axis reserved a lane (e.g. a
+    vertical scrollbar), the clamped extent "overflowed" the reduced viewport and
+    a **spurious** scrollbar was reserved on the other axis (stealing a row/col).
+    Now the actual virtual extent is used per axis. Fixes data_table_fixed (the
+    phantom horizontal scrollbar that stole the last row) and removes a phantom
+    hbar in the keys preview.
+
 ### 2026-06-15 (feat(widgets): Collapsible arena composition + DataTable cell justify)
 
 - **fix(widgets/Collapsible): compose `CollapsibleTitle` + contents as arena nodes**

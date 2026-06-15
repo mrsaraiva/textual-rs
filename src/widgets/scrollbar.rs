@@ -240,8 +240,13 @@ impl ScrollbarPolicy {
     ) -> ScrollbarGeometry {
         let widget_width = widget_width.max(1);
         let widget_height = widget_height.max(1);
-        let content_width = content_width.max(widget_width);
-        let content_height = content_height.max(widget_height);
+        // NOTE: do NOT clamp content up to the widget size. The content extent is
+        // the ACTUAL virtual content; a lane must be reserved only on genuine
+        // overflow. Clamping content up to the widget made any host that reserved
+        // one lane (e.g. a vertical scrollbar) spuriously reserve the other,
+        // because the clamped content then "overflowed" the reduced viewport.
+        let content_width = content_width.max(1);
+        let content_height = content_height.max(1);
 
         let allow_h = !matches!(self.visibility, ScrollbarVisibility::Hidden)
             && !matches!(self.overflow_x, Overflow::Hidden);
