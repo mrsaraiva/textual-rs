@@ -312,6 +312,15 @@ const CASES: &[Case] = &[
         status: Status::Pass,
     },
     Case {
+        name: "docs_center01",
+        example: "center01",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
         name: "docs_footer",
         example: "footer",
         args: &[],
@@ -804,6 +813,7 @@ pty_case!(docs_radio_set, "docs_radio_set");
 pty_case!(docs_radio_button, "docs_radio_button");
 pty_case!(docs_data_table_cursors, "docs_data_table_cursors");
 pty_case!(docs_data_table_sort, "docs_data_table_sort");
+pty_case!(docs_center01, "docs_center01");
 pty_case!(docs_footer, "docs_footer");
 pty_case!(docs_header, "docs_header");
 pty_case!(docs_header_app_title, "docs_header_app_title");
