@@ -7,6 +7,21 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-15 (fix(widgets/Checkbox): Rich markup labels + content width)
+
+- **fix(widgets/Checkbox): parse the label as Rich markup**
+  - `[b]…[/b]` / `[magenta]…[/]` were rendered literally and inflated the width.
+    The label is now parsed via `Text::from_markup(.., emoji=false)` (emoji
+    shortcodes left literal, matching Python), so markup is stripped to plain
+    text for rendering and measurement.
+- **fix(widgets/Checkbox): content_width returns pure content (no double chrome)**
+  - `content_width()` added its own border/padding chrome, which the layout's
+    auto-width measurement then added again — making the box too wide. It now
+    returns pure content (`3` for `▐X▌` + `2` for the label's 1-cell pad + label
+    width), matching Python `ToggleButton.get_content_width`. Box widths now match
+    Python exactly. (The checkbox demo still has a separate ~1-col centering /
+    focus-scroll artifact tracked in the engine ledger; not promoted yet.)
+
 ### 2026-06-15 (feat(widgets/DataTable): per-row labels)
 
 - **feat(widgets/DataTable): per-row labels render as a non-data label column**

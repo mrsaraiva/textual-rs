@@ -37,6 +37,15 @@ impl Checkbox {
         }
     }
 
+    /// The label with Rich markup applied (tags stripped to plain text), matching
+    /// Python `ToggleButton._make_label` (`Content.from_markup`). Emoji shortcodes
+    /// are left literal (`:sweat:`) to match Python's rendering, so `emoji=false`.
+    fn label_plain(&self) -> String {
+        rich_rs::Text::from_markup(&self.label, false)
+            .map(|t| t.plain_text().to_string())
+            .unwrap_or_else(|_| self.label.clone())
+    }
+
     // ── Reactive getters ─────────────────────────────────────────────────
 
     pub fn checked(&self) -> bool {
@@ -140,16 +149,11 @@ impl Widget for Checkbox {
     }
 
     fn content_width(&self) -> Option<usize> {
-        let meta = crate::css::selector_meta_generic(self);
-        let resolved = crate::css::resolve_style(self, &meta);
-        let padding = resolved.effective_padding();
-        let (_, _, border_left, border_right) =
-            super::helpers::border_spacing_from_style(&resolved);
-        let chrome_lr =
-            usize::from(padding.left.saturating_add(padding.right)) + border_left + border_right;
-        // Content is "☐ " + label.
-        let content = rich_rs::cell_len(&self.label).saturating_add(2);
-        Some(content.saturating_add(chrome_lr).max(1))
+        // PURE content width — the layout adds border/padding chrome (RA-2
+        // contract). Python ToggleButton.get_content_width: 3 (the `▐X▌` button)
+        // + 2 (the label's 1-cell left/right pad) + the label's own width. Markup
+        // tags are stripped first so `[b]…[/b]` doesn't inflate the width.
+        Some(rich_rs::cell_len(&self.label_plain()).saturating_add(3 + 2).max(1))
     }
 
     fn action_namespace(&self) -> &str {
@@ -240,7 +244,9 @@ impl Widget for Checkbox {
             Segment::styled("▐".to_string(), side_style),
             Segment::styled("X".to_string(), button_style),
             Segment::styled("▌".to_string(), side_style),
-            Segment::styled(format!(" {}", self.label), label_style),
+            // Python renders `▐X▌` then the label padded 1 cell on each side
+            // (`label.pad(1, 1)`); markup is stripped to plain text first.
+            Segment::styled(format!(" {} ", self.label_plain()), label_style),
         ];
         let mut out = Segments::new();
         out.extend(super::helpers::adjust_line_length_no_bg(&segs, width));
