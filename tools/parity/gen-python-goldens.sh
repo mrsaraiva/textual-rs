@@ -102,6 +102,10 @@ CASE=docs_center07       && want "$@" && run_case "$CASE" "$PY_DOCS/how-to" "" "
 # screens, so they aren't strict-harness cases (the harness needs a non-empty
 # stable screen). They remain faithful ports under docs/examples/app.
 CASE=docs_question01     && want "$@" && run_case "$CASE" "$PY_DOCS/app"    "" "question01.py"
+CASE=docs_question02     && want "$@" && run_case "$CASE" "$PY_DOCS/app"    "" "question02.py"
+CASE=docs_question03     && want "$@" && run_case "$CASE" "$PY_DOCS/app"    "" "question03.py"
+CASE=docs_question_title01 && want "$@" && run_case "$CASE" "$PY_DOCS/app"  "" "question_title01.py"
+CASE=docs_question_title02 && want "$@" && run_case "$CASE" "$PY_DOCS/app"  "" "question_title02.py"
 CASE=docs_suspend        && want "$@" && run_case "$CASE" "$PY_DOCS/app"    "" "suspend.py"
 CASE=docs_suspend_process && want "$@" && run_case "$CASE" "$PY_DOCS/app"   "" "suspend_process.py"
 

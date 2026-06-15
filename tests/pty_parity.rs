@@ -395,6 +395,44 @@ const CASES: &[Case] = &[
         golden_replacements: &[],
         status: Status::Pass,
     },
+    // grid examples — verified at parity after grid children are sized by their
+    // own box model within the cell (auto height no longer stretches to the row).
+    Case {
+        name: "docs_question02",
+        example: "question02",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_question03",
+        example: "question03",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_question_title01",
+        example: "question_title01",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_question_title02",
+        example: "question_title02",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
     Case {
         name: "docs_footer",
         example: "footer",
@@ -897,6 +935,10 @@ pty_case!(docs_center07, "docs_center07");
 pty_case!(docs_question01, "docs_question01");
 pty_case!(docs_suspend, "docs_suspend");
 pty_case!(docs_suspend_process, "docs_suspend_process");
+pty_case!(docs_question02, "docs_question02");
+pty_case!(docs_question03, "docs_question03");
+pty_case!(docs_question_title01, "docs_question_title01");
+pty_case!(docs_question_title02, "docs_question_title02");
 pty_case!(docs_footer, "docs_footer");
 pty_case!(docs_header, "docs_header");
 pty_case!(docs_header_app_title, "docs_header_app_title");
