@@ -418,14 +418,16 @@ impl Widget for ListView {
     }
 
     fn bindings(&self) -> Vec<BindingDecl> {
+        // Python `ListView.BINDINGS` declares all of these `show=False`, so a
+        // focused ListView must not flood the Footer with its nav hints.
         vec![
-            BindingDecl::new("up", "cursor_up", "Move cursor up"),
-            BindingDecl::new("down", "cursor_down", "Move cursor down"),
+            BindingDecl::new("up", "cursor_up", "Move cursor up").hidden(),
+            BindingDecl::new("down", "cursor_down", "Move cursor down").hidden(),
             BindingDecl::new("pageup", "scroll_up", "Page up").hidden(),
             BindingDecl::new("pagedown", "scroll_down", "Page down").hidden(),
             BindingDecl::new("home", "first", "Move to first item").hidden(),
             BindingDecl::new("end", "last", "Move to last item").hidden(),
-            BindingDecl::new("enter", "select_cursor", "Select item"),
+            BindingDecl::new("enter", "select_cursor", "Select item").hidden(),
         ]
     }
 

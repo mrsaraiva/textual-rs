@@ -7,6 +7,13 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-15 (fix(widgets/ListView): nav bindings hidden from the Footer)
+
+- **fix(widgets/ListView): cursor/select bindings no longer leak into the Footer**
+  - `ListView::bindings()` declared `up`/`down`/`enter` with `show=true`, so a
+    focused `ListView` flooded the `Footer` with its navigation hints. Marked them
+    `.hidden()` to match Python (all `ListView.BINDINGS` are `show=False`).
+
 ### 2026-06-15 (fix(widgets): ProgressBar bar glyphs + Sparkline empty buckets)
 
 - **fix(widgets/ProgressBar): render the Python bar glyphs `━`/`╺`/`╸`**
