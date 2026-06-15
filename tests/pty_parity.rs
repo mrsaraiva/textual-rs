@@ -276,6 +276,24 @@ const CASES: &[Case] = &[
         status: Status::Pass,
     },
     Case {
+        name: "docs_radio_set",
+        example: "radio_set",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_radio_button",
+        example: "radio_button",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
         name: "docs_content_switcher",
         example: "content_switcher",
         args: &[],
@@ -665,6 +683,8 @@ pty_case!(docs_static, "docs_static");
 pty_case!(docs_link, "docs_link");
 pty_case!(docs_digits, "docs_digits");
 pty_case!(docs_option_list_strings, "docs_option_list_strings");
+pty_case!(docs_radio_set, "docs_radio_set");
+pty_case!(docs_radio_button, "docs_radio_button");
 pty_case!(json_tree_initial, "json_tree_initial");
 pty_case!(json_tree_add_node, "json_tree_add_node");
 pty_case!(dictionary_initial, "dictionary_initial");
