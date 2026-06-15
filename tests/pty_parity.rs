@@ -569,6 +569,33 @@ const CASES: &[Case] = &[
         status: Status::Pass,
     },
     Case {
+        name: "docs_option_list_options",
+        example: "option_list_options",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_text_area_example",
+        example: "text_area_example",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_text_area_selection",
+        example: "text_area_selection",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
         name: "docs_checkbox",
         example: "checkbox",
         args: &[],
@@ -1054,6 +1081,10 @@ pty_case!(docs_progress_bar, "docs_progress_bar");
 pty_case!(docs_progress_bar_gradient, "docs_progress_bar_gradient");
 pty_case!(docs_button, "docs_button");
 pty_case!(docs_checkbox, "docs_checkbox");
+pty_case!(docs_option_list_options, "docs_option_list_options");
+pty_case!(docs_text_area_example, "docs_text_area_example");
+pty_case!(docs_text_area_selection, "docs_text_area_selection");
+
 pty_case!(docs_data_table_labels, "docs_data_table_labels");
 pty_case!(docs_data_table_renderables, "docs_data_table_renderables");
 pty_case!(docs_data_table_fixed, "docs_data_table_fixed");
