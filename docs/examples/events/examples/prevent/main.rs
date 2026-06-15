@@ -1,8 +1,84 @@
+/// Port of Python Textual `docs/examples/events/prevent.py`.
+///
+/// Demonstrates suppressing widget messages:
+/// - An `Input` and a "Clear" button are composed.
+/// - When the button is pressed, the input is cleared WITHOUT triggering the
+///   `Input.Changed` event (Python uses `with input.prevent(Input.Changed):`).
+/// - The `on_input_changed` handler rings the bell on every normal keystroke.
+///
+/// In Rust, `Input::clear()` and `Input::set_text()` are non-reactive: they
+/// mutate the widget directly without posting an `InputChanged` message.
+/// This is the exact equivalent of Python's `prevent` context manager.
+///
+/// NOTE: The bell is a no-op in Rust (terminal bell is not implemented yet).
+/// The port is structurally faithful; the Clear button suppresses input-changed.
 use textual::prelude::*;
 
-fn main() -> Result<()> {
-    eprintln!(
-        "TODO: Port docs example 'prevent' from Python source 'events/prevent.py' (category 'events')."
-    );
-    Ok(())
+struct PreventApp {
+    bell_count: u32,
+}
+
+impl PreventApp {
+    fn new() -> Self {
+        Self { bell_count: 0 }
+    }
+}
+
+impl TextualApp for PreventApp {
+    fn compose(&mut self) -> AppRoot {
+        AppRoot::new()
+            .with_child(Input::new())
+            .with_child(Button::new("Clear").id("clear"))
+    }
+
+    /// Called when the user types — rings the bell.
+    fn on_input_changed(
+        &mut self,
+        _value: &str,
+        _validation: &ValidationResult,
+        _ctx: &mut EventCtx,
+    ) {
+        // bell() — no-op in Rust; count for test assertions.
+        self.bell_count += 1;
+    }
+
+    /// Clear the text input WITHOUT triggering `InputChanged`.
+    fn on_message_with_app(
+        &mut self,
+        app: &mut App,
+        message: &MessageEvent,
+        ctx: &mut EventCtx,
+    ) {
+        if let Some(bp) = message.downcast_ref::<ButtonPressed>() {
+            if bp.button_id.as_deref() == Some("clear") {
+                // Non-reactive clear: no InputChanged message is posted.
+                let _ = app.with_query_one_mut_as::<Input, _>("Input", |input| {
+                    input.clear();
+                });
+                ctx.request_repaint();
+                ctx.set_handled();
+            }
+        }
+    }
+}
+
+fn main() -> textual::Result<()> {
+    run_sync(PreventApp::new())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn prevent_app_composes_without_panic() {
+        let mut app = PreventApp::new();
+        let _root = app.compose();
+    }
+
+    #[test]
+    fn bell_count_starts_at_zero() {
+        let app = PreventApp::new();
+        assert_eq!(app.bell_count, 0);
+    }
 }
