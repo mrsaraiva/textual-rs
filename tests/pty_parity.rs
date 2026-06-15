@@ -164,6 +164,71 @@ const CASES: &[Case] = &[
         golden_replacements: &[],
         status: Status::Pass,
     },
+    // Verified at parity via tools/parity/scoreboard-docs.sh (widgets tier),
+    // goldens generated from ../textual/docs/examples/widgets/<name>.py.
+    Case {
+        name: "docs_input",
+        example: "input",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_input_types",
+        example: "input_types",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_input_validation",
+        example: "input_validation",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_tabbed_content",
+        example: "tabbed_content",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_tabbed_content_label_color",
+        example: "tabbed_content_label_color",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_text_area_custom_theme",
+        example: "text_area_custom_theme",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_tree",
+        example: "tree",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
     Case {
         name: "docs_content_switcher",
         example: "content_switcher",
@@ -542,6 +607,13 @@ pty_case!(docs_selection_list_selected, "docs_selection_list_selected");
 pty_case!(docs_select_widget, "docs_select_widget");
 pty_case!(docs_tabs, "docs_tabs");
 pty_case!(docs_text_area_extended, "docs_text_area_extended");
+pty_case!(docs_input, "docs_input");
+pty_case!(docs_input_types, "docs_input_types");
+pty_case!(docs_input_validation, "docs_input_validation");
+pty_case!(docs_tabbed_content, "docs_tabbed_content");
+pty_case!(docs_tabbed_content_label_color, "docs_tabbed_content_label_color");
+pty_case!(docs_text_area_custom_theme, "docs_text_area_custom_theme");
+pty_case!(docs_tree, "docs_tree");
 pty_case!(json_tree_initial, "json_tree_initial");
 pty_case!(json_tree_add_node, "json_tree_add_node");
 pty_case!(dictionary_initial, "dictionary_initial");
