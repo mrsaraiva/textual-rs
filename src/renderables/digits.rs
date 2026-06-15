@@ -354,7 +354,25 @@ impl Widget for Digits {
         let resolved = crate::css::resolve_style(self, &meta);
         let bold = resolved.bold == Some(true);
         let rich_style = resolved.to_rich().unwrap_or_default();
-        let align = resolved.text_align.unwrap_or(TextAlign::Left);
+        // Alignment precedence: honor a `justify` forwarded by the parent render
+        // context (engine fundamental #19 — `render_widget_with_meta` maps a
+        // node's resolved `text-align` to `options.justify`). When a typed
+        // wrapper (e.g. `class TimeDisplay(Digits)`) carries `text-align`, that
+        // alignment reaches the delegated inner `Digits` only via this forwarded
+        // justify, because the inner widget re-resolves its own `"Digits"` type
+        // meta (default `text-align: left`). The forwarded justify is therefore
+        // authoritative; fall back to this widget's own resolved text-align.
+        let align = match options.justify {
+            Some(rich_rs::JustifyMethod::Left) => TextAlign::Left,
+            Some(rich_rs::JustifyMethod::Center) => TextAlign::Center,
+            Some(rich_rs::JustifyMethod::Right) => TextAlign::Right,
+            Some(rich_rs::JustifyMethod::Full) => TextAlign::Justify,
+            // `Default`/unset justify: no forwarded alignment — fall back to this
+            // widget's own resolved text-align.
+            Some(rich_rs::JustifyMethod::Default) | None => {
+                resolved.text_align.unwrap_or(TextAlign::Left)
+            }
+        };
 
         let rows = self.render_rows(bold);
         let content_width = Self::get_width(&self.value);

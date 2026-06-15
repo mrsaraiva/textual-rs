@@ -68,6 +68,14 @@ impl Widget for TimeDisplay {
         "TimeDisplay"
     }
 
+    /// Python's `class TimeDisplay(Digits)` inherits `Digits` DEFAULT_CSS via the
+    /// MRO (notably `width: 1fr`). Declare `Digits` as a style-type alias so the
+    /// framework applies the base widget's default CSS to this wrapper, matching
+    /// Python's resolved styles.
+    fn style_type_aliases(&self) -> &[&'static str] {
+        &["Digits"]
+    }
+
     fn focusable(&self) -> bool {
         false
     }
@@ -77,7 +85,12 @@ impl Widget for TimeDisplay {
         console: &rich_rs::Console,
         options: &rich_rs::ConsoleOptions,
     ) -> rich_rs::Segments {
-        self.inner.render_styled(console, options)
+        // Delegate to the inner Digits' plain render so the wrapper's forwarded
+        // `text-align` (carried on `options.justify` by the runtime's generic
+        // text-align propagation) reaches it. Using `render_styled` here would
+        // make the inner re-resolve its own `"Digits"` type meta and clobber the
+        // forwarded justify with the Digits default (`text-align: left`).
+        self.inner.render(console, options)
     }
 
     fn content_width(&self) -> Option<usize> {
