@@ -7,6 +7,20 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-15 (fix(widgets): ProgressBar bar glyphs + Sparkline empty buckets)
+
+- **fix(widgets/ProgressBar): render the Python bar glyphs `━`/`╺`/`╸`**
+  - The determinate/indeterminate/gradient render paths overrode the `Bar`
+    renderable with `█` (filled) and a **space** background, so the track was
+    invisible (a 0% bar showed as blank). Dropped the overrides to use the
+    `Bar` defaults (`━` bar, `╺`/`╸` halves), matching Python's
+    `renderables/bar.py`. Fixes `progress_bar`.
+- **fix(renderables/Sparkline): drop empty buckets when width > data length**
+  - `Sparkline::buckets` kept empty partitions and rendered them as min-value
+    (`▁`) columns. Python's `_buckets` yields a partition only `if partition`
+    and re-samples the survivors across the width (`step = len(buckets)/width`).
+    Now matches — fixes the spurious `▁` columns in `sparkline_colors`.
+
 ### 2026-06-15 (fix(layout/grid): size grid children by their own box model)
 
 - **fix(layout/grid): grid children are sized by their own box model within the cell,

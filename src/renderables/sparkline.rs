@@ -154,22 +154,26 @@ impl Sparkline {
 
     // ── Rendering helpers ───────────────────────────────────────────
 
-    /// Partition `data` into `num_buckets` contiguous slices using fractional stepping.
+    /// Partition `data` into up to `num_buckets` contiguous slices using
+    /// fractional stepping. Empty partitions are dropped (Python parity:
+    /// `Sparkline._buckets` only yields a partition `if partition`), so when
+    /// `num_buckets > len(data)` the result has fewer than `num_buckets` entries
+    /// and the render loop re-samples them across the width via
+    /// `step = buckets.len() / width`. Keeping empty buckets would render
+    /// spurious min-value (`▁`) columns.
     fn buckets(data: &[f64], num_buckets: usize) -> Vec<Vec<f64>> {
         if data.is_empty() || num_buckets == 0 {
-            return vec![vec![]; num_buckets];
+            return Vec::new();
         }
         let len = data.len();
-        let step_num = len;
-        let step_den = num_buckets;
         (0..num_buckets)
-            .map(|i| {
-                let start = (step_num * i) / step_den;
-                let end = (step_num * (i + 1)) / step_den;
+            .filter_map(|i| {
+                let start = (len * i) / num_buckets;
+                let end = (len * (i + 1)) / num_buckets;
                 if start < end {
-                    data[start..end].to_vec()
+                    Some(data[start..end].to_vec())
                 } else {
-                    vec![]
+                    None
                 }
             })
             .collect()
@@ -404,11 +408,9 @@ mod tests {
 
     #[test]
     fn buckets_empty_data() {
+        // Empty data yields no partitions (Python drops empties).
         let b = Sparkline::buckets(&[], 4);
-        assert_eq!(b.len(), 4);
-        for bucket in &b {
-            assert!(bucket.is_empty());
-        }
+        assert!(b.is_empty());
     }
 
     #[test]
@@ -527,17 +529,18 @@ mod tests {
 
     #[test]
     fn buckets_single_data_point() {
+        // [42.0] into 3 buckets → only one non-empty partition survives.
         let b = Sparkline::buckets(&[42.0], 3);
-        assert_eq!(b.len(), 3);
-        // Only one data point, some buckets may be empty
+        assert_eq!(b.len(), 1);
         let total: usize = b.iter().map(|x| x.len()).sum();
         assert_eq!(total, 1);
     }
 
     #[test]
     fn buckets_more_buckets_than_data() {
+        // [1,2] into 5 buckets → empties dropped, 2 partitions survive.
         let b = Sparkline::buckets(&[1.0, 2.0], 5);
-        assert_eq!(b.len(), 5);
+        assert_eq!(b.len(), 2);
         let total: usize = b.iter().map(|x| x.len()).sum();
         assert_eq!(total, 2);
     }

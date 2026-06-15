@@ -466,8 +466,6 @@ impl ProgressBar {
             .unwrap_or_else(rich_rs::Style::new);
         let filled = ((pct * width as f64).round() as usize).min(width);
         let text: String = Bar::new((0.0, filled as f32), style, style)
-            .chars('█', ' ')
-            .half_chars(' ', ' ')
             .width(width)
             .render_for_width(width)
             .iter()
@@ -498,8 +496,6 @@ impl ProgressBar {
             .unwrap_or_else(rich_rs::Style::new);
         let filled = ((pct * width as f64).round() as usize).min(width);
         let segments: Vec<Segment> = Bar::new((0.0, filled as f32), style, style)
-            .chars('█', ' ')
-            .half_chars(' ', ' ')
             .width(width)
             .gradient(start, end)
             .render_for_width(width)
@@ -542,8 +538,6 @@ impl ProgressBar {
             .unwrap_or_else(rich_rs::Style::new);
         let range = (start.max(0.0), end.min(width as f32));
         let text: String = Bar::new(range, style, style)
-            .chars('█', ' ')
-            .half_chars(' ', ' ')
             .width(width)
             .render_for_width(width)
             .iter()
@@ -794,8 +788,9 @@ mod tests {
         let mut bar = ProgressBar::new(Some(100.0));
         bar.advance(50.0);
         let (text, component) = bar.render_determinate(10);
-        // 50% of 10 = 5 filled, 5 empty
-        assert_eq!(text, "█████     ");
+        // 50% of 10: 5 highlighted `━`, a `╺` background half at the boundary,
+        // then the `━` background track (Python Bar glyphs `━`/`╺`/`╸`).
+        assert_eq!(text, "━━━━━╺━━━━");
         assert_eq!(component, "bar--bar");
     }
 
@@ -856,7 +851,7 @@ mod tests {
         bar.set_animation_level(AnimationLevel::None);
         let (text, component) = bar.render_indeterminate(10);
         // Static full-width bar when animations disabled.
-        assert_eq!(text, "██████████");
+        assert_eq!(text, "━━━━━━━━━━");
         assert_eq!(component, "bar--indeterminate");
     }
 
@@ -1084,7 +1079,7 @@ mod tests {
         // First segment should be red-ish, last should be blue-ish
         // (verified by the lerp_color tests above)
         for seg in &segments {
-            assert_eq!(seg.text, "█");
+            assert_eq!(seg.text, "━");
         }
     }
 
@@ -1098,7 +1093,7 @@ mod tests {
         let (segments, component) = bar.render_determinate_gradient(10, start, end);
         assert_eq!(component, "bar--bar");
         let text: String = segments.iter().map(|seg| seg.text.as_ref()).collect();
-        assert_eq!(text, "█████     ");
+        assert_eq!(text, "━━━━━╺━━━━");
     }
 
     // ── compose() / take_composed_children() tests ────────────────
@@ -1130,7 +1125,7 @@ mod tests {
         // No gradient set — should use the standard render path
         assert!(bar.gradient().is_none());
         let (text, component) = bar.render_determinate(10);
-        assert_eq!(text, "█████     ");
+        assert_eq!(text, "━━━━━╺━━━━");
         assert_eq!(component, "bar--bar");
     }
 }
