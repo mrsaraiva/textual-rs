@@ -229,6 +229,34 @@ const CASES: &[Case] = &[
         golden_replacements: &[],
         status: Status::Pass,
     },
+    // Wave-1 ports verified at parity (scoreboard + strict harness).
+    Case {
+        name: "docs_label",
+        example: "label",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_static",
+        example: "static",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_link",
+        example: "link",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
     Case {
         name: "docs_content_switcher",
         example: "content_switcher",
@@ -614,6 +642,9 @@ pty_case!(docs_tabbed_content, "docs_tabbed_content");
 pty_case!(docs_tabbed_content_label_color, "docs_tabbed_content_label_color");
 pty_case!(docs_text_area_custom_theme, "docs_text_area_custom_theme");
 pty_case!(docs_tree, "docs_tree");
+pty_case!(docs_label, "docs_label");
+pty_case!(docs_static, "docs_static");
+pty_case!(docs_link, "docs_link");
 pty_case!(json_tree_initial, "json_tree_initial");
 pty_case!(json_tree_add_node, "json_tree_add_node");
 pty_case!(dictionary_initial, "dictionary_initial");
