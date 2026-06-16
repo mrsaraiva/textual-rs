@@ -678,6 +678,105 @@ const CASES: &[Case] = &[
         golden_replacements: &[],
         status: Status::Pass,
     },
+    Case {
+        name: "docs_containers01",
+        example: "containers01",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_containers02",
+        example: "containers02",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_containers03",
+        example: "containers03",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_containers04",
+        example: "containers04",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_containers05",
+        example: "containers05",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_containers07",
+        example: "containers07",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_containers08",
+        example: "containers08",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_containers09",
+        example: "containers09",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_layout02",
+        example: "layout02",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_layout03",
+        example: "layout03",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_layout04",
+        example: "layout04",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
     // Horizontal button row (margin: 2 4). Verifies adjacent-margin collapse
     // (gap = max(right, left) = 4, not summed) — fixed in layout/horizontal.rs.
     Case {
@@ -1267,6 +1366,17 @@ pty_case!(docs_center08, "docs_center08");
 pty_case!(docs_center09, "docs_center09");
 pty_case!(docs_center10, "docs_center10");
 pty_case!(docs_muted_backgrounds, "docs_muted_backgrounds");
+pty_case!(docs_containers01, "docs_containers01");
+pty_case!(docs_containers02, "docs_containers02");
+pty_case!(docs_containers03, "docs_containers03");
+pty_case!(docs_containers04, "docs_containers04");
+pty_case!(docs_containers05, "docs_containers05");
+pty_case!(docs_containers07, "docs_containers07");
+pty_case!(docs_containers08, "docs_containers08");
+pty_case!(docs_containers09, "docs_containers09");
+pty_case!(docs_layout02, "docs_layout02");
+pty_case!(docs_layout03, "docs_layout03");
+pty_case!(docs_layout04, "docs_layout04");
 pty_case!(docs_on_decorator01, "docs_on_decorator01");
 pty_case!(docs_on_decorator02, "docs_on_decorator02");
 pty_case!(docs_colored_text, "docs_colored_text");

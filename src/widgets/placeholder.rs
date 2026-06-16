@@ -221,42 +221,34 @@ impl Widget for Placeholder {
             .to_rich()
             .unwrap_or_default();
 
+        // Python parity: `Placeholder.render()` returns the *bare* renderable
+        // (the label, the "W x H" string, or the lorem-ipsum text). All
+        // centering — horizontal AND vertical — is performed by the framework
+        // from the `content-align: center middle` CSS default (see
+        // `apply_content_alignment` in `widgets/core.rs`, mirroring Python's
+        // `_segment_tools.align_lines`). The widget must NOT pre-center its
+        // own content, or it would be centered twice (the leading padding from a
+        // self-centered line is not trimmed by the alignment pass, shifting the
+        // content one column right). We only emit the raw glyph lines here; the
+        // surface fill/alignment composes them into the content box.
         match self.variant {
             PlaceholderVariant::Text => {
-                // Word-wrap the text to fill the area.
+                // Word-wrap the text to fill the available width, but leave the
+                // wrapped lines un-padded/un-aligned (content-align handles the
+                // rest). The `.-text` variant uses `padding: 1`, so the content
+                // width is already inset by the framework before render.
                 let lines = word_wrap(&text, width);
-                for row in 0..height {
-                    let content = lines.get(row).map(|s| s.as_str()).unwrap_or("");
-                    let line = rich_rs::set_cell_size(content, width);
-                    out.push(Segment::styled(line, style));
-                    if row + 1 < height {
+                for (row, content) in lines.iter().enumerate() {
+                    out.push(Segment::styled(content.clone(), style));
+                    if row + 1 < lines.len() {
                         out.push(Segment::line());
                     }
                 }
             }
             _ => {
-                // Center the text both horizontally and vertically.
-                let text_width = rich_rs::cell_len(&text).min(width);
-                let vert_pad = height.saturating_sub(1) / 2;
-
-                for row in 0..height {
-                    if row == vert_pad {
-                        let left = width.saturating_sub(text_width) / 2;
-                        let right = width.saturating_sub(text_width + left);
-                        let line = format!(
-                            "{}{}{}",
-                            " ".repeat(left),
-                            rich_rs::set_cell_size(&text, text_width),
-                            " ".repeat(right)
-                        );
-                        out.push(Segment::styled(line, style));
-                    } else {
-                        out.push(Segment::styled(" ".repeat(width), style));
-                    }
-                    if row + 1 < height {
-                        out.push(Segment::line());
-                    }
-                }
+                // Default / size variant: a single bare line, centered by
+                // content-align.
+                out.push(Segment::styled(text, style));
             }
         }
 
@@ -308,6 +300,51 @@ impl ReactiveWidget for Placeholder {
 mod tests {
     use super::*;
     use crate::node_id::NodeId;
+
+    fn make_console_options(width: usize, height: usize) -> ConsoleOptions {
+        let mut opts = ConsoleOptions::default();
+        opts.size = (width, height);
+        opts.max_width = width;
+        opts.max_height = height;
+        opts
+    }
+
+    /// Python parity: `Placeholder.render()` returns the BARE label — it must
+    /// NOT pre-center horizontally or vertically. Centering is owned by the
+    /// framework's `content-align: center middle` composition pass
+    /// (`apply_content_alignment`), exactly like Python's `align_lines`.
+    ///
+    /// If the widget pre-centered (emitting `"  Placeholder   "`), the alignment
+    /// pass would re-center the un-trimmed leading padding and shift the label
+    /// one column right — the `docs/examples/how-to/containers01` off-by-one.
+    #[test]
+    fn default_render_emits_bare_label_no_pre_centering() {
+        let ph = Placeholder::new("");
+        let console = Console::new();
+        let options = make_console_options(16, 8);
+        let segments = Widget::render(&ph, &console, &options);
+
+        // Exactly one styled segment, no `line()` separators, no padding rows.
+        let line_segments = segments.iter().filter(|s| s.text.as_ref() == "\n").count();
+        assert_eq!(line_segments, 0, "default variant must be a single line");
+
+        let text: String = segments.iter().map(|s| s.text.as_ref()).collect();
+        assert_eq!(
+            text, "Placeholder",
+            "render must return the bare label (no leading/trailing/centering pad)"
+        );
+    }
+
+    /// The size variant must likewise be a bare "W x H" string.
+    #[test]
+    fn size_render_emits_bare_string_no_pre_centering() {
+        let ph = Placeholder::new("x").with_variant(PlaceholderVariant::Size);
+        let console = Console::new();
+        let options = make_console_options(20, 5);
+        let segments = Widget::render(&ph, &console, &options);
+        let text: String = segments.iter().map(|s| s.text.as_ref()).collect();
+        assert_eq!(text, "20 x 5");
+    }
 
     #[test]
     fn variant_cycles_on_click() {

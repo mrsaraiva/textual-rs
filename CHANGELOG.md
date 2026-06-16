@@ -7,6 +7,18 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-16 (fix(Placeholder): stop double-centering its label)
+
+- **fix(widgets/Placeholder): render bare content; let `content-align` center it**
+  - `Placeholder` pre-centered its label inside `render()` AND the framework's
+    `content-align: center middle` default re-centered it during composition
+    (the composition measure used `trim_end`, which doesn't strip the widget's
+    leading pad), netting a uniform +1-column shift. `render()` now emits bare
+    content (matching Python `_placeholder.py`, where all centering is done once
+    by `content-align`). Promotes docs parity cases containers01–05, 07–09 and
+    layout02–04.
+
+
 ### 2026-06-16 (feat(ListView): arena-composed ListItem widgets)
 
 - **feat(widgets/ListView+ListItem): first-class arena composition**
