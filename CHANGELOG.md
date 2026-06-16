@@ -7,6 +7,18 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-16 (fix(render): clip descendants to content box for bordered/padded nodes)
+
+- **fix(runtime/render): a node with gutter clips descendants to its content box**
+  - Descendant content was only clipped to the content box for widgets that
+    opt in (`clips_descendants_to_content`, e.g. scroll hosts). An over-wide
+    bordered `Horizontal` therefore painted its children over its own right
+    border column. Python's compositor clips every container's children to
+    `region.shrink(gutter)`, so a node with any border/padding now clips its
+    descendants to the content box (gutterless nodes are unchanged — content box
+    == layout rect). Promotes `docs_containers06`.
+
+
 ### 2026-06-16 (fix(layout): Node-wrapped unset-height leaf fills the container)
 
 - **fix(layout): a transparent `Node` wrapping an unset-height leaf fills (not 1fr-shares)**

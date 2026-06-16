@@ -916,7 +916,15 @@ fn render_tree_node(
 
     let unclipped_child_ctx = ctx;
     let mut child_ctx = ctx;
-    if node.widget.clips_descendants_to_content() {
+    // Clip descendants to this node's content box (inside border + padding) when
+    // either the widget opts in (scroll hosts, etc.) OR the node has gutter
+    // chrome (border/padding). Python's compositor clips every container's
+    // children to `container_region = region.shrink(gutter)` unconditionally
+    // (see `_compositor.py` `add_widget`: `sub_clip = clip.intersection(
+    // child_region)`), so overflowing children never paint over the parent's
+    // own border/padding. For gutterless nodes the content box equals the layout
+    // rect, leaving existing behavior unchanged.
+    if node.widget.clips_descendants_to_content() || node_has_gutter(node) {
         let clip_rect = node_content_or_layout_rect(node);
         let node_clip = ClipRect {
             x0: i32::from(clip_rect.x0) + ctx.origin_x,
@@ -2102,6 +2110,23 @@ fn node_content_or_layout_rect(node: &crate::widget_tree::WidgetNode) -> crate::
     } else {
         node.layout_rect
     }
+}
+
+/// Whether the node reserves any gutter (border/padding) between its layout rect
+/// and its content box.
+///
+/// When true, descendant content must be clipped to the content box so it cannot
+/// paint over the node's own border/padding chrome (Python clips children to
+/// `region.shrink(gutter)` for every container). A node with no gutter has its
+/// content box equal to the layout rect, so clipping is a no-op and is skipped.
+fn node_has_gutter(node: &crate::widget_tree::WidgetNode) -> bool {
+    let c = node.content_rect;
+    let l = node.layout_rect;
+    // A degenerate/unset content rect (zero extent) means "no resolved content
+    // box" — treat as no gutter and fall back to the layout rect elsewhere.
+    c.x1 > c.x0
+        && c.y1 > c.y0
+        && (c.x0 > l.x0 || c.y0 > l.y0 || c.x1 < l.x1 || c.y1 < l.y1)
 }
 
 // ===========================================================================
