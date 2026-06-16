@@ -640,6 +640,44 @@ const CASES: &[Case] = &[
         golden_replacements: &[],
         status: Status::Pass,
     },
+    // how-to center variants (vertical/horizontal centering).
+    Case {
+        name: "docs_center08",
+        example: "center08",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_center09",
+        example: "center09",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_center10",
+        example: "center10",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    // themes: muted background tokens (compose class metadata fix).
+    Case {
+        name: "docs_muted_backgrounds",
+        example: "muted_backgrounds",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
     // Horizontal button row (margin: 2 4). Verifies adjacent-margin collapse
     // (gap = max(right, left) = 4, not summed) — fixed in layout/horizontal.rs.
     Case {
@@ -1225,6 +1263,10 @@ pty_case!(docs_stopwatch03, "docs_stopwatch03");
 pty_case!(docs_stopwatch04, "docs_stopwatch04");
 pty_case!(docs_option_list_tables, "docs_option_list_tables");
 pty_case!(docs_prevent, "docs_prevent");
+pty_case!(docs_center08, "docs_center08");
+pty_case!(docs_center09, "docs_center09");
+pty_case!(docs_center10, "docs_center10");
+pty_case!(docs_muted_backgrounds, "docs_muted_backgrounds");
 pty_case!(docs_on_decorator01, "docs_on_decorator01");
 pty_case!(docs_on_decorator02, "docs_on_decorator02");
 pty_case!(docs_colored_text, "docs_colored_text");

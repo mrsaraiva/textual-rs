@@ -97,6 +97,10 @@ CASE=docs_center03       && want "$@" && run_case "$CASE" "$PY_DOCS/how-to" "" "
 CASE=docs_center04       && want "$@" && run_case "$CASE" "$PY_DOCS/how-to" "" "center04.py"
 CASE=docs_center06       && want "$@" && run_case "$CASE" "$PY_DOCS/how-to" "" "center06.py"
 CASE=docs_center07       && want "$@" && run_case "$CASE" "$PY_DOCS/how-to" "" "center07.py"
+CASE=docs_center08       && want "$@" && run_case "$CASE" "$PY_DOCS/how-to" "" "center08.py"
+CASE=docs_center09       && want "$@" && run_case "$CASE" "$PY_DOCS/how-to" "" "center09.py"
+CASE=docs_center10       && want "$@" && run_case "$CASE" "$PY_DOCS/how-to" "" "center10.py"
+CASE=docs_muted_backgrounds && want "$@" && run_case "$CASE" "$PY_DOCS/themes" "" "muted_backgrounds.py"
 # NOTE: app examples event01 (bg-color only), simple01/02 (empty App), and
 # widgets02/03/04 (Welcome mounts only on keypress) have EMPTY initial plain-text
 # screens, so they aren't strict-harness cases (the harness needs a non-empty
