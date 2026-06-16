@@ -10,3 +10,8 @@ rich-rs = "1.1.1"
 crossterm = "0.28"
 tree-sitter-java = "0.23"
 
+# Disambiguate the `layout` example binary name (collides with styles/examples/layout).
+[[example]]
+name = "howto_layout"
+path = "examples/layout/main.rs"
+
