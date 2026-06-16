@@ -7,6 +7,19 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-16 (fix(render): clear re-emits full screen, not a stale diff)
+
+- **fix(runtime/render): diff against a blank frame when clearing the terminal**
+  - When a frame was drawn with `clear_on_next_render` set, a `Clear` control
+    blanked the terminal but the diff was still taken against the *previous*
+    frame — so unchanged cells weren't re-emitted and got wiped off-screen
+    (a stale-frame diff). Added `diff_body_for_draw`, used at all three render
+    paths: when clearing it diffs `next` against a blank frame of the same size,
+    so every visible cell is re-emitted after the wipe (non-clear paths are
+    unchanged). Regression: `clear_before_draw_reemits_unchanged_content`. This
+    also lets dynamic mount/remove use a clear when appropriate without losing
+    siblings.
+
 ### 2026-06-16 (fix(delegate): forward arena composition hooks)
 
 - **fix(widgets/delegate): `delegate_widget_to!` forwards the arena hooks**

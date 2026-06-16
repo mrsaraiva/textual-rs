@@ -58,7 +58,16 @@ impl App {
         let dt_ms = now.duration_since(self.last_render_at).as_millis();
         self.last_render_at = now;
         let clear_before_draw = self.clear_on_next_render;
-        let diff = prepend_clear_if_needed(next.diff_to_segments(&self.frame), clear_before_draw);
+        let diff = prepend_clear_if_needed(
+            diff_body_for_draw(
+                &next,
+                &self.frame,
+                clear_before_draw,
+                None,
+                self.theme.base.to_rich(),
+            ),
+            clear_before_draw,
+        );
         let stream_stats = analyze_segment_stream(&diff, next.width);
         debug_render(&format!(
             "[render] dt={}ms resized={} clear={} size={}x{} prev={}x{} diff.segments={} (control={} text_segments={} text_bytes={})",
@@ -151,13 +160,13 @@ impl App {
         let dt_ms = now.duration_since(self.last_render_at).as_millis();
         self.last_render_at = now;
         let clear_before_draw = self.clear_on_next_render;
-        let diff_body = if clear_before_draw {
-            next.diff_to_segments(&self.frame)
-        } else if let Some(regions) = dirty_regions {
-            next.diff_to_segments_in_regions(&self.frame, regions)
-        } else {
-            next.diff_to_segments(&self.frame)
-        };
+        let diff_body = diff_body_for_draw(
+            &next,
+            &self.frame,
+            clear_before_draw,
+            dirty_regions,
+            self.theme.base.to_rich(),
+        );
         let diff = prepend_clear_if_needed(diff_body, clear_before_draw);
         let stream_stats = analyze_segment_stream(&diff, next.width);
         debug_render(&format!(
@@ -321,13 +330,13 @@ impl App {
         let dt_ms = now.duration_since(self.last_render_at).as_millis();
         self.last_render_at = now;
         let clear_before_draw = self.clear_on_next_render;
-        let diff_body = if clear_before_draw {
-            next.diff_to_segments(&self.frame)
-        } else if let Some(regions) = dirty_regions {
-            next.diff_to_segments_in_regions(&self.frame, regions)
-        } else {
-            next.diff_to_segments(&self.frame)
-        };
+        let diff_body = diff_body_for_draw(
+            &next,
+            &self.frame,
+            clear_before_draw,
+            dirty_regions,
+            self.theme.base.to_rich(),
+        );
         let diff = prepend_clear_if_needed(diff_body, clear_before_draw);
         let stream_stats = analyze_segment_stream(&diff, next.width);
         debug_render(&format!(
@@ -550,6 +559,31 @@ pub(crate) fn prepend_clear_if_needed(diff: Segments, clear_before_draw: bool) -
     out.push(Segment::control(ControlType::Clear));
     out.extend(diff);
     out
+}
+
+/// Compute the diff segment stream for a frame about to be drawn.
+///
+/// When `clear_before_draw` is set, a `Clear` control is prepended (see
+/// [`prepend_clear_if_needed`]) which blanks the whole terminal. In that case
+/// the diff MUST be taken against a BLANK frame of the same size — not the
+/// previous frame — otherwise unchanged cells are not re-emitted and the clear
+/// wipes them off-screen (a stale-frame diff). When not clearing, the previous
+/// frame is used, optionally region-masked.
+pub(crate) fn diff_body_for_draw(
+    next: &FrameBuffer,
+    previous: &FrameBuffer,
+    clear_before_draw: bool,
+    dirty_regions: Option<&[DirtyRegion]>,
+    base_style: Option<rich_rs::Style>,
+) -> Segments {
+    if clear_before_draw {
+        let blank = FrameBuffer::new(next.width, next.height, base_style);
+        next.diff_to_segments(&blank)
+    } else if let Some(regions) = dirty_regions {
+        next.diff_to_segments_in_regions(previous, regions)
+    } else {
+        next.diff_to_segments(previous)
+    }
 }
 
 pub(crate) fn analyze_segment_stream(segments: &Segments, width: usize) -> SegmentStreamStats {
@@ -2900,6 +2934,42 @@ pub(crate) fn apply_layout_info_tree_from_layout_rects(tree: &mut WidgetTree) {
 mod tests {
     use super::super::types::{SYNC_END, SYNC_START};
     use super::*;
+
+    fn diff_text(segments: &Segments) -> String {
+        let mut out = String::new();
+        for s in segments.iter() {
+            if s.control.is_none() {
+                out.push_str(&s.text);
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn clear_before_draw_reemits_unchanged_content() {
+        // Regression: when a frame is drawn with clear_before_draw, the terminal
+        // is wiped, so the diff must be taken against a BLANK frame — not the
+        // previous frame — or unchanged content is not re-emitted and vanishes.
+        let (w, h) = (10, 1);
+        let lines = vec![vec![Segment::new("HELLO".to_string())]];
+        let next = FrameBuffer::from_lines(&lines, w, h, None);
+        let previous = FrameBuffer::from_lines(&lines, w, h, None);
+
+        // No clear, identical frames: nothing to redraw.
+        let no_clear = diff_body_for_draw(&next, &previous, false, None, None);
+        assert!(
+            !diff_text(&no_clear).contains("HELLO"),
+            "identical frames without clear must not re-emit content"
+        );
+
+        // Clear set: must re-emit all visible content despite an identical
+        // previous frame (diff against blank, not the stale frame).
+        let with_clear = diff_body_for_draw(&next, &previous, true, None, None);
+        assert!(
+            diff_text(&with_clear).contains("HELLO"),
+            "clear must re-emit visible content (diff against blank, not stale frame)"
+        );
+    }
 
     #[test]
     fn sync_output_wraps_payload_when_enabled() {
