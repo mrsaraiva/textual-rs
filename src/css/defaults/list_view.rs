@@ -3,6 +3,8 @@
 pub(super) const DEFAULT_CSS: &str = r#"
 ListView {
     bg: $surface;
+    layout: vertical;
+    height: auto;
 }
 
 ListView > ListItem {

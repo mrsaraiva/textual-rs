@@ -95,6 +95,33 @@ fn set_inline_border_box_padding(widget: &mut dyn Widget, horizontal: u16) {
     );
 }
 
+/// Regression: `Label::layout_height()` must report OUTER height (content +
+/// own padding/border), per the `extract_child_spec` height-arm convention.
+/// A `Label { padding: 1 2 }` previously reported only its 1-row content height
+/// and overflowed its box (two stacked padded labels overlapped). The height
+/// must now include the resolved vertical chrome.
+#[test]
+fn label_layout_height_includes_vertical_padding() {
+    let mut compact = Label::new("Item");
+    compact.set_inline_style(Style::new().padding(Spacing::new(0, 2, 0, 2)));
+
+    let mut padded = Label::new("Item");
+    padded.set_inline_style(Style::new().padding(Spacing::new(1, 2, 1, 2)));
+
+    let compact_h = compact
+        .layout_height()
+        .expect("Label reports a layout height");
+    let padded_h = padded
+        .layout_height()
+        .expect("Label reports a layout height");
+
+    assert_eq!(
+        padded_h.saturating_sub(compact_h),
+        2,
+        "Label layout_height must include top+bottom padding (outer height)"
+    );
+}
+
 #[test]
 fn engine_border_box_auto_adds_padding_chrome() {
     let mut tree = WidgetTree::new();

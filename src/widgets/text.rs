@@ -207,7 +207,13 @@ impl Widget for Label {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        Some(self.intrinsic_height())
+        // `layout_height()` is the widget's OUTER height (content + own
+        // padding/border), the convention the flow layout's `extract_child_spec`
+        // height arm relies on (it adds only margin on top). Include the resolved
+        // vertical chrome so a styled `Label { padding: 1 2 }` occupies its full
+        // box height instead of letting the content overflow its 1-row box.
+        let chrome = crate::widgets::helpers::resolved_vertical_chrome(self);
+        Some(self.intrinsic_height().saturating_add(chrome))
     }
 
     fn style(&self) -> Option<crate::style::Style> {

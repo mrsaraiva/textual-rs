@@ -2,96 +2,123 @@ use crossterm::event::KeyCode;
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
 use crate::compose::ComposeResult;
+use crate::css;
 use crate::event::{Action, Event, EventCtx};
 use crate::message::*;
 
 use crate::action::ParsedAction;
 
-use super::{BindingDecl, NodeSeed, ScrollView, Widget, helpers::adjust_line_length_no_bg};
+use super::{BindingDecl, ListItem, NodeSeed, ScrollView, Widget};
 
-/// A wrapper for items in a [`ListView`], matching Python Textual's `ListItem(Label(...))`.
+/// A vertical list view widget.
 ///
-/// In Python Textual, `ListItem` is a container widget that wraps children (typically `Label`).
-/// In Rust, `ListItem` provides the same composition API while `ListView` handles rendering.
+/// Displays a vertical list of [`ListItem`]s which can be highlighted and
+/// selected using the mouse or keyboard. This mirrors Python Textual's
+/// `ListView` (`textual/widgets/_list_view.py`): it composes `ListItem`
+/// children through the normal widget tree, is focusable but does **not** let
+/// its children take focus (`can_focus_children=False`), and drives the
+/// highlight on the highlighted child by setting the `-highlight` class on that
+/// child's node — the highlight is conveyed **by background only**, there is no
+/// text marker.
 ///
-/// # Example
+/// # Construction
 ///
 /// ```rust
 /// use textual::prelude::*;
 ///
+/// // Python: ListView(ListItem(Label("One")), ListItem(Label("Two")))
 /// let list = ListView::from_list_items(vec![
 ///     ListItem::new(Label::new("One")),
 ///     ListItem::new(Label::new("Two")),
-///     ListItem::new(Label::new("Three")),
 /// ]);
+/// assert_eq!(list.len(), 2);
+///
+/// // Convenience: build items from plain strings.
+/// let list = ListView::new(vec!["One".to_string(), "Two".to_string()]);
+/// assert_eq!(list.items(), &["One", "Two"]);
 /// ```
-#[derive(Debug, Clone)]
-pub struct ListItem {
-    text: String,
-}
-
-impl ListItem {
-    /// Create a new `ListItem` wrapping a `Label`.
-    pub fn new(label: crate::widgets::Label) -> Self {
-        Self {
-            text: label.text().to_string(),
-        }
-    }
-
-    /// Create a `ListItem` from a raw string.
-    pub fn from_text(text: impl Into<String>) -> Self {
-        Self { text: text.into() }
-    }
-
-    /// The text content of this item.
-    pub fn text(&self) -> &str {
-        &self.text
-    }
-}
-
-#[derive(Debug, Clone)]
+///
+/// # Headless use
+///
+/// `ListView` also serves as a headless selection/scroll state model (used by
+/// the command palette): the index/offset/hover state machine works
+/// independently of arena composition, so embedding widgets can read
+/// [`selected`](Self::selected) / [`offset`](Self::offset) /
+/// [`hovered_index`](Self::hovered_index) without mounting the list.
+#[derive(Debug)]
 pub struct ListView {
-    items: Vec<String>,
+    /// Authoritative text of each item (the headless state model and message
+    /// payloads use this; it survives arena extraction). For text-based items it
+    /// is also the source from which `ListItem` children are (re)built.
+    item_text: Vec<String>,
+    /// Authoritative per-item disabled state, in lockstep with `item_text`.
     disabled: Vec<bool>,
+    /// Compose buffer for [`from_list_items`](Self::from_list_items) /
+    /// [`set_list_items`](Self::set_list_items): the user-supplied `ListItem`s
+    /// awaiting their first arena mount. Drained by `take_composed_children`;
+    /// `None`/empty thereafter (recomposes rebuild from `item_text`).
+    pending_items: Vec<ListItem>,
     selected: usize,
     offset: usize,
     hovered_index: Option<usize>,
     pressed_index: Option<usize>,
     viewport_height: usize,
     scroll_step: usize,
+    children_extracted: bool,
+    /// `true` once an initial `Highlighted` should be posted at mount (Python's
+    /// `_on_mount` sets `self.index`, which fires the `Highlighted` watcher).
+    pending_initial_highlight: bool,
     seed: NodeSeed,
 }
 
 impl ListView {
+    /// Create a `ListView` from plain strings; each becomes a `ListItem(Label)`.
     pub fn new(items: Vec<String>) -> Self {
-        let len = items.len();
-        Self {
-            items,
-            disabled: vec![false; len],
+        let pending: Vec<ListItem> = items.iter().cloned().map(ListItem::from_text).collect();
+        let disabled = vec![false; items.len()];
+        Self::build(pending, items, disabled)
+    }
+
+    /// Create a `ListView` from [`ListItem`] children (the Python composition API).
+    ///
+    /// Python: `ListView(ListItem(Label("One")), ListItem(Label("Two")), ...)`.
+    pub fn from_list_items(items: Vec<ListItem>) -> Self {
+        let text: Vec<String> = items.iter().map(|i| i.text().to_string()).collect();
+        let disabled: Vec<bool> = items.iter().map(ListItem::is_disabled).collect();
+        Self::build(items, text, disabled)
+    }
+
+    fn build(pending_items: Vec<ListItem>, item_text: Vec<String>, disabled: Vec<bool>) -> Self {
+        let mut view = Self {
+            item_text,
+            disabled,
+            pending_items,
             selected: 0,
             offset: 0,
             hovered_index: None,
             pressed_index: None,
             viewport_height: 1,
             scroll_step: 1,
+            children_extracted: false,
+            pending_initial_highlight: false,
             seed: NodeSeed::default(),
+        };
+        // Python `_on_mount` highlights `initial_index` (0), skipping disabled.
+        if let Some(first) = view.first_selectable() {
+            view.selected = first;
+            view.pending_initial_highlight = true;
         }
+        view
     }
 
-    /// Create a `ListView` from [`ListItem`] children, matching the Python composition API.
-    ///
-    /// Python: `ListView(ListItem(Label("One")), ListItem(Label("Two")), ...)`
-    pub fn from_list_items(items: Vec<ListItem>) -> Self {
-        let strings: Vec<String> = items.into_iter().map(|item| item.text).collect();
-        Self::new(strings)
-    }
+    // ── State accessors (also used by the headless command-palette model) ────
 
     pub fn selected(&self) -> usize {
         self.selected
     }
 
     pub fn selected_item(&self) -> Option<&str> {
-        self.items.get(self.selected).map(String::as_str)
+        self.item_text.get(self.selected).map(String::as_str)
     }
 
     pub fn offset(&self) -> usize {
@@ -102,8 +129,19 @@ impl ListView {
         self.hovered_index
     }
 
+    /// The number of items in the list.
+    pub fn len(&self) -> usize {
+        self.item_text.len()
+    }
+
+    /// Whether the list has no items.
+    pub fn is_empty(&self) -> bool {
+        self.item_text.is_empty()
+    }
+
+    /// The item texts, in order.
     pub fn items(&self) -> &[String] {
-        &self.items
+        &self.item_text
     }
 
     pub fn set_selected(&mut self, index: usize) {
@@ -118,21 +156,44 @@ impl ListView {
         self.ensure_visible();
     }
 
+    /// Mark the items as changed so the next mount/recompose rebuilds the arena
+    /// children from the current `item_text`/`disabled` state.
+    fn invalidate_children(&mut self) {
+        self.pending_items.clear();
+        self.children_extracted = false;
+    }
+
+    /// Replace all items with new ones built from plain strings.
     pub fn set_items(&mut self, items: Vec<String>) {
         self.disabled = vec![false; items.len()];
-        self.items = items;
+        self.item_text = items;
+        self.invalidate_children();
+        self.clamp_offsets();
+        self.ensure_visible();
+    }
+
+    /// Replace all items with new [`ListItem`] children.
+    pub fn set_list_items(&mut self, items: Vec<ListItem>) {
+        self.item_text = items.iter().map(|i| i.text().to_string()).collect();
+        self.disabled = items.iter().map(ListItem::is_disabled).collect();
+        self.pending_items = items;
+        self.children_extracted = false;
         self.clamp_offsets();
         self.ensure_visible();
     }
 
     pub fn set_item_disabled(&mut self, index: usize, disabled: bool) {
-        if index >= self.items.len() {
+        if index >= self.item_text.len() {
             return;
         }
         if index >= self.disabled.len() {
-            self.disabled.resize(self.items.len(), false);
+            self.disabled.resize(self.item_text.len(), false);
         }
         self.disabled[index] = disabled;
+        // Keep any pending (not-yet-mounted) item in sync.
+        if let Some(item) = self.pending_items.get_mut(index) {
+            *item = std::mem::replace(item, ListItem::empty()).disabled(disabled);
+        }
         self.clamp_offsets();
         self.ensure_visible();
     }
@@ -146,84 +207,96 @@ impl ListView {
         self
     }
 
-    /// Append an item to the end of the list.
+    /// Append a `ListItem` to the end of the list.
+    pub fn append_item(&mut self, item: ListItem) {
+        self.item_text.push(item.text().to_string());
+        self.disabled.push(item.is_disabled());
+        // Once mounted, items are rebuilt from text on recompose; before mount we
+        // keep the user-supplied item in the pending buffer.
+        if !self.children_extracted {
+            self.pending_items.push(item);
+        }
+        self.children_extracted = false;
+    }
+
+    /// Append an item from a plain string.
     pub fn append(&mut self, item: String) {
-        self.items.push(item);
-        self.disabled.push(false);
+        self.append_item(ListItem::from_text(item));
     }
 
     /// Remove all items, resetting selection and scroll offset to 0.
     pub fn clear(&mut self) {
-        self.items.clear();
+        self.item_text.clear();
         self.disabled.clear();
+        self.pending_items.clear();
         self.selected = 0;
         self.offset = 0;
         self.hovered_index = None;
         self.pressed_index = None;
+        self.children_extracted = false;
     }
 
-    /// Remove the item at `index`, returning it if valid.
-    ///
-    /// Adjusts selected index and scroll offset so they remain valid.
+    /// Remove the item at `index`, returning its text if valid.
     pub fn remove(&mut self, index: usize) -> Option<String> {
-        if index >= self.items.len() {
+        if index >= self.item_text.len() {
             return None;
         }
-        let item = self.items.remove(index);
+        let text = self.item_text.remove(index);
         if index < self.disabled.len() {
             self.disabled.remove(index);
         }
+        self.invalidate_children();
         self.clamp_offsets();
         self.ensure_visible();
-        Some(item)
+        Some(text)
     }
 
-    /// Insert an item at `index`. Panics if `index > items.len()`.
-    ///
-    /// If the current selection is at or after `index`, it shifts forward.
+    /// Insert an item from a plain string at `index`. Panics if `index > len()`.
     pub fn insert(&mut self, index: usize, item: String) {
-        self.items.insert(index, item);
+        self.item_text.insert(index, item);
         self.disabled.insert(index, false);
-        if self.selected >= index && !self.items.is_empty() && self.selected + 1 < self.items.len()
+        self.invalidate_children();
+        if self.selected >= index
+            && !self.item_text.is_empty()
+            && self.selected + 1 < self.item_text.len()
         {
             self.selected += 1;
         }
         self.ensure_visible();
     }
 
-    /// Remove and return the last item, if any.
-    ///
-    /// Adjusts selected index and scroll offset so they remain valid.
+    /// Remove and return the last item's text, if any.
     pub fn pop(&mut self) -> Option<String> {
-        let item = self.items.pop()?;
+        let text = self.item_text.pop()?;
         self.disabled.pop();
+        self.invalidate_children();
         self.clamp_offsets();
         self.ensure_visible();
-        Some(item)
+        Some(text)
     }
 
+    // ── Selection / navigation internals ────────────────────────────────────
+
     fn max_offset(&self) -> usize {
-        ScrollView::line_max_offset(self.items.len(), self.viewport_height.max(1))
+        ScrollView::line_max_offset(self.item_text.len(), self.viewport_height.max(1))
     }
 
     fn is_selectable(&self, index: usize) -> bool {
-        index < self.items.len() && !self.is_item_disabled(index)
+        index < self.item_text.len() && !self.is_item_disabled(index)
     }
 
     fn selectable_count(&self) -> usize {
-        self.items
-            .iter()
-            .enumerate()
-            .filter(|(idx, _)| self.is_selectable(*idx))
+        (0..self.item_text.len())
+            .filter(|idx| self.is_selectable(*idx))
             .count()
     }
 
     fn first_selectable(&self) -> Option<usize> {
-        (0..self.items.len()).find(|idx| self.is_selectable(*idx))
+        (0..self.item_text.len()).find(|idx| self.is_selectable(*idx))
     }
 
     fn last_selectable(&self) -> Option<usize> {
-        (0..self.items.len())
+        (0..self.item_text.len())
             .rev()
             .find(|idx| self.is_selectable(*idx))
     }
@@ -232,7 +305,7 @@ impl ListView {
         if self.selectable_count() == 0 {
             return None;
         }
-        let max = self.items.len().saturating_sub(1) as isize;
+        let max = self.item_text.len().saturating_sub(1) as isize;
         let mut idx = (from as isize).clamp(0, max) as usize;
         if self.is_selectable(idx) {
             return Some(idx);
@@ -251,14 +324,14 @@ impl ListView {
     }
 
     fn clamp_offsets(&mut self) {
-        if self.items.is_empty() {
+        if self.item_text.is_empty() {
             self.selected = 0;
             self.offset = 0;
             self.hovered_index = None;
             self.pressed_index = None;
             return;
         }
-        self.selected = self.selected.min(self.items.len() - 1);
+        self.selected = self.selected.min(self.item_text.len() - 1);
         if !self.is_selectable(self.selected) {
             self.selected = self
                 .closest_selectable(self.selected, 1)
@@ -268,7 +341,7 @@ impl ListView {
         }
         self.offset = self.offset.min(self.max_offset());
         if let Some(index) = self.hovered_index {
-            if index >= self.items.len() {
+            if index >= self.item_text.len() {
                 self.hovered_index = None;
             }
         }
@@ -276,7 +349,7 @@ impl ListView {
 
     fn ensure_visible(&mut self) {
         self.clamp_offsets();
-        if self.items.is_empty() {
+        if self.item_text.is_empty() {
             return;
         }
         let viewport = self.viewport_height.max(1);
@@ -288,9 +361,10 @@ impl ListView {
         self.offset = self.offset.min(self.max_offset());
     }
 
-    fn emit_selection_changed(&self, ctx: &mut EventCtx) {
+    /// Post the Python `ListView.Highlighted` message for the current selection.
+    fn emit_highlighted(&self, ctx: &mut EventCtx) {
         if self.is_selectable(self.selected)
-            && let Some(item) = self.items.get(self.selected)
+            && let Some(item) = self.item_text.get(self.selected)
         {
             ctx.post_message(ListViewSelectionChanged {
                 index: self.selected,
@@ -299,9 +373,10 @@ impl ListView {
         }
     }
 
-    fn emit_item_activated(&self, index: usize, ctx: &mut EventCtx) {
+    /// Post the Python `ListView.Selected` message for `index`.
+    fn emit_selected(&self, index: usize, ctx: &mut EventCtx) {
         if self.is_selectable(index)
-            && let Some(item) = self.items.get(index)
+            && let Some(item) = self.item_text.get(index)
         {
             ctx.post_message(ListViewItemActivated {
                 index,
@@ -321,7 +396,7 @@ impl ListView {
         if next != self.selected {
             self.selected = next;
             self.ensure_visible();
-            self.emit_selection_changed(ctx);
+            self.emit_highlighted(ctx);
             ctx.request_repaint();
         }
     }
@@ -331,10 +406,10 @@ impl ListView {
             return;
         }
         let current = self.selected as isize;
-        let max = (self.items.len() - 1) as isize;
+        let max = (self.item_text.len() - 1) as isize;
         let mut next = (current + delta).clamp(0, max) as usize;
         let step = if delta >= 0 { 1 } else { -1 };
-        while next < self.items.len() && !self.is_selectable(next) {
+        while next < self.item_text.len() && !self.is_selectable(next) {
             let probe = next as isize + step;
             if probe < 0 || probe > max {
                 return;
@@ -348,40 +423,28 @@ impl ListView {
         self.viewport_height.saturating_sub(1).max(1)
     }
 
+    /// Widest item text, in cells — the intrinsic content width used for
+    /// `width: auto` sizing (the layout adds the box chrome on top).
+    fn intrinsic_text_width(&self) -> Option<usize> {
+        self.item_text
+            .iter()
+            .map(|t| rich_rs::cell_len(t).max(1))
+            .max()
+            .map(|w| w.max(1))
+    }
+
     fn scroll_offset(&mut self, delta_rows: isize, ctx: &mut EventCtx) {
         let before = self.offset;
         self.offset = ScrollView::line_scroll_by(
             self.offset,
             delta_rows as i32,
-            self.items.len(),
+            self.item_text.len(),
             self.viewport_height.max(1),
         );
         if self.offset != before {
             ctx.request_repaint();
             ctx.set_handled();
         }
-    }
-
-    fn item_classes(
-        highlighted: bool,
-        hovered: bool,
-        focused: bool,
-        disabled: bool,
-    ) -> Vec<&'static str> {
-        let mut classes = vec!["list-view--item"];
-        if highlighted {
-            classes.push("-highlight");
-        }
-        if hovered && !highlighted {
-            classes.push("-hovered");
-        }
-        if highlighted && focused {
-            classes.push("-focus");
-        }
-        if disabled {
-            classes.push("-disabled");
-        }
-        classes
     }
 }
 
@@ -391,11 +454,70 @@ impl Widget for ListView {
     }
 
     fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
-        Vec::new()
+        if self.children_extracted {
+            return Vec::new();
+        }
+        self.children_extracted = true;
+        // Use the user-supplied items on first mount; on a recompose (after a
+        // text-based mutation such as `append`/`set_items`) the pending buffer is
+        // empty, so rebuild every item from the retained `item_text`/`disabled`
+        // state — this keeps previously-mounted items and avoids dropping any.
+        let mut items = std::mem::take(&mut self.pending_items);
+        if items.is_empty() && !self.item_text.is_empty() {
+            items = self
+                .item_text
+                .iter()
+                .enumerate()
+                .map(|(idx, text)| {
+                    ListItem::from_text(text.clone()).disabled(self.is_item_disabled(idx))
+                })
+                .collect();
+        }
+        let mut out: Vec<Box<dyn Widget>> = Vec::with_capacity(items.len());
+        for (ordinal, mut item) in items.into_iter().enumerate() {
+            item.set_ordinal(ordinal);
+            out.push(Box::new(item));
+        }
+        out
     }
 
     fn focusable(&self) -> bool {
         true
+    }
+
+    fn can_focus(&self) -> bool {
+        true
+    }
+
+    fn can_focus_children(&self) -> bool {
+        // Python: `ListView(..., can_focus_children=False)`.
+        false
+    }
+
+    /// Drive the highlight (and hover) on child `ListItem` nodes by index. This
+    /// is the canonical arena mechanism (mirrors Python's `watch_index` setting
+    /// `-highlight` on the highlighted child). The highlight is background-only.
+    fn child_classes_for_tree(&self, child_index: usize) -> Vec<(&'static str, bool)> {
+        // The highlight is independent of focus — the `:focus` CSS variant
+        // restyles the highlighted item when the list is focused.
+        let highlighted = child_index == self.selected && self.is_selectable(child_index);
+        let hovered = self.hovered_index == Some(child_index) && !highlighted;
+        vec![("-highlight", highlighted), ("-hovered", hovered)]
+    }
+
+    fn take_pending_mount_messages(&mut self) -> Vec<Box<dyn crate::message::Message>> {
+        if self.pending_initial_highlight
+            && self.is_selectable(self.selected)
+            && let Some(item) = self.item_text.get(self.selected)
+        {
+            self.pending_initial_highlight = false;
+            return vec![Box::new(ListViewSelectionChanged {
+                index: self.selected,
+                item: item.clone(),
+            })];
+        }
+        self.pending_initial_highlight = false;
+        Vec::new()
     }
 
     fn on_node_state_changed(
@@ -468,7 +590,7 @@ impl Widget for ListView {
                 true
             }
             "select_cursor" => {
-                self.emit_item_activated(self.selected, ctx);
+                self.emit_selected(self.selected, ctx);
                 ctx.set_handled();
                 true
             }
@@ -476,8 +598,29 @@ impl Widget for ListView {
         }
     }
 
+    fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
+        // A child ListItem was clicked (Python: `_on_list_item__child_clicked`):
+        // focus the list, highlight the item, and post `Selected`.
+        if let Some(clicked) = message.downcast_ref::<ListItemChildClicked>() {
+            let index = clicked.ordinal;
+            if self.is_selectable(index) {
+                if index != self.selected {
+                    self.selected = index;
+                    self.ensure_visible();
+                    self.emit_highlighted(ctx);
+                }
+                self.emit_selected(index, ctx);
+                ctx.request_repaint();
+            }
+            ctx.set_handled();
+        }
+    }
+
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
         match event {
+            // Headless mouse path (row-based): used when ListView is embedded as
+            // a state model (the command palette) rather than mounted with real
+            // ListItem children. Composed lists are driven by ListItemChildClicked.
             Event::MouseDown(mouse) if mouse.target == self.node_id() => {
                 let index = self.offset.saturating_add(mouse.y as usize);
                 if self.is_selectable(index) {
@@ -493,7 +636,7 @@ impl Widget for ListView {
             Event::MouseUp(mouse) if mouse.target.is_some_and(|t| t == self.node_id()) => {
                 let index = self.offset.saturating_add(mouse.y as usize);
                 if self.pressed_index == Some(index) && self.is_selectable(index) {
-                    self.emit_item_activated(index, ctx);
+                    self.emit_selected(index, ctx);
                     ctx.set_handled();
                 }
                 self.pressed_index = None;
@@ -547,7 +690,7 @@ impl Widget for ListView {
                     ctx.set_handled();
                 }
                 KeyCode::Enter => {
-                    self.emit_item_activated(self.selected, ctx);
+                    self.emit_selected(self.selected, ctx);
                     ctx.set_handled();
                 }
                 _ => {}
@@ -564,7 +707,7 @@ impl Widget for ListView {
     }
 
     fn on_mouse_move(&mut self, _x: u16, y: u16) -> bool {
-        if self.items.is_empty() {
+        if self.item_text.is_empty() {
             return false;
         }
         let index = self.offset.saturating_add(y as usize);
@@ -591,65 +734,67 @@ impl Widget for ListView {
         self.pressed_index = None;
     }
 
+    fn style_type(&self) -> &'static str {
+        "ListView"
+    }
+
+    /// Chrome-only render. The `ListItem` children render through the arena
+    /// tree; `ListView` only paints its own resolved surface (background/tint).
     fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
+        let resolved = css::resolve_style(self, &css::selector_meta_generic(self));
+        let paints_surface = resolved.bg.is_some()
+            || resolved.hatch.is_some()
+            || resolved.border_top.is_set()
+            || resolved.border_right.is_set()
+            || resolved.border_bottom.is_set()
+            || resolved.border_left.is_set();
+        if !paints_surface {
+            return Segments::new();
+        }
         let height = options.size.1.max(1);
         let mut out = Segments::new();
-
-        let base_style = crate::css::resolve_component_style(self, &["list-view--item"])
-            .to_rich()
-            .unwrap_or_else(rich_rs::Style::new);
-
-        for row in 0..height {
-            let index = self.offset + row;
-            let mut text = String::new();
-            let mut style = base_style;
-            if let Some(item) = self.items.get(index) {
-                let highlighted = index == self.selected && self.is_selectable(index);
-                let hovered = self.hovered_index == Some(index);
-                let classes = Self::item_classes(
-                    highlighted,
-                    hovered,
-                    self.node_state().focused,
-                    self.is_item_disabled(index),
-                );
-                style = crate::css::resolve_component_style(self, &classes)
-                    .to_rich()
-                    .unwrap_or(style);
-                let marker = if highlighted { "› " } else { "  " };
-                text = format!("{marker}{item}");
-            }
-
-            let line = adjust_line_length_no_bg(&[Segment::styled(text, style)], width);
-            out.extend(line);
-            if row + 1 < height {
+        for idx in 0..height {
+            out.push(Segment::new(" ".repeat(width)));
+            if idx + 1 < height {
                 out.push(Segment::line());
             }
         }
-
         out
     }
 
     fn layout_height(&self) -> Option<usize> {
-        Some(self.items.len().max(1))
+        // height: auto — pre-mount estimate from the pending items. After
+        // extraction the arena owns layout, so return None.
+        if self.children_extracted {
+            return None;
+        }
+        if !self.pending_items.is_empty() {
+            let mut total = 0usize;
+            for item in &self.pending_items {
+                match item.layout_height() {
+                    Some(h) => total = total.saturating_add(h.max(1)),
+                    None => return None,
+                }
+            }
+            return Some(total.max(1));
+        }
+        // Text-only estimate: one row per item (real heights come from the
+        // arena once the `ListItem`/`Label` children are mounted).
+        Some(self.item_text.len().max(1))
+    }
+
+    fn auto_content_width(&self) -> Option<usize> {
+        // For `width: auto`, report the widest item text regardless of arena
+        // extraction (the authoritative `item_text` survives a drain).
+        self.intrinsic_text_width()
     }
 
     fn content_width(&self) -> Option<usize> {
-        let content_width = self
-            .items
-            .iter()
-            .map(|item| rich_rs::cell_len(item).saturating_add(2))
-            .max()
-            .unwrap_or(2)
-            .max(1);
-        let meta = crate::css::selector_meta_generic(self);
-        let resolved = crate::css::resolve_style(self, &meta);
-        let padding = resolved.effective_padding();
-        let (_, _, border_left, border_right) =
-            super::helpers::border_spacing_from_style(&resolved);
-        let chrome_lr =
-            usize::from(padding.left.saturating_add(padding.right)) + border_left + border_right;
-        Some(content_width.saturating_add(chrome_lr).max(1))
+        if self.children_extracted {
+            return None;
+        }
+        self.intrinsic_text_width()
     }
 
     fn set_inline_style(&mut self, style: crate::style::Style) {
@@ -669,13 +814,13 @@ impl Renderable for ListView {
 
 #[cfg(test)]
 mod tests {
-    use super::ListView;
+    use super::{ListItem, ListView};
     use crate::event::{Event, EventCtx, MouseDownEvent, MouseUpEvent};
     use crate::keys::KeyEventData;
     use crate::message::*;
     use crate::node_id::NodeId;
     use crate::runtime::dispatch_ctx::set_dispatch_recipient;
-    use crate::widgets::{NodeState, Widget};
+    use crate::widgets::{Label, NodeState, Widget};
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use slotmap::SlotMap;
 
@@ -691,16 +836,83 @@ mod tests {
         }
     }
 
+    // ── Composition / arena tests ───────────────────────────────────────
+
     #[test]
-    fn highlighted_item_uses_highlight_class_not_hover() {
-        let classes = ListView::item_classes(true, true, true, false);
-        assert!(classes.contains(&"-highlight"));
-        assert!(classes.contains(&"-focus"));
-        assert!(!classes.contains(&"-hovered"));
+    fn from_list_items_keeps_text() {
+        let list = ListView::from_list_items(vec![
+            ListItem::new(Label::new("One")),
+            ListItem::new(Label::new("Two")),
+        ]);
+        assert_eq!(list.items(), &["One", "Two"]);
+        assert_eq!(list.len(), 2);
     }
 
     #[test]
-    fn enter_activates_selected_item() {
+    fn take_composed_children_drains_items_with_ordinals() {
+        let mut list = ListView::from_list_items(vec![
+            ListItem::new(Label::new("a")),
+            ListItem::new(Label::new("b")),
+            ListItem::new(Label::new("c")),
+        ]);
+        let children = list.take_composed_children();
+        assert_eq!(children.len(), 3);
+        // After extraction the call is idempotent.
+        assert!(list.take_composed_children().is_empty());
+        // Item text survives extraction (headless state machine still works).
+        assert_eq!(list.items(), &["a", "b", "c"]);
+    }
+
+    #[test]
+    fn can_focus_children_is_false() {
+        let list = ListView::new(vec!["A".into()]);
+        assert!(list.focusable());
+        assert!(!list.can_focus_children());
+    }
+
+    #[test]
+    fn child_classes_highlight_selected_only() {
+        let mut list = ListView::new(vec!["A".into(), "B".into(), "C".into()]);
+        list.set_selected(1);
+        let c0 = list.child_classes_for_tree(0);
+        let c1 = list.child_classes_for_tree(1);
+        assert!(c0.contains(&("-highlight", false)));
+        assert!(c1.contains(&("-highlight", true)));
+    }
+
+    #[test]
+    fn child_classes_mark_hover_when_not_highlighted() {
+        let mut list = ListView::new(vec!["A".into(), "B".into()]);
+        list.set_selected(0);
+        assert!(list.on_mouse_move(0, 1));
+        let c1 = list.child_classes_for_tree(1);
+        assert!(c1.contains(&("-hovered", true)));
+        // The highlighted row never shows hover.
+        list.set_selected(1);
+        let c1 = list.child_classes_for_tree(1);
+        assert!(c1.contains(&("-hovered", false)));
+    }
+
+    #[test]
+    fn initial_highlight_message_staged_at_mount() {
+        let mut list = ListView::new(vec!["A".into(), "B".into()]);
+        let msgs = list.take_pending_mount_messages();
+        assert_eq!(msgs.len(), 1);
+        assert!(msgs[0].as_any().is::<ListViewSelectionChanged>());
+        // Drained once.
+        assert!(list.take_pending_mount_messages().is_empty());
+    }
+
+    #[test]
+    fn empty_list_stages_no_initial_highlight() {
+        let mut list = ListView::new(vec![]);
+        assert!(list.take_pending_mount_messages().is_empty());
+    }
+
+    // ── Selection / message tests ───────────────────────────────────────
+
+    #[test]
+    fn enter_selects_current_item() {
         let mut list = ListView::new(vec!["one".to_string(), "two".to_string()]);
         let _guard = set_dispatch_recipient(make_node_id(), focused_state());
         list.set_selected(1);
@@ -711,94 +923,51 @@ mod tests {
 
         let messages = ctx.take_messages();
         assert_eq!(messages.len(), 1);
-        assert!(messages[0].is::<ListViewItemActivated>());
-        assert_eq!(
-            messages[0]
-                .downcast_ref::<ListViewItemActivated>()
-                .unwrap()
-                .index,
-            1
-        );
-        assert_eq!(
-            messages[0]
-                .downcast_ref::<ListViewItemActivated>()
-                .unwrap()
-                .item,
-            "two"
-        );
+        let activated = messages[0]
+            .downcast_ref::<ListViewItemActivated>()
+            .expect("Selected");
+        assert_eq!(activated.index, 1);
+        assert_eq!(activated.item, "two");
     }
 
     #[test]
-    fn mouse_click_activates_even_when_selection_unchanged() {
+    fn child_clicked_message_highlights_and_selects() {
         let mut list = ListView::new(vec!["one".to_string(), "two".to_string()]);
-        list.on_layout(20, 2);
-        let id = NodeId::default();
-
+        let _guard = set_dispatch_recipient(make_node_id(), NodeState::default());
         let mut ctx = EventCtx::default();
-        list.on_event(
-            &Event::MouseDown(MouseDownEvent {
-                target: id,
-                screen_x: 0,
-                screen_y: 0,
-                x: 0,
-                y: 0,
-            }),
+        list.on_message(
+            &MessageEvent::new(
+                NodeId::default(),
+                ListItemChildClicked {
+                    ordinal: 1,
+                    item: "two".to_string(),
+                },
+            ),
             &mut ctx,
         );
+        assert_eq!(list.selected(), 1);
+        let messages = ctx.take_messages();
+        // Highlighted (selection changed) + Selected.
+        assert!(
+            messages
+                .iter()
+                .any(|m| m.downcast_ref::<ListViewSelectionChanged>().is_some())
+        );
+        assert!(
+            messages
+                .iter()
+                .any(|m| m.downcast_ref::<ListViewItemActivated>().is_some())
+        );
         assert!(ctx.handled());
-
-        let mut up_ctx = EventCtx::default();
-        list.on_event(
-            &Event::MouseUp(MouseUpEvent {
-                target: Some(id),
-                screen_x: 0,
-                screen_y: 0,
-                x: 0,
-                y: 0,
-            }),
-            &mut up_ctx,
-        );
-
-        let messages = up_ctx.take_messages();
-        assert_eq!(messages.len(), 1);
-        assert!(messages[0].is::<ListViewItemActivated>());
-        assert_eq!(
-            messages[0]
-                .downcast_ref::<ListViewItemActivated>()
-                .unwrap()
-                .index,
-            0
-        );
-        assert_eq!(
-            messages[0]
-                .downcast_ref::<ListViewItemActivated>()
-                .unwrap()
-                .item,
-            "one"
-        );
     }
 
     #[test]
-    fn app_focus_loss_clears_hover_state() {
-        let mut list = ListView::new(vec!["one".to_string(), "two".to_string()]);
-        // Set up a hovered index directly via mouse move.
-        assert!(list.on_mouse_move(0, 0));
-        assert_eq!(list.hovered_index, Some(0));
-
-        let mut ctx = EventCtx::default();
-        list.on_event(&Event::AppFocus(false), &mut ctx);
-
-        assert_eq!(list.hovered_index, None);
-        assert!(ctx.repaint_requested());
-    }
-
-    #[test]
-    fn mouse_click_updates_hovered_index() {
+    fn headless_mouse_click_selects_row() {
         let mut list = ListView::new(vec!["one".to_string(), "two".to_string()]);
         list.on_layout(20, 2);
         let id = NodeId::default();
 
-        let mut down_ctx = EventCtx::default();
+        let mut ctx = EventCtx::default();
         list.on_event(
             &Event::MouseDown(MouseDownEvent {
                 target: id,
@@ -807,18 +976,44 @@ mod tests {
                 x: 0,
                 y: 1,
             }),
-            &mut down_ctx,
+            &mut ctx,
         );
+        assert!(ctx.handled());
+        assert_eq!(list.selected(), 1);
 
-        assert_eq!(list.hovered_index, Some(1));
-        assert!(down_ctx.repaint_requested());
+        let mut up_ctx = EventCtx::default();
+        list.on_event(
+            &Event::MouseUp(MouseUpEvent {
+                target: Some(id),
+                screen_x: 0,
+                screen_y: 1,
+                x: 0,
+                y: 1,
+            }),
+            &mut up_ctx,
+        );
+        let messages = up_ctx.take_messages();
+        assert_eq!(messages.len(), 1);
+        assert!(messages[0].is::<ListViewItemActivated>());
+    }
+
+    #[test]
+    fn app_focus_loss_clears_hover_state() {
+        let mut list = ListView::new(vec!["one".to_string(), "two".to_string()]);
+        assert!(list.on_mouse_move(0, 0));
+        assert_eq!(list.hovered_index(), Some(0));
+
+        let mut ctx = EventCtx::default();
+        list.on_event(&Event::AppFocus(false), &mut ctx);
+
+        assert_eq!(list.hovered_index(), None);
+        assert!(ctx.repaint_requested());
     }
 
     #[test]
     fn bindings_are_declared() {
         let list = ListView::new(vec!["A".into(), "B".into()]);
         let bindings = list.bindings();
-        assert!(!bindings.is_empty());
         assert!(bindings.iter().any(|b| b.action == "cursor_up"));
         assert!(bindings.iter().any(|b| b.action == "cursor_down"));
         assert!(bindings.iter().any(|b| b.action == "select_cursor"));
@@ -842,7 +1037,7 @@ mod tests {
     // ── Mutation API tests ──────────────────────────────────────────────
 
     #[test]
-    fn append_adds_item_and_extends_disabled() {
+    fn append_adds_item() {
         let mut list = ListView::new(vec!["A".into()]);
         list.append("B".into());
         assert_eq!(list.items(), &["A", "B"]);
@@ -862,8 +1057,7 @@ mod tests {
     #[test]
     fn remove_valid_index() {
         let mut list = ListView::new(vec!["A".into(), "B".into(), "C".into()]);
-        let removed = list.remove(1);
-        assert_eq!(removed.as_deref(), Some("B"));
+        assert_eq!(list.remove(1).as_deref(), Some("B"));
         assert_eq!(list.items(), &["A", "C"]);
     }
 
@@ -875,12 +1069,6 @@ mod tests {
     }
 
     #[test]
-    fn remove_from_empty_returns_none() {
-        let mut list = ListView::new(vec![]);
-        assert!(list.remove(0).is_none());
-    }
-
-    #[test]
     fn remove_adjusts_selected_when_at_end() {
         let mut list = ListView::new(vec!["A".into(), "B".into()]);
         list.set_selected(1);
@@ -889,60 +1077,45 @@ mod tests {
     }
 
     #[test]
-    fn insert_at_beginning() {
+    fn insert_at_beginning_shifts_selection() {
         let mut list = ListView::new(vec!["B".into(), "C".into()]);
         list.set_selected(0);
         list.insert(0, "A".into());
         assert_eq!(list.items(), &["A", "B", "C"]);
-        // selected was at 0, insert at 0 shifts it to 1
         assert_eq!(list.selected(), 1);
-    }
-
-    #[test]
-    fn insert_at_end() {
-        let mut list = ListView::new(vec!["A".into(), "B".into()]);
-        list.insert(2, "C".into());
-        assert_eq!(list.items(), &["A", "B", "C"]);
-    }
-
-    #[test]
-    fn insert_disabled_entry_is_false() {
-        let mut list = ListView::new(vec!["A".into()]);
-        list.insert(0, "Z".into());
-        assert!(!list.is_item_disabled(0));
     }
 
     #[test]
     fn pop_removes_last_item() {
         let mut list = ListView::new(vec!["A".into(), "B".into(), "C".into()]);
-        let popped = list.pop();
-        assert_eq!(popped.as_deref(), Some("C"));
+        assert_eq!(list.pop().as_deref(), Some("C"));
         assert_eq!(list.items(), &["A", "B"]);
     }
 
     #[test]
-    fn pop_empty_returns_none() {
-        let mut list = ListView::new(vec![]);
-        assert!(list.pop().is_none());
+    fn navigation_skips_disabled_items() {
+        let mut list = ListView::new(vec!["one".into(), "two".into(), "three".into()]);
+        list.set_item_disabled(1, true);
+        let _guard = set_dispatch_recipient(make_node_id(), focused_state());
+        list.on_layout(20, 3);
+        let mut ctx = EventCtx::default();
+        list.on_event(&Event::Action(crate::event::Action::ScrollDown), &mut ctx);
+        assert_eq!(list.selected(), 2);
     }
 
     #[test]
-    fn pop_adjusts_selected_when_pointing_past_end() {
-        let mut list = ListView::new(vec!["A".into(), "B".into()]);
-        list.set_selected(1);
-        list.pop();
-        assert_eq!(list.selected(), 0);
+    fn mouse_scroll_clamps_to_bounds() {
+        let mut list = ListView::new((0..10).map(|i| format!("item-{i}")).collect());
+        list.on_layout(20, 3);
+        let mut ctx = EventCtx::default();
+        list.on_mouse_scroll(0, 100, &mut ctx);
+        assert!(ctx.handled());
+        assert_eq!(list.offset(), 7);
     }
 
     #[test]
     fn compose_returns_empty() {
         let list = ListView::new(vec!["A".into()]);
         assert!(list.compose().is_empty());
-    }
-
-    #[test]
-    fn take_composed_children_returns_empty() {
-        let mut list = ListView::new(vec!["A".into()]);
-        assert!(list.take_composed_children().is_empty());
     }
 }

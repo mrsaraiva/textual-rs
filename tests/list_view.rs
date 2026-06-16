@@ -2,7 +2,6 @@ use rich_rs::Console;
 use slotmap::SlotMap;
 use textual::event::MouseDownEvent;
 use textual::prelude::*;
-use textual::render::FrameBuffer;
 use textual::runtime::dispatch_ctx::set_dispatch_recipient;
 
 fn make_node_id() -> NodeId {
@@ -17,28 +16,82 @@ fn focused_state() -> NodeState {
     }
 }
 
-#[test]
-fn list_view_renders_selection() {
+/// Render a root widget through the arena tree (the canonical rendering path).
+fn render_root(root: &mut dyn Widget, width: usize, height: usize) -> Vec<String> {
+    let sheet = textual::css::default_widget_stylesheet();
+    let _guard = textual::css::set_style_context(sheet);
     let console = Console::new();
-    let mut options = console.options().clone();
-    options.size = (12, 3);
-    options.max_width = 12;
-    options.max_height = 3;
+    let mut tree = build_widget_tree_from_root(root).expect("tree should build");
+    let buf = render_tree_to_frame(&mut tree, root, &console, width, height);
+    buf.as_plain_lines()
+}
 
-    let mut list = ListView::new(vec![
-        "one".to_string(),
-        "two".to_string(),
-        "three".to_string(),
-    ]);
-    list.on_node_state_changed(NodeState::default(), focused_state());
-    list.set_selected(1);
+// ── Arena composition / rendering ────────────────────────────────────────
 
-    let buf = FrameBuffer::from_renderable(&console, &options, &list, None);
-    insta::assert_snapshot!(buf.debug_dump());
+#[test]
+fn list_view_renders_items_without_marker() {
+    // ListView composes ListItem(Label) children; no `› ` cursor marker.
+    let mut root = Container::new().with_child(ListView::from_list_items(vec![
+        ListItem::new(Label::new("One")),
+        ListItem::new(Label::new("Two")),
+        ListItem::new(Label::new("Three")),
+    ]));
+    let lines = render_root(&mut root, 12, 3);
+    let joined = lines.join("\n");
+    assert!(!joined.contains('\u{203a}'), "no `›` marker: {joined:?}");
+    assert!(joined.contains("One"), "items render: {joined:?}");
+    assert!(joined.contains("Two"));
+    assert!(joined.contains("Three"));
 }
 
 #[test]
-fn list_view_mouse_click_selects_row() {
+fn list_view_items_span_three_rows_with_label_padding() {
+    // Python docs example: `Label { padding: 1 2 }` makes each ListItem 3 rows
+    // tall (top pad / content / bottom pad). Verify the composed layout.
+    const CSS: &str = "Label { padding: 1 2; }";
+    let sheet = {
+        let mut s = textual::css::default_widget_stylesheet();
+        s.extend(&StyleSheet::parse(CSS));
+        s
+    };
+    let _guard = textual::css::set_style_context(sheet.clone());
+    let console = Console::new();
+    let mut root = Container::new().with_child(ListView::from_list_items(vec![
+        ListItem::new(Label::new("One")),
+        ListItem::new(Label::new("Two")),
+    ]));
+    let mut tree = build_widget_tree_from_root(&mut root).expect("tree");
+    let buf = render_tree_to_frame_with_stylesheet(&mut tree, &mut root, &console, 12, 6, sheet);
+    let lines = buf.as_plain_lines();
+    // 2 items * 3 rows = 6 lines. "One" sits on the middle row of its item.
+    assert_eq!(lines.len(), 6, "{lines:?}");
+    assert!(lines[1].contains("One"), "row 1 holds One: {lines:?}");
+    assert!(lines[4].contains("Two"), "row 4 holds Two: {lines:?}");
+    // The padding rows around the text are blank (no marker, no content).
+    assert!(!lines[0].contains("One"));
+    assert!(!lines[2].contains("One"));
+}
+
+#[test]
+fn list_view_highlight_is_background_only() {
+    // The highlighted item carries the `-highlight` class (bg-only); there is
+    // no text marker. Drive the highlight via the same per-child class the
+    // runtime sync applies, then confirm the item node has the class.
+    let mut list = ListView::from_list_items(vec![
+        ListItem::new(Label::new("One")),
+        ListItem::new(Label::new("Two")),
+    ]);
+    list.set_selected(1);
+    let classes = list.child_classes_for_tree(1);
+    assert!(classes.contains(&("-highlight", true)));
+    let classes0 = list.child_classes_for_tree(0);
+    assert!(classes0.contains(&("-highlight", false)));
+}
+
+// ── Selection / navigation behaviour (state model) ───────────────────────
+
+#[test]
+fn list_view_mouse_click_selects_row_headless() {
     let mut list = ListView::new(vec![
         "one".to_string(),
         "two".to_string(),
@@ -63,7 +116,7 @@ fn list_view_mouse_click_selects_row() {
 }
 
 #[test]
-fn list_view_scroll_actions_keep_selection_visible() {
+fn list_view_scroll_actions_keep_selection_in_state() {
     let mut list = ListView::new((0..20).map(|idx| format!("item-{idx}")).collect());
     let _guard = set_dispatch_recipient(make_node_id(), focused_state());
     list.on_layout(20, 4);
@@ -72,15 +125,7 @@ fn list_view_scroll_actions_keep_selection_visible() {
         list.on_event(&Event::Action(Action::ScrollDown), &mut ctx);
     }
     assert_eq!(list.selected(), 7);
-
-    let console = Console::new();
-    let mut options = console.options().clone();
-    options.size = (16, 4);
-    options.max_width = 16;
-    options.max_height = 4;
-    let buf = FrameBuffer::from_renderable(&console, &options, &list, None);
-    let lines = buf.as_plain_lines();
-    assert!(lines.iter().any(|line| line.contains("item-7")));
+    assert_eq!(list.selected_item(), Some("item-7"));
 }
 
 #[test]
@@ -143,24 +188,13 @@ fn list_view_mouse_click_ignores_disabled_items() {
 }
 
 #[test]
-fn list_view_all_disabled_rows_do_not_render_highlight_marker() {
-    let console = Console::new();
-    let mut options = console.options().clone();
-    options.size = (12, 3);
-    options.max_width = 12;
-    options.max_height = 3;
-
-    let mut list = ListView::new(vec![
-        "one".to_string(),
-        "two".to_string(),
-        "three".to_string(),
-    ]);
-    list.set_item_disabled(0, true);
-    list.set_item_disabled(1, true);
-    list.set_item_disabled(2, true);
-
-    let buf = FrameBuffer::from_renderable(&console, &options, &list, None);
-    for line in buf.as_plain_lines() {
-        assert!(!line.contains("›"));
-    }
+fn list_view_append_after_mount_recomposes_all_items() {
+    // After the first mount the owned items are drained; appending and
+    // recomposing must rebuild every item from the retained text, not just the
+    // appended one.
+    let mut list = ListView::new(vec!["A".to_string(), "B".to_string()]);
+    let _first = Widget::take_composed_children(&mut list);
+    list.append("C".to_string());
+    let children = Widget::take_composed_children(&mut list);
+    assert_eq!(children.len(), 3, "all three items recomposed");
 }

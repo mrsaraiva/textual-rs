@@ -733,6 +733,15 @@ const CASES: &[Case] = &[
         status: Status::Pass,
     },
     Case {
+        name: "docs_list_view",
+        example: "list_view",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
         name: "docs_data_table_renderables",
         example: "data_table_renderables",
         args: &[],
@@ -1228,6 +1237,7 @@ pty_case!(docs_text_area_example, "docs_text_area_example");
 pty_case!(docs_text_area_selection, "docs_text_area_selection");
 
 pty_case!(docs_data_table_labels, "docs_data_table_labels");
+pty_case!(docs_list_view, "docs_list_view");
 pty_case!(docs_data_table_renderables, "docs_data_table_renderables");
 pty_case!(docs_data_table_fixed, "docs_data_table_fixed");
 pty_case!(docs_collapsible, "docs_collapsible");

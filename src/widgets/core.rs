@@ -426,6 +426,18 @@ pub trait Widget: Send + Sync + Any {
     fn child_display_for_tree(&self, _child_index: usize) -> Option<bool> {
         None
     }
+    /// Optional per-child CSS class overrides driven by this widget's state.
+    ///
+    /// Tree mode queries this every frame for each child (by child index) and
+    /// mirrors the returned `(class, on)` pairs onto the child node's class set
+    /// (the same sync pass as [`Widget::child_display_for_tree`]). This is the
+    /// canonical arena mechanism for a `can_focus_children=False` container (for
+    /// example `ListView`) to drive a child's `-highlight` / `-hovered` state
+    /// without owning the child's `NodeId`. Returning an empty list leaves the
+    /// child's classes unchanged.
+    fn child_classes_for_tree(&self, _child_index: usize) -> Vec<(&'static str, bool)> {
+        Vec::new()
+    }
     /// Extra insets reserved by this widget before laying out tree children.
     ///
     /// Return `(top, right, bottom, left)` in cells. This is useful for

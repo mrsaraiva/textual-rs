@@ -200,6 +200,16 @@ pub struct ListViewItemActivated {
 }
 crate::impl_message!(ListViewItemActivated);
 
+/// Posted by a `ListItem` when it is clicked, informing the owning `ListView`
+/// (Python: `ListItem._ChildClicked`). The `ordinal` is the item's position in
+/// the list, assigned by `ListView` at compose time.
+#[derive(Debug, Clone)]
+pub struct ListItemChildClicked {
+    pub ordinal: usize,
+    pub item: String,
+}
+crate::impl_message!(ListItemChildClicked);
+
 #[derive(Debug, Clone)]
 pub struct OptionHighlighted {
     pub index: usize,

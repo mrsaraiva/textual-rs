@@ -560,9 +560,16 @@ fn sync_widget_controlled_child_display_tree(
     };
 
     let mut updates: Vec<(NodeId, bool)> = Vec::new();
+    // Per-child class overrides driven by the parent's state (e.g. ListView's
+    // `-highlight` / `-hovered`). Collected alongside display so the same sync
+    // pass mirrors both onto the child node records.
+    let mut class_updates: Vec<(NodeId, &'static str, bool)> = Vec::new();
     for (idx, child_id) in tree.children(root).iter().copied().enumerate() {
         if let Some(display) = root_widget.child_display_for_tree(idx) {
             updates.push((child_id, display));
+        }
+        for (class, on) in root_widget.child_classes_for_tree(idx) {
+            class_updates.push((child_id, class, on));
         }
     }
     for parent_id in tree.walk_depth_first(root) {
@@ -577,6 +584,9 @@ fn sync_widget_controlled_child_display_tree(
             if let Some(display) = parent.widget.child_display_for_tree(idx) {
                 updates.push((child_id, display));
             }
+            for (class, on) in parent.widget.child_classes_for_tree(idx) {
+                class_updates.push((child_id, class, on));
+            }
         }
     }
 
@@ -588,6 +598,16 @@ fn sync_widget_controlled_child_display_tree(
             tree.set_focus_state(node_id, false);
         }
         if before != tree.is_displayed(node_id) {
+            changed = true;
+        }
+    }
+    for (node_id, class, on) in class_updates {
+        let before = tree.has_class(node_id, class);
+        if on && !before {
+            tree.add_class(node_id, class);
+            changed = true;
+        } else if !on && before {
+            tree.remove_class(node_id, class);
             changed = true;
         }
     }

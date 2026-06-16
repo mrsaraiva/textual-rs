@@ -11,7 +11,11 @@ fn scroll_view_renders_horizontal_offset() {
     options.max_width = 8;
     options.max_height = 2;
 
-    let rows = ListView::new(vec!["alpha-bravo".to_string(), "charlie-delta".to_string()]);
+    // Inline-rendering, intrinsically-wide content (ListView is now an
+    // arena-composed widget whose items render through the tree, not inline).
+    let rows = Label::new("alpha-bravo\ncharlie-delta")
+        .wrap(false)
+        .with_shrink(true);
     let mut scroll = ScrollView::new(rows).height(2);
     let before = FrameBuffer::from_renderable(&console, &options, &scroll, None);
     let before_lines = before.as_plain_lines();

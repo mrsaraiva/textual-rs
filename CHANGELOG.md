@@ -7,6 +7,29 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-16 (feat(ListView): arena-composed ListItem widgets)
+
+- **feat(widgets/ListView+ListItem): first-class arena composition**
+  - `ListView` was a flat inline-rendered widget over a `Vec<String>` with a
+    hardcoded `› ` marker. It now composes real `ListItem` children through the
+    arena (the RadioSet/OptionList pattern): each `ListItem` wraps arbitrary
+    child widget(s) (typically a `Label`), the marker is gone, and the highlight
+    is **background-only** (Python parity). Keyboard (up/down/enter/home/end/
+    page) and mouse selection drive the highlight; `ListView` emits
+    `Highlighted`/`Selected` (carrying index+item) and stages the initial
+    `Highlighted` at mount. Highlight/hover are applied to child nodes via a new
+    `Widget::child_classes_for_tree` hook (synced in the same pass as
+    `child_display_for_tree`). The headless state API (`selected`/`offset`/
+    `set_items`/…) is preserved so `command_palette` is unaffected. New public
+    API: `ListView::from_list_items`, `ListItem::new/from_text/with_id/…`;
+    `ListView::new(Vec<String>)` retained. Promotes `docs_list_view`.
+- **fix(widgets/Label): `layout_height` reports outer height**
+  - `Label::layout_height()` returned only its content height, so a styled
+    `Label { padding: 1 2 }` overflowed its box (two stacked padded labels
+    overlapped). It now adds the resolved vertical chrome, matching the
+    `extract_child_spec` height-arm convention. Regression:
+    `label_layout_height_includes_vertical_padding`.
+
 ### 2026-06-16 (fix(render): clear re-emits full screen, not a stale diff)
 
 - **fix(runtime/render): diff against a blank frame when clearing the terminal**

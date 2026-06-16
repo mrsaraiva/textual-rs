@@ -118,11 +118,16 @@ impl FundingProgressApp {
             bar.advance(value as f64);
         });
 
-        // Append a message to the history list.
+        // Append a message to the history list. `ListView` composes its items
+        // as arena `ListItem` children, so the newly appended item must be
+        // re-composed into the tree to become visible.
         let donation_msg = format!("Donation for ${value} received!");
         let _ = app.with_query_one_mut_as::<ListView, _>("#history", |list| {
             list.append(donation_msg);
         });
+        if let Ok(history_id) = app.query_one("#history") {
+            ctx.request_recompose_node(history_id);
+        }
 
         // Clear the input field.
         let _ = app.with_query_one_mut_as::<Input, _>("#amount", |input| {

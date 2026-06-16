@@ -18,6 +18,10 @@ ListView {
     height: auto;
     margin: 2 2;
 }
+
+Label {
+    padding: 1 2;
+}
 "#;
 
 struct ListViewApp;
