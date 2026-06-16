@@ -622,6 +622,26 @@ const CASES: &[Case] = &[
         golden_replacements: &[],
         status: Status::Pass,
     },
+    // Horizontal button row (margin: 2 4). Verifies adjacent-margin collapse
+    // (gap = max(right, left) = 4, not summed) — fixed in layout/horizontal.rs.
+    Case {
+        name: "docs_on_decorator01",
+        example: "on_decorator01",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_on_decorator02",
+        example: "on_decorator02",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
     Case {
         name: "docs_colored_text",
         example: "colored_text",
@@ -1166,6 +1186,8 @@ pty_case!(docs_stopwatch03, "docs_stopwatch03");
 pty_case!(docs_stopwatch04, "docs_stopwatch04");
 pty_case!(docs_option_list_tables, "docs_option_list_tables");
 pty_case!(docs_prevent, "docs_prevent");
+pty_case!(docs_on_decorator01, "docs_on_decorator01");
+pty_case!(docs_on_decorator02, "docs_on_decorator02");
 pty_case!(docs_colored_text, "docs_colored_text");
 pty_case!(docs_stopwatch01, "docs_stopwatch01");
 pty_case!(docs_stopwatch02, "docs_stopwatch02");

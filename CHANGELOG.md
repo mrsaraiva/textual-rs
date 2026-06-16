@@ -7,6 +7,19 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-15 (fix(layout): collapse adjacent margins in horizontal layout)
+
+- **fix(layout/horizontal): adjacent child margins collapse (max, not sum)**
+  - Horizontal layout summed neighbouring children's margins, so a row of
+    buttons with `margin: 2 4` got an `8`-cell inter-button gap (and a shifted
+    centered start) instead of Python's collapsed `max(right, left) = 4`.
+    Positioning now advances by `box_right_edge + max(this.margin.right,
+    next.margin.left)`, and width distribution subtracts the total collapse
+    overlap so freed space goes to any `fr` sibling (guarded so a flexible first
+    child, whose edge carries no folded margin, isn't reduced). `apply_parent_align`
+    needed no change — it derives the align box from the placed margin-grown rects.
+  - Promotes docs parity cases `docs_on_decorator01` / `docs_on_decorator02`.
+
 ### 2026-06-15 (feat(Markdown): blockquote bars + nesting)
 
 - **feat(widgets/Markdown): render blockquotes with bars and nesting**
