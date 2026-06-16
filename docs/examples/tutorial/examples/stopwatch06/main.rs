@@ -4,12 +4,16 @@
 /// bound to `a` / `r`. Python calls `self.query_one("#timers").mount(new_stopwatch)` and
 /// `self.query("Stopwatch").last().remove()`.
 ///
-/// FRAMEWORK GAP: textual-rs does not expose a public `mount_under(selector, widget)` API
-/// for inserting widgets into an already-mounted parent at runtime. The bindings are declared
-/// and keys are acknowledged, but the add/remove behavior is not functional.
-/// The initial screen (3 stopwatches + Header + Footer) is faithful and builds correctly.
+/// Dynamic add/remove is wired to the framework runtime API. Add calls
+/// `app.mount_under("#timers", Stopwatch::new())`; remove calls
+/// `app.remove_node(last_stopwatch_node)`. Both reuse the canonical arena mount
+/// path, so composed children, child-decl metadata, and mount-time messages fire
+/// on the dynamically mounted subtree.
 ///
-/// NON-PROMOTABLE: timer-driven + dynamic mount/unmount not yet supported.
+/// NON-PROMOTABLE as a full golden: the running clock digits are timer-driven and
+/// nondeterministic. Structural add/remove (stopwatch count + layout) is verified
+/// via tests and idle capture instead.
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 use textual::prelude::*;
 
@@ -68,6 +72,10 @@ Button {
 }
 "#;
 
+/// Monotonic id source so every Stopwatch (initial or dynamically added) gets a
+/// unique TimeDisplay id, letting the tick loop pair each stopwatch to its display.
+static NEXT_SW: AtomicU64 = AtomicU64::new(0);
+
 // ---------------------------------------------------------------------------
 // TimeDisplay widget
 // ---------------------------------------------------------------------------
@@ -116,16 +124,17 @@ impl Widget for TimeDisplay {
 
 struct Stopwatch {
     inner: HorizontalGroup,
-    #[allow(dead_code)]
-    idx: usize,
+    /// CSS id of this stopwatch's TimeDisplay child (`digits-<n>`).
+    digits_id: String,
     started: bool,
     start_instant: Option<Instant>,
     total_elapsed_secs: f64,
 }
 
 impl Stopwatch {
-    fn new(idx: usize) -> Self {
-        let digits_id = format!("digits-{idx}");
+    fn new() -> Self {
+        let n = NEXT_SW.fetch_add(1, Ordering::Relaxed);
+        let digits_id = format!("digits-{n}");
         let inner = HorizontalGroup::new().with_compose(vec![
             ChildDecl::from(Button::success("Start").id("start")),
             ChildDecl::from(Button::error("Stop").id("stop")),
@@ -134,7 +143,7 @@ impl Stopwatch {
         ]);
         Self {
             inner,
-            idx,
+            digits_id,
             started: false,
             start_instant: None,
             total_elapsed_secs: 0.0,
@@ -258,7 +267,7 @@ impl TextualApp for StopwatchApp {
 
     fn compose(&mut self) -> AppRoot {
         let stopwatches: Vec<ChildDecl> = (0..INITIAL_STOPWATCHES)
-            .map(|i| ChildDecl::from(Stopwatch::new(i)).with_id(&format!("sw-{i}")))
+            .map(|_| ChildDecl::from(Stopwatch::new()))
             .collect();
 
         AppRoot::new()
@@ -271,38 +280,49 @@ impl TextualApp for StopwatchApp {
     }
 
     fn on_tick_with_app(&mut self, app: &mut App, _tick: u64, ctx: &mut EventCtx) {
-        for i in 0..INITIAL_STOPWATCHES {
-            let sw_id = format!("#sw-{i}");
-            let digits_id = format!("#digits-{i}");
-            let maybe_time = app
-                .with_query_one_mut_as::<Stopwatch, _>(&sw_id, |sw| {
-                    if sw.started {
-                        Some(format_time(sw.elapsed_secs()))
-                    } else {
-                        None
-                    }
-                })
-                .ok()
-                .flatten();
-            if let Some(time_str) = maybe_time {
-                let _ = app.with_query_one_mut_as::<TimeDisplay, _>(&digits_id, |d| {
-                    d.inner.update(time_str);
-                });
-                ctx.request_repaint();
+        // Generic over however many stopwatches currently exist (initial or
+        // dynamically added). For each running stopwatch, push its formatted
+        // time into its TimeDisplay child.
+        let sw_nodes = app
+            .query("Stopwatch")
+            .map(|q| q.into_ids())
+            .unwrap_or_default();
+        let mut updates: Vec<(String, String)> = Vec::new();
+        for node in sw_nodes {
+            if let Some(Some(pair)) = app.with_widget_mut_as::<Stopwatch, _>(node, |sw| {
+                sw.started
+                    .then(|| (sw.digits_id.clone(), format_time(sw.elapsed_secs())))
+            }) {
+                updates.push(pair);
             }
+        }
+        let mut repainted = false;
+        for (digits_id, time_str) in updates {
+            let sel = format!("#{digits_id}");
+            let _ = app.with_query_one_mut_as::<TimeDisplay, _>(&sel, |d| {
+                d.inner.update(time_str);
+            });
+            repainted = true;
+        }
+        if repainted {
+            ctx.request_repaint();
         }
     }
 
-    fn on_key_with_app(&mut self, _app: &mut App, key: &KeyEventData, ctx: &mut EventCtx) {
+    fn on_key_with_app(&mut self, app: &mut App, key: &KeyEventData, ctx: &mut EventCtx) {
         match key.name() {
             "a" => {
-                // FRAMEWORK GAP: dynamic mount_under is not yet implemented.
-                // In Python: self.query_one("#timers").mount(Stopwatch())
+                // Python: self.query_one("#timers").mount(Stopwatch())
+                // The "#timers" Node wraps a VerticalScroll>Vertical; mount the
+                // new Stopwatch under the inner Vertical so it joins the column.
+                let _ = app.mount_under("#timers Vertical", Stopwatch::new());
                 ctx.set_handled();
             }
             "r" => {
-                // FRAMEWORK GAP: dynamic remove_last_of_type is not yet implemented.
-                // In Python: self.query("Stopwatch").last().remove()
+                // Python: self.query("Stopwatch").last().remove()
+                if let Ok(last) = app.query("Stopwatch").and_then(|q| q.last()) {
+                    let _ = app.remove_node(last);
+                }
                 ctx.set_handled();
             }
             _ => {}

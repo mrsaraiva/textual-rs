@@ -3800,6 +3800,10 @@ impl App {
             }
             self.absorb_pending_recompositions(&mut pending_invalidation);
             self.absorb_pending_query_refreshes(&mut pending_invalidation);
+            if self.take_pending_force_relayout() {
+                pending_invalidation.request_flags(crate::event::InvalidationFlags::layout());
+                pending_invalidation.request_full_content();
+            }
 
             if pending_invalidation.is_dirty() || self.resized_since_last_render {
                 let render_started = Instant::now();

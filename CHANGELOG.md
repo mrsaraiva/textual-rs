@@ -7,6 +7,21 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-16 (feat(runtime): dynamic mount/remove under a live parent)
+
+- **feat(runtime): `mount_under` / `mount_before` / `mount_after` / `remove`**
+  - Added a runtime API to insert or remove widgets under an already-mounted
+    parent (resolved by selector or `NodeId`), mirroring Python
+    `Widget.mount(..., before=/after=)` / `remove`. All mounts go through the
+    canonical `mount_extracted_recursive` path, so composed children, child
+    decl-metadata (id/classes), child handle-sinks, and mount-time messages all
+    fire exactly as on initial build; `remove` clears focus across the subtree
+    and emits `Unmount`. A structural mutation requests a full relayout+repaint
+    (without a terminal clear, to avoid a stale-frame diff). `WidgetTree` gains
+    `mount_at`/`child_index`/`reorder_child`. Unblocks `tutorial/stopwatch06`
+    (`action_add_stopwatch`/`action_remove_stopwatch`; not promoted — the running
+    clock is timer-driven, verified structurally instead).
+
 ### 2026-06-16 (fix(scrollbar): thumb glyph parity with Python)
 
 - **fix(widgets/scrollbar): partial-block thumb glyphs match Python both axes**

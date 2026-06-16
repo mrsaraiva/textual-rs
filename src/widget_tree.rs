@@ -312,6 +312,50 @@ impl WidgetTree {
         }
     }
 
+    /// Mount a child widget under `parent` at a specific position in the
+    /// parent's `children` list. `index` is clamped to `[0, len]`.
+    ///
+    /// Behaves exactly like [`mount`](Self::mount) (same seed consumption,
+    /// `mounted` flag, and `Mount` lifecycle event) but lets callers insert
+    /// before/after an existing sibling (Python's `mount(..., before=/after=)`).
+    pub fn mount_at(&mut self, parent: NodeId, index: usize, mut widget: Box<dyn Widget>) -> NodeId {
+        let seed = widget.take_node_seed();
+        let mut node = Self::make_node_from_seed(widget, seed);
+        node.parent = Some(parent);
+        node.mounted = true;
+        let id = self.arena.insert(node);
+        if let Some(parent_node) = self.arena.get_mut(parent) {
+            let idx = index.min(parent_node.children.len());
+            parent_node.children.insert(idx, id);
+        }
+        self.pending_lifecycle
+            .push(LifecycleEvent::Mount { node: id });
+        id
+    }
+
+    /// Position of `child` within `parent`'s children list, if present.
+    pub fn child_index(&self, parent: NodeId, child: NodeId) -> Option<usize> {
+        self.arena
+            .get(parent)
+            .and_then(|n| n.children.iter().position(|&c| c == child))
+    }
+
+    /// Move `node` to a specific position among its parent's children.
+    /// `index` is clamped to `[0, len-1]`. No-op if `node` has no parent.
+    pub fn reorder_child(&mut self, node: NodeId, index: usize) {
+        let Some(parent) = self.arena.get(node).and_then(|n| n.parent) else {
+            return;
+        };
+        if let Some(parent_node) = self.arena.get_mut(parent) {
+            let Some(cur) = parent_node.children.iter().position(|&c| c == node) else {
+                return;
+            };
+            parent_node.children.remove(cur);
+            let idx = index.min(parent_node.children.len());
+            parent_node.children.insert(idx, node);
+        }
+    }
+
     /// Remove a node and all of its descendants from the tree.
     ///
     /// Emits `Unmount` lifecycle events in reverse tree order (children before
@@ -914,6 +958,47 @@ mod tests {
         );
         assert_eq!(tree.len(), 4); // root + 3
         assert_eq!(tree.children(root).len(), 3);
+    }
+
+    #[test]
+    fn mount_at_inserts_at_index() {
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(TestWidget::boxed("Root"));
+        let a = tree.mount(root, TestWidget::boxed("A"));
+        let c = tree.mount(root, TestWidget::boxed("C"));
+        // Insert B between A and C.
+        let b = tree.mount_at(root, 1, TestWidget::boxed("B"));
+        assert_eq!(tree.children(root), &[a, b, c]);
+        assert_eq!(tree.parent(b), Some(root));
+        // Out-of-range index clamps to the end.
+        let d = tree.mount_at(root, 999, TestWidget::boxed("D"));
+        assert_eq!(tree.children(root), &[a, b, c, d]);
+    }
+
+    #[test]
+    fn child_index_and_reorder() {
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(TestWidget::boxed("Root"));
+        let a = tree.mount(root, TestWidget::boxed("A"));
+        let b = tree.mount(root, TestWidget::boxed("B"));
+        let c = tree.mount(root, TestWidget::boxed("C"));
+        assert_eq!(tree.child_index(root, b), Some(1));
+        // Move C to the front.
+        tree.reorder_child(c, 0);
+        assert_eq!(tree.children(root), &[c, a, b]);
+        // Clamp past the end.
+        tree.reorder_child(c, 999);
+        assert_eq!(tree.children(root), &[a, b, c]);
+    }
+
+    #[test]
+    fn mount_at_emits_mount_event() {
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(TestWidget::boxed("Root"));
+        tree.drain_lifecycle();
+        let child = tree.mount_at(root, 0, TestWidget::boxed("Child"));
+        let events = tree.drain_lifecycle();
+        assert_eq!(events, vec![LifecycleEvent::Mount { node: child }]);
     }
 
     #[test]

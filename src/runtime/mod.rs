@@ -478,6 +478,10 @@ pub struct App {
     pending_query_refresh_nodes: Vec<NodeId>,
     /// Pending subtree recomposition targets requested by widgets via `EventCtx`.
     pending_recompose_nodes: Vec<NodeId>,
+    /// Force a full relayout + repaint on the next loop iteration. Set by
+    /// runtime-driven structural mutations (dynamic mount/remove) that change
+    /// the tree outside the normal dispatch-outcome invalidation flow.
+    pending_force_relayout: bool,
     /// App-scoped typed values used by `data_bind`.
     data_values: HashMap<String, Arc<dyn Any + Send + Sync>>,
     /// Declarative data-binding registrations.
@@ -614,6 +618,7 @@ impl App {
             style_snapshot_cache: HashMap::new(),
             pending_query_refresh_nodes: Vec::new(),
             pending_recompose_nodes: Vec::new(),
+            pending_force_relayout: false,
             data_values: HashMap::new(),
             data_bindings: Vec::new(),
             suspend_process_impl: suspend_process_default,
@@ -917,6 +922,186 @@ impl App {
         tree.mount_all(root, widgets);
         self.clear_on_next_render = true;
         Ok(())
+    }
+
+    // -- Dynamic mount/remove under a live parent (#stopwatch06) -------------
+    //
+    // Python parity: `Widget.mount` / `Widget.mount_all` / `Widget.remove`
+    // (`../textual/src/textual/widget.py`). These let an already-mounted app
+    // insert or remove widgets at runtime (for example
+    // `action_add_stopwatch` / `action_remove_stopwatch`).
+    //
+    // All mounts reuse the canonical arena path
+    // ([`mount_extracted_recursive`], src/runtime/mod.rs) so composed
+    // children, child-decl metadata (#44), and child handle-sinks fire exactly
+    // as on initial build. The freshly inserted `Mount` lifecycle events are
+    // drained by the main event loop (src/runtime/event_loop.rs), which then
+    // dispatches `Mount` events and routes mount-time messages (#51) via
+    // [`Self::drain_pending_mount_messages`]. A relayout + repaint is requested
+    // through [`Self::request_query_refresh`] (the same path `Handle::update`
+    // uses), so the new subtree lays out and paints.
+
+    /// Mount a widget as the last child of the parent matched by `selector`.
+    ///
+    /// `selector` is a CSS selector resolved with [`query_one`](Self::query_one)
+    /// (e.g. `"#timers"`, `"VerticalScroll"`). Returns the new node's `NodeId`.
+    pub fn mount_under(
+        &mut self,
+        selector: &str,
+        widget: impl Widget + 'static,
+    ) -> std::result::Result<NodeId, QueryError> {
+        let parent = self.query_one(selector)?;
+        self.mount_under_node_boxed(parent, Box::new(widget))
+    }
+
+    /// Mount a boxed widget as the last child of `parent` (a live `NodeId`).
+    pub fn mount_under_node(
+        &mut self,
+        parent: NodeId,
+        widget: impl Widget + 'static,
+    ) -> std::result::Result<NodeId, QueryError> {
+        self.mount_under_node_boxed(parent, Box::new(widget))
+    }
+
+    /// Boxed twin of [`mount_under_node`](Self::mount_under_node).
+    pub fn mount_under_node_boxed(
+        &mut self,
+        parent: NodeId,
+        widget: Box<dyn Widget>,
+    ) -> std::result::Result<NodeId, QueryError> {
+        {
+            let Some(tree) = self.active_widget_tree_mut() else {
+                return Err(QueryError::NoMatch);
+            };
+            if !tree.contains(parent) {
+                return Err(QueryError::Unmounted);
+            }
+        }
+        let id = {
+            let tree = self.active_widget_tree_mut().ok_or(QueryError::NoMatch)?;
+            Self::mount_extracted_recursive(tree, parent, widget)
+        };
+        self.after_structural_mutation(parent);
+        Ok(id)
+    }
+
+    /// Mount a widget immediately before the sibling matched by `selector`.
+    ///
+    /// Python parity: `mount(widget, before=...)`. The new node becomes a child
+    /// of the sibling's parent, inserted at the sibling's index.
+    pub fn mount_before(
+        &mut self,
+        selector: &str,
+        widget: impl Widget + 'static,
+    ) -> std::result::Result<NodeId, QueryError> {
+        let sibling = self.query_one(selector)?;
+        self.mount_relative_to(sibling, widget, false)
+    }
+
+    /// Mount a widget immediately after the sibling matched by `selector`.
+    ///
+    /// Python parity: `mount(widget, after=...)`.
+    pub fn mount_after(
+        &mut self,
+        selector: &str,
+        widget: impl Widget + 'static,
+    ) -> std::result::Result<NodeId, QueryError> {
+        let sibling = self.query_one(selector)?;
+        self.mount_relative_to(sibling, widget, true)
+    }
+
+    fn mount_relative_to(
+        &mut self,
+        sibling: NodeId,
+        widget: impl Widget + 'static,
+        after: bool,
+    ) -> std::result::Result<NodeId, QueryError> {
+        let (parent, mut index) = {
+            let tree = self.active_widget_tree().ok_or(QueryError::NoMatch)?;
+            let parent = tree.parent(sibling).ok_or(QueryError::Unmounted)?;
+            let index = tree.child_index(parent, sibling).ok_or(QueryError::Unmounted)?;
+            (parent, index)
+        };
+        if after {
+            index += 1;
+        }
+        // Mount at the end via the canonical recursive path (so composed
+        // children + decl-meta + sinks fire), then reposition to `index`.
+        let id = {
+            let tree = self.active_widget_tree_mut().ok_or(QueryError::NoMatch)?;
+            let new_id = Self::mount_extracted_recursive(tree, parent, Box::new(widget));
+            tree.reorder_child(new_id, index);
+            new_id
+        };
+        self.after_structural_mutation(parent);
+        Ok(id)
+    }
+
+    /// Remove the node matched by `selector` (and its whole subtree).
+    ///
+    /// Python parity: `Widget.remove` / `query(...).remove()`. Returns
+    /// `Err(QueryError::NoMatch)` if nothing matches, or
+    /// `Err(QueryError::TooManyMatches)` if the selector is ambiguous; use
+    /// [`remove_node`](Self::remove_node) to remove a specific `NodeId`.
+    pub fn remove(&mut self, selector: &str) -> std::result::Result<(), QueryError> {
+        let node_id = self.query_one(selector)?;
+        self.remove_node(node_id)
+    }
+
+    /// Remove a specific node (and its subtree) by `NodeId`.
+    ///
+    /// Clears focus from any removed node, tears down the subtree (emitting
+    /// `Unmount` lifecycle events drained by the event loop), and requests a
+    /// relayout + repaint of the former parent.
+    pub fn remove_node(&mut self, node_id: NodeId) -> std::result::Result<(), QueryError> {
+        let parent = {
+            let tree = self.active_widget_tree_mut().ok_or(QueryError::NoMatch)?;
+            if !tree.contains(node_id) {
+                return Err(QueryError::Unmounted);
+            }
+            let parent = tree.parent(node_id);
+            // Drop focus from the subtree before removal so the loop's
+            // focus-transition pass re-derives a valid focus target.
+            for id in tree.walk_depth_first(node_id) {
+                tree.set_focus_state(id, false);
+            }
+            tree.remove(node_id);
+            parent
+        };
+        if let Some(parent) = parent {
+            self.after_structural_mutation(parent);
+        } else {
+            self.clear_on_next_render = true;
+        }
+        Ok(())
+    }
+
+    /// Shared post-mount/remove bookkeeping: force a clear + relayout/repaint
+    /// of the affected parent subtree. The structural mutation already queued
+    /// the `Mount`/`Unmount` lifecycle events that the event loop drains.
+    fn after_structural_mutation(&mut self, parent: NodeId) {
+        // A structural change (new/removed subtree) can resize auto-sized
+        // ancestors, so request a full relayout + full-content repaint on the
+        // next loop iteration. `request_query_refresh` alone only dirties
+        // content rects (no layout flag), which is insufficient for auto-height
+        // parents that grow/shrink with the child count.
+        //
+        // NOTE: deliberately *not* setting `clear_on_next_render`. A terminal
+        // clear diffs the new frame against the *previous* (stale) framebuffer,
+        // so unchanged siblings (already painted) would be wiped by the clear
+        // but not re-emitted by the diff. A full-content relayout without the
+        // clear re-lays everything and the normal diff repaints exactly the
+        // moved/added/removed cells while leaving correct cells on screen.
+        self.pending_force_relayout = true;
+        // Also queue the parent for content refresh so single-frame loops that
+        // only consult query-refresh state still observe the change.
+        self.request_query_refresh(&[parent]);
+    }
+
+    /// Whether a runtime-driven structural mutation requested a full relayout.
+    /// Consumed by the event loop after draining query refreshes.
+    pub(super) fn take_pending_force_relayout(&mut self) -> bool {
+        std::mem::replace(&mut self.pending_force_relayout, false)
     }
 
     /// Mutable query handle for chainable bulk mutations.
@@ -4113,6 +4298,160 @@ mod tests {
         let last = app.notifications.last().expect("warning notification");
         assert_eq!(last.title, "Suspend process");
         assert_eq!(last.severity, ToastSeverity::Warning);
+    }
+
+    // -- Dynamic mount/remove under a live parent (#stopwatch06) -------------
+
+    /// Leaf widget that stages a message at mount time (#51) and reports it as
+    /// a composed child so the canonical mount path is exercised.
+    #[derive(Debug, Clone)]
+    struct MountPing;
+    crate::impl_message!(MountPing);
+
+    struct MountProbe {
+        staged: Vec<Box<dyn crate::message::Message>>,
+    }
+    impl MountProbe {
+        fn new() -> Self {
+            Self {
+                staged: vec![Box::new(MountPing)],
+            }
+        }
+    }
+    impl Widget for MountProbe {
+        fn style_type(&self) -> &'static str {
+            "MountProbe"
+        }
+        fn render(&self, _c: &Console, _o: &ConsoleOptions) -> Segments {
+            Segments::new()
+        }
+        fn focusable(&self) -> bool {
+            true
+        }
+        fn take_pending_mount_messages(&mut self) -> Vec<Box<dyn crate::message::Message>> {
+            std::mem::take(&mut self.staged)
+        }
+    }
+
+    fn app_with_root() -> (App, NodeId) {
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(Box::new(AppRoot::new()));
+        let parent = tree.mount(root, Box::new(crate::widgets::Vertical::new()));
+        tree.set_css_id(parent, Some("timers".to_string()));
+        let mut app = App::new().expect("app should initialize");
+        app.widget_tree = Some(tree);
+        (app, parent)
+    }
+
+    #[test]
+    fn mount_under_inserts_child_via_arena_path() {
+        let (mut app, parent) = app_with_root();
+        let id = app
+            .mount_under("#timers", Button::new("dynamic"))
+            .expect("mount_under should succeed");
+
+        let tree = app.widget_tree.as_ref().expect("tree exists");
+        assert!(tree.contains(id));
+        assert_eq!(tree.parent(id), Some(parent));
+        assert_eq!(tree.children(parent), &[id]);
+        // Mount lifecycle event was queued for the event loop to drain.
+        assert!(tree.has_pending_lifecycle());
+        // Structural mutation requested a full relayout + repaint (without the
+        // terminal clear, which would diff against a stale frame).
+        assert!(app.pending_force_relayout);
+    }
+
+    #[test]
+    fn mount_under_runs_composed_children_and_decl_meta() {
+        let (mut app, _parent) = app_with_root();
+        // A Container declared via with_compose carries a child with decl-meta
+        // (#44); mounting it dynamically must extract + tag the child through
+        // the same arena path the initial build uses. (Container is used here
+        // rather than a delegated wrapper like Vertical because the shared
+        // `delegate_widget_to!` macro does not forward `take_child_decl_meta` —
+        // a pre-existing gap orthogonal to this dynamic-mount work.)
+        let container = crate::widgets::Container::new().with_compose(vec![
+            ChildDecl::from(Button::new("inner")).with_id("inner-btn"),
+        ]);
+        let cid = app
+            .mount_under("#timers", container)
+            .expect("mount container");
+
+        let tree = app.widget_tree.as_ref().expect("tree exists");
+        let kids = tree.children(cid);
+        assert_eq!(kids.len(), 1, "composed child should have been extracted");
+        // Decl-meta id landed on the dynamically mounted grandchild.
+        assert_eq!(tree.css_id(kids[0]), Some("inner-btn"));
+    }
+
+    #[test]
+    fn mount_under_stages_mount_messages_for_drain() {
+        let (mut app, _parent) = app_with_root();
+        let id = app
+            .mount_under("#timers", MountProbe::new())
+            .expect("mount probe");
+        // The node went through the canonical mount path; its mount-time message
+        // (#51) is now drainable from the node exactly as the event loop does.
+        let drained = app
+            .active_widget_tree_mut()
+            .and_then(|t| t.get_mut(id))
+            .map(|n| n.widget.take_pending_mount_messages())
+            .unwrap_or_default();
+        assert_eq!(drained.len(), 1);
+        assert!(drained[0].as_any().is::<MountPing>());
+    }
+
+    #[test]
+    fn mount_before_and_after_position_siblings() {
+        let (mut app, parent) = app_with_root();
+        let _a = app.mount_under("#timers", Button::new("a")).unwrap();
+        let b = app.mount_under("#timers", Button::new("b")).unwrap();
+
+        // Insert "before-b" before b, and "after-a" after a.
+        let before = app.mount_before("#timers > Button", Button::new("first")).unwrap();
+        let after_id = app.mount_after("#timers > Button", Button::new("second")).unwrap();
+
+        let tree = app.widget_tree.as_ref().expect("tree exists");
+        let kids: Vec<NodeId> = tree.children(parent).to_vec();
+        // "before" must sit at index 0 (before the first existing Button).
+        assert_eq!(kids[0], before);
+        // "after" sits right after that first sibling (index 1).
+        assert_eq!(kids[1], after_id);
+        assert!(kids.contains(&b));
+    }
+
+    #[test]
+    fn remove_node_tears_down_subtree_and_relayouts() {
+        let (mut app, parent) = app_with_root();
+        let container = crate::widgets::Vertical::new()
+            .with_compose(vec![ChildDecl::from(Button::new("inner"))]);
+        let cid = app.mount_under("#timers", container).unwrap();
+        let inner = app.widget_tree.as_ref().unwrap().children(cid)[0];
+
+        app.pending_force_relayout = false;
+        app.remove_node(cid).expect("remove should succeed");
+
+        let tree = app.widget_tree.as_ref().expect("tree exists");
+        assert!(!tree.contains(cid), "removed node gone");
+        assert!(!tree.contains(inner), "subtree torn down");
+        assert!(tree.children(parent).is_empty());
+        assert!(app.pending_force_relayout);
+    }
+
+    #[test]
+    fn remove_selector_resolves_and_removes() {
+        let (mut app, parent) = app_with_root();
+        app.mount_under("#timers", Button::new("only")).unwrap();
+        app.remove("#timers > Button").expect("remove by selector");
+        let tree = app.widget_tree.as_ref().expect("tree exists");
+        assert!(tree.children(parent).is_empty());
+    }
+
+    #[test]
+    fn mount_under_missing_parent_errors() {
+        let (mut app, _parent) = app_with_root();
+        let err = app.mount_under("#nope", Button::new("x")).unwrap_err();
+        assert_eq!(err, QueryError::NoMatch);
     }
 
     #[test]
