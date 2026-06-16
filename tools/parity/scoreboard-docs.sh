@@ -32,9 +32,17 @@ ROWS=30
 
 [ -x "$PYTHON" ] || { echo "error: PYTHON=$PYTHON not executable" >&2; exit 1; }
 mkdir -p "$OUT_DIR"
+# Refuse to run (and auto-sweep dead sockets) if leaked tmux servers have piled
+# up — prevents the socket leak from breaking tmux globally. See tmux-guard.sh.
+# shellcheck source=tools/parity/tmux-guard.sh
+source "$(dirname "${BASH_SOURCE[0]}")/tmux-guard.sh"
+parity_tmux_guard || exit 1
 tmx() { tmux -L "$SOCKET" "$@"; }
-cleanup() { tmx kill-server 2>/dev/null || true; }
-trap cleanup EXIT
+cleanup() {
+    tmx kill-server 2>/dev/null || true
+    rm -f "/tmp/tmux-$(id -u)/$SOCKET" 2>/dev/null || true
+}
+trap cleanup EXIT INT TERM
 
 # normalize: trim trailing ws per line, drop trailing blank lines
 norm() { sed -e 's/[[:space:]]*$//' | sed -e ':a' -e '/^\n*$/{$d;N;ba}' ; }

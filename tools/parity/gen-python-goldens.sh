@@ -33,9 +33,18 @@ ROWS=30
 [ -d "$PY_EXAMPLES" ] || { echo "error: Python examples dir not found: $PY_EXAMPLES" >&2; exit 1; }
 mkdir -p "$GOLDEN_DIR"
 
+# Refuse to run (and auto-sweep dead sockets) if leaked tmux servers have piled
+# up — prevents the socket leak from breaking tmux globally. See tmux-guard.sh.
+# shellcheck source=tools/parity/tmux-guard.sh
+source "$(dirname "${BASH_SOURCE[0]}")/tmux-guard.sh"
+parity_tmux_guard || exit 1
+
 tmx() { tmux -L "$SOCKET" "$@"; }
-cleanup() { tmx kill-server 2>/dev/null || true; }
-trap cleanup EXIT
+cleanup() {
+    tmx kill-server 2>/dev/null || true
+    rm -f "/tmp/tmux-$(id -u)/$SOCKET" 2>/dev/null || true
+}
+trap cleanup EXIT INT TERM
 
 # capture_stable <session> -> stdout (waits until two consecutive captures match)
 capture_stable() {
