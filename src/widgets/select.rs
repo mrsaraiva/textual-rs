@@ -48,6 +48,8 @@ pub struct Select<T: Clone + PartialEq + Send + Sync + 'static> {
 }
 
 impl<T: Clone + PartialEq + Send + Sync + 'static> Select<T> {
+    crate::seed_ident_methods!();
+
     /// Create a new `Select` widget.
     ///
     /// `options` is a list of `(label, value)` pairs.

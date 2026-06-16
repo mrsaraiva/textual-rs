@@ -99,6 +99,8 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Default for SelectionList<T> 
 }
 
 impl<T: Clone + PartialEq + Send + Sync + 'static> SelectionList<T> {
+    crate::seed_ident_methods!();
+
     /// Create an empty `SelectionList`.
     pub fn new() -> Self {
         let mut seed = NodeSeed::default();

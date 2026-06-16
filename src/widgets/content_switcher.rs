@@ -121,6 +121,8 @@ impl Default for ContentSwitcher {
 }
 
 impl ContentSwitcher {
+    crate::seed_ident_methods!();
+
     pub fn new() -> Self {
         Self {
             children: Vec::new(),

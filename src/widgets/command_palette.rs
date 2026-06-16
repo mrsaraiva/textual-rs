@@ -340,6 +340,8 @@ pub struct SearchIcon {
 }
 
 impl SearchIcon {
+    crate::seed_ident_methods!();
+
     pub fn new() -> Self {
         Self {
             icon: "🔎".to_string(),
@@ -395,6 +397,8 @@ pub struct CommandInput {
 }
 
 impl CommandInput {
+    crate::seed_ident_methods!();
+
     pub fn new(placeholder: impl Into<String>) -> Self {
         Self {
             input: Input::new()
@@ -521,6 +525,8 @@ pub struct CommandList {
 }
 
 impl CommandList {
+    crate::seed_ident_methods!();
+
     pub fn new() -> Self {
         Self {
             list: ListView::new(Vec::new()).scroll_step(2),
@@ -851,6 +857,8 @@ pub struct CommandPalette {
 }
 
 impl CommandPalette {
+    crate::seed_ident_methods!();
+
     const KEY_PANEL_WIDTH_ATTR: &'static str = "command_palette.key_panel_width";
     const PANEL_Y_ATTR: &'static str = "command_palette.panel_y";
     const CLOSED_PANEL_Y: f32 = 0.0;

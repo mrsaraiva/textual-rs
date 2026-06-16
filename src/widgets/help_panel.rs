@@ -21,6 +21,8 @@ pub struct HelpPanel {
 }
 
 impl HelpPanel {
+    crate::seed_ident_methods!();
+
     pub fn new() -> Self {
         let mut seed = NodeSeed::default();
         seed.classes.push("help-panel".to_string());

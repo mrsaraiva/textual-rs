@@ -31,6 +31,8 @@ pub struct OptionList {
 }
 
 impl OptionList {
+    crate::seed_ident_methods!();
+
     /// Create an empty `OptionList`.
     pub fn new() -> Self {
         let mut seed = NodeSeed::default();

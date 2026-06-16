@@ -9,6 +9,8 @@ pub struct Spacer {
 }
 
 impl Spacer {
+    crate::seed_ident_methods!();
+
     pub fn new(height: usize) -> Self {
         Self {
             height: height.max(1),

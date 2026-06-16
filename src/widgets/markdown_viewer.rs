@@ -447,6 +447,8 @@ pub struct MarkdownViewer {
 }
 
 impl MarkdownViewer {
+    crate::seed_ident_methods!();
+
     /// Create a new MarkdownViewer with initial content.
     ///
     /// For path-based navigation, use `register_content()` and `go()`.

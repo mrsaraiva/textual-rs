@@ -21,6 +21,8 @@ pub struct RadioButton {
 }
 
 impl RadioButton {
+    crate::seed_ident_methods!();
+
     pub fn new(label: impl Into<String>) -> Self {
         let label = label.into();
         let mut seed = NodeSeed::default();

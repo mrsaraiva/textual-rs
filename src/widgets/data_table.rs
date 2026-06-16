@@ -123,6 +123,8 @@ struct HorizontalScrollbarState {
 }
 
 impl DataTable {
+    crate::seed_ident_methods!();
+
     pub fn new(headers: Vec<String>, rows: Vec<Vec<String>>) -> Self {
         let mut out = Self {
             column_keys: Vec::new(),

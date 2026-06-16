@@ -28,6 +28,8 @@ pub struct HeaderIcon {
 }
 
 impl HeaderIcon {
+    crate::seed_ident_methods!();
+
     pub fn new(icon: impl Into<String>) -> Self {
         Self {
             icon: icon.into(),
@@ -171,6 +173,8 @@ pub struct HeaderTitle {
 }
 
 impl HeaderTitle {
+    crate::seed_ident_methods!();
+
     pub fn new(
         default_title: impl Into<String>,
         default_subtitle: Option<String>,
@@ -242,6 +246,8 @@ pub struct HeaderClockSpace {
 }
 
 impl HeaderClockSpace {
+    crate::seed_ident_methods!();
+
     pub fn new() -> Self {
         Self {
             seed: NodeSeed::default(),
@@ -287,6 +293,8 @@ pub struct HeaderClock {
 }
 
 impl HeaderClock {
+    crate::seed_ident_methods!();
+
     pub fn new(time_format: impl Into<String>) -> Self {
         Self {
             time_format: time_format.into(),
@@ -379,6 +387,8 @@ pub struct Header {
 }
 
 impl Header {
+    crate::seed_ident_methods!();
+
     pub fn new() -> Self {
         Self {
             title: "textual-rs".to_string(),

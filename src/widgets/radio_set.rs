@@ -27,6 +27,8 @@ pub struct RadioSet {
 }
 
 impl RadioSet {
+    crate::seed_ident_methods!();
+
     /// Create a new empty RadioSet.
     pub fn new() -> Self {
         let mut seed = NodeSeed::default();

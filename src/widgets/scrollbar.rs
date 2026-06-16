@@ -620,6 +620,8 @@ fn quantize_drag_position(position: f32) -> f32 {
 }
 
 impl ScrollBar {
+    crate::seed_ident_methods!();
+
     pub fn new(vertical: bool, thickness: usize) -> Self {
         Self {
             vertical,
@@ -891,6 +893,8 @@ pub struct ScrollBarCorner {
 }
 
 impl ScrollBarCorner {
+    crate::seed_ident_methods!();
+
     pub fn new() -> Self {
         Self {
             seed: NodeSeed::default(),

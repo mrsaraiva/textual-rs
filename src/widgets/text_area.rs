@@ -191,6 +191,8 @@ pub struct TextArea {
 }
 
 impl TextArea {
+    crate::seed_ident_methods!();
+
     const CURSOR_BLINK_PERIOD: Duration = Duration::from_millis(500);
     const PYTHON_HIGHLIGHTS: &str = r#"
 (comment) @comment

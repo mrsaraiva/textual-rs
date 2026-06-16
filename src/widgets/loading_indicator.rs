@@ -29,6 +29,8 @@ pub struct LoadingIndicator {
 }
 
 impl LoadingIndicator {
+    crate::seed_ident_methods!();
+
     /// Create a new `LoadingIndicator`.
     pub fn new() -> Self {
         let mut seed = NodeSeed::default();

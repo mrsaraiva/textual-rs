@@ -15,6 +15,8 @@ pub struct Panel {
 }
 
 impl Panel {
+    crate::seed_ident_methods!();
+
     pub fn new(child: impl Widget + 'static) -> Self {
         Self {
             child: Box::new(child),

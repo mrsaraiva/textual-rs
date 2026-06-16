@@ -223,6 +223,8 @@ pub struct ProgressBar {
 }
 
 impl ProgressBar {
+    crate::seed_ident_methods!();
+
     /// Create a new `ProgressBar`.
     ///
     /// Pass `Some(total)` for a determinate bar, or `None` for indeterminate.

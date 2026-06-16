@@ -77,6 +77,8 @@ fn scrollbar_drag_trace_enabled() -> bool {
 }
 
 impl AppRoot {
+    crate::seed_ident_methods!();
+
     pub fn new() -> Self {
         Self {
             children: Vec::new(),

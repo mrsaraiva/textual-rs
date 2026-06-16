@@ -48,6 +48,8 @@ pub struct Tooltip {
 }
 
 impl Tooltip {
+    crate::seed_ident_methods!();
+
     pub fn new(child: impl Widget + 'static, text: impl Into<String>) -> Self {
         let mut seed = NodeSeed::default();
         seed.classes.push("tooltip".to_string());

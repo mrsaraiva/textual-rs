@@ -56,6 +56,8 @@ pub struct Pretty {
 }
 
 impl Pretty {
+    crate::seed_ident_methods!();
+
     /// Create a new `Pretty` widget from any `Debug` value.
     ///
     /// The value's `Debug` representation is captured at construction time.

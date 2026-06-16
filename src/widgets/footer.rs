@@ -78,6 +78,8 @@ pub struct FooterKey {
 }
 
 impl FooterKey {
+    crate::seed_ident_methods!();
+
     pub fn new(key: impl Into<String>, description: impl Into<String>) -> Self {
         Self {
             key: key.into(),
@@ -259,6 +261,8 @@ pub struct FooterLabel {
 }
 
 impl FooterLabel {
+    crate::seed_ident_methods!();
+
     pub fn new(text: impl Into<String>) -> Self {
         Self {
             text: text.into(),
@@ -308,6 +312,8 @@ pub struct Footer {
 }
 
 impl Footer {
+    crate::seed_ident_methods!();
+
     pub fn new() -> Self {
         Self {
             bindings: Vec::new(),

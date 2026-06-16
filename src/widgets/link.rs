@@ -24,6 +24,8 @@ pub struct Link {
 }
 
 impl Link {
+    crate::seed_ident_methods!();
+
     pub fn new(text: impl Into<String>) -> Self {
         let text = text.into();
         let url_str = text.clone();

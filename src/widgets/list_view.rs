@@ -72,6 +72,8 @@ pub struct ListView {
 }
 
 impl ListView {
+    crate::seed_ident_methods!();
+
     /// Create a `ListView` from plain strings; each becomes a `ListItem(Label)`.
     pub fn new(items: Vec<String>) -> Self {
         let pending: Vec<ListItem> = items.iter().cloned().map(ListItem::from_text).collect();

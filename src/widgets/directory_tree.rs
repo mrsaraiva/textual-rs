@@ -110,6 +110,8 @@ pub struct DirectoryTree {
 }
 
 impl DirectoryTree {
+    crate::seed_ident_methods!();
+
     pub fn new(path: impl Into<PathBuf>) -> Self {
         let root_path = path.into();
         let show_hidden = false;

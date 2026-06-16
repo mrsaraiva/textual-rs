@@ -25,6 +25,8 @@ pub struct Checkbox {
 }
 
 impl Checkbox {
+    crate::seed_ident_methods!();
+
     pub fn new(label: impl Into<String>) -> Self {
         let mut seed = NodeSeed::default();
         seed.classes.push("checkbox".to_string());

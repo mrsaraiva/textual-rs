@@ -14,6 +14,8 @@ pub struct Styled {
 }
 
 impl Styled {
+    crate::seed_ident_methods!();
+
     pub fn new(child: impl Widget + 'static, style: Style) -> Self {
         let mut seed = NodeSeed::default();
         seed.styles.style = style;

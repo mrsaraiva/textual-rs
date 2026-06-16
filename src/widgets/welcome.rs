@@ -49,6 +49,8 @@ impl Default for Welcome {
 }
 
 impl Welcome {
+    crate::seed_ident_methods!();
+
     pub fn new() -> Self {
         let mut seed = NodeSeed::default();
         seed.classes.push("welcome".to_string());

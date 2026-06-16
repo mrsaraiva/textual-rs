@@ -19,6 +19,8 @@ pub struct Overlay {
 }
 
 impl Overlay {
+    crate::seed_ident_methods!();
+
     pub fn new(base: impl Widget + 'static, modal: impl Widget + 'static) -> Self {
         Self {
             base: Box::new(base),

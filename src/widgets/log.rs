@@ -128,6 +128,8 @@ pub struct Log {
 }
 
 impl Log {
+    crate::seed_ident_methods!();
+
     pub fn new() -> Self {
         Self {
             lines: Vec::new(),

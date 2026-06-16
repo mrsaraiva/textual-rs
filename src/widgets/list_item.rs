@@ -47,6 +47,8 @@ pub struct ListItem {
 }
 
 impl ListItem {
+    crate::seed_ident_methods!();
+
     /// Create a new `ListItem` wrapping a single child widget.
     ///
     /// Python: `ListItem(Label("One"))`.

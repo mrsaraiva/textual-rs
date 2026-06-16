@@ -48,6 +48,8 @@ pub struct Toast {
 }
 
 impl Toast {
+    crate::seed_ident_methods!();
+
     pub fn new(message: impl Into<String>, severity: ToastSeverity) -> Self {
         let message = message.into();
         let classes = vec![severity.class_name().to_string()];

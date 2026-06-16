@@ -66,6 +66,8 @@ pub struct Rule {
 }
 
 impl Rule {
+    crate::seed_ident_methods!();
+
     pub fn new(orientation: RuleOrientation) -> Self {
         let class = match orientation {
             RuleOrientation::Horizontal => "-horizontal",

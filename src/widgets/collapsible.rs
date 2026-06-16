@@ -30,6 +30,8 @@ pub struct CollapsibleTitle {
 }
 
 impl CollapsibleTitle {
+    crate::seed_ident_methods!();
+
     pub fn new(
         title: impl Into<String>,
         collapsed_symbol: impl Into<String>,
@@ -149,6 +151,8 @@ pub struct CollapsibleContents {
 }
 
 impl CollapsibleContents {
+    crate::seed_ident_methods!();
+
     pub fn new(children: Vec<Box<dyn Widget>>) -> Self {
         Self {
             children,
@@ -256,6 +260,8 @@ pub struct Collapsible {
 }
 
 impl Collapsible {
+    crate::seed_ident_methods!();
+
     pub fn new(title: impl Into<String>) -> Self {
         let mut seed = NodeSeed::default();
         seed.classes.push("-collapsed".to_string());

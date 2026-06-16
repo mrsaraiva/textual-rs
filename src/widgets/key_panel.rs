@@ -21,6 +21,8 @@ pub struct BindingsTable {
 }
 
 impl BindingsTable {
+    crate::seed_ident_methods!();
+
     pub fn new() -> Self {
         Self {
             bindings: Vec::new(),
@@ -292,6 +294,8 @@ pub struct KeyPanel {
 }
 
 impl KeyPanel {
+    crate::seed_ident_methods!();
+
     pub fn new() -> Self {
         Self {
             title: "Key Bindings".to_string(),

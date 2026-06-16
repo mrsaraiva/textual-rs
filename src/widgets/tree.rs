@@ -174,6 +174,8 @@ struct VisibleNode {
 }
 
 impl Tree {
+    crate::seed_ident_methods!();
+
     pub fn new(roots: Vec<TreeNode>) -> Self {
         Self {
             roots,

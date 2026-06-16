@@ -7,6 +7,20 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-16 (feat(widgets): complete the uniform `.id()`/`.class()` sweep)
+
+- **feat(widgets): `.id()`/`.class()` on (nearly) every widget (Python parity)**
+  - Followed up the macro from the prior entry by applying `seed_ident_methods!`
+    to the remaining ~39 seed-bearing widgets (Checkbox, Switch, Rule, Log,
+    RichLog, Select, Tree, DataTable, OptionList, SelectionList, RadioButton,
+    RadioSet, Collapsible, ProgressBar, LoadingIndicator, ListView, ListItem,
+    MarkdownViewer, Link, Pretty, Toast, Tooltip, DirectoryTree, ContentSwitcher,
+    Header/Footer + their parts, Welcome, Spacer, Panel, Frame, Constrained,
+    Overlay, Styled, ScrollBar, HelpPanel, KeyPanel, AppRoot, …). Every
+    seed-bearing widget now accepts `.id(...)` / `.class(...)` directly, matching
+    Python's universal `id=` / `classes=`.
+
+
 ### 2026-06-16 (feat(widgets): uniform `.id()` / `.class()` builders)
 
 - **feat(widgets): seed-based `.id()` / `.class()` builders on more widgets**

@@ -43,6 +43,8 @@ pub struct Switch {
 }
 
 impl Switch {
+    crate::seed_ident_methods!();
+
     pub fn new(value: bool) -> Self {
         let pos = if value { 1.0 } else { 0.0 };
         Self {
