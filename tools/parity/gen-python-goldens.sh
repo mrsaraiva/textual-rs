@@ -112,6 +112,12 @@ CASE=docs_layout02 && want "$@" && run_case "$CASE" "$PY_DOCS/how-to" "" "layout
 CASE=docs_layout03 && want "$@" && run_case "$CASE" "$PY_DOCS/how-to" "" "layout03.py"
 CASE=docs_layout04 && want "$@" && run_case "$CASE" "$PY_DOCS/how-to" "" "layout04.py"
 CASE=docs_muted_backgrounds && want "$@" && run_case "$CASE" "$PY_DOCS/themes" "" "muted_backgrounds.py"
+CASE=docs_render_compose && want "$@" && run_case "$CASE" "$PY_DOCS/how-to" "" "render_compose.py"
+CASE=docs_layout01 && want "$@" && run_case "$CASE" "$PY_DOCS/how-to" "" "layout01.py"
+CASE=docs_layout06 && want "$@" && run_case "$CASE" "$PY_DOCS/how-to" "" "layout06.py"
+CASE=docs_modal01 && want "$@" && run_case "$CASE" "$PY_DOCS/guide/screens" "" "modal01.py"
+CASE=docs_modal02 && want "$@" && run_case "$CASE" "$PY_DOCS/guide/screens" "" "modal02.py"
+CASE=docs_modal03 && want "$@" && run_case "$CASE" "$PY_DOCS/guide/screens" "" "modal03.py"
 # NOTE: app examples event01 (bg-color only), simple01/02 (empty App), and
 # widgets02/03/04 (Welcome mounts only on keypress) have EMPTY initial plain-text
 # screens, so they aren't strict-harness cases (the harness needs a non-empty

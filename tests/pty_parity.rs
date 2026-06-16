@@ -1025,6 +1025,60 @@ const CASES: &[Case] = &[
              children are not treated as filling the viewport.",
         ),
     },
+    Case {
+        name: "docs_render_compose",
+        example: "render_compose",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_layout01",
+        example: "layout01",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_layout06",
+        example: "layout06",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_modal01",
+        example: "modal01",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_modal02",
+        example: "modal02",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_modal03",
+        example: "modal03",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
 ];
 
 fn repo_root() -> PathBuf {
@@ -1399,6 +1453,12 @@ pty_case!(json_tree_initial, "json_tree_initial");
 pty_case!(json_tree_add_node, "json_tree_add_node");
 pty_case!(dictionary_initial, "dictionary_initial");
 pty_case!(code_browser_initial, "code_browser_initial");
+pty_case!(docs_render_compose, "docs_render_compose");
+pty_case!(docs_layout01, "docs_layout01");
+pty_case!(docs_layout06, "docs_layout06");
+pty_case!(docs_modal01, "docs_modal01");
+pty_case!(docs_modal02, "docs_modal02");
+pty_case!(docs_modal03, "docs_modal03");
 
 /// Every golden file must have a manifest entry and vice versa, so cases can't
 /// silently rot.
