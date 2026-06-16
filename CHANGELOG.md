@@ -7,6 +7,18 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-15 (fix(Switch): render slider via ScrollBarRender; content width 4)
+
+- **fix(widgets/Switch): slider is a horizontal scrollbar thumb (Python parity)**
+  - Replaced the ad-hoc knob/fractional-edge drawing with Python's actual
+    `Switch.render`: a `ScrollBarRender(virtual_size=100, window_size=50,
+    position=slider_pos*50, vertical=False)` whose thumb occupies half the track
+    and slides left (off) → right (on). Thumb/track colors come from the
+    `switch--slider` component style flattened over the resolved surface.
+  - **fix(widgets/Switch): `content_width` returns the bare content width (4)**
+    matching Python `Switch.get_content_width`; padding/border chrome is added by
+    the layout engine, not baked into the widget's reported width.
+
 ### 2026-06-15 (fix(layout): collapse adjacent margins in horizontal layout)
 
 - **fix(layout/horizontal): adjacent child margins collapse (max, not sum)**

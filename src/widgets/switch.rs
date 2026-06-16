@@ -1,14 +1,23 @@
 use crossterm::event::KeyCode;
-use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
+use rich_rs::{Console, ConsoleOptions, Renderable, Segments};
 
 use crate::event::{Action, Event, EventCtx};
 use crate::message::*;
 use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
 
+use super::scrollbar::ScrollBarRender;
 use super::{NodeSeed, Widget};
 
-/// The visual width of the switch slider track (in cells).
-const SWITCH_WIDTH: usize = 8;
+/// The content width of the switch slider track (in cells).
+///
+/// Matches Python `Switch.get_content_width` which returns `4`. Padding/border
+/// chrome is added by the layout engine, not here.
+const SWITCH_WIDTH: usize = 4;
+
+/// `ScrollBarRender` parameters used by the Python `Switch.render`:
+/// the slider is a horizontal scrollbar thumb occupying half the track.
+const SWITCH_VIRTUAL_SIZE: usize = 100;
+const SWITCH_WINDOW_SIZE: usize = 50;
 
 /// Duration of the slide animation in ticks (~60Hz assumed, so 18 ticks ~ 0.3s).
 const ANIMATION_TICKS: u64 = 18;
@@ -174,14 +183,9 @@ impl Widget for Switch {
     }
 
     fn content_width(&self) -> Option<usize> {
-        let meta = crate::css::selector_meta_generic(self);
-        let resolved = crate::css::resolve_style(self, &meta);
-        let padding = resolved.effective_padding();
-        let (_, _, border_left, border_right) =
-            super::helpers::border_spacing_from_style(&resolved);
-        let chrome_lr =
-            usize::from(padding.left.saturating_add(padding.right)) + border_left + border_right;
-        Some(SWITCH_WIDTH.saturating_add(chrome_lr).max(1))
+        // Python `Switch.get_content_width` returns the bare content width (4);
+        // the layout engine adds padding/border chrome around it.
+        Some(SWITCH_WIDTH)
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
@@ -257,66 +261,40 @@ impl Widget for Switch {
     fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
 
-        let slider_style = crate::css::resolve_component_style(self, &["switch--slider"])
-            .to_rich()
-            .unwrap_or_else(rich_rs::Style::new);
+        // The slider IS a horizontal scrollbar thumb (Python `Switch.render`):
+        // `ScrollBarRender(virtual_size=100, window_size=50,
+        //  position=_slider_position*50, vertical=False)`. The thumb occupies
+        // half the track and slides from the left half (off) to the right
+        // half (on). Colors come from the `switch--slider` component style;
+        // in plain text the thumb and track are both spaces (the distinction
+        // is purely color/reverse), matching Python.
+        let slider = crate::css::resolve_component_style(self, &["switch--slider"]);
+        let base_bg = crate::css::current_self_style()
+            .and_then(|s| s.bg)
+            .or_else(|| crate::style::parse_color_like("$surface"))
+            .unwrap_or_else(|| crate::style::Color::rgb(0, 0, 0));
+        let back = slider
+            .bg
+            .map(|c| c.flatten_over(base_bg))
+            .unwrap_or(base_bg);
+        let thumb = slider
+            .fg
+            .map(|c| c.flatten_over(back))
+            .unwrap_or(back);
 
-        let track_inner = width.saturating_sub(2); // minus left/right border chars
-        if track_inner == 0 {
-            let mut out = Segments::new();
-            out.push(Segment::styled(
-                rich_rs::set_cell_size("▐▌", width),
-                slider_style,
-            ));
-            return out;
-        }
+        let renderer = ScrollBarRender {
+            virtual_size: SWITCH_VIRTUAL_SIZE,
+            window_size: SWITCH_WINDOW_SIZE,
+            position: self.slider_pos * SWITCH_WINDOW_SIZE as f32,
+            thickness: 1,
+            vertical: false,
+        };
+        let lines = renderer.render_bar(width, back, thumb);
 
-        // The knob occupies ~half the track, positioned by slider_pos.
-        let knob_size = (track_inner / 2).max(1);
-        let slide_range = track_inner.saturating_sub(knob_size) as f32;
-        let knob_offset_f = self.slider_pos * slide_range;
-        let knob_start = knob_offset_f as usize;
-
-        // Fractional part for sub-cell rendering
-        let frac = knob_offset_f - knob_start as f32;
-
-        let mut track = String::with_capacity(track_inner + 2);
-        track.push_str("▐");
-
-        for i in 0..track_inner {
-            if i == knob_start && knob_start < track_inner {
-                // Leading edge with fractional rendering
-                if frac < 0.25 {
-                    track.push('█');
-                } else if frac < 0.75 {
-                    track.push('▐');
-                } else {
-                    track.push(' ');
-                }
-            } else if i > knob_start && i < knob_start + knob_size {
-                track.push('█');
-            } else if i == knob_start + knob_size
-                && knob_size > 0
-                && knob_start + knob_size <= track_inner
-            {
-                // Trailing edge with fractional rendering
-                if frac < 0.25 {
-                    track.push(' ');
-                } else if frac < 0.75 {
-                    track.push('▌');
-                } else {
-                    track.push('█');
-                }
-            } else {
-                track.push(' ');
-            }
-        }
-
-        track.push_str("▌");
-
-        let line = rich_rs::set_cell_size(&track, width);
         let mut out = Segments::new();
-        out.push(Segment::styled(line, slider_style));
+        if let Some(row) = lines.into_iter().next() {
+            out.extend(row);
+        }
         out
     }
 
