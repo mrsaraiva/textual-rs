@@ -7,6 +7,18 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-15 (fix(DirectoryTree): suppress twisty, render emoji prefix)
+
+- **fix(widgets/DirectoryTree): folder/file emoji replaces the twisty prefix**
+  - Python's `DirectoryTree.render_label` overrides the base `Tree` prefix so the
+    `📂`/`📁`/`📄` emoji *is* the node prefix and the expand/collapse twisty
+    (`▼`/`▶`) is suppressed. Rust rendered both (`▼ 📂 ./`), and used the full
+    path text for the root instead of `path.name` (basename). Added a
+    `Tree::set_hide_twisty` flag (default off, no plain-`Tree` change) threaded
+    through prefix/width/hit-test/render; `DirectoryTree` enables it and uses the
+    basename for the root label. The toggle hit-zone extends over the leading
+    emoji so clicking a folder icon still expands/collapses it (Python parity).
+
 ### 2026-06-15 (fix(Digits): honor parent-forwarded text-align; OptionList scrollbar)
 
 - **fix(renderables/Digits): honor the parent-forwarded `justify` (text-align)**

@@ -30,11 +30,14 @@ struct DirectoryNode {
 impl DirectoryNode {
     fn from_path(path: PathBuf) -> Self {
         let is_dir = path.is_dir();
-        let label = if let Some(name) = path.file_name().and_then(|name| name.to_str()) {
-            name.to_string()
-        } else {
-            path.display().to_string()
-        };
+        // Match Python's `DirectoryTree`, whose root label is `path.name`
+        // (the basename). For a path like `"./"` the basename is empty, so the
+        // root renders as just the folder emoji rather than the full path text.
+        let label = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .map(|name| name.to_string())
+            .unwrap_or_default();
         Self {
             path,
             label,
@@ -120,6 +123,9 @@ impl DirectoryTree {
         );
 
         let mut tree = Tree::new(vec![root.to_tree_node()]);
+        // DirectoryTree replaces the twisty with the folder/file emoji prefix
+        // (see Python `DirectoryTree.render_label`).
+        tree.set_hide_twisty(true);
         tree.on_layout(1, 1);
 
         let mut this = Self {
@@ -194,6 +200,7 @@ impl DirectoryTree {
         collect_visible_entries(&self.root, &mut self.visible_entries);
 
         let mut tree = Tree::new(vec![self.root.to_tree_node()]);
+        tree.set_hide_twisty(true);
         tree.on_layout(self.last_width, self.last_height);
 
         if let Some(path) = preferred_path {

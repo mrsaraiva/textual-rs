@@ -146,6 +146,14 @@ pub struct Tree {
     show_guides: bool,
     /// Indentation width per tree level in cells. Clamped to [2, 10]. Default: 4.
     guide_depth: usize,
+    /// When `true`, the expand/collapse twisty (`▼`/`▶`) is not rendered.
+    ///
+    /// Used by [`DirectoryTree`](super::DirectoryTree), which (like Python
+    /// Textual) overrides `render_label` so the folder/file emoji *is* the node
+    /// prefix and replaces the twisty entirely. With the twisty hidden, the
+    /// toggle hit-zone collapses onto the guide region (the emoji prefix that
+    /// follows is part of the label and stays click-to-toggle for directories).
+    hide_twisty: bool,
     seed: NodeSeed,
 }
 
@@ -178,8 +186,22 @@ impl Tree {
             show_root: true,
             show_guides: true,
             guide_depth: 4,
+            hide_twisty: false,
             seed: NodeSeed::default(),
         }
+    }
+
+    /// Hide the expand/collapse twisty (`▼`/`▶`).
+    ///
+    /// Mirrors Python Textual's `DirectoryTree`, where `render_label` is
+    /// overridden so the folder/file emoji replaces the twisty prefix.
+    pub fn set_hide_twisty(&mut self, value: bool) {
+        self.hide_twisty = value;
+    }
+
+    /// Whether the expand/collapse twisty is hidden.
+    pub fn twisty_hidden(&self) -> bool {
+        self.hide_twisty
     }
 
     // ── Reactive getters ─────────────────────────────────────────────────
@@ -873,7 +895,8 @@ impl Tree {
     fn max_line_width(&self) -> usize {
         let mut max_width = 1usize;
         for node in self.visible_nodes() {
-            let prefix = Self::row_prefix(&node, false, self.show_guides, self.guide_depth);
+            let prefix =
+                Self::row_prefix(&node, false, self.show_guides, self.guide_depth, self.hide_twisty);
             let width = rich_rs::cell_len(&prefix).saturating_add(rich_rs::cell_len(&node.label));
             max_width = max_width.max(width);
         }
@@ -981,8 +1004,8 @@ impl Tree {
         }
     }
 
-    fn twisty(node: &VisibleNode) -> &'static str {
-        if !node.expandable {
+    fn twisty(node: &VisibleNode, hide_twisty: bool) -> &'static str {
+        if hide_twisty || !node.expandable {
             ""
         } else if node.expanded {
             "▼ "
@@ -1037,18 +1060,37 @@ impl Tree {
         _highlighted: bool,
         show_guides: bool,
         guide_depth: usize,
+        hide_twisty: bool,
     ) -> String {
         format!(
             "{}{}",
             Self::guide_prefix(node, show_guides, guide_depth),
-            Self::twisty(node)
+            Self::twisty(node, hide_twisty)
         )
     }
 
-    fn twisty_hit_max_x(node: &VisibleNode, show_guides: bool, guide_depth: usize) -> usize {
+    fn twisty_hit_max_x(
+        node: &VisibleNode,
+        show_guides: bool,
+        guide_depth: usize,
+        hide_twisty: bool,
+    ) -> usize {
         let guide = Self::guide_prefix(node, show_guides, guide_depth);
-        let prefix = format!("{}{}", guide, Self::twisty(node));
-        rich_rs::cell_len(&prefix).saturating_sub(1)
+        let prefix = format!("{}{}", guide, Self::twisty(node, hide_twisty));
+        let mut max_x = rich_rs::cell_len(&prefix);
+        if hide_twisty && node.expandable {
+            // With the twisty hidden (DirectoryTree), the folder emoji that
+            // leads the label is the toggle affordance (Python attaches
+            // TOGGLE_STYLE to that prefix). Extend the hit-zone over the
+            // label's leading icon (up to and including its trailing space).
+            let icon_cells = node
+                .label
+                .find(' ')
+                .map(|byte_idx| rich_rs::cell_len(&node.label[..=byte_idx]))
+                .unwrap_or_else(|| rich_rs::cell_len(&node.label));
+            max_x = max_x.saturating_add(icon_cells);
+        }
+        max_x.saturating_sub(1)
     }
 }
 
@@ -1203,8 +1245,12 @@ impl Widget for Tree {
                     if node.disabled {
                         return;
                     }
-                    let twist_col =
-                        Self::twisty_hit_max_x(node, self.show_guides, self.guide_depth);
+                    let twist_col = Self::twisty_hit_max_x(
+                        node,
+                        self.show_guides,
+                        self.guide_depth,
+                        self.hide_twisty,
+                    );
                     if node.expandable && (mouse.x as usize) <= twist_col {
                         self.pressed_activation_index = None;
                         self.toggle_index(index, ctx);
@@ -1513,7 +1559,7 @@ impl Widget for Tree {
                 }
 
                 // 2. Twisty (expand/collapse indicator).
-                let twisty = Self::twisty(node);
+                let twisty = Self::twisty(node, self.hide_twisty);
                 if !twisty.is_empty() {
                     row_segments.push(Segment::styled(twisty.to_string(), row_label_style));
                 }
