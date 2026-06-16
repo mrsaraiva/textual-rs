@@ -786,6 +786,42 @@ fn p2_34_hatch_fills_blank_cells_with_pattern() {
 }
 
 #[test]
+fn p2_34_hatch_opacity_blends_color_over_background() {
+    // The hatch glyph's foreground must be the hatch color blended over the
+    // cell background (Python: fg = background + color, with color carrying its
+    // opacity-scaled alpha). White hatch at 50% over a black bg => mid-grey fg.
+    use textual::style::{Color, Hatch};
+
+    let mut label = Label::new("X         "); // 10 chars: 'X' + 9 spaces
+    let seed = label.seed_mut();
+    seed.styles.style.bg = Some(Color::parse("#000000").unwrap());
+    seed.styles.style.hatch = Some(Hatch {
+        character: '╱',
+        color: Color::rgba(255, 255, 255, 128), // white at 50% alpha
+    });
+
+    let mut root = Container::new().with_child(label);
+    let (_tree, frame, _lines) = tree_render(&mut root, 20, 3);
+
+    let cell = frame.get(1, 0);
+    assert_eq!(cell.text, "╱", "blank cell should carry the hatch glyph");
+    let fg = cell
+        .style
+        .and_then(|s| s.color)
+        .expect("hatch glyph should have a foreground color");
+    // 255*128/255 over 0 => ~128 each channel (allow rounding slack).
+    match fg {
+        rich_rs::SimpleColor::Rgb { r, g, b } => {
+            assert!(
+                (120..=135).contains(&r) && (120..=135).contains(&g) && (120..=135).contains(&b),
+                "expected mid-grey blend, got rgb({r},{g},{b})"
+            );
+        }
+        other => panic!("expected rgb color, got {other:?}"),
+    }
+}
+
+#[test]
 fn p2g34_overlay_screen_blends_with_underlay() {
     let base_style = Style::new()
         .width(Scalar::Percent(100.0))

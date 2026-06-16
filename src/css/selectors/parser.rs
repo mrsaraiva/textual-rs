@@ -1646,15 +1646,20 @@ pub(super) fn parse_style_body(body: &str) -> Style {
                 }
             }
             // P2-34: hatch, overlay, keyline
+            //
+            // Syntax (matches Python Textual):
+            //   hatch: none
+            //   hatch: <pattern|"char"> <color> [<percent>%]
+            // where <pattern> is one of left/right/cross/horizontal/vertical
+            // (mapped to a glyph) or a quoted single-cell string. The optional
+            // trailing percentage scales the color's alpha (opacity blend).
             "hatch" => {
-                let parts: Vec<&str> = value.split_whitespace().collect();
-                if parts.len() >= 2 {
-                    let ch = parts[0].chars().next();
-                    // Remaining tokens form the color value.
-                    let color_str = parts[1..].join(" ");
-                    if let (Some(character), Some(color)) = (ch, parse_color_like(&color_str)) {
-                        style.hatch = Some(Hatch { character, color });
-                    }
+                let trimmed = value.trim();
+                if trimmed.eq_ignore_ascii_case("none") {
+                    // Explicit reset: leave hatch unset.
+                    style.hatch = None;
+                } else if let Some(hatch) = parse_hatch_value(trimmed) {
+                    style.hatch = Some(hatch);
                 }
             }
             "overlay" => {
@@ -1813,6 +1818,72 @@ fn parse_border_edge(value: &str) -> Option<BorderEdge> {
 fn parse_border_shorthand(value: &str) -> Option<(BorderEdge, BorderEdge, BorderEdge, BorderEdge)> {
     let edge = parse_border_value(value)?;
     Some((edge, edge, edge, edge))
+}
+
+/// Map a named hatch pattern to its glyph (matches Python `HATCHES`).
+fn hatch_glyph(name: &str) -> Option<char> {
+    match name {
+        "left" => Some('╲'),
+        "right" => Some('╱'),
+        "cross" => Some('╳'),
+        "horizontal" => Some('─'),
+        "vertical" => Some('│'),
+        _ => None,
+    }
+}
+
+/// Parse a `hatch` value: `<pattern|"char"> <color> [<percent>%]`.
+///
+/// Mirrors Python `process_hatch`: the first token is a named pattern (mapped
+/// to a glyph) or a quoted single-cell string; the next token(s) form a color;
+/// an optional trailing percentage scales the color's alpha (opacity blend),
+/// equivalent to Python's `color.multiply_alpha(opacity)`.
+fn parse_hatch_value(value: &str) -> Option<Hatch> {
+    let tokens: Vec<&str> = value.split_whitespace().filter(|t| !t.is_empty()).collect();
+    if tokens.len() < 2 {
+        return None;
+    }
+
+    // First token: pattern keyword or quoted single character.
+    let first = tokens[0];
+    let character = if (first.starts_with('"') && first.ends_with('"') && first.len() >= 2)
+        || (first.starts_with('\'') && first.ends_with('\'') && first.len() >= 2)
+    {
+        let inner = &first[1..first.len() - 1];
+        let mut chars = inner.chars();
+        let c = chars.next()?;
+        if chars.next().is_some() {
+            // Must be a single character.
+            return None;
+        }
+        c
+    } else {
+        hatch_glyph(&first.to_ascii_lowercase())?
+    };
+
+    // Optional trailing percentage scales the color alpha.
+    let mut opacity: Option<f32> = None;
+    let mut color_tokens: Vec<&str> = Vec::new();
+    for token in &tokens[1..] {
+        if let Some(raw) = token.strip_suffix('%') {
+            if let Ok(v) = raw.trim().parse::<f32>() {
+                opacity = Some((v / 100.0).clamp(0.0, 1.0));
+                continue;
+            }
+        }
+        color_tokens.push(token);
+    }
+    if color_tokens.is_empty() {
+        return None;
+    }
+    let mut color = parse_color_like(&color_tokens.join(" "))?;
+    if let Some(op) = opacity {
+        // multiply existing alpha by opacity
+        let new_a = (color.a as f32 / 255.0) * op;
+        color = color.with_alpha(new_a);
+    }
+
+    Some(Hatch { character, color })
 }
 
 fn parse_tint(value: &str) -> Option<Tint> {
@@ -3417,6 +3488,66 @@ mod tests {
         assert!(
             selector.pseudos().contains(&PseudoClass::Ansi),
             "expected :ansi pseudo to be parsed"
+        );
+    }
+
+    // ---- P2-34: hatch property parsing ----
+
+    #[test]
+    fn parse_hatch_named_pattern_maps_to_glyph() {
+        let style = parse_style_body("hatch: right #ff0000;");
+        let h = style.hatch.expect("hatch should parse");
+        assert_eq!(h.character, '╱', "`right` maps to forward slash glyph");
+        assert_eq!(h.color.r, 255);
+        assert_eq!(h.color.a, 255, "no opacity => full alpha");
+    }
+
+    #[test]
+    fn parse_hatch_all_named_patterns() {
+        for (name, glyph) in [
+            ("left", '╲'),
+            ("right", '╱'),
+            ("cross", '╳'),
+            ("horizontal", '─'),
+            ("vertical", '│'),
+        ] {
+            let style = parse_style_body(&format!("hatch: {name} white;"));
+            let h = style
+                .hatch
+                .unwrap_or_else(|| panic!("hatch `{name}` should parse"));
+            assert_eq!(h.character, glyph, "pattern {name}");
+        }
+    }
+
+    #[test]
+    fn parse_hatch_with_opacity_percent_scales_alpha() {
+        let style = parse_style_body("hatch: right #ffffff 10%;");
+        let h = style.hatch.expect("hatch should parse");
+        assert_eq!(h.character, '╱');
+        // 255 * 0.10 ~= 26 (rounded)
+        assert_eq!(h.color.a, 26, "opacity 10% scales alpha");
+    }
+
+    #[test]
+    fn parse_hatch_quoted_custom_char() {
+        let style = parse_style_body("hatch: \"T\" green 50%;");
+        let h = style.hatch.expect("hatch should parse");
+        assert_eq!(h.character, 'T');
+        assert_eq!(h.color.a, 128, "50% => ~128 alpha");
+    }
+
+    #[test]
+    fn parse_hatch_none_leaves_unset() {
+        let style = parse_style_body("hatch: none;");
+        assert!(style.hatch.is_none(), "`none` should not set a hatch");
+    }
+
+    #[test]
+    fn parse_hatch_invalid_pattern_ignored() {
+        let style = parse_style_body("hatch: bogus red;");
+        assert!(
+            style.hatch.is_none(),
+            "unknown pattern keyword should be ignored"
         );
     }
 

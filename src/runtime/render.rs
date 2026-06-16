@@ -863,7 +863,7 @@ fn render_tree_node(
 
         // P2-34: Apply hatch fill to blank cells within the widget area.
         if let Some(ref hatch) = resolved.hatch {
-            apply_hatch_fill(frame, hatch, dest_x, dest_y, w, h, ctx.clip);
+            apply_hatch_fill(frame, hatch, resolved.bg, dest_x, dest_y, w, h, ctx.clip);
         }
 
         // P2-34: Apply overlay compositing mode.
@@ -1467,9 +1467,11 @@ fn outline_char_vertical(edge: &BorderEdge, left: bool) -> char {
 /// Hatch replaces empty/space cells with the hatch character in the specified
 /// color, creating a repeating pattern fill effect. Only cells that are
 /// currently blank (space or empty) are filled; existing content is preserved.
+#[allow(clippy::too_many_arguments)]
 fn apply_hatch_fill(
     frame: &mut FrameBuffer,
     hatch: &Hatch,
+    resolved_bg: Option<Color>,
     x0: i32,
     y0: i32,
     w: usize,
@@ -1485,7 +1487,13 @@ fn apply_hatch_fill(
     let Some(paint_clip) = clip.intersect(frame_clip) else {
         return;
     };
-    let fg_color = hatch.color.to_simple_opaque();
+
+    // Python paints the hatch glyph with foreground = `(background + color)`,
+    // i.e. the hatch color (already carrying its opacity-scaled alpha) blended
+    // over the cell's background. The cell background itself is left unchanged.
+    let fallback_bg = resolved_bg
+        .map(|c| Color::rgb(c.r, c.g, c.b))
+        .unwrap_or(Color::rgb(0, 0, 0));
     for row in 0..h {
         let y = y0 + row as i32;
         if y < paint_clip.y0 || y >= paint_clip.y1 {
@@ -1502,9 +1510,18 @@ fn apply_hatch_fill(
             }
             let is_blank = cell.text.is_empty() || cell.text.chars().all(|c| c == ' ');
             if is_blank {
+                // Resolve the under-color from the cell's painted background,
+                // falling back to the resolved widget background.
+                let under = cell
+                    .style
+                    .as_ref()
+                    .and_then(|s| s.bgcolor)
+                    .map(crate::style::color_from_simple)
+                    .unwrap_or(fallback_bg);
+                let fg = hatch.color.flatten_over(under);
                 cell.text = hatch.character.to_string();
                 let mut style = cell.style.unwrap_or_else(rich_rs::Style::new);
-                style.color = Some(fg_color);
+                style.color = Some(fg.to_simple_opaque());
                 cell.style = Some(style);
             }
         }

@@ -7,6 +7,18 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-16 (fix(css): hatch property maps named patterns + blends opacity)
+
+- **fix(css/hatch): named patterns map to glyphs; opacity blends over background**
+  - The `hatch:` parser took the first *letter* of the pattern keyword as the
+    fill char (so `hatch: right $foreground` painted `r`, never `╱`) and dropped
+    the optional opacity. Now the named patterns map to Python's `HATCHES` glyphs
+    (`left ╲`, `right ╱`, `cross ╳`, `horizontal ─`, `vertical │`) or accept a
+    quoted single-cell char, and a trailing `N%` scales the color alpha
+    (`color.multiply_alpha`). The painter blends the (alpha-scaled) hatch color
+    over each blank cell's actual background (`flatten_over`) instead of painting
+    a flat opaque color, matching Python's `apply_hatch`. Adds `hatch: none`.
+
 ### 2026-06-15 (fix(layout): border-box explicit size never collapses below chrome)
 
 - **fix(layout): a border-box explicit size keeps its full border/padding chrome**
