@@ -133,11 +133,30 @@ impl Widget for Static {
     }
 
     fn layout_height(&self) -> Option<usize> {
+        // `Static` is a thin wrapper around an inner `Label`, but the CSS node is
+        // the `Static` (selector type `Static`). App-level rules such as
+        // `Static { padding: 2 4 }` therefore resolve against the *Static's*
+        // selector, NOT the inner label's — so delegating `layout_height()`
+        // straight to `self.label` reports the content height MINUS the Static's
+        // own padding/border. That under-reports the widget's outer height, which
+        // both clips the box and (because `align: center middle` measures the
+        // resulting `layout_rect`) miscenters the widget. Reconstruct the outer
+        // height as `content + own chrome`: take the label's pure content
+        // (its outer height minus whatever chrome the label itself resolved) and
+        // add the Static's resolved vertical chrome. Both `resolved_vertical_chrome`
+        // calls return 0 outside a style context (unit tests), so behavior there
+        // is unchanged.
+        let static_chrome = crate::widgets::helpers::resolved_vertical_chrome(self);
         match &self.content {
-            StaticContent::Plain => self.label.layout_height(),
+            StaticContent::Plain => {
+                let label_chrome = crate::widgets::helpers::resolved_vertical_chrome(&self.label);
+                self.label
+                    .layout_height()
+                    .map(|h| h.saturating_sub(label_chrome).saturating_add(static_chrome))
+            }
             StaticContent::Rich(text) => {
                 let line_count = text.plain_text().lines().count().max(1);
-                Some(line_count)
+                Some(line_count.saturating_add(static_chrome))
             }
         }
     }

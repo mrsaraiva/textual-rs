@@ -389,6 +389,7 @@ mod tests {
         inline_style: Option<Style>,
         intrinsic_height: Option<usize>,
         intrinsic_width: Option<usize>,
+        transparent_wrapper: bool,
     }
 
     impl LayoutTestWidget {
@@ -398,7 +399,15 @@ mod tests {
                 inline_style: None,
                 intrinsic_height: None,
                 intrinsic_width: None,
+                transparent_wrapper: false,
             }
+        }
+
+        fn boxed_wrapper(label: &'static str) -> Box<dyn Widget> {
+            Box::new(Self {
+                transparent_wrapper: true,
+                ..Self::new(label)
+            })
         }
 
         fn with_style(mut self, style: Style) -> Self {
@@ -468,6 +477,10 @@ mod tests {
 
         fn content_width(&self) -> Option<usize> {
             self.intrinsic_width
+        }
+
+        fn is_transparent_wrapper(&self) -> bool {
+            self.transparent_wrapper
         }
     }
 
@@ -846,14 +859,96 @@ mod tests {
             root,
             LayoutTestWidget::boxed_with_style("Fixed", Style::new().height(Scalar::Cells(10))),
         );
-        let flex = tree.mount(root, LayoutTestWidget::boxed("Flex"));
+        // An UNSET height (no style, no intrinsic) is NOT a `1fr` share.
+        let unset = tree.mount(root, LayoutTestWidget::boxed("Unset"));
+
+        let available = Region::new(0, 0, 80, 50);
+        layout_vertical(&mut tree, &[fixed, unset], available, (80, 50), false);
+
+        assert_layout_rect(&tree, fixed, 0, 0, 80, 10);
+        // Python parity (`Widget._get_box_model`): an unset-height child fills the
+        // FULL container height (50), independently of its fixed sibling, so it
+        // overflows past the bottom (y 10..60) rather than taking the remaining 40.
+        // (Verified against Python Textual: `Placeholder` after a `height: 10`
+        // sibling in an 80x50 viewport → Region(0, 10, 80, 50).)
+        assert_layout_rect(&tree, unset, 0, 10, 80, 60);
+    }
+
+    #[test]
+    fn vertical_fixed_plus_fraction_fills_remaining() {
+        // Distinct from an UNSET height: an explicit `1fr` DOES share the
+        // remaining space after fixed siblings.
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(LayoutTestWidget::boxed("Container"));
+        let fixed = tree.mount(
+            root,
+            LayoutTestWidget::boxed_with_style("Fixed", Style::new().height(Scalar::Cells(10))),
+        );
+        let flex = tree.mount(
+            root,
+            LayoutTestWidget::boxed_with_style("Flex", Style::new().height(Scalar::Fraction(1.0))),
+        );
 
         let available = Region::new(0, 0, 80, 50);
         layout_vertical(&mut tree, &[fixed, flex], available, (80, 50), false);
 
         assert_layout_rect(&tree, fixed, 0, 0, 80, 10);
-        // Flex gets remaining: 50 - 10 = 40.
+        // `1fr` flex gets the remaining 40 (50 - 10), placed at y 10..50.
         assert_layout_rect(&tree, flex, 0, 10, 80, 50);
+    }
+
+    #[test]
+    fn vertical_two_unset_height_children_each_fill_container() {
+        // Python parity (`docs/examples/how-to/layout01.py`): two bare,
+        // unset-height siblings (e.g. `Placeholder`s) in a Screen each receive the
+        // FULL container height and stack — the second lands entirely below the
+        // fold — instead of splitting the viewport 50/50.
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(LayoutTestWidget::boxed("Container"));
+        let a = tree.mount(root, LayoutTestWidget::boxed("Header"));
+        let b = tree.mount(root, LayoutTestWidget::boxed("Footer"));
+
+        let available = Region::new(0, 0, 120, 30);
+        layout_vertical(&mut tree, &[a, b], available, (120, 30), false);
+
+        // Each fills the full 30-row container; Footer starts at the fold.
+        assert_layout_rect(&tree, a, 0, 0, 120, 30);
+        assert_layout_rect(&tree, b, 0, 30, 120, 60);
+    }
+
+    #[test]
+    fn vertical_unset_height_transparent_wrappers_share_track() {
+        // A transparent `Node` wrapper with an UNSET height must flex-fill like a
+        // `1fr` container (mirroring its wrapped child), NOT adopt the bare-leaf
+        // fill-the-container rule. So two `Node`-wrapped `1fr` containers split the
+        // viewport 50/50 instead of the first one filling it and pushing the second
+        // off-screen. (Regression guard for `docs_containers04`.)
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(LayoutTestWidget::boxed("Container"));
+        let wrap_a = tree.mount(root, LayoutTestWidget::boxed_wrapper("WrapA"));
+        // Wrapped child carries the real sizing intent (`height: 1fr`).
+        tree.mount(
+            wrap_a,
+            LayoutTestWidget::boxed_with_style(
+                "InnerA",
+                Style::new().height(Scalar::Fraction(1.0)),
+            ),
+        );
+        let wrap_b = tree.mount(root, LayoutTestWidget::boxed_wrapper("WrapB"));
+        tree.mount(
+            wrap_b,
+            LayoutTestWidget::boxed_with_style(
+                "InnerB",
+                Style::new().height(Scalar::Fraction(1.0)),
+            ),
+        );
+
+        let available = Region::new(0, 0, 80, 30);
+        layout_vertical(&mut tree, &[wrap_a, wrap_b], available, (80, 30), false);
+
+        // Split 50/50; the second wrapper does NOT overflow off-screen.
+        assert_layout_rect(&tree, wrap_a, 0, 0, 80, 15);
+        assert_layout_rect(&tree, wrap_b, 0, 15, 80, 30);
     }
 
     #[test]

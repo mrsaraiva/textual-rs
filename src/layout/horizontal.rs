@@ -25,13 +25,18 @@ pub fn layout_horizontal(
             let mut style = get_node_style(tree, child);
             // Transparent wrappers (`Node`): adopt the wrapped child's auto-sizing
             // on any unset axis (see vertical.rs for rationale).
-            let (wrapper_w_auto_pre, wrapper_h_auto_pre) =
+            let (wrapper_w_auto_pre, _wrapper_h_auto_pre) =
                 super::common::wrapper_child_auto_axes(tree, child);
             if wrapper_w_auto_pre && style.width.is_none() {
                 style.width = Some(crate::style::Scalar::Auto);
             }
-            if wrapper_h_auto_pre && style.height.is_none() {
-                style.height = Some(crate::style::Scalar::Auto);
+            // A transparent wrapper's unset height mirrors the wrapped child's
+            // intent (`auto` → shrink, otherwise `1fr` flex-fill), NOT the
+            // bare-leaf fill-the-container rule.
+            if style.height.is_none()
+                && let Some(h) = super::common::wrapper_unset_height(tree, child)
+            {
+                style.height = Some(h);
             }
             // `style.width`/`style.height` were normalized to `Some(Auto)` above
             // for transparent wrappers with auto children, so a plain `Some(Auto)`

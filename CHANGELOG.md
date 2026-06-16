@@ -7,6 +7,27 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-16 (fix(layout): unset height fills container; Static honors own padding)
+
+- **fix(layout): an unset (`None`) height fills the full container, not a `1fr` share**
+  - Rust conflated an unset height with `1fr`, so multiple bare children split the
+    container 50/50. Python's `Widget._get_box_model` gives each unset-height child
+    the **full** container height (so later siblings overflow below the fold). The
+    `None`/`Auto` height arm in `extract_child_spec` is now split: `Auto` keeps
+    content/flex behavior; truly-`None` with no intrinsic emits a fixed
+    full-container edge. A transparent `Node` wrapper mirrors its child's intent
+    (`auto`→shrink, else flex-fill) via a new `wrapper_unset_height` helper.
+  - **fix(widgets/Static): `layout_height` includes the widget's own padding/border**
+    — `Static::layout_height()` delegated to its inner `Label`, whose chrome
+    resolves against the *Label* selector, so an app rule `Static { padding: 2 4 }`
+    was invisible (box came out short → clipped + mis-centered). It now adds
+    `Static`'s own resolved vertical chrome.
+  - **fix(css): `HeaderClock` gets `dock: right; width: 10; padding: 0 1`** (Python
+    grants these via `HeaderClock(HeaderClockSpace)` inheritance; Rust has no type
+    inheritance, so the clock was stacking as a flow sibling).
+  - Promotes docs parity cases render_compose and layout01.
+
+
 ### 2026-06-16 (fix(runtime): scrollable virtual size includes dock spacing + child margins)
 
 - **fix(runtime/render): `host_content_extent` mirrors Python `DockArrangeResult`**

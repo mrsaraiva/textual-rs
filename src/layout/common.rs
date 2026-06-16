@@ -36,6 +36,38 @@ pub(crate) fn wrapper_child_auto_axes(tree: &WidgetTree, wrapper: NodeId) -> (bo
     (width_auto, height_auto)
 }
 
+/// Height scalar to assign to a transparent wrapper (`Node`) whose own height is
+/// UNSET, mirroring the wrapped child's sizing intent.
+///
+/// A `Node` is a Rust-only styling pass-through with no Python analogue; the
+/// Python equivalent (a styled container) defaults to `height: 1fr`. So an
+/// unset-height wrapper must flex-fill its track like a `1fr` container — and
+/// crucially NOT adopt the bare-*leaf* rule (an unset-height leaf fills the whole
+/// container and overflows, per `extract_child_spec`). Returns:
+/// - `Some(Auto)` when the wrapped child is `height: auto` (shrink-to-content),
+/// - `Some(Fraction(1.0))` for any other child height (flex-fill — the wrapper's
+///   historical behavior, and what keeps e.g. a `Node`-wrapped `1fr` `Horizontal`
+///   sharing the viewport with its siblings),
+/// - `None` for a non-wrapper, leaving a genuine leaf's unset height to the
+///   fill-the-container rule.
+pub(crate) fn wrapper_unset_height(tree: &WidgetTree, wrapper: NodeId) -> Option<Scalar> {
+    let is_wrapper = tree
+        .get(wrapper)
+        .map(|n| n.widget.is_transparent_wrapper())
+        .unwrap_or(false);
+    if !is_wrapper {
+        return None;
+    }
+    let children = tree.children(wrapper);
+    let &child = children.first()?;
+    let child_style = get_node_style(tree, child);
+    if matches!(child_style.height.as_ref(), Some(Scalar::Auto)) {
+        Some(Scalar::Auto)
+    } else {
+        Some(Scalar::Fraction(1.0))
+    }
+}
+
 /// Seed width-dependent intrinsic measurement for the children of a transparent
 /// styling wrapper (`Node`). The wrapper's own `on_layout` is a no-op, so its
 /// drained child never learns the real content width before the layout asks for
@@ -237,7 +269,7 @@ pub(crate) fn extract_child_spec(
     // `layout_height()` represents the widget's natural rendered height
     // (excluding margins), so only margins are added here.
     let mut height_edge = match style.height.as_ref() {
-        None | Some(Scalar::Auto) => {
+        Some(Scalar::Auto) => {
             if let Some(intrinsic) = intrinsic_height {
                 let min_size = min_h_cells.saturating_add(v_chrome);
                 let auto_size = intrinsic.saturating_add(margin.top + margin.bottom);
@@ -247,7 +279,41 @@ pub(crate) fn extract_child_spec(
                     min_size,
                 }
             } else {
+                // `height: auto` with no measurable content: flex-fill (existing
+                // behavior — distinct from an UNSET height, handled below).
                 scalar_to_edge(None, parent_height, viewport.1, min_h_cells, v_chrome)
+            }
+        }
+        None => {
+            if let Some(intrinsic) = intrinsic_height {
+                // A widget that reports an intrinsic height despite an unset CSS
+                // height still sizes to its content (preserves auto-content leaves
+                // that omit an explicit `height: auto`).
+                let min_size = min_h_cells.saturating_add(v_chrome);
+                let auto_size = intrinsic.saturating_add(margin.top + margin.bottom);
+                Edge {
+                    size: Some(auto_size.max(min_size)),
+                    fraction: 1,
+                    min_size,
+                }
+            } else {
+                // Python parity (`Widget._get_box_model`): an UNSET height with no
+                // intrinsic content fills the FULL container height
+                // (`content_container.height`), it is NOT a `1fr` share. Each
+                // unset-height sibling independently receives the container height,
+                // so multiple bare unset children (e.g. two `Placeholder`s in a
+                // Screen) overflow and scroll rather than splitting the viewport.
+                // A single unset child still fills the container (identical to the
+                // old flex-fill). Emitting a FIXED edge of the full container
+                // height (margin included; the vertical layout subtracts margin
+                // from the resolved total) reproduces that — unlike a `1fr` edge,
+                // which `layout_resolve_1d` would divide among siblings.
+                let min_size = min_h_cells.saturating_add(v_chrome);
+                Edge {
+                    size: Some(parent_height.max(min_size)),
+                    fraction: 1,
+                    min_size,
+                }
             }
         }
         // Explicit height. A percentage resolves against the space available

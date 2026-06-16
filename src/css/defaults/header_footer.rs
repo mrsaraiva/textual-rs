@@ -21,6 +21,13 @@ HeaderClockSpace {
 }
 
 HeaderClock {
+    /* Python parity: `class HeaderClock(HeaderClockSpace)` inherits the space's
+       dock/width/padding. Rust has no widget-type inheritance, so restate them
+       here. Without the dock, the clock lays out as a normal flow sibling of
+       `HeaderTitle` and stacks below it instead of pinning to the right edge. */
+    dock: right;
+    width: 10;
+    padding: 0 1;
     bg: $foreground-darken-1 5%;
     color: $foreground;
     text-opacity: 85%;

@@ -30,13 +30,19 @@ pub fn layout_vertical(
         // `auto` (shrink-to-content) on that axis; otherwise it keeps the `1fr`
         // fill of an unset dimension. Done before spec extraction so the auto
         // arms (which size to the measured intrinsic) are selected correctly.
-        let (wrapper_w_auto_pre, wrapper_h_auto_pre) =
+        let (wrapper_w_auto_pre, _wrapper_h_auto_pre) =
             super::common::wrapper_child_auto_axes(tree, child);
         if wrapper_w_auto_pre && style.width.is_none() {
             style.width = Some(crate::style::Scalar::Auto);
         }
-        if wrapper_h_auto_pre && style.height.is_none() {
-            style.height = Some(crate::style::Scalar::Auto);
+        // A transparent wrapper's unset height mirrors the wrapped child's intent
+        // (`auto` → shrink, otherwise `1fr` flex-fill); it must NOT fall through to
+        // the bare-leaf "unset fills the whole container" rule, or a `Node`-wrapped
+        // `1fr` container would overflow instead of sharing its track.
+        if style.height.is_none()
+            && let Some(h) = super::common::wrapper_unset_height(tree, child)
+        {
+            style.height = Some(h);
         }
 
         let width_is_auto = matches!(
