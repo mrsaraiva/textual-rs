@@ -542,6 +542,24 @@ const CASES: &[Case] = &[
         status: Status::Pass,
     },
     Case {
+        name: "docs_horizontal_rules",
+        example: "horizontal_rules",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_vertical_rules",
+        example: "vertical_rules",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
         name: "docs_progress_bar",
         example: "progress_bar",
         args: &[],
@@ -1178,6 +1196,8 @@ pty_case!(docs_selection_list_tuples, "docs_selection_list_tuples");
 pty_case!(docs_sparkline, "docs_sparkline");
 pty_case!(docs_sparkline_basic, "docs_sparkline_basic");
 pty_case!(docs_sparkline_colors, "docs_sparkline_colors");
+pty_case!(docs_horizontal_rules, "docs_horizontal_rules");
+pty_case!(docs_vertical_rules, "docs_vertical_rules");
 pty_case!(docs_progress_bar, "docs_progress_bar");
 pty_case!(docs_progress_bar_gradient, "docs_progress_bar_gradient");
 pty_case!(docs_button, "docs_button");

@@ -123,6 +123,8 @@ CASE=docs_collapsible_custom_symbol && want "$@" && run_case "$CASE" "$PY_DOCS/w
 CASE=docs_progress_bar   && want "$@" && run_case "$CASE" "$PY_DOCS/widgets" "" "progress_bar.py"
 CASE=docs_progress_bar_gradient && want "$@" && run_case "$CASE" "$PY_DOCS/widgets" "" "progress_bar_gradient.py"
 CASE=docs_sparkline_colors && want "$@" && run_case "$CASE" "$PY_DOCS/widgets" "" "sparkline_colors.py"
+CASE=docs_horizontal_rules && want "$@" && run_case "$CASE" "$PY_DOCS/widgets" "" "horizontal_rules.py"
+CASE=docs_vertical_rules && want "$@" && run_case "$CASE" "$PY_DOCS/widgets" "" "vertical_rules.py"
 CASE=docs_suspend        && want "$@" && run_case "$CASE" "$PY_DOCS/app"    "" "suspend.py"
 CASE=docs_suspend_process && want "$@" && run_case "$CASE" "$PY_DOCS/app"   "" "suspend_process.py"
 

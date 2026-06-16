@@ -58,21 +58,28 @@ impl LineStyle {
 pub struct Rule {
     orientation: RuleOrientation,
     line_style: LineStyle,
+    /// Mirror of the DOM classes (`rule`, `-horizontal`/`-vertical`) so off-tree
+    /// style resolution (`content_width`, `render`) sees the orientation variant
+    /// and matches the default-CSS selectors `Rule.-horizontal` / `Rule.-vertical`.
+    classes: Vec<String>,
     seed: NodeSeed,
 }
 
 impl Rule {
     pub fn new(orientation: RuleOrientation) -> Self {
         let class = match orientation {
-            RuleOrientation::Horizontal => "rule--horizontal",
-            RuleOrientation::Vertical => "rule--vertical",
+            RuleOrientation::Horizontal => "-horizontal",
+            RuleOrientation::Vertical => "-vertical",
         };
-        let mut seed = NodeSeed::default();
-        seed.classes.push("rule".to_string());
-        seed.classes.push(class.to_string());
+        let classes = vec!["rule".to_string(), class.to_string()];
+        let seed = NodeSeed {
+            classes: classes.clone(),
+            ..Default::default()
+        };
         Self {
             orientation,
             line_style: LineStyle::Solid,
+            classes,
             seed,
         }
     }
@@ -145,15 +152,19 @@ impl Rule {
         ctx: &mut ReactiveCtx,
     ) {
         let old_class = match old {
-            RuleOrientation::Horizontal => "rule--horizontal",
-            RuleOrientation::Vertical => "rule--vertical",
+            RuleOrientation::Horizontal => "-horizontal",
+            RuleOrientation::Vertical => "-vertical",
         };
         let new_class = match new {
-            RuleOrientation::Horizontal => "rule--horizontal",
-            RuleOrientation::Vertical => "rule--vertical",
+            RuleOrientation::Horizontal => "-horizontal",
+            RuleOrientation::Vertical => "-vertical",
         };
         ctx.remove_class(old_class);
         ctx.add_class(new_class);
+        self.classes.retain(|c| c != old_class);
+        if !self.classes.iter().any(|c| c == new_class) {
+            self.classes.push(new_class.to_string());
+        }
     }
 }
 
@@ -191,11 +202,8 @@ impl Widget for Rule {
         let height = options.size.1.max(1);
         let mut out = Segments::new();
 
-        let class = match self.orientation {
-            RuleOrientation::Horizontal => "rule--horizontal",
-            RuleOrientation::Vertical => "rule--vertical",
-        };
-        let style = crate::css::resolve_component_style(self, &[class])
+        let meta = crate::css::selector_meta_generic(self);
+        let style = crate::css::resolve_style(self, &meta)
             .to_rich()
             .unwrap_or_else(rich_rs::Style::new);
 
@@ -225,6 +233,10 @@ impl Widget for Rule {
 
     fn style_type(&self) -> &'static str {
         "Rule"
+    }
+
+    fn style_classes(&self) -> &[String] {
+        &self.classes
     }
 
     fn set_inline_style(&mut self, style: crate::style::Style) {
@@ -321,14 +333,14 @@ mod tests {
         let ops = ctx.take_class_ops();
         let removes: Vec<_> = ops
             .iter()
-            .filter(|(_, op)| matches!(op, ClassOp::Remove(c) if c == "rule--horizontal"))
+            .filter(|(_, op)| matches!(op, ClassOp::Remove(c) if c == "-horizontal"))
             .collect();
         let adds: Vec<_> = ops
             .iter()
-            .filter(|(_, op)| matches!(op, ClassOp::Add(c) if c == "rule--vertical"))
+            .filter(|(_, op)| matches!(op, ClassOp::Add(c) if c == "-vertical"))
             .collect();
-        assert!(!removes.is_empty(), "should remove rule--horizontal");
-        assert!(!adds.is_empty(), "should add rule--vertical");
+        assert!(!removes.is_empty(), "should remove -horizontal");
+        assert!(!adds.is_empty(), "should add -vertical");
     }
 
     #[test]
@@ -444,6 +456,52 @@ mod tests {
         assert_eq!(LineStyle::Dashed.vertical_char(), "╏");
         assert_eq!(LineStyle::Double.vertical_char(), "║");
         assert_eq!(LineStyle::Thick.vertical_char(), "█");
+    }
+
+    #[test]
+    fn horizontal_rule_carries_variant_class() {
+        // DOM variant class must match the default CSS selector `Rule.-horizontal`
+        // (Python adds `-horizontal`), not the old `rule--horizontal`.
+        let mut r = Rule::horizontal();
+        let seed = r.take_node_seed();
+        assert!(seed.classes.iter().any(|c| c == "rule"));
+        assert!(seed.classes.iter().any(|c| c == "-horizontal"));
+    }
+
+    #[test]
+    fn vertical_rule_carries_variant_class() {
+        let mut r = Rule::vertical();
+        let seed = r.take_node_seed();
+        assert!(seed.classes.iter().any(|c| c == "rule"));
+        assert!(seed.classes.iter().any(|c| c == "-vertical"));
+    }
+
+    #[test]
+    fn default_css_applies_horizontal_vertical_margins() {
+        // Regression: the Rule's `-horizontal` / `-vertical` variant classes must
+        // match the default-CSS selectors (`Rule.-horizontal` / `Rule.-vertical`)
+        // so the layout engine sees the orientation margins. Previously the widget
+        // added `rule--horizontal` / `rule--vertical`, which never matched, so the
+        // vertical margins (`margin: 1 0`) and horizontal margins (`margin: 0 2`)
+        // were silently dropped.
+        let _guard =
+            crate::css::set_style_context(crate::css::default_widget_stylesheet());
+
+        let h = Rule::horizontal();
+        let h_meta = crate::css::selector_meta_generic(&h);
+        let h_margin = crate::css::resolve_style(&h, &h_meta).effective_margin();
+        assert_eq!(h_margin.top, 1, "horizontal rule top margin (margin: 1 0)");
+        assert_eq!(h_margin.bottom, 1, "horizontal rule bottom margin (margin: 1 0)");
+        assert_eq!(h_margin.left, 0, "horizontal rule left margin (margin: 1 0)");
+        assert_eq!(h_margin.right, 0, "horizontal rule right margin (margin: 1 0)");
+
+        let v = Rule::vertical();
+        let v_meta = crate::css::selector_meta_generic(&v);
+        let v_margin = crate::css::resolve_style(&v, &v_meta).effective_margin();
+        assert_eq!(v_margin.left, 2, "vertical rule left margin (margin: 0 2)");
+        assert_eq!(v_margin.right, 2, "vertical rule right margin (margin: 0 2)");
+        assert_eq!(v_margin.top, 0, "vertical rule top margin (margin: 0 2)");
+        assert_eq!(v_margin.bottom, 0, "vertical rule bottom margin (margin: 0 2)");
     }
 
     #[test]

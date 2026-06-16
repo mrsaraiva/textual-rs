@@ -7,6 +7,19 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-16 (fix(Rule): orientation variant class + margins)
+
+- **fix(widgets/Rule): orientation margins/sizing now apply (variant class)**
+  - `Rule` pushed `rule--horizontal`/`rule--vertical` into its seed classes, but
+    the default CSS (and Python) target the DOM variant classes
+    `Rule.-horizontal` / `Rule.-vertical`. The mismatch meant the orientation
+    rules (`margin: 1 0` + `width: 1fr` for horizontal, `margin: 0 2` +
+    `height: 1fr` for vertical) never matched, so margins and flex sizing were
+    silently dropped. Use the `-horizontal`/`-vertical` variant classes, add a
+    `style_classes()` override so off-tree style resolution (`content_width`,
+    `render`) sees the variant, and resolve `render` via the DOM style path.
+  - Promotes docs parity cases `docs_horizontal_rules` / `docs_vertical_rules`.
+
 ### 2026-06-16 (fix(css): hatch property maps named patterns + blends opacity)
 
 - **fix(css/hatch): named patterns map to glyphs; opacity blends over background**
