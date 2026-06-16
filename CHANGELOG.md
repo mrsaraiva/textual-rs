@@ -7,6 +7,17 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-16 (fix(delegate): forward arena composition hooks)
+
+- **fix(widgets/delegate): `delegate_widget_to!` forwards the arena hooks**
+  - The full-delegation macro forwarded `take_composed_children` but not
+    `take_child_decl_meta`, `take_child_handle_sinks`, or
+    `take_pending_mount_messages`. Delegated wrapper containers (`Vertical`,
+    `Horizontal`, `Center`, `Middle`, `VerticalScroll`, …) therefore silently
+    dropped declared child ids/classes, handle-sinks, and mount-time messages —
+    on the initial build path too, not just dynamic mount. Added the three
+    forwarding arms (method count 60→63). Regression: `tests/delegate_forwarding.rs`.
+
 ### 2026-06-16 (feat(runtime): dynamic mount/remove under a live parent)
 
 - **feat(runtime): `mount_under` / `mount_before` / `mount_after` / `remove`**

@@ -141,6 +141,24 @@ macro_rules! delegate_widget_method {
         }
     };
 
+    ($field:ident, take_child_decl_meta) => {
+        fn take_child_decl_meta(&mut self) -> Vec<crate::widgets::ChildDeclMeta> {
+            self.$field.take_child_decl_meta()
+        }
+    };
+
+    ($field:ident, take_child_handle_sinks) => {
+        fn take_child_handle_sinks(&mut self) -> Vec<(usize, crate::handle::HandleSink)> {
+            self.$field.take_child_handle_sinks()
+        }
+    };
+
+    ($field:ident, take_pending_mount_messages) => {
+        fn take_pending_mount_messages(&mut self) -> Vec<Box<dyn crate::message::Message>> {
+            self.$field.take_pending_mount_messages()
+        }
+    };
+
     // ── Focus ──────────────────────────────────────────────────────────
 
     ($field:ident, focusable) => {
@@ -520,7 +538,7 @@ macro_rules! delegate_renderable {
 /// If this changes, update the expected value and audit partial delegation sites:
 /// `rg -n "delegate-audit:" src/widgets`
 #[cfg(test)]
-const WIDGET_DELEGATE_METHOD_COUNT_EXPECTED: usize = 60;
+const WIDGET_DELEGATE_METHOD_COUNT_EXPECTED: usize = 63;
 
 /// Generate a complete `impl Widget + impl Renderable` block forwarding
 /// **every** method to `self.$field`. Use for thin wrappers with zero
@@ -542,6 +560,9 @@ macro_rules! delegate_widget_to {
                     // Composition
                     compose,
                     take_composed_children,
+                    take_child_decl_meta,
+                    take_child_handle_sinks,
+                    take_pending_mount_messages,
                     // Focus / node state
                     focusable,
                     can_focus,
