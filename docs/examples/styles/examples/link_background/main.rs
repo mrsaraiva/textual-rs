@@ -1,8 +1,54 @@
+/// Port of Python Textual `docs/examples/styles/link_background.py`.
+///
+/// Demonstrates the `link-background` CSS property on Label widgets.
+/// Four Labels with markup links/click-actions styled with different link backgrounds.
+///
+/// Framework gap: `link-background` CSS property may not be fully supported in textual-rs;
+/// included verbatim per port rules.
 use textual::prelude::*;
 
+const CSS: &str = r##"
+#lbl1, #lbl2 {
+    link-background: red;
+}
+
+#lbl3 {
+    link-background: hsl(60,100%,50%) 50%;
+}
+
+#lbl4 {
+    link-background: $accent;
+}
+"##;
+
+struct LinkBackgroundApp;
+
+impl TextualApp for LinkBackgroundApp {
+    fn configure(&mut self, app: &mut App) -> textual::Result<()> {
+        app.load_stylesheet(CSS);
+        Ok(())
+    }
+
+    fn compose(&mut self) -> AppRoot {
+        AppRoot::new()
+            .with_child(
+                Label::new("Visit the [link='https://textualize.io']Textualize[/link] website.")
+                    .with_id("lbl1"),
+            )
+            .with_child(
+                Label::new("Click [@click=app.bell]here[/] for the bell sound.")
+                    .with_id("lbl2"),
+            )
+            .with_child(
+                Label::new("You can also click [@click=app.bell]here[/] for the bell sound.")
+                    .with_id("lbl3"),
+            )
+            .with_child(
+                Label::new("[@click=app.quit]Exit this application.[/]").with_id("lbl4"),
+            )
+    }
+}
+
 fn main() -> Result<()> {
-    eprintln!(
-        "TODO: Port docs example 'link_background' from Python source 'styles/link_background.py' (category 'styles')."
-    );
-    Ok(())
+    run_sync(LinkBackgroundApp)
 }
