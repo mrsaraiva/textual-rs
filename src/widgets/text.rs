@@ -849,6 +849,224 @@ impl Widget for MarkdownHorizontalRuleBlock {
     }
 }
 
+/// One child of a blockquote: either a paragraph (with inline markup) or a
+/// nested blockquote. Mirrors Python `MarkdownBlockQuote` containing a mix of
+/// `MarkdownParagraph` blocks and nested `MarkdownBlockQuote` blocks.
+#[derive(Debug, Clone)]
+enum QuoteChild {
+    Paragraph(InlineTextDoc),
+    Quote(Vec<QuoteChild>),
+}
+
+/// Left bar drawn by Python's `border-left: outer ...` on `MarkdownBlockQuote`.
+const QUOTE_BAR: char = '\u{258c}'; // ▌
+
+/// Build the children of a blockquote from a pulldown-cmark event stream that is
+/// already positioned just after a `Start(BlockQuote)` event. Consumes events up
+/// to and including the matching `End(BlockQuote)`.
+fn parse_quote_children<'a, I>(parser: &mut std::iter::Peekable<I>) -> Vec<QuoteChild>
+where
+    I: Iterator<Item = MdEvent<'a>>,
+{
+    let mut children: Vec<QuoteChild> = Vec::new();
+    while let Some(event) = parser.next() {
+        match event {
+            MdEvent::End(MdTagEnd::BlockQuote(_)) => break,
+            MdEvent::Start(MdTag::BlockQuote(_)) => {
+                children.push(QuoteChild::Quote(parse_quote_children(parser)));
+            }
+            MdEvent::Start(MdTag::Paragraph) => {
+                let raw = collect_inline_markup_until_paragraph_end(parser);
+                if !raw.trim().is_empty() {
+                    children.push(QuoteChild::Paragraph(InlineTextDoc::parse(&raw)));
+                }
+            }
+            _ => {}
+        }
+    }
+    children
+}
+
+/// Reconstruct a paragraph's inline Markdown source from events until the
+/// matching `End(Paragraph)`. We rebuild a small markup string so the existing
+/// `InlineTextDoc::parse` can apply emphasis/strong/code/link styling uniformly.
+fn collect_inline_markup_until_paragraph_end<'a, I>(parser: &mut std::iter::Peekable<I>) -> String
+where
+    I: Iterator<Item = MdEvent<'a>>,
+{
+    let mut out = String::new();
+    let mut depth_emphasis = 0usize;
+    let mut depth_strong = 0usize;
+    let mut depth_strike = 0usize;
+    let mut link_stack: Vec<String> = Vec::new();
+    while let Some(event) = parser.next() {
+        match event {
+            MdEvent::End(MdTagEnd::Paragraph) => break,
+            MdEvent::Start(MdTag::Emphasis) => {
+                out.push('*');
+                depth_emphasis += 1;
+            }
+            MdEvent::End(MdTagEnd::Emphasis) => {
+                out.push('*');
+                depth_emphasis = depth_emphasis.saturating_sub(1);
+            }
+            MdEvent::Start(MdTag::Strong) => {
+                out.push_str("**");
+                depth_strong += 1;
+            }
+            MdEvent::End(MdTagEnd::Strong) => {
+                out.push_str("**");
+                depth_strong = depth_strong.saturating_sub(1);
+            }
+            MdEvent::Start(MdTag::Strikethrough) => {
+                out.push_str("~~");
+                depth_strike += 1;
+            }
+            MdEvent::End(MdTagEnd::Strikethrough) => {
+                out.push_str("~~");
+                depth_strike = depth_strike.saturating_sub(1);
+            }
+            MdEvent::Start(MdTag::Link { dest_url, .. }) => {
+                out.push('[');
+                link_stack.push(dest_url.to_string());
+            }
+            MdEvent::End(MdTagEnd::Link) => {
+                out.push(']');
+                if let Some(url) = link_stack.pop() {
+                    out.push('(');
+                    out.push_str(&url);
+                    out.push(')');
+                }
+            }
+            MdEvent::Text(text) => out.push_str(&text),
+            MdEvent::Code(text) => {
+                out.push('`');
+                out.push_str(&text);
+                out.push('`');
+            }
+            MdEvent::SoftBreak | MdEvent::HardBreak => out.push(' '),
+            _ => {}
+        }
+    }
+    let _ = (depth_emphasis, depth_strong, depth_strike);
+    out
+}
+
+/// Wrap a plain string to `width` columns using rich's text layout, returning
+/// one `String` per visual line (trailing blank lines dropped).
+fn wrap_plain_lines(text: &str, width: usize) -> Vec<String> {
+    let width = width.max(1);
+    let console = Console::new();
+    let mut options = console.options().clone();
+    options.size = (width, 1);
+    options.max_width = width;
+    options.max_height = 1;
+    let rendered = Text::plain(text.to_string()).render(&console, &options);
+    let mut lines: Vec<String> = Segment::split_lines(rendered)
+        .into_iter()
+        .map(|line| {
+            line.iter()
+                .map(|seg| seg.text.as_ref())
+                .collect::<String>()
+                .trim_end()
+                .to_string()
+        })
+        .collect();
+    while lines.last().is_some_and(|l| l.is_empty()) {
+        lines.pop();
+    }
+    if lines.is_empty() {
+        lines.push(String::new());
+    }
+    lines
+}
+
+/// A blockquote Markdown block, rendered with a left `▌` bar per nesting level
+/// and blank bar lines around nested quotes — matching Python `MarkdownBlockQuote`
+/// (`border-left: outer`, `margin: 1 0`, nested `> BlockQuote { margin-left: 2; margin-top: 1 }`).
+#[derive(Debug, Clone)]
+struct MarkdownBlockQuoteBlock {
+    children: Vec<QuoteChild>,
+    layout_width: usize,
+}
+
+impl MarkdownBlockQuoteBlock {
+    fn new(children: Vec<QuoteChild>) -> Self {
+        Self {
+            children,
+            layout_width: 0,
+        }
+    }
+
+    /// Produce the plain text lines for this blockquote subtree.
+    ///
+    /// `depth` is the nesting level *relative to this widget's content box*. The
+    /// outermost bar + left padding are drawn by the framework from the
+    /// `MarkdownBlockQuote { border-left: outer; padding: 0 1 }` default CSS, so
+    /// content starts at `depth = 0` (no prefix). Each additional nesting level
+    /// adds a `▌ ` prefix; nested quotes are surrounded by a single blank bar line
+    /// at the parent depth (Python's vertical margins around `MarkdownBlockQuote`).
+    fn render_lines(children: &[QuoteChild], depth: usize, total_width: usize) -> Vec<String> {
+        let prefix = format!("{} ", QUOTE_BAR).repeat(depth);
+        let prefix_width = rich_rs::cell_len(&prefix);
+        let content_width = total_width.saturating_sub(prefix_width).max(1);
+        // A blank bar line at the current depth (bars only, trailing space trimmed).
+        let blank_bar = prefix.trim_end().to_string();
+
+        let mut lines: Vec<String> = Vec::new();
+        for child in children {
+            match child {
+                QuoteChild::Paragraph(doc) => {
+                    for wrapped in wrap_plain_lines(&doc.plain, content_width) {
+                        lines.push(format!("{}{}", prefix, wrapped));
+                    }
+                }
+                QuoteChild::Quote(nested) => {
+                    // Vertical margin above the nested quote.
+                    lines.push(blank_bar.clone());
+                    lines.extend(Self::render_lines(nested, depth + 1, total_width));
+                    // Vertical margin below the nested quote.
+                    lines.push(blank_bar.clone());
+                }
+            }
+        }
+        lines
+    }
+}
+
+impl Widget for MarkdownBlockQuoteBlock {
+    fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
+        let width = options.size.0.max(self.layout_width.max(1));
+        let lines = Self::render_lines(&self.children, 0, width);
+        let mut segments: Vec<Segment> = Vec::new();
+        for (idx, line) in lines.iter().enumerate() {
+            if idx > 0 {
+                segments.push(Segment::new("\n"));
+            }
+            segments.push(Segment::new(line.clone()));
+        }
+        Segments::from(segments)
+    }
+
+    fn style_type(&self) -> &'static str {
+        "MarkdownBlockQuote"
+    }
+
+    fn style_type_aliases(&self) -> &[&'static str] {
+        &["MarkdownBlock"]
+    }
+
+    fn on_layout(&mut self, width: u16, _height: u16) {
+        if width > 1 {
+            self.layout_width = usize::from(width);
+        }
+    }
+
+    fn layout_height(&self) -> Option<usize> {
+        Some(Self::render_lines(&self.children, 0, self.layout_width.max(1)).len())
+    }
+}
+
 #[derive(Debug)]
 struct MarkdownBullet {
     symbol: String,
@@ -1640,51 +1858,154 @@ impl Widget for MarkdownTableBlock {
     }
 }
 
+/// Build the per-block child widgets for a Markdown document.
+///
+/// Blockquotes are handled here (Python renders them with a `▌` border bar via a
+/// dedicated `MarkdownBlockQuote` widget). To keep all other block types using
+/// the shared `parse_markdown_blocks` path unchanged, we walk the top-level event
+/// stream: blockquote spans are turned into [`MarkdownBlockQuoteBlock`], and every
+/// other top-level span is delegated to `parse_markdown_blocks` on its source
+/// slice so document order is preserved.
 fn build_markdown_children(markup: &str) -> Vec<Box<dyn Widget>> {
+    let mut options = MdOptions::empty();
+    options.insert(MdOptions::ENABLE_TABLES);
+    options.insert(MdOptions::ENABLE_STRIKETHROUGH);
+    options.insert(MdOptions::ENABLE_TASKLISTS);
+    options.insert(MdOptions::ENABLE_HEADING_ATTRIBUTES);
+
+    let mut top_level = MdParser::new_ext(markup, options)
+        .into_offset_iter()
+        .peekable();
     let mut children: Vec<Box<dyn Widget>> = Vec::new();
-    for block in parse_markdown_blocks(markup) {
-        match block {
-            MarkdownBlock::Heading { level, text, .. } => {
-                children.push(Box::new(MarkdownHeadingBlock::new(level, text)));
+
+    while let Some((event, range)) = top_level.next() {
+        match &event {
+            MdEvent::Start(MdTag::BlockQuote(_)) => {
+                // Re-parse the blockquote source span into a nested quote tree so
+                // we control the `▌` bar/indent rendering ourselves.
+                let mut inner_opts = MdOptions::empty();
+                inner_opts.insert(MdOptions::ENABLE_TABLES);
+                inner_opts.insert(MdOptions::ENABLE_STRIKETHROUGH);
+                inner_opts.insert(MdOptions::ENABLE_TASKLISTS);
+                inner_opts.insert(MdOptions::ENABLE_HEADING_ATTRIBUTES);
+                let slice = markup.get(range.clone()).unwrap_or("");
+                let mut inner = MdParser::new_ext(slice, inner_opts).peekable();
+                // Advance to the opening BlockQuote of the slice.
+                let mut quote_children = Vec::new();
+                while let Some(ev) = inner.next() {
+                    if let MdEvent::Start(MdTag::BlockQuote(_)) = ev {
+                        quote_children = parse_quote_children(&mut inner);
+                        break;
+                    }
+                }
+                if !quote_children.is_empty() {
+                    children.push(Box::new(MarkdownBlockQuoteBlock::new(quote_children)));
+                }
+                // Skip the rest of this blockquote's events in the top-level stream.
+                skip_until_blockquote_end(&mut top_level);
             }
-            MarkdownBlock::Paragraph { raw, .. } => {
-                children.push(Box::new(MarkdownParagraphBlock::new(raw)));
+            MdEvent::Start(_) | MdEvent::Rule => {
+                let slice = markup.get(range.clone()).unwrap_or("");
+                for block in parse_markdown_blocks(slice) {
+                    push_block_widget(&mut children, block);
+                }
+                // Consume the rest of this top-level block's events.
+                skip_balanced_block(&mut top_level, &event);
             }
-            MarkdownBlock::List {
+            _ => {}
+        }
+    }
+    children
+}
+
+/// Skip events until the matching `End(BlockQuote)` for the blockquote whose
+/// `Start` was just consumed (balanced over nested blockquotes).
+fn skip_until_blockquote_end<'a, I>(parser: &mut std::iter::Peekable<I>)
+where
+    I: Iterator<Item = (MdEvent<'a>, std::ops::Range<usize>)>,
+{
+    let mut depth = 1usize;
+    for (event, _) in parser.by_ref() {
+        match event {
+            MdEvent::Start(MdTag::BlockQuote(_)) => depth += 1,
+            MdEvent::End(MdTagEnd::BlockQuote(_)) => {
+                depth -= 1;
+                if depth == 0 {
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Consume the remaining events of a top-level container block whose `Start`
+/// was just read, stopping after its matching `End`. Leaf events (`Rule`) and
+/// blocks already fully consumed are handled by the caller.
+fn skip_balanced_block<'a, I>(parser: &mut std::iter::Peekable<I>, start: &MdEvent<'a>)
+where
+    I: Iterator<Item = (MdEvent<'a>, std::ops::Range<usize>)>,
+{
+    let target_end = match start {
+        MdEvent::Start(tag) => tag.to_end(),
+        _ => return,
+    };
+    let mut depth = 1usize;
+    for (event, _) in parser.by_ref() {
+        match event {
+            MdEvent::Start(tag) if tag.to_end() == target_end => depth += 1,
+            MdEvent::End(end) if end == target_end => {
+                depth -= 1;
+                if depth == 0 {
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+fn push_block_widget(children: &mut Vec<Box<dyn Widget>>, block: MarkdownBlock) {
+    match block {
+        MarkdownBlock::Heading { level, text, .. } => {
+            children.push(Box::new(MarkdownHeadingBlock::new(level, text)));
+        }
+        MarkdownBlock::Paragraph { raw, .. } => {
+            children.push(Box::new(MarkdownParagraphBlock::new(raw)));
+        }
+        MarkdownBlock::List {
+            ordered,
+            items,
+            item_markups,
+            ..
+        } => {
+            children.push(Box::new(MarkdownListBlock::new(
                 ordered,
                 items,
                 item_markups,
-                ..
-            } => {
-                children.push(Box::new(MarkdownListBlock::new(
-                    ordered,
-                    items,
-                    item_markups,
-                )));
-            }
-            MarkdownBlock::Table {
+            )));
+        }
+        MarkdownBlock::Table {
+            headers,
+            header_markups,
+            rows,
+            row_markups,
+            ..
+        } => {
+            children.push(Box::new(MarkdownTableBlock::new(
                 headers,
                 header_markups,
                 rows,
                 row_markups,
-                ..
-            } => {
-                children.push(Box::new(MarkdownTableBlock::new(
-                    headers,
-                    header_markups,
-                    rows,
-                    row_markups,
-                )));
-            }
-            MarkdownBlock::CodeFence { raw, .. } => {
-                children.push(Box::new(MarkdownFenceBlock::new(raw)));
-            }
-            MarkdownBlock::HorizontalRule => {
-                children.push(Box::new(MarkdownHorizontalRuleBlock::new()));
-            }
+            )));
+        }
+        MarkdownBlock::CodeFence { raw, .. } => {
+            children.push(Box::new(MarkdownFenceBlock::new(raw)));
+        }
+        MarkdownBlock::HorizontalRule => {
+            children.push(Box::new(MarkdownHorizontalRuleBlock::new()));
         }
     }
-    children
 }
 
 impl Markdown {
@@ -2276,5 +2597,55 @@ I must not fear. Fear is the mind-killer. Fear is the little-death that brings t
         assert_eq!(style.grid_size_columns, Some(4));
         let columns = style.grid_columns.expect("grid columns");
         assert_eq!(columns.len(), 4);
+    }
+
+    #[test]
+    fn markdown_nested_blockquote_renders_bar_and_indent() {
+        // A blockquote span must produce a single `MarkdownBlockQuote` block.
+        let markup = "> a\n> > b\n> > > c\n";
+        let children = super::build_markdown_children(markup);
+        assert_eq!(
+            children
+                .iter()
+                .filter(|c| c.style_type() == "MarkdownBlockQuote")
+                .count(),
+            1,
+            "exactly one MarkdownBlockQuote block should be produced"
+        );
+
+        // Nested blockquotes must render with one `▌` bar per nesting level,
+        // plus blank bar lines around each nested quote (Python parity). The
+        // outermost bar + left padding come from the `MarkdownBlockQuote`
+        // default CSS, so this widget's own content starts at depth 0.
+        let mut inner = pulldown_cmark::Parser::new(markup).peekable();
+        let mut quote_children = Vec::new();
+        while let Some(ev) = inner.next() {
+            if let pulldown_cmark::Event::Start(pulldown_cmark::Tag::BlockQuote(_)) = ev {
+                quote_children = super::parse_quote_children(&mut inner);
+                break;
+            }
+        }
+        let lines = super::MarkdownBlockQuoteBlock::render_lines(&quote_children, 0, 80);
+        assert_eq!(
+            lines,
+            vec![
+                "a".to_string(),     // depth 0 paragraph (CSS adds outer bar)
+                String::new(),       // margin before nested quote (CSS adds bar)
+                "▌ b".to_string(),   // depth 1 paragraph
+                "▌".to_string(),     // margin before deeper quote
+                "▌ ▌ c".to_string(), // depth 2 paragraph
+                "▌".to_string(),     // margin after depth-2 quote
+                String::new(),       // margin after depth-1 quote
+            ]
+        );
+    }
+
+    #[test]
+    fn markdown_blockquote_preserves_document_order() {
+        // Blocks before/after a blockquote must keep their order and type.
+        let markup = "# Title\n\n> quote\n\nAfter.\n";
+        let children = super::build_markdown_children(markup);
+        let types: Vec<&str> = children.iter().map(|c| c.style_type()).collect();
+        assert_eq!(types, vec!["MarkdownH1", "MarkdownBlockQuote", "MarkdownParagraph"]);
     }
 }

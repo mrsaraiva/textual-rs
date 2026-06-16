@@ -7,6 +7,20 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-15 (feat(Markdown): blockquote bars + nesting)
+
+- **feat(widgets/Markdown): render blockquotes with bars and nesting**
+  - `build_markdown_children` dropped blockquotes entirely (catch-all arm) and
+    flattened their content into plain paragraphs — no `▌` bars, no nesting. The
+    `MarkdownBlockQuote` default CSS (`border-left: outer; padding: 0 1`) existed
+    but no widget used it. Added a `MarkdownBlockQuoteBlock` widget (style type
+    `MarkdownBlockQuote`) holding a recursive quote-child tree; the outer bar/pad
+    come from the existing CSS, and each additional nesting level prefixes `▌ `
+    with blank-bar margins around nested quotes (Python parity). Rewrote
+    `build_markdown_children` to walk the top-level event stream so blockquotes
+    become quote blocks while every other block delegates to the unchanged
+    `parse_markdown_blocks`, preserving document order and all existing behavior.
+
 ### 2026-06-15 (fix(compose): with_compose preserves child id/classes/handle)
 
 - **fix(compose): `with_compose` no longer drops child id/class/handle metadata**
