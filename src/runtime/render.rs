@@ -2364,6 +2364,16 @@ fn host_content_extent(
     let mut max_x = 0u16;
     let mut max_y = 0u16;
     let mut saw_visible_child = false;
+    // Python's scrollable virtual size (`_compositor` + `_arrange.py`) is the flow
+    // (non-docked) content extent PLUS the spacing consumed by docked children on
+    // each edge: `virtual = flow_span + dock_spacing`. A docked Header/Footer
+    // therefore enlarges the scrollable height by its own height even though it is
+    // painted outside the scroll window. `dock_spacing` is the MAX thickness per
+    // edge (matching `_arrange_dock_widgets`, which uses `max(...)` per edge).
+    let mut top_dock = 0u16;
+    let mut bottom_dock = 0u16;
+    let mut left_dock = 0u16;
+    let mut right_dock = 0u16;
     for &child_id in tree.children(node_id) {
         if Some(child_id) == scrollbar_children.vertical
             || Some(child_id) == scrollbar_children.horizontal
@@ -2371,21 +2381,45 @@ fn host_content_extent(
         {
             continue;
         }
-        if node_is_docked(tree, child_id) {
-            continue;
-        }
+        let docked = node_is_docked(tree, child_id);
         let Some(child) = tree.get(child_id) else {
             continue;
         };
         if !child.display {
             continue;
         }
-        saw_visible_child = true;
         let child_rect = child.layout_rect;
-        min_x = Some(min_x.map_or(child_rect.x0, |value| value.min(child_rect.x0)));
-        min_y = Some(min_y.map_or(child_rect.y0, |value| value.min(child_rect.y0)));
-        max_x = max_x.max(child_rect.x1);
-        max_y = max_y.max(child_rect.y1);
+        if docked {
+            let w = child_rect.x1.saturating_sub(child_rect.x0);
+            let h = child_rect.y1.saturating_sub(child_rect.y0);
+            match super::helpers::resolve_style_in_tree(tree, child_id)
+                .and_then(|style| style.dock)
+            {
+                Some(crate::style::Dock::Top) => top_dock = top_dock.max(h),
+                Some(crate::style::Dock::Bottom) => bottom_dock = bottom_dock.max(h),
+                Some(crate::style::Dock::Left) => left_dock = left_dock.max(w),
+                Some(crate::style::Dock::Right) => right_dock = right_dock.max(w),
+                None => {}
+            }
+            continue;
+        }
+        // Only flow children define the content span and flip `has_content_children`;
+        // self-rendering hosts (RichLog/Log/OptionList) keep their fallback path.
+        saw_visible_child = true;
+        // Python's `DockArrangeResult` unions each placement grown by its MARGIN
+        // (`spatial_map.insert(placement.region.grow(placement.margin), …)`), so a
+        // flow child's margin enlarges the scrollable extent. Use the margin-box.
+        let margin = super::helpers::resolve_style_in_tree(tree, child_id)
+            .map(|style| style.effective_margin())
+            .unwrap_or_default();
+        let cx0 = child_rect.x0.saturating_sub(margin.left);
+        let cy0 = child_rect.y0.saturating_sub(margin.top);
+        let cx1 = child_rect.x1.saturating_add(margin.right);
+        let cy1 = child_rect.y1.saturating_add(margin.bottom);
+        min_x = Some(min_x.map_or(cx0, |value| value.min(cx0)));
+        min_y = Some(min_y.map_or(cy0, |value| value.min(cy0)));
+        max_x = max_x.max(cx1);
+        max_y = max_y.max(cy1);
     }
     if !saw_visible_child {
         let viewport_w = content_rect.x1.saturating_sub(content_rect.x0) as usize;
@@ -2399,8 +2433,12 @@ fn host_content_extent(
     }
     let origin_x = min_x.unwrap_or(content_rect.x0);
     let origin_y = min_y.unwrap_or(content_rect.y0);
-    let virtual_w = max_x.saturating_sub(origin_x) as usize;
-    let virtual_h = max_y.saturating_sub(origin_y) as usize;
+    let virtual_w = (max_x.saturating_sub(origin_x))
+        .saturating_add(left_dock)
+        .saturating_add(right_dock) as usize;
+    let virtual_h = (max_y.saturating_sub(origin_y))
+        .saturating_add(top_dock)
+        .saturating_add(bottom_dock) as usize;
     (virtual_w.max(1), virtual_h.max(1), true)
 }
 
@@ -4024,6 +4062,87 @@ Parent.show > Child { display: block; }
         assert!(
             lines.contains("BASE_VISIBLE"),
             "screen-specific stylesheet rules should not affect app underlay layer"
+        );
+    }
+
+    /// Regression for scroll/screen parity with Python Textual:
+    /// `host_content_extent` (the scrollable virtual size) must include the
+    /// spacing consumed by docked children on each edge AND the margin-box of
+    /// flow children, mirroring Python's `DockArrangeResult.total_region`
+    /// (`spatial_map` unions each placement grown by its margin, then the result
+    /// is grown by the docked scroll spacing). Without this, a screen with a
+    /// docked Header/Footer (e.g. `guide/screens/modal01`) under-reports its
+    /// virtual height by the dock height, shifting the scrollbar thumb glyph;
+    /// and a horizontal scroll of margined columns (`how-to/layout06`)
+    /// under-reports its virtual width by the outer column margins.
+    #[test]
+    fn host_content_extent_includes_dock_spacing_and_child_margins() {
+        use crate::style::{Dock, Spacing};
+        use crate::widget_tree::{Rect, WidgetTree};
+        use crate::widgets::{Label, VerticalScroll};
+
+        let _guard = crate::css::set_style_context(crate::css::default_widget_stylesheet());
+
+        let mut tree = WidgetTree::new();
+        let host = tree.set_root(Box::new(VerticalScroll::new()));
+        let flow = tree.mount(host, Box::new(Label::new("x")));
+        let footer = tree.mount(host, Box::new(Label::new("f")));
+
+        {
+            let node = tree.get_mut(flow).expect("flow child exists");
+            node.layout_rect = Rect {
+                x0: 5,
+                y0: 3,
+                x1: 35,
+                y1: 23,
+            };
+            node.content_rect = node.layout_rect;
+            // Horizontal margin of 2 on each side (vertical margin 0).
+            node.styles.style.margin = Some(Spacing {
+                top: 0,
+                right: 2,
+                bottom: 0,
+                left: 2,
+            });
+        }
+        {
+            let node = tree.get_mut(footer).expect("footer child exists");
+            node.layout_rect = Rect {
+                x0: 0,
+                y0: 27,
+                x1: 40,
+                y1: 30,
+            };
+            node.content_rect = node.layout_rect;
+            node.styles.style.dock = Some(Dock::Bottom);
+        }
+
+        let content_rect = Rect {
+            x0: 0,
+            y0: 0,
+            x1: 40,
+            y1: 30,
+        };
+        let (virtual_w, virtual_h, has_content) = host_content_extent(
+            &tree,
+            host,
+            content_rect,
+            ScrollbarHostChildren::default(),
+        );
+
+        assert!(
+            has_content,
+            "the flow child (not the docked footer) must flag content presence"
+        );
+        // Flow margin-box spans x: (5-2)..(35+2) = 3..37 => width 34. No L/R dock.
+        assert_eq!(
+            virtual_w, 34,
+            "flow child horizontal margins must enlarge the virtual width"
+        );
+        // Flow span y: 3..23 = 20, plus the bottom-docked footer height (3) = 23.
+        assert_eq!(
+            virtual_h, 23,
+            "a bottom-docked footer must enlarge the scrollable virtual height"
         );
     }
 }

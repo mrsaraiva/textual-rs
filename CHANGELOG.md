@@ -7,6 +7,19 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-16 (fix(runtime): scrollable virtual size includes dock spacing + child margins)
+
+- **fix(runtime/render): `host_content_extent` mirrors Python `DockArrangeResult`**
+  - The scrollable virtual size of a scroll host unioned only the border-boxes of
+    its non-docked children. Python's `DockArrangeResult.total_region` unions each
+    placement grown by its **margin**, then grows the result by the **docked
+    scroll-spacing** per edge. Two contributions were missing: (1) a docked
+    Header/Footer enlarges the scrollable height by its thickness (max per edge),
+    and (2) a flow child's margin enlarges the extent. Adding both fixes the
+    modal dialog scrollbar thumb (was offset/absent) and horizontal-scroll virtual
+    width. Promotes docs parity cases modal01/02/03 and layout06.
+
+
 ### 2026-06-16 (fix(renderables/LinearGradient): half-block glyphs)
 
 - **fix(renderables/LinearGradient): emit `▀` half-block glyphs (Python parity)**
