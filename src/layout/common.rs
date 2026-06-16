@@ -39,15 +39,17 @@ pub(crate) fn wrapper_child_auto_axes(tree: &WidgetTree, wrapper: NodeId) -> (bo
 /// Height scalar to assign to a transparent wrapper (`Node`) whose own height is
 /// UNSET, mirroring the wrapped child's sizing intent.
 ///
-/// A `Node` is a Rust-only styling pass-through with no Python analogue; the
-/// Python equivalent (a styled container) defaults to `height: 1fr`. So an
-/// unset-height wrapper must flex-fill its track like a `1fr` container — and
-/// crucially NOT adopt the bare-*leaf* rule (an unset-height leaf fills the whole
-/// container and overflows, per `extract_child_spec`). Returns:
+/// A `Node` is a Rust-only styling pass-through with no Python analogue; it must
+/// mirror the sizing intent of the single widget it wraps. Returns:
 /// - `Some(Auto)` when the wrapped child is `height: auto` (shrink-to-content),
-/// - `Some(Fraction(1.0))` for any other child height (flex-fill — the wrapper's
-///   historical behavior, and what keeps e.g. a `Node`-wrapped `1fr` `Horizontal`
-///   sharing the viewport with its siblings),
+/// - `None` when the wrapped child's height is itself UNSET (a bare *leaf* such
+///   as `Placeholder`): the wrapper inherits the leaf's fill-the-whole-container
+///   rule in `extract_child_spec` so each `Node`-wrapped unset leaf independently
+///   fills the container and overflows (Python `Widget._get_box_model`), instead
+///   of N siblings splitting one track via `1fr` (fixes docs/how-to/layout05),
+/// - `Some(Fraction(1.0))` for any explicit non-auto child height (e.g. a `1fr`
+///   container): flex-fill, keeping a `Node`-wrapped `1fr` `Horizontal`/`Vertical`
+///   sharing the viewport with its siblings (docs_containers04),
 /// - `None` for a non-wrapper, leaving a genuine leaf's unset height to the
 ///   fill-the-container rule.
 pub(crate) fn wrapper_unset_height(tree: &WidgetTree, wrapper: NodeId) -> Option<Scalar> {
@@ -61,10 +63,22 @@ pub(crate) fn wrapper_unset_height(tree: &WidgetTree, wrapper: NodeId) -> Option
     let children = tree.children(wrapper);
     let &child = children.first()?;
     let child_style = get_node_style(tree, child);
-    if matches!(child_style.height.as_ref(), Some(Scalar::Auto)) {
-        Some(Scalar::Auto)
-    } else {
-        Some(Scalar::Fraction(1.0))
+    match child_style.height.as_ref() {
+        Some(Scalar::Auto) => Some(Scalar::Auto),
+        // An UNSET wrapped-child height is the bare-*leaf* "fill the whole
+        // container" intent (e.g. a `Placeholder`, which omits `height` in its
+        // DEFAULT_CSS, exactly like Python), NOT a `1fr` share. Returning `None`
+        // leaves the wrapper's own height unset so it adopts that same
+        // fill-the-container rule in `extract_child_spec` — each `Node`-wrapped
+        // unset-height leaf independently receives the full container height and
+        // overflows (Python `Widget._get_box_model`), instead of N siblings
+        // splitting one track via `1fr`. (Fixes docs/how-to/layout05, where 19
+        // `Node`-wrapped `Tweet` placeholders must overflow their column.)
+        None => None,
+        // Any explicit, non-auto wrapped-child height (e.g. a `1fr` container)
+        // keeps the flex-fill share so `Node`-wrapped `1fr` containers split
+        // their track (docs_containers04) instead of overflowing.
+        _ => Some(Scalar::Fraction(1.0)),
     }
 }
 

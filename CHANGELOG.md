@@ -7,6 +7,19 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-16 (fix(layout): Node-wrapped unset-height leaf fills the container)
+
+- **fix(layout): a transparent `Node` wrapping an unset-height leaf fills (not 1fr-shares)**
+  - `wrapper_unset_height` mapped any non-`auto` wrapped child to a `1fr` share,
+    so N `Node`-wrapped unset-height leaves (e.g. `Placeholder`) split one track
+    instead of each filling the container and overflowing. A transparent wrapper
+    must mirror the wrapped child's intent: when the child's height is itself
+    unset, return `None` so the wrapper inherits the bare-leaf fill-the-container
+    rule (Python `Widget._get_box_model`); an explicit `1fr`/auto child is
+    unchanged (keeps `docs_containers04`). Fixes a column of 19 placeholders not
+    overflowing → no scrollbar → wrong width. Promotes `docs_layout05`.
+
+
 ### 2026-06-16 (fix(layout): unset height fills container; Static honors own padding)
 
 - **fix(layout): an unset (`None`) height fills the full container, not a `1fr` share**

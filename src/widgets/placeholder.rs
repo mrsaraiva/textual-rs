@@ -467,6 +467,33 @@ mod tests {
         assert_eq!(ph.style_type(), "Placeholder");
     }
 
+    /// Python parity (`Placeholder.DEFAULT_CSS`): a `Placeholder` does NOT set a
+    /// `height` rule, and the base `Widget` doesn't either. Per Python's box
+    /// model (`Widget._get_box_model`), an unset height makes the widget *fill
+    /// the full container height* — it is NOT `height: auto` (shrink-to-content)
+    /// and NOT a fixed cell height. The Rust layout engine reproduces that for an
+    /// unset-CSS-height leaf ONLY when the widget reports no intrinsic layout
+    /// height (`layout_height() == None`); a non-`None` value would instead size
+    /// the widget to that content height and break the fill semantics (e.g.
+    /// `docs/how-to/layout05`, where 19 `Tweet` placeholders must each fill their
+    /// column and overflow). Guard that `Placeholder` keeps reporting `None`.
+    #[test]
+    fn default_placeholder_reports_no_intrinsic_height_so_it_fills_container() {
+        let ph = Placeholder::new("#Tweet1");
+        assert_eq!(
+            Widget::layout_height(&ph),
+            None,
+            "Placeholder must report no intrinsic height (Python: unset height \
+             fills the container); a fixed value here would stop it overflowing"
+        );
+        // It must also carry no `height` rule in its node seed (parity with
+        // Python's `DEFAULT_CSS`, which omits `height`).
+        assert!(
+            ph.seed.styles.style.height.is_none(),
+            "Placeholder default CSS must not set an explicit height"
+        );
+    }
+
     #[test]
     fn click_queues_class_ops_on_event_ctx() {
         let mut ph = Placeholder::new("test");
