@@ -70,7 +70,7 @@ impl TextualApp for ModalApp {
 
     fn compose(&mut self) -> AppRoot {
         AppRoot::new()
-            .with_child(Header::new().title("ModalApp"))
+            .with_child(Header::new())
             .with_child(Label::new(TEXT.repeat(8)))
             .with_child(Footer::new())
     }

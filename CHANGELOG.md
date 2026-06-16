@@ -7,6 +7,18 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-16 (fix(App): default title to the app type name)
+
+- **fix(App): `title` defaults to the app type's name (Python parity)**
+  - The `TextualApp::title()` default was a hardcoded `"textual-rs"`. Now it
+    defaults to `""` (sentinel for "unset") and the runtime falls back to the
+    app type's name (final path segment of `std::any::type_name`), mirroring
+    Python `self.title = self.TITLE if self.TITLE is not None else
+    type(self).__name__`. An explicit `title()` override (or `set_title`) still
+    wins. Also dropped the now-unnecessary hardcoded `Header::new().title(...)`
+    workaround from the modal screen examples and aligned their struct names.
+
+
 ### 2026-06-16 (fix(Placeholder): stop double-centering its label)
 
 - **fix(widgets/Placeholder): render bare content; let `content-align` center it**

@@ -53,13 +53,18 @@ pub trait TextualApp: Send + 'static {
         Ok(())
     }
 
-    /// Display title shown in the Header.  Defaults to "textual-rs".
+    /// Display title shown in the Header.
     ///
     /// Override this to set the app title, mirroring Python Textual's `App.TITLE`
     /// class variable.  The runtime reads this once at mount time and stores it
     /// in `App::title()`.
+    ///
+    /// Returning an empty string (the default) means "no explicit title": the
+    /// runtime then falls back to the app type's name, mirroring Python's
+    /// `self.TITLE if self.TITLE is not None else type(self).__name__`
+    /// precedence (see `App.__init__` in `app.py`).
     fn title(&self) -> &'static str {
-        "textual-rs"
+        ""
     }
 
     /// Declarative app-level key bindings.
@@ -330,6 +335,19 @@ struct TextualAppAdapter<T: TextualApp> {
     command_palette_providers: Vec<Box<dyn CommandPaletteProvider>>,
     command_palette_provider_index: HashMap<String, (usize, String)>,
     message_handlers: crate::message_handlers::MessageHandlers<T>,
+}
+
+/// Derive the default app title from the app type's name.
+///
+/// Mirrors Python `type(self).__name__`: returns the final path segment of
+/// `std::any::type_name::<T>()` (e.g. `my_crate::ModalApp` -> `ModalApp`),
+/// stripping any generic-parameter suffix.
+fn app_type_name<T: ?Sized>() -> String {
+    let full = std::any::type_name::<T>();
+    // Strip generic parameters (`Foo<Bar>` -> `Foo`) before taking the segment,
+    // so `::` inside generics doesn't get mistaken for a path separator.
+    let base = full.split('<').next().unwrap_or(full);
+    base.rsplit("::").next().unwrap_or(base).to_string()
 }
 
 fn build_textual_app_runtime_root<T: TextualApp>(
@@ -922,9 +940,17 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
         }));
 
         // Propagate the app-defined title to the runtime before any Header reads it.
+        //
+        // Mirrors Python `self.title = self.TITLE if self.TITLE is not None else
+        // type(self).__name__` (app.py): an explicit `title()` override wins;
+        // otherwise default to the app type's name (final path segment).
         {
             let app_title = self.app.lock().unwrap_or_else(|e| e.into_inner()).title();
-            app.set_title(app_title);
+            if app_title.is_empty() {
+                app.set_title(app_type_name::<T>());
+            } else {
+                app.set_title(app_title);
+            }
         }
 
         // Init-phase watcher firing (G3): record synthetic old==new changes for
@@ -1187,6 +1213,61 @@ mod tests {
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use rich_rs::{Console, ConsoleOptions, Segments};
     use std::sync::atomic::{AtomicUsize, Ordering};
+
+    /// App with no explicit `title()` override: its title must default to the
+    /// app type's name (mirrors Python `type(self).__name__`).
+    struct DefaultTitleApp;
+    impl TextualApp for DefaultTitleApp {
+        fn compose(&mut self) -> crate::widgets::AppRoot {
+            crate::widgets::AppRoot::new()
+        }
+    }
+
+    /// App with an explicit `title()` override: the explicit title must win
+    /// (mirrors Python `TITLE` precedence over the class name).
+    struct ExplicitTitleApp;
+    impl TextualApp for ExplicitTitleApp {
+        fn compose(&mut self) -> crate::widgets::AppRoot {
+            crate::widgets::AppRoot::new()
+        }
+        fn title(&self) -> &'static str {
+            "My Explicit Title"
+        }
+    }
+
+    #[test]
+    fn app_type_name_returns_final_path_segment() {
+        // Full type path is module-qualified; the helper must reduce it to the
+        // bare type name (last `::` segment).
+        assert_eq!(app_type_name::<DefaultTitleApp>(), "DefaultTitleApp");
+        assert_eq!(app_type_name::<ExplicitTitleApp>(), "ExplicitTitleApp");
+    }
+
+    #[test]
+    fn default_title_falls_back_to_app_type_name() {
+        // No explicit override -> on_app_mount must set the runtime title to the
+        // app type's name (mirrors Python `type(self).__name__`), NOT the old
+        // "textual-rs" default.
+        let app = Arc::new(Mutex::new(DefaultTitleApp));
+        let mut adapter = TextualAppAdapter::new(app, NoopWidget::new());
+        let mut runtime = App::new().expect("app should initialize");
+        let mut ctx = EventCtx::default();
+        adapter.on_app_mount(&mut runtime, &mut ctx);
+        assert_eq!(runtime.title(), "DefaultTitleApp");
+        assert_ne!(runtime.title(), "textual-rs");
+    }
+
+    #[test]
+    fn explicit_title_wins_over_type_name() {
+        // An explicit title() override must take precedence over the type name
+        // (mirrors Python `TITLE` precedence).
+        let app = Arc::new(Mutex::new(ExplicitTitleApp));
+        let mut adapter = TextualAppAdapter::new(app, NoopWidget::new());
+        let mut runtime = App::new().expect("app should initialize");
+        let mut ctx = EventCtx::default();
+        adapter.on_app_mount(&mut runtime, &mut ctx);
+        assert_eq!(runtime.title(), "My Explicit Title");
+    }
 
     #[derive(Default)]
     struct HookState {

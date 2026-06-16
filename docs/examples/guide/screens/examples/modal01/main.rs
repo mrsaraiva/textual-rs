@@ -49,16 +49,16 @@ impl Screen for QuitScreen {
     }
 }
 
-struct Modal01App;
+struct ModalApp;
 
-impl TextualApp for Modal01App {
+impl TextualApp for ModalApp {
     fn bindings(&self) -> Vec<BindingDecl> {
         vec![BindingDecl::new("q", "app.push_screen('quit')", "Quit")]
     }
 
     fn compose(&mut self) -> AppRoot {
         AppRoot::new()
-            .with_child(Header::new().title("ModalApp"))
+            .with_child(Header::new())
             .with_child(Label::new(TEXT.repeat(8)))
             .with_child(Footer::new())
     }
@@ -70,7 +70,7 @@ impl TextualApp for Modal01App {
 }
 
 fn main() -> Result<()> {
-    run_sync(Modal01App)
+    run_sync(ModalApp)
 }
 
 #[cfg(test)]
@@ -85,7 +85,7 @@ mod tests {
 
     #[test]
     fn modal01_registers_quit_mode_and_pushes_screen() {
-        let mut definition = Modal01App;
+        let mut definition = ModalApp;
         let mut app = App::new().expect("app should initialize");
         definition
             .configure(&mut app)
