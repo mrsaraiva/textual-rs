@@ -7,6 +7,23 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-16 (feat(runtime): widgets can post messages at mount; Select Changed)
+
+- **feat(runtime): mount-time message hook for arena widgets**
+  - Python widgets can post messages from `on_mount`, but the arena
+    `on_mount(&mut self)` has no `EventCtx`, so an arena widget had no way to
+    emit a message reflecting its initial state. Added
+    `Widget::take_pending_mount_messages()` (default empty); the runtime drains
+    it once right after a node mounts and routes each message through the normal
+    bus with the mounted node as sender/control — a drain-at-mount adapter over
+    the core message flow (same pattern as `take_child_decl_meta`), not a
+    separate dispatch path. Wired into both the initial-mount loop and the
+    dynamic-mount lifecycle path.
+  - **fix(widgets/Select): `Changed` posts at mount for the auto-selected value**
+    — `Select(allow_blank=false)` auto-selects the first option; it now stages a
+    `SelectChanged` at mount (Python `_watch_value` parity), so apps observe the
+    initial selection at startup. Promotes `docs_select_widget_no_blank`.
+
 ### 2026-06-16 (fix(Rule): orientation variant class + margins)
 
 - **fix(widgets/Rule): orientation margins/sizing now apply (variant class)**

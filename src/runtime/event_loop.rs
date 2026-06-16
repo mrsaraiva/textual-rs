@@ -1956,6 +1956,38 @@ impl App {
         aggregate
     }
 
+    /// Drain a freshly mounted node's staged mount-time messages (via
+    /// [`crate::widgets::Widget::take_pending_mount_messages`]) and route them
+    /// through the normal message bus with the mounted node as sender/control.
+    ///
+    /// This is the runtime drain point for the drain-at-mount pending-message
+    /// mechanism: it mirrors how `ctx.post_message(..)` messages are routed, so
+    /// the app's message handlers see mount-time messages at startup exactly as
+    /// in Python Textual (where widgets may post from `on_mount`).
+    fn drain_pending_mount_messages(
+        &mut self,
+        root: &mut dyn Widget,
+        node_id: NodeId,
+    ) -> DispatchOutcome {
+        let staged: Vec<MessageEvent> = self
+            .active_widget_tree_mut()
+            .and_then(|tree| tree.get_mut(node_id))
+            .map(|node| {
+                node.widget
+                    .take_pending_mount_messages()
+                    .into_iter()
+                    .map(|payload| {
+                        MessageEvent::from_boxed(node_id, payload).with_control(node_id)
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        if staged.is_empty() {
+            return DispatchOutcome::default();
+        }
+        self.dispatch_message_queue_with_runtime(root, staged)
+    }
+
     fn dispatch_background_runtime_messages(&mut self, root: &mut dyn Widget) -> DispatchOutcome {
         // Drain app-level messages first (set_title/set_sub_title broadcasts).
         let mut queue = self.drain_pending_app_messages();
@@ -2090,6 +2122,14 @@ impl App {
             let mut msg_outcome = self.dispatch_message_queue_with_runtime(root, outcome.messages);
             self.absorb_outcome(
                 &mut msg_outcome,
+                &mut pending_invalidation,
+                InvalidationScope::Global,
+            );
+            // Route any messages the widget staged for mount time
+            // (Widget::take_pending_mount_messages) through the normal bus.
+            let mut mount_msg_outcome = self.drain_pending_mount_messages(root, node_id);
+            self.absorb_outcome(
+                &mut mount_msg_outcome,
                 &mut pending_invalidation,
                 InvalidationScope::Global,
             );
@@ -3535,7 +3575,22 @@ impl App {
                     &mut pending_invalidation,
                     InvalidationScope::Global,
                 );
-                if outcome.stop_requested || msg_outcome.stop_requested {
+                // For newly mounted nodes, route any messages staged at mount
+                // time (Widget::take_pending_mount_messages) through the bus.
+                let mut mount_msg_outcome = if is_mount {
+                    self.drain_pending_mount_messages(root, node_id)
+                } else {
+                    DispatchOutcome::default()
+                };
+                self.absorb_outcome(
+                    &mut mount_msg_outcome,
+                    &mut pending_invalidation,
+                    InvalidationScope::Global,
+                );
+                if outcome.stop_requested
+                    || msg_outcome.stop_requested
+                    || mount_msg_outcome.stop_requested
+                {
                     break 'event_loop;
                 }
             }

@@ -818,6 +818,15 @@ const CASES: &[Case] = &[
         status: Status::Pass,
     },
     Case {
+        name: "docs_select_widget_no_blank",
+        example: "select_widget_no_blank",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
         name: "docs_tabs",
         example: "tabs",
         args: &[],
@@ -1153,6 +1162,7 @@ pty_case!(docs_content_switcher, "docs_content_switcher");
 pty_case!(docs_data_table, "docs_data_table");
 pty_case!(docs_selection_list_selected, "docs_selection_list_selected");
 pty_case!(docs_select_widget, "docs_select_widget");
+pty_case!(docs_select_widget_no_blank, "docs_select_widget_no_blank");
 pty_case!(docs_tabs, "docs_tabs");
 pty_case!(docs_text_area_extended, "docs_text_area_extended");
 pty_case!(docs_input, "docs_input");

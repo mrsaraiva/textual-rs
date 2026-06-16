@@ -278,6 +278,27 @@ pub trait Widget: Send + Sync + Any {
         NodeSeed::default()
     }
 
+    /// Drain messages this widget wants posted *at mount time*, as boxed
+    /// [`crate::message::Message`] payloads.
+    ///
+    /// Python Textual widgets can post messages from `on_mount` (which has an
+    /// app/message context). In the arena runtime `on_mount(&mut self)` has no
+    /// `EventCtx`, so widgets that need to emit a message as part of their
+    /// initial state (for example `Select(allow_blank=false)` posting
+    /// `SelectChanged` for its auto-selected value) stage those messages here.
+    ///
+    /// The runtime drains this **once, right after the node is mounted**, and
+    /// routes each message through the normal message bus with the mounted
+    /// node as the sender/control — exactly as if the widget had called
+    /// `ctx.post_message(..)`. This is a drain-at-mount adapter over the core
+    /// message flow (the same pattern as [`Widget::take_child_decl_meta`]); it
+    /// is **not** a separate dispatch path.
+    ///
+    /// Default: no messages.
+    fn take_pending_mount_messages(&mut self) -> Vec<Box<dyn crate::message::Message>> {
+        Vec::new()
+    }
+
     /// Render with full CSS styling, border composition, and segment tagging.
     ///
     /// `_node_id` is the arena-assigned identity used for metadata tagging so

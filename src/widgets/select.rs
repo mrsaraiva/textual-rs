@@ -724,6 +724,30 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for Select<T> {
         std::mem::take(&mut self.seed)
     }
 
+    /// Stage a `SelectChanged` for the initially-selected value so the message
+    /// is posted at mount time.
+    ///
+    /// Python parity: `Select.value` is a reactive set during init, and
+    /// `_watch_value` posts `Select.Changed` whenever it changes — including the
+    /// initial assignment on mount. With `allow_blank=False` the first option is
+    /// auto-selected, so apps observe `Changed(first_value)` at startup (e.g. the
+    /// `select_widget_no_blank` demo sets its title from the first option).
+    ///
+    /// The runtime drains this once right after the node is mounted and routes
+    /// it through the normal message bus (see
+    /// `Widget::take_pending_mount_messages`).
+    fn take_pending_mount_messages(&mut self) -> Vec<Box<dyn crate::message::Message>> {
+        if let Some(index) = self.cursor.selected()
+            && let Some((label, _)) = self.options.get(index)
+        {
+            return vec![Box::new(SelectChanged {
+                index,
+                label: label.clone(),
+            })];
+        }
+        Vec::new()
+    }
+
     // NOTE: Select intentionally does NOT implement visit_children_mut.
     // The inner OptionList is a private implementation detail and should not
     // appear in the global focus traversal — Select manages it internally.
