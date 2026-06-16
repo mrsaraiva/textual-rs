@@ -7,6 +7,20 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-16 (fix(scrollbar): thumb glyph parity with Python)
+
+- **fix(widgets/scrollbar): partial-block thumb glyphs match Python both axes**
+  - `ScrollBarRender::render_bar` is rewritten to mirror Python
+    `ScrollBarRender.render_bar` exactly: a single divmod-based start/end
+    computation shared by both axes, the eighth-block glyph tables
+    (`VERTICAL_BARS` lower blocks, `HORIZONTAL_BARS` left blocks), head/tail
+    partial-block glyphs (`bars[7 - bar]`, space-skipped) with Python's
+    fg/bg/reverse mapping per axis, and a `color=bar, reverse=true` thumb body.
+    Fixes a horizontal head-glyph bug (used `HORIZONTAL_BARS[start_bar-1]`
+    instead of `bars[7-start_bar]`, dropping the head entirely at `start_bar==0`)
+    and the duplicated per-axis math. New unit tests assert the glyph sequence +
+    per-cell fg/bg/reverse against live Python output, including fractional edges.
+
 ### 2026-06-16 (feat(runtime): widgets can post messages at mount; Select Changed)
 
 - **feat(runtime): mount-time message hook for arena widgets**

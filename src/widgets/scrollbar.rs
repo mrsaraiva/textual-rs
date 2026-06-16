@@ -71,24 +71,44 @@ impl ScrollBarRender {
         thumb_color: Color,
     ) -> Vec<Vec<Segment>> {
         const FRACTION_BARS: usize = 8;
+        // Glyphs used for scrollbar ends, for sub-cell granularity. Mirrors
+        // Python `ScrollBarRender.VERTICAL_BARS` / `HORIZONTAL_BARS`
+        // (textual/src/textual/scrollbar.py lines 76-79). The trailing entry is
+        // a space, which Python skips (`if bar_character != " "`).
         const VERTICAL_BARS: [&str; FRACTION_BARS] = ["▁", "▂", "▃", "▄", "▅", "▆", "▇", " "];
         const HORIZONTAL_BARS: [&str; FRACTION_BARS] = ["▉", "▊", "▋", "▌", "▍", "▎", "▏", " "];
 
         let track_len = track_len.max(1);
-        let track_style = rich_rs::Style::new().with_bgcolor(back_color.to_simple_opaque());
-        let thumb_fill_style = rich_rs::Style::new().with_bgcolor(thumb_color.to_simple_opaque());
-        let edge_style = rich_rs::Style::new()
-            .with_bgcolor(back_color.to_simple_opaque())
-            .with_color(thumb_color.to_simple_opaque());
-        if self.vertical {
-            let cell = " ".repeat(self.thickness.max(1));
-            let mut lines = vec![vec![Segment::styled(cell.clone(), track_style)]; track_len];
-            let scrollable = self.window_size > 0
-                && self.virtual_size > self.window_size
-                && self.virtual_size != track_len;
-            if !scrollable {
-                return lines;
-            }
+        let width_thickness = if self.vertical {
+            self.thickness.max(1)
+        } else {
+            1
+        };
+        let bars = if self.vertical {
+            &VERTICAL_BARS
+        } else {
+            &HORIZONTAL_BARS
+        };
+
+        let back = back_color.to_simple_opaque();
+        let bar = thumb_color.to_simple_opaque();
+        let blank = " ".repeat(width_thickness);
+
+        // Track (background) segment style. Python: `_Style(bgcolor=back, ...)`.
+        let track_style = rich_rs::Style::new().with_bgcolor(back);
+        // Thumb body. Python uses `_Style(color=bar, reverse=True)` with NO
+        // bgcolor (lines 150-152); after the reverse swap this paints bg=bar.
+        let thumb_fill_style = rich_rs::Style::new().with_color(bar).with_reverse(true);
+
+        let make_row = |style: rich_rs::Style| vec![Segment::styled(blank.clone(), style)];
+
+        let scrollable = self.window_size > 0
+            && track_len > 0
+            && self.virtual_size > 0
+            && self.virtual_size != track_len;
+
+        let mut segments: Vec<Vec<Segment>> = if scrollable {
+            // Python `render_bar` (lines 128-186), shared for both axes.
             let bar_ratio = self.virtual_size as f32 / track_len as f32;
             let thumb_size = (self.window_size as f32 / bar_ratio).max(1.0);
             let max_position = self.virtual_size.saturating_sub(self.window_size) as f32;
@@ -99,83 +119,66 @@ impl ScrollBarRender {
                 0.0
             };
             let position = (track_len as f32 - thumb_size).max(0.0) * position_ratio;
+
+            // start = int(position * len_bars); end = start + ceil(thumb_size * len_bars)
             let start = (position * FRACTION_BARS as f32).max(0.0).floor() as usize;
             let end = start.saturating_add((thumb_size * FRACTION_BARS as f32).ceil() as usize);
-            let start_index = (start / FRACTION_BARS).min(track_len.saturating_sub(1));
+
+            // start_index, start_bar = divmod(max(0, start), len_bars)
+            let start_index = start / FRACTION_BARS;
             let start_bar = start % FRACTION_BARS;
-            let end_index = (end / FRACTION_BARS).min(track_len);
+            let end_index = end / FRACTION_BARS;
             let end_bar = end % FRACTION_BARS;
 
-            for row in start_index..end_index {
-                if row < lines.len() {
-                    lines[row] = vec![Segment::styled(cell.clone(), thumb_fill_style)];
-                }
+            // segments = [back] * size; segments[end_index:] = [back] * (size - end_index)
+            let mut segments: Vec<Vec<Segment>> = vec![make_row(track_style); track_len];
+
+            // segments[start_index:end_index] = [thumb fill] * (end_index - start_index)
+            let fill_end = end_index.min(track_len);
+            for row in segments.iter_mut().take(fill_end).skip(start_index) {
+                *row = make_row(thumb_fill_style);
             }
 
-            if start_index < lines.len() {
-                let glyph = VERTICAL_BARS[FRACTION_BARS - 1 - start_bar];
+            // Apply partial-block glyphs at head/tail for sub-cell granularity.
+            if start_index < track_len {
+                let glyph = bars[FRACTION_BARS - 1 - start_bar];
                 if glyph != " " {
-                    lines[start_index] = vec![Segment::styled(
-                        glyph.repeat(self.thickness.max(1)),
-                        edge_style,
-                    )];
+                    // Vertical: `bgcolor=back, color=bar` (no reverse).
+                    // Horizontal: `bgcolor=back, color=bar, reverse=True`.
+                    let style = rich_rs::Style::new()
+                        .with_bgcolor(back)
+                        .with_color(bar)
+                        .with_reverse(!self.vertical);
+                    segments[start_index] =
+                        vec![Segment::styled(glyph.repeat(width_thickness), style)];
                 }
             }
-            if end_index < lines.len() {
-                let glyph = VERTICAL_BARS[FRACTION_BARS - 1 - end_bar];
+            if end_index < track_len {
+                let glyph = bars[FRACTION_BARS - 1 - end_bar];
                 if glyph != " " {
-                    // Tail partial should preserve fill at the top of the cell
-                    // and taper toward the bottom.
-                    lines[end_index] = vec![Segment::styled(
-                        glyph.repeat(self.thickness.max(1)),
-                        edge_style.with_reverse(true),
-                    )];
+                    // Vertical: `bgcolor=back, color=bar, reverse=True`.
+                    // Horizontal: `bgcolor=back, color=bar` (no reverse).
+                    let style = rich_rs::Style::new()
+                        .with_bgcolor(back)
+                        .with_color(bar)
+                        .with_reverse(self.vertical);
+                    segments[end_index] =
+                        vec![Segment::styled(glyph.repeat(width_thickness), style)];
                 }
             }
-            lines
+            segments
         } else {
-            let mut row = vec![Segment::styled(" ".to_string(), track_style); track_len];
-            let scrollable = self.window_size > 0
-                && self.virtual_size > self.window_size
-                && self.virtual_size != track_len;
-            if scrollable {
-                let bar_ratio = self.virtual_size as f32 / track_len as f32;
-                let thumb_size = (self.window_size as f32 / bar_ratio).max(1.0);
-                let max_position = self.virtual_size.saturating_sub(self.window_size) as f32;
-                let clamped_position = self.position.clamp(0.0, max_position);
-                let position_ratio = if max_position > 0.0 {
-                    clamped_position / max_position
-                } else {
-                    0.0
-                };
-                let position = (track_len as f32 - thumb_size).max(0.0) * position_ratio;
-                let start = (position * FRACTION_BARS as f32).max(0.0).floor() as usize;
-                let end = start.saturating_add((thumb_size * FRACTION_BARS as f32).ceil() as usize);
-                let start_index = (start / FRACTION_BARS).min(track_len.saturating_sub(1));
-                let start_bar = start % FRACTION_BARS;
-                let end_index = (end / FRACTION_BARS).min(track_len);
-                let end_bar = end % FRACTION_BARS;
+            // Python else-branch: a plain back-colored track.
+            vec![make_row(track_style); track_len]
+        };
 
-                for col in start_index..end_index {
-                    if col < row.len() {
-                        row[col] = Segment::styled(" ".to_string(), thumb_fill_style);
-                    }
-                }
-
-                if start_index < row.len() {
-                    if start_bar > 0 {
-                        let glyph = HORIZONTAL_BARS[start_bar - 1];
-                        row[start_index] =
-                            Segment::styled(glyph.to_string(), edge_style.with_reverse(true));
-                    }
-                }
-                if end_index < row.len() {
-                    let glyph = HORIZONTAL_BARS[FRACTION_BARS - 1 - end_bar];
-                    if glyph != " " {
-                        row[end_index] = Segment::styled(glyph.to_string(), edge_style);
-                    }
-                }
-            }
+        if self.vertical {
+            segments
+        } else {
+            // Horizontal: each line is the full row, repeated `thickness` times.
+            // `segments` currently holds one cell per track index; flatten into a
+            // single row and duplicate per thickness line.
+            let row: Vec<Segment> = segments.drain(..).flatten().collect();
             vec![row; self.thickness.max(1)]
         }
     }
@@ -948,6 +951,148 @@ impl Widget for ScrollBarCorner {
 mod tests {
     use super::*;
     use crate::event::{MouseDownEvent, MouseMoveEvent, MouseUpEvent};
+
+    fn render_glyphs(
+        vertical: bool,
+        track_len: usize,
+        virtual_size: usize,
+        window_size: usize,
+        position: f32,
+    ) -> Vec<(String, bool, bool, bool)> {
+        // Returns (glyph, has_color, has_bgcolor, reverse) per cell of the first line.
+        let renderer = ScrollBarRender {
+            virtual_size,
+            window_size,
+            position,
+            thickness: 1,
+            vertical,
+        };
+        let lines = renderer.render_bar(track_len, Color::rgb(85, 85, 85), Color::rgb(255, 0, 255));
+        // Vertical: one cell per line (one cell per track index). Horizontal:
+        // first line holds the whole row.
+        let cells: Vec<&Segment> = if vertical {
+            lines.iter().map(|line| &line[0]).collect()
+        } else {
+            lines[0].iter().collect()
+        };
+        cells
+            .into_iter()
+            .map(|seg| {
+                let style = seg.style.unwrap_or_default();
+                (
+                    seg.text.to_string(),
+                    style.color.is_some(),
+                    style.bgcolor.is_some(),
+                    style.reverse == Some(true),
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn render_bar_vertical_matches_python_fractional_edges() {
+        // Verified against Python ScrollBarRender.render_bar(size=10, virtual_size=50,
+        // window_size=20, position=7, vertical=True): start cell '▅' (no reverse),
+        // reversed-fill body, tail cell '▅' (reverse).
+        let cells = render_glyphs(true, 10, 50, 20, 7.0);
+        let glyphs: Vec<&str> = cells.iter().map(|c| c.0.as_str()).collect();
+        let expected = [" ", "▅", " ", " ", " ", "▅", " ", " ", " ", " "];
+        assert_eq!(glyphs, expected);
+
+        // Track cells: bg set, no color, no reverse.
+        assert_eq!(cells[0], (" ".to_string(), false, true, false));
+        // Start partial '▅': color + bg, NOT reversed (vertical head).
+        assert_eq!(cells[1], ("▅".to_string(), true, true, false));
+        // Body fill: color only, reversed (Python `color=bar, reverse=True`).
+        assert_eq!(cells[2], (" ".to_string(), true, false, true));
+        assert_eq!(cells[3], (" ".to_string(), true, false, true));
+        assert_eq!(cells[4], (" ".to_string(), true, false, true));
+        // Tail partial '▅': color + bg, reversed (vertical tail).
+        assert_eq!(cells[5], ("▅".to_string(), true, true, true));
+        // Trailing track.
+        assert_eq!(cells[6], (" ".to_string(), false, true, false));
+    }
+
+    #[test]
+    fn render_bar_horizontal_matches_python_fractional_edges() {
+        // Verified against Python render_bar(size=10, virtual_size=50, window_size=20,
+        // position=7, vertical=False): start cell '▍' (reverse), body reversed,
+        // tail cell '▍' (no reverse).
+        let cells = render_glyphs(false, 10, 50, 20, 7.0);
+        let glyphs: Vec<&str> = cells.iter().map(|c| c.0.as_str()).collect();
+        let expected = [" ", "▍", " ", " ", " ", "▍", " ", " ", " ", " "];
+        assert_eq!(glyphs, expected);
+        // Head '▍': color + bg, reversed (horizontal head).
+        assert_eq!(cells[1], ("▍".to_string(), true, true, true));
+        // Body: color only, reversed.
+        assert_eq!(cells[2], (" ".to_string(), true, false, true));
+        // Tail '▍': color + bg, NOT reversed (horizontal tail).
+        assert_eq!(cells[5], ("▍".to_string(), true, true, false));
+    }
+
+    #[test]
+    fn render_bar_top_skips_space_partials() {
+        // Verified against Python render_bar(size=10, vs=50, ws=20, position=0):
+        // start_bar=0 -> bars[7]=' ' (skipped), top 4 cells are pure reversed fill,
+        // tail end_bar=0 -> ' ' (skipped) -> plain track.
+        let cells = render_glyphs(true, 10, 50, 20, 0.0);
+        let glyphs: Vec<&str> = cells.iter().map(|c| c.0.as_str()).collect();
+        assert_eq!(glyphs, vec![" "; 10]);
+        // First four cells: reversed fill (color only).
+        for cell in cells.iter().take(4) {
+            assert_eq!(*cell, (" ".to_string(), true, false, true));
+        }
+        // Remaining: plain track.
+        for cell in cells.iter().skip(4) {
+            assert_eq!(*cell, (" ".to_string(), false, true, false));
+        }
+    }
+
+    fn glyph_string(vertical: bool, size: usize, vs: usize, ws: usize, pos: f32) -> String {
+        render_glyphs(vertical, size, vs, ws, pos)
+            .iter()
+            .map(|c| {
+                let g = c.0.as_str();
+                if g.trim().is_empty() { " " } else { g }
+            })
+            .collect()
+    }
+
+    #[test]
+    fn render_bar_glyph_strings_match_python_across_positions() {
+        // Expected strings captured from Python ScrollBarRender.render_bar
+        // (textual/src/textual/scrollbar.py) for size=12, vs=80, ws=30.
+        let vertical = [
+            (0.0, "    ▄       "),
+            (3.0, "▅   ▁       "),
+            (7.0, "     ▄      "),
+            (13.0, " ▁    ▅     "),
+            (21.0, "   ▇   ▃    "),
+            (30.0, "    ▄       "),
+        ];
+        for (pos, expected) in vertical {
+            assert_eq!(
+                glyph_string(true, 12, 80, 30, pos),
+                expected,
+                "vertical pos={pos}"
+            );
+        }
+        let horizontal = [
+            (0.0, "    ▌       "),
+            (3.0, "▍   ▉       "),
+            (7.0, "     ▌      "),
+            (13.0, " ▉    ▍     "),
+            (21.0, "   ▏   ▋    "),
+            (30.0, "    ▌       "),
+        ];
+        for (pos, expected) in horizontal {
+            assert_eq!(
+                glyph_string(false, 12, 80, 30, pos),
+                expected,
+                "horizontal pos={pos}"
+            );
+        }
+    }
 
     #[test]
     fn policy_resolve_handles_vertical_overflow_with_lane() {
