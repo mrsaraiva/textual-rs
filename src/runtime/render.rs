@@ -2946,6 +2946,88 @@ mod tests {
     }
 
     #[test]
+    fn render_plus_compose_draws_own_content_and_child() {
+        // Regression (how-to/render_compose parity): a widget that BOTH overrides
+        // render() to paint its own surface AND composes a child must have its own
+        // render output drawn beneath/around the child — not dropped. Mirrors the
+        // Python `Splash(Container)` that returns a gradient from render() and
+        // yields a Static from compose().
+        use crate::widget_tree::WidgetTree;
+        use crate::widgets::{AppRoot, Container, Static};
+
+        struct RenderPlusCompose {
+            container: Container,
+        }
+        impl RenderPlusCompose {
+            fn new() -> Self {
+                Self {
+                    container: Container::new().with_child(Static::new("HI")),
+                }
+            }
+        }
+        impl crate::widgets::Widget for RenderPlusCompose {
+            fn render(
+                &self,
+                _console: &rich_rs::Console,
+                options: &rich_rs::ConsoleOptions,
+            ) -> Segments {
+                // Fill the whole content area with 'X' cells (stand-in for the
+                // gradient surface in the real example).
+                let (w, h) = options.size;
+                let mut out = Segments::new();
+                for y in 0..h.max(1) {
+                    out.push(Segment::new("X".repeat(w.max(1))));
+                    if y + 1 < h.max(1) {
+                        out.push(Segment::line());
+                    }
+                }
+                out
+            }
+            fn take_composed_children(&mut self) -> Vec<Box<dyn crate::widgets::Widget>> {
+                self.container.take_composed_children()
+            }
+            fn style_type(&self) -> &'static str {
+                "RenderPlusCompose"
+            }
+        }
+
+        let sheet = crate::css::default_widget_stylesheet();
+        let _guard = crate::css::set_style_context(sheet);
+
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(Box::new(AppRoot::new()));
+        let host_id = tree.mount(root, Box::new(RenderPlusCompose::new()));
+        let kids = {
+            let node = tree.get_mut(host_id).unwrap();
+            node.widget.take_composed_children()
+        };
+        for kid in kids {
+            tree.mount(host_id, kid);
+        }
+
+        let console = rich_rs::Console::new();
+        let mut root_widget = AppRoot::new();
+        let frame = render_tree_to_frame(&mut tree, &mut root_widget, &console, 20, 5);
+
+        let mut dump = String::new();
+        for y in 0..5 {
+            for x in 0..20 {
+                dump.push_str(&frame.get(x, y).text);
+            }
+            dump.push('\n');
+        }
+        let x_count = dump.matches('X').count();
+        assert!(
+            x_count > 0,
+            "host's own render() output (X fill) must appear beneath the child; got:\n{dump}"
+        );
+        assert!(
+            dump.contains("HI"),
+            "composed child (HI) must also be drawn on top; got:\n{dump}"
+        );
+    }
+
+    #[test]
     fn clear_before_draw_reemits_unchanged_content() {
         // Regression: when a frame is drawn with clear_before_draw, the terminal
         // is wiped, so the diff must be taken against a BLANK frame — not the

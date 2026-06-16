@@ -7,6 +7,18 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-16 (fix(renderables/LinearGradient): half-block glyphs)
+
+- **fix(renderables/LinearGradient): emit `▀` half-block glyphs (Python parity)**
+  - `LinearGradient::render` emitted plain space cells with a background color
+    only; Python's `LinearGradient` emits upper-half-block `▀` glyphs carrying a
+    foreground (top sample) + background (bottom sample) for 2× vertical color
+    resolution. Rewrote it to match Python's algorithm (per-cell fg/bg geometry
+    + a 50-step quantized color ramp). Fixes `how-to/render_compose` rendering as
+    blank under plain-text capture (the bg-only spaces were invisible). Confirmed
+    "render + compose" itself was already supported (added a regression test).
+
+
 ### 2026-06-16 (fix(App): default title to the app type name)
 
 - **fix(App): `title` defaults to the app type's name (Python parity)**
