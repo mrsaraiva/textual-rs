@@ -1789,16 +1789,32 @@ impl App {
         let children = widget.take_composed_children();
         let mut sinks: std::collections::HashMap<usize, crate::handle::HandleSink> =
             widget.take_child_handle_sinks().into_iter().collect();
+        let mut decl_meta: std::collections::HashMap<usize, (Option<String>, Vec<String>)> = widget
+            .take_child_decl_meta()
+            .into_iter()
+            .map(|(index, id, classes)| (index, (id, classes)))
+            .collect();
         for (index, mut child) in children.into_iter().enumerate() {
             // Recursively extract grandchildren before mounting the child.
             // We must do this while we still have &mut access to the child.
             let grandchildren = child.take_composed_children();
             let mut grandchild_sinks: std::collections::HashMap<usize, crate::handle::HandleSink> =
                 child.take_child_handle_sinks().into_iter().collect();
+            let mut grandchild_meta: std::collections::HashMap<usize, (Option<String>, Vec<String>)> =
+                child
+                    .take_child_decl_meta()
+                    .into_iter()
+                    .map(|(g_index, id, classes)| (g_index, (id, classes)))
+                    .collect();
             // Also collect compose() declarations from the child.
             let child_compose = child.compose();
 
             let node_id = tree.mount(parent, child);
+
+            // Apply compose-time CSS id/classes recorded on this declaration.
+            if let Some((id, classes)) = decl_meta.remove(&index) {
+                crate::widgets::apply_child_decl_meta(tree, node_id, id, &classes);
+            }
 
             // Fire this child's sink if one was recorded.
             if let Some(sink) = sinks.remove(&index) {
@@ -1808,6 +1824,9 @@ impl App {
             // Recursively mount grandchildren under this node.
             for (g_index, grandchild) in grandchildren.into_iter().enumerate() {
                 let g_id = Self::mount_extracted_recursive(tree, node_id, grandchild);
+                if let Some((id, classes)) = grandchild_meta.remove(&g_index) {
+                    crate::widgets::apply_child_decl_meta(tree, g_id, id, &classes);
+                }
                 if let Some(sink) = grandchild_sinks.remove(&g_index) {
                     sink(g_id, tree.tree_id());
                 }
@@ -1830,12 +1849,21 @@ impl App {
         let grandchildren = widget.take_composed_children();
         let mut grandchild_sinks: std::collections::HashMap<usize, crate::handle::HandleSink> =
             widget.take_child_handle_sinks().into_iter().collect();
+        let mut grandchild_meta: std::collections::HashMap<usize, (Option<String>, Vec<String>)> =
+            widget
+                .take_child_decl_meta()
+                .into_iter()
+                .map(|(g_index, id, classes)| (g_index, (id, classes)))
+                .collect();
         let compose_decls = widget.compose();
 
         let node_id = tree.mount(parent, widget);
 
         for (g_index, grandchild) in grandchildren.into_iter().enumerate() {
             let g_id = Self::mount_extracted_recursive(tree, node_id, grandchild);
+            if let Some((id, classes)) = grandchild_meta.remove(&g_index) {
+                crate::widgets::apply_child_decl_meta(tree, g_id, id, &classes);
+            }
             if let Some(sink) = grandchild_sinks.remove(&g_index) {
                 sink(g_id, tree.tree_id());
             }
@@ -1868,6 +1896,12 @@ impl App {
             let extracted = widget.take_composed_children();
             let mut extracted_sinks: std::collections::HashMap<usize, crate::handle::HandleSink> =
                 widget.take_child_handle_sinks().into_iter().collect();
+            let mut extracted_meta: std::collections::HashMap<usize, (Option<String>, Vec<String>)> =
+                widget
+                    .take_child_decl_meta()
+                    .into_iter()
+                    .map(|(index, id, classes)| (index, (id, classes)))
+                    .collect();
             let child_compose = widget.compose();
             let node_id = tree.mount(parent, widget);
             // Fire the decl's handle sink if one was set via HandleSlot::bind.
@@ -1884,6 +1918,9 @@ impl App {
             // Mount extracted children first.
             for (index, child) in extracted.into_iter().enumerate() {
                 let c_id = Self::mount_extracted_recursive(tree, node_id, child);
+                if let Some((id, classes)) = extracted_meta.remove(&index) {
+                    crate::widgets::apply_child_decl_meta(tree, c_id, id, &classes);
+                }
                 if let Some(sink) = extracted_sinks.remove(&index) {
                     sink(c_id, tree.tree_id());
                 }

@@ -11,6 +11,13 @@ pub struct Container {
     children: Vec<Box<dyn Widget>>,
     children_extracted: bool,
     seed: NodeSeed,
+    /// (index into `children`, css_id, classes) recorded by `with_compose` so
+    /// `.with_id()`/`.with_classes()` metadata on declared children reaches the
+    /// mounted node.
+    child_decl_meta: Vec<crate::widgets::ChildDeclMeta>,
+    /// (index into `children`, sink) recorded by `with_compose` for decls bound
+    /// via `HandleSlot::bind`.
+    child_handle_sinks: Vec<(usize, crate::handle::HandleSink)>,
 }
 
 impl Container {
@@ -19,6 +26,8 @@ impl Container {
             children: Vec::new(),
             children_extracted: false,
             seed: NodeSeed::default(),
+            child_decl_meta: Vec::new(),
+            child_handle_sinks: Vec::new(),
         }
     }
 
@@ -28,10 +37,27 @@ impl Container {
     }
 
     /// Add multiple children from a `compose![]` result.
+    ///
+    /// Preserves each `ChildDecl`'s `id`/`classes` (so CSS id/class selectors
+    /// match the mounted nodes) and any `handle_sink` bound via
+    /// `HandleSlot::bind`, mirroring `App::mount_declarations`.
     pub fn with_compose(mut self, children: ComposeResult) -> Self {
         for decl in children {
-            match decl.builder {
-                crate::compose::WidgetBuilder::Ready(widget) => self.children.push(widget),
+            let crate::compose::ChildDecl {
+                builder,
+                id,
+                classes,
+                handle_sink,
+                ..
+            } = decl;
+            let crate::compose::WidgetBuilder::Ready(widget) = builder;
+            let index = self.children.len();
+            self.children.push(widget);
+            if id.is_some() || !classes.is_empty() {
+                self.child_decl_meta.push((index, id, classes));
+            }
+            if let Some(sink) = handle_sink {
+                self.child_handle_sinks.push((index, sink));
             }
         }
         self
@@ -68,6 +94,14 @@ impl Widget for Container {
     fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
         self.children_extracted = true;
         std::mem::take(&mut self.children)
+    }
+
+    fn take_child_handle_sinks(&mut self) -> Vec<(usize, crate::handle::HandleSink)> {
+        std::mem::take(&mut self.child_handle_sinks)
+    }
+
+    fn take_child_decl_meta(&mut self) -> Vec<crate::widgets::ChildDeclMeta> {
+        std::mem::take(&mut self.child_decl_meta)
     }
 
     fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {

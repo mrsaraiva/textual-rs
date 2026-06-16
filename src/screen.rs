@@ -251,21 +251,30 @@ impl ScreenStack {
         let root_widget = Box::new(ScreenHost::new(modal, screen.compose()));
         let mut widget_tree = WidgetTree::new();
         let root_id = widget_tree.set_root(root_widget);
-        let (extracted_children, child_handle_sinks, compose_decls) = widget_tree
+        let (extracted_children, child_handle_sinks, child_decl_meta, compose_decls) = widget_tree
             .get_mut(root_id)
             .map(|node| {
                 (
                     node.widget.take_composed_children(),
                     node.widget.take_child_handle_sinks(),
+                    node.widget.take_child_decl_meta(),
                     node.widget.compose(),
                 )
             })
             .unwrap_or_default();
         let mut sinks: std::collections::HashMap<usize, crate::handle::HandleSink> =
             child_handle_sinks.into_iter().collect();
+        let mut decl_meta: std::collections::HashMap<usize, (Option<String>, Vec<String>)> =
+            child_decl_meta
+                .into_iter()
+                .map(|(index, id, classes)| (index, (id, classes)))
+                .collect();
         for (index, child) in extracted_children.into_iter().enumerate() {
             let child_id =
                 crate::runtime::App::mount_extracted_recursive(&mut widget_tree, root_id, child);
+            if let Some((id, classes)) = decl_meta.remove(&index) {
+                crate::widgets::apply_child_decl_meta(&mut widget_tree, child_id, id, &classes);
+            }
             if let Some(sink) = sinks.remove(&index) {
                 sink(child_id, widget_tree.tree_id());
             }

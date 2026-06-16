@@ -233,6 +233,22 @@ pub trait Widget: Send + Sync + Any {
         Vec::new()
     }
 
+    /// Drain compose-time CSS id/class metadata for the children returned by the
+    /// most recent `take_composed_children()` call, as
+    /// `(child_index, css_id, classes)` tuples.
+    ///
+    /// Containers built via `with_compose` (which receive `ChildDecl`s carrying
+    /// `.with_id()` / `.with_classes()` metadata) override this so the runtime
+    /// mount path applies that metadata to the mounted node — keeping the same
+    /// effect as `App::mount_declarations` while children still flow through the
+    /// `take_composed_children()` extraction path. Default: no metadata.
+    ///
+    /// Migration-period shape (see `take_child_handle_sinks`): folds into
+    /// `ChildDecl`-only compose under RA-2.
+    fn take_child_decl_meta(&mut self) -> Vec<ChildDeclMeta> {
+        Vec::new()
+    }
+
     /// Return this widget's arena-assigned NodeId.
     ///
     /// During event/message dispatch and rendering, the runtime sets a
@@ -1084,6 +1100,32 @@ pub struct NodeState {
     pub hovered: bool,
     pub disabled: bool,
     pub loading: bool,
+}
+
+/// Compose-time CSS id/class metadata for a child, paired with its index in the
+/// most recent `take_composed_children()` result.
+///
+/// `(child_index, css_id, classes)`. Produced by `Widget::take_child_decl_meta`
+/// and applied to the mounted node by the runtime mount path (see
+/// `apply_child_decl_meta`), so `ChildDecl`-carried `.with_id()`/`.with_classes()`
+/// metadata reaches the tree even though children are mounted via the
+/// `take_composed_children()` extraction path.
+pub type ChildDeclMeta = (usize, Option<String>, Vec<String>);
+
+/// Apply compose-time id/class metadata (from `take_child_decl_meta`) to a freshly
+/// mounted node, mirroring what `App::mount_declarations` does for `ChildDecl`s.
+pub(crate) fn apply_child_decl_meta(
+    tree: &mut crate::widget_tree::WidgetTree,
+    node_id: NodeId,
+    css_id: Option<String>,
+    classes: &[String],
+) {
+    if let Some(id) = css_id {
+        tree.set_css_id(node_id, Some(id));
+    }
+    for class in classes {
+        tree.add_class(node_id, class);
+    }
 }
 
 /// One-shot identity/style payload set by widget builder methods before mount

@@ -601,10 +601,19 @@ fn recompose_node_subtree(tree: &mut crate::widget_tree::WidgetTree, node_id: No
     let extracted = node.widget.take_composed_children();
     let mut sinks: std::collections::HashMap<usize, crate::handle::HandleSink> =
         node.widget.take_child_handle_sinks().into_iter().collect();
+    let mut decl_meta: std::collections::HashMap<usize, (Option<String>, Vec<String>)> = node
+        .widget
+        .take_child_decl_meta()
+        .into_iter()
+        .map(|(index, id, classes)| (index, (id, classes)))
+        .collect();
     let declarations = node.widget.compose();
     tree.remove_children(node_id);
     for (index, child) in extracted.into_iter().enumerate() {
         let child_id = App::mount_extracted_recursive(tree, node_id, child);
+        if let Some((id, classes)) = decl_meta.remove(&index) {
+            crate::widgets::apply_child_decl_meta(tree, child_id, id, &classes);
+        }
         if let Some(sink) = sinks.remove(&index) {
             sink(child_id, tree.tree_id());
         }

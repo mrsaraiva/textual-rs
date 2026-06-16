@@ -7,6 +7,24 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-15 (fix(compose): with_compose preserves child id/classes/handle)
+
+- **fix(compose): `with_compose` no longer drops child id/class/handle metadata**
+  - `AppRoot::with_compose` and `Container::with_compose` flattened each
+    `ChildDecl` to a bare `Box<dyn Widget>`, discarding the decl's `id`,
+    `classes`, and `handle_sink`. Children mount via the
+    `take_composed_children()` extraction path (which only reads the widget's own
+    seed), so `.with_id(...)` / `.with_classes([...])` on a composed child never
+    reached the node and CSS id/class selectors silently failed to match (e.g.
+    `muted_backgrounds` `.text-*` padding/bg/fg never applied). Added a
+    `Widget::take_child_decl_meta()` hook and a single `apply_child_decl_meta`
+    helper (mirroring `App::mount_declarations`: `set_css_id` + `add_class`),
+    applied at every runtime mount site that already fires child handle-sinks
+    (`mount_declarations`, `mount_extracted_recursive`, `recompose_node_subtree`,
+    ScreenHost). Classes are *added* (the widget's own component class coexists
+    with user classes, matching Python). `handle_sink`s bound via
+    `HandleSlot::bind` on composed children now also fire.
+
 ### 2026-06-15 (fix(DirectoryTree): suppress twisty, render emoji prefix)
 
 - **fix(widgets/DirectoryTree): folder/file emoji replaces the twisty prefix**
