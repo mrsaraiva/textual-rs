@@ -72,6 +72,8 @@ impl Label {
         self
     }
 
+    crate::seed_ident_methods!();
+
     pub fn text(&self) -> &str {
         &self.text
     }

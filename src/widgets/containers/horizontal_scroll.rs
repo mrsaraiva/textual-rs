@@ -9,6 +9,8 @@ pub struct HorizontalScroll {
 }
 
 impl HorizontalScroll {
+    crate::delegate_ident_methods!(inner);
+
     pub fn new() -> Self {
         let inner = ScrollableContainer::new()
             .with_overflow_x(Overflow::Auto)

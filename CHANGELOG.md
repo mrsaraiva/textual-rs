@@ -7,6 +7,21 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-16 (feat(widgets): uniform `.id()` / `.class()` builders)
+
+- **feat(widgets): seed-based `.id()` / `.class()` builders on more widgets**
+  - Python gives every widget `id=` / `classes=`, but in Rust only a handful
+    (Button, Input, the layout containers, Static, …) exposed `.id()`/`.class()`.
+    Added two reusable macros — `seed_ident_methods!` (sets the widget's own
+    `NodeSeed`, returning `Self`) and `delegate_ident_methods!` (forwards to an
+    inner widget) — and applied them to `Label`, `Placeholder`, `Container`,
+    `ScrollView`, `ScrollableContainer`, `VerticalScroll`, `HorizontalScroll`.
+    Seed-based (single node) means a type selector and an `#id`/`.class` selector
+    resolve to the **same** widget, matching Python — unlike wrapping in a `Node`,
+    which splits them across two nodes. (Remaining seed-bearing widgets are a
+    trivial one-line follow-up sweep.)
+
+
 ### 2026-06-16 (fix(render): clip descendants to content box for bordered/padded nodes)
 
 - **fix(runtime/render): a node with gutter clips descendants to its content box**

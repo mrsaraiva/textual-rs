@@ -72,6 +72,8 @@ pub struct Placeholder {
 }
 
 impl Placeholder {
+    crate::seed_ident_methods!();
+
     pub fn new(label: impl Into<String>) -> Self {
         let color_index = COLOR_COUNTER.fetch_add(1, Ordering::Relaxed) % PLACEHOLDER_COLORS.len();
         let label = label.into();

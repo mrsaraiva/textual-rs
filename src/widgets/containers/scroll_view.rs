@@ -54,6 +54,8 @@ pub struct ScrollView {
 }
 
 impl ScrollView {
+    crate::seed_ident_methods!();
+
     pub(crate) const OFFSET_Y_ATTR: &'static str = "scrollview.offset_y";
     const OFFSET_X_ATTR: &'static str = "scrollview.offset_x";
 

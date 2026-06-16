@@ -13,6 +13,8 @@ pub struct ScrollableContainer {
 }
 
 impl ScrollableContainer {
+    crate::delegate_ident_methods!(inner);
+
     pub fn new() -> Self {
         Self {
             inner: ScrollView::new(Container::new()),

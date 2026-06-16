@@ -9,6 +9,8 @@ pub struct VerticalScroll {
 }
 
 impl VerticalScroll {
+    crate::delegate_ident_methods!(inner);
+
     pub fn new() -> Self {
         let inner = ScrollableContainer::new()
             .with_overflow_x(Overflow::Hidden)

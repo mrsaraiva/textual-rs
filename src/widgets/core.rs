@@ -1171,6 +1171,51 @@ pub struct NodeSeed {
     pub styles: WidgetStyles,
 }
 
+/// Generate the canonical `.id()` / `.class()` builder methods for a widget that
+/// owns a `seed: NodeSeed` field. Mirrors Python, where every widget accepts
+/// `id=` / `classes=`; both set the widget's OWN seed (a single node), so a
+/// type selector and an id/class selector resolve to the same widget — unlike
+/// wrapping in a `Node`, which splits them across two nodes.
+///
+/// Invoke inside the widget's inherent `impl` block (same module, so the private
+/// `seed` field is accessible): `crate::seed_ident_methods!();`
+#[macro_export]
+macro_rules! seed_ident_methods {
+    () => {
+        /// Set this widget's CSS id (Python `id=`).
+        pub fn id(mut self, value: impl ::std::convert::Into<String>) -> Self {
+            self.seed.css_id = Some(value.into());
+            self
+        }
+        /// Add a CSS class (Python `classes=`). Idempotent.
+        pub fn class(mut self, value: impl ::std::convert::Into<String>) -> Self {
+            let v = value.into();
+            if !self.seed.classes.iter().any(|c| c == &v) {
+                self.seed.classes.push(v);
+            }
+            self
+        }
+    };
+}
+
+/// Like [`seed_ident_methods!`] but for a thin wrapper widget that delegates its
+/// identity to an inner field (which itself exposes `.id()`/`.class()`).
+#[macro_export]
+macro_rules! delegate_ident_methods {
+    ($field:ident) => {
+        /// Set this widget's CSS id (delegated to the inner widget).
+        pub fn id(mut self, value: impl ::std::convert::Into<String>) -> Self {
+            self.$field = self.$field.id(value);
+            self
+        }
+        /// Add a CSS class (delegated to the inner widget). Idempotent.
+        pub fn class(mut self, value: impl ::std::convert::Into<String>) -> Self {
+            self.$field = self.$field.class(value);
+            self
+        }
+    };
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct WidgetStyles {
     pub style: Style,

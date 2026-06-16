@@ -21,6 +21,8 @@ pub struct Container {
 }
 
 impl Container {
+    crate::seed_ident_methods!();
+
     pub fn new() -> Self {
         Self {
             children: Vec::new(),
