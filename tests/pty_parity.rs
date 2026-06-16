@@ -1097,6 +1097,411 @@ const CASES: &[Case] = &[
         golden_replacements: &[],
         status: Status::Pass,
     },
+    Case {
+        name: "docs_align_all",
+        example: "align_all",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_background",
+        example: "background",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_background_tint",
+        example: "background_tint",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_background_transparency",
+        example: "background_transparency",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_border",
+        example: "border",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_border01",
+        example: "border01",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_box_sizing01",
+        example: "box_sizing01",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_color",
+        example: "color",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_color_auto",
+        example: "color_auto",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_colors",
+        example: "colors",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_colors01",
+        example: "colors01",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_colors02",
+        example: "colors02",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_content_align_all",
+        example: "content_align_all",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_dimensions01",
+        example: "dimensions01",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_dimensions02",
+        example: "dimensions02",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_dimensions03",
+        example: "dimensions03",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_dimensions04",
+        example: "dimensions04",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_grid",
+        example: "grid",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_grid_columns",
+        example: "grid_columns",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_grid_gutter",
+        example: "grid_gutter",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_grid_layout1",
+        example: "grid_layout1",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_grid_layout2",
+        example: "grid_layout2",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_grid_layout3_row_col_adjust",
+        example: "grid_layout3_row_col_adjust",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_grid_layout5_col_span",
+        example: "grid_layout5_col_span",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_grid_layout6_row_span",
+        example: "grid_layout6_row_span",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_grid_layout7_gutter",
+        example: "grid_layout7_gutter",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_grid_size_both",
+        example: "grid_size_both",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_grid_size_columns",
+        example: "grid_size_columns",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_horizontal_layout",
+        example: "horizontal_layout",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_link_style_hover",
+        example: "link_style_hover",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_margin",
+        example: "margin",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_margin01",
+        example: "margin01",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_margin_all",
+        example: "margin_all",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_padding",
+        example: "padding",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_padding01",
+        example: "padding01",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_screen",
+        example: "screen",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_scrollbar_gutter",
+        example: "scrollbar_gutter",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_text_overflow",
+        example: "text_overflow",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_text_style_all",
+        example: "text_style_all",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_text_wrap",
+        example: "text_wrap",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_tint",
+        example: "tint",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_vertical_layout",
+        example: "vertical_layout",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_vertical_layout_scrolled",
+        example: "vertical_layout_scrolled",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_visibility",
+        example: "visibility",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_widget",
+        example: "widget",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
 ];
 
 fn repo_root() -> PathBuf {
@@ -1479,6 +1884,51 @@ pty_case!(docs_modal02, "docs_modal02");
 pty_case!(docs_modal03, "docs_modal03");
 pty_case!(docs_layout05, "docs_layout05");
 pty_case!(docs_containers06, "docs_containers06");
+pty_case!(docs_align_all, "docs_align_all");
+pty_case!(docs_background, "docs_background");
+pty_case!(docs_background_tint, "docs_background_tint");
+pty_case!(docs_background_transparency, "docs_background_transparency");
+pty_case!(docs_border, "docs_border");
+pty_case!(docs_border01, "docs_border01");
+pty_case!(docs_box_sizing01, "docs_box_sizing01");
+pty_case!(docs_color, "docs_color");
+pty_case!(docs_color_auto, "docs_color_auto");
+pty_case!(docs_colors, "docs_colors");
+pty_case!(docs_colors01, "docs_colors01");
+pty_case!(docs_colors02, "docs_colors02");
+pty_case!(docs_content_align_all, "docs_content_align_all");
+pty_case!(docs_dimensions01, "docs_dimensions01");
+pty_case!(docs_dimensions02, "docs_dimensions02");
+pty_case!(docs_dimensions03, "docs_dimensions03");
+pty_case!(docs_dimensions04, "docs_dimensions04");
+pty_case!(docs_grid, "docs_grid");
+pty_case!(docs_grid_columns, "docs_grid_columns");
+pty_case!(docs_grid_gutter, "docs_grid_gutter");
+pty_case!(docs_grid_layout1, "docs_grid_layout1");
+pty_case!(docs_grid_layout2, "docs_grid_layout2");
+pty_case!(docs_grid_layout3_row_col_adjust, "docs_grid_layout3_row_col_adjust");
+pty_case!(docs_grid_layout5_col_span, "docs_grid_layout5_col_span");
+pty_case!(docs_grid_layout6_row_span, "docs_grid_layout6_row_span");
+pty_case!(docs_grid_layout7_gutter, "docs_grid_layout7_gutter");
+pty_case!(docs_grid_size_both, "docs_grid_size_both");
+pty_case!(docs_grid_size_columns, "docs_grid_size_columns");
+pty_case!(docs_horizontal_layout, "docs_horizontal_layout");
+pty_case!(docs_link_style_hover, "docs_link_style_hover");
+pty_case!(docs_margin, "docs_margin");
+pty_case!(docs_margin01, "docs_margin01");
+pty_case!(docs_margin_all, "docs_margin_all");
+pty_case!(docs_padding, "docs_padding");
+pty_case!(docs_padding01, "docs_padding01");
+pty_case!(docs_screen, "docs_screen");
+pty_case!(docs_scrollbar_gutter, "docs_scrollbar_gutter");
+pty_case!(docs_text_overflow, "docs_text_overflow");
+pty_case!(docs_text_style_all, "docs_text_style_all");
+pty_case!(docs_text_wrap, "docs_text_wrap");
+pty_case!(docs_tint, "docs_tint");
+pty_case!(docs_vertical_layout, "docs_vertical_layout");
+pty_case!(docs_vertical_layout_scrolled, "docs_vertical_layout_scrolled");
+pty_case!(docs_visibility, "docs_visibility");
+pty_case!(docs_widget, "docs_widget");
 
 /// Every golden file must have a manifest entry and vice versa, so cases can't
 /// silently rot.

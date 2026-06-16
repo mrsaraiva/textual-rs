@@ -1,0 +1,30 @@
+
+                                                   tint: green 0%;
+
+
+                                                   tint: green 10%;
+
+
+                                                   tint: green 20%;
+
+
+                                                   tint: green 30%;
+
+
+                                                   tint: green 40%;
+
+
+                                                   tint: green 50%;
+
+
+                                                   tint: green 60%;
+
+
+                                                   tint: green 70%;
+
+
+                                                   tint: green 80%;
+
+                                                                                                                      ▅▅
+                                                   tint: green 90%;
+
