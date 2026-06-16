@@ -7,6 +7,18 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-15 (fix(layout): border-box explicit size never collapses below chrome)
+
+- **fix(layout): a border-box explicit size keeps its full border/padding chrome**
+  - Following Python `Widget.get_box_model` (`content = max(0, size - gutter)`,
+    box = `content + gutter`), an explicit border-box size smaller than the
+    widget's own chrome now clamps the box up to `border + padding (+ margin)`
+    instead of collapsing. Fixes an `Input { height: 1; border: tall }` (chrome 2)
+    rendering only its top border row — it now renders both border rows with zero
+    content height, matching Python. Applied in both `extract_child_spec`
+    (flow/grid) and `carve_edge` (dock/split). Regression test:
+    `tests/border_box_layout.rs`.
+
 ### 2026-06-15 (fix(Switch): render slider via ScrollBarRender; content width 4)
 
 - **fix(widgets/Switch): slider is a horizontal scrollbar thumb (Python parity)**

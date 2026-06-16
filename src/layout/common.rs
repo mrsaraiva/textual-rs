@@ -236,7 +236,7 @@ pub(crate) fn extract_child_spec(
     // For `height: auto`, prefer widget intrinsic layout height when available.
     // `layout_height()` represents the widget's natural rendered height
     // (excluding margins), so only margins are added here.
-    let height_edge = match style.height.as_ref() {
+    let mut height_edge = match style.height.as_ref() {
         None | Some(Scalar::Auto) => {
             if let Some(intrinsic) = intrinsic_height {
                 let min_size = min_h_cells.saturating_add(v_chrome);
@@ -273,7 +273,7 @@ pub(crate) fn extract_child_spec(
     // unset case (only `width: auto` widgets and measured auto containers — never
     // a fill leaf like a bare `Static`), so passing `None` here means "no hint →
     // flex-fill", matching Python's `1fr` default for an unset width.
-    let width_edge = match style.width.as_ref() {
+    let mut width_edge = match style.width.as_ref() {
         None | Some(Scalar::Auto) => {
             if let Some(intrinsic) = intrinsic_width {
                 let min_size = min_w_cells.saturating_add(h_chrome);
@@ -297,6 +297,29 @@ pub(crate) fn extract_child_spec(
     };
 
     let width_is_auto = matches!(style.width.as_ref(), None | Some(Scalar::Auto));
+
+    // Python parity (`Widget.get_box_model`): for a border-box explicit size,
+    // `content = max(0, size - gutter)` and the box is `content + gutter`. So a
+    // specified size smaller than the box's own chrome (border + padding) does
+    // NOT collapse the box below its chrome — content goes to zero but both
+    // borders still render. For border-box the `*_chrome` added by the explicit
+    // arm is margin-only, so the edge size = `specified_cells + margin`. Clamp it
+    // up so the box never shrinks below `border + padding + margin` (e.g. an
+    // `Input { height: 1; border: tall }` keeps its full 2-row box).
+    let height_explicit = !matches!(style.height.as_ref(), None | Some(Scalar::Auto));
+    if box_sizing == BoxSizing::BorderBox && height_explicit {
+        if let Some(size) = height_edge.size.as_mut() {
+            let own_chrome = border_top + border_bottom + padding.top + padding.bottom;
+            *size = (*size).max(own_chrome.saturating_add(margin.top + margin.bottom));
+        }
+    }
+    let width_explicit = !matches!(style.width.as_ref(), None | Some(Scalar::Auto));
+    if box_sizing == BoxSizing::BorderBox && width_explicit {
+        if let Some(size) = width_edge.size.as_mut() {
+            let own_chrome = border_left + border_right + padding.left + padding.right;
+            *size = (*size).max(own_chrome.saturating_add(margin.left + margin.right));
+        }
+    }
 
     ChildSpec {
         height_edge,

@@ -107,15 +107,24 @@ pub(crate) fn carve_edge(
 
     // For border-box with explicit size, the specified value already includes
     // padding+border. Only add margin for the outer dimension.
+    //
+    // Python parity (`Widget.get_box_model`): a border-box explicit size is
+    // `content = size - gutter`, clamped to `max(0, content)`, then the box is
+    // `content + gutter`. So when the specified size is smaller than the box's
+    // own chrome (border + padding), the box does NOT collapse below its chrome
+    // — it stays at chrome size with zero content. Without this clamp an Input
+    // with `height: 1` + `border: tall` (chrome 2) renders only its top border
+    // row instead of top + bottom border rows.
+    let border_box_size = |specified: u16, chrome: u16| -> u16 { specified.max(chrome) };
     let outer_h = if box_sizing == BoxSizing::BorderBox && height_is_explicit {
-        child_h.saturating_add(margin.top + margin.bottom)
+        border_box_size(child_h, chrome_h).saturating_add(margin.top + margin.bottom)
     } else {
         child_h
             .saturating_add(chrome_h)
             .saturating_add(margin.top + margin.bottom)
     };
     let outer_w = if box_sizing == BoxSizing::BorderBox && width_is_explicit {
-        child_w.saturating_add(margin.left + margin.right)
+        border_box_size(child_w, chrome_w).saturating_add(margin.left + margin.right)
     } else {
         child_w
             .saturating_add(chrome_w)
