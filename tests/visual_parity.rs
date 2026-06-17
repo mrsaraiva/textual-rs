@@ -40,6 +40,9 @@ const PASSING: &[&str] = &[
     // Promoted after the vertical-extend fill fix (rows beyond content height
     // carry $foreground via visual_style; trailing horizontal pad stays bg-only):
     "content_align_all", "text_overflow", "text_wrap", "visibility", "dimensions04",
+    // Promoted after removing Label's stray `fg: $foreground` default so an
+    // explicit ancestor `color` (e.g. Screen { color: black }) inherits down:
+    "margin", "outline", "padding",
 ];
 
 struct StyledCase {

@@ -77,7 +77,10 @@ Label {
     width: auto;
     height: auto;
     min-height: 1;
-    fg: $foreground;
+    /* No `color`/`fg` rule: Python Textual's Label DEFAULT_CSS sets none —
+       the foreground is inherited from `Screen { color: $foreground }` via the
+       ancestor cascade. Setting it here would shadow an explicit ancestor
+       `color` (e.g. `Screen { color: black }`), breaking inheritance. */
 
     &.success {
         color: $text-success;

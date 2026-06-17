@@ -7,6 +7,19 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-17 (fix(css): Label no longer shadows inherited foreground)
+
+- **fix(css): remove `Label { fg: $foreground }` from the base defaults**
+  - Python Textual's `Label` (and `Static`/`Widget`) DEFAULT_CSS sets no
+    `color`/`fg`; the foreground is supplied solely by `Screen { color:
+    $foreground }` inherited down the ancestor cascade (`visual_style`). The Rust
+    port had added an explicit `fg: $foreground` on `Label`, which shadowed any
+    explicit ancestor `color` — e.g. `Screen { color: black }` left labels at the
+    theme `$foreground` instead of black. Removed it; `Style::inherit_from`
+    already propagates the ancestor color. Styled parity 24→27 PASS (promoted
+    `margin`, `outline`, `padding`), 0 regressions; pty_parity 186; full suite
+    green with no snapshot deltas.
+
 ### 2026-06-17 (fix(render): vertical-extend fill carries $foreground)
 
 - **fix(render): rows beyond content height inherit the resolved foreground**
