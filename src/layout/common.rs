@@ -401,6 +401,32 @@ pub(crate) fn extract_child_spec(
         }
     }
 
+    // Python parity (`Widget._get_box_model`): after resolving an explicit/auto
+    // size, the box is grown up to its minimum — `content = max(content, min, 0)`
+    // — BEFORE the final box model is emitted, regardless of layout axis. A
+    // CONCRETE edge `size` (an explicit width/height, or an auto/unset axis the
+    // caller measured to a fixed intrinsic) must therefore never fall below
+    // `min-width`/`min-height`.
+    //
+    // `Edge.min_size` already carries `min_cells + chrome` in the same
+    // outer-with-margin units as `Edge.size` (see `scalar_to_edge`), so it is the
+    // correct lower bound. Flexible edges (`size == None`) are left untouched:
+    // the 1D resolver enforces `min_size` for the MAIN axis, and the cross-axis
+    // fill case already receives the full container extent (>= min). Without this
+    // clamp a child like `width: 50%; min-width: 60` resolved to 40 cells and
+    // ignored its minimum on the cross axis (vertical layout), and likewise
+    // `height: 50%; min-height: 30` ignored its minimum in a horizontal row —
+    // the consumers (`layout_vertical`/`layout_horizontal`) clamp max but never
+    // min. (Max is handled by those consumers, including the flexible case.)
+    let height_min = height_edge.min_size;
+    if let Some(size) = height_edge.size.as_mut() {
+        *size = (*size).max(height_min);
+    }
+    let width_min = width_edge.min_size;
+    if let Some(size) = width_edge.size.as_mut() {
+        *size = (*size).max(width_min);
+    }
+
     ChildSpec {
         height_edge,
         width_edge,

@@ -1057,6 +1057,91 @@ mod tests {
         assert_content_rect(&tree, child, 3, 2, 77, 8);
     }
 
+    // Python parity (`Widget._get_box_model`): an explicit size below `min-height`
+    // is grown up to the minimum. In a horizontal row this is the cross axis, which
+    // the consumer never min-clamped before the `extract_child_spec` fix.
+    #[test]
+    fn horizontal_min_height_clamps_explicit_cross_axis() {
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(LayoutTestWidget::boxed("Container"));
+        let child = tree.mount(
+            root,
+            LayoutTestWidget::boxed_with_style("Child", {
+                let mut s = Style::new();
+                s.height = Some(Scalar::Percent(50.0)); // 50% of 50 = 25
+                s.min_height = Some(Scalar::Cells(30)); // clamps UP to 30
+                s
+            }),
+        );
+        let available = Region::new(0, 0, 80, 50);
+        layout_horizontal(&mut tree, &[child], available, (80, 50));
+        let n = tree.get(child).unwrap();
+        let h = n.layout_rect.y1 - n.layout_rect.y0;
+        assert_eq!(h, 30, "min-height should clamp the explicit 50% (25) up to 30");
+    }
+
+    // Counterpart for `min-width` on the cross axis of a vertical layout.
+    #[test]
+    fn vertical_min_width_clamps_explicit_cross_axis() {
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(LayoutTestWidget::boxed("Container"));
+        let child = tree.mount(
+            root,
+            LayoutTestWidget::boxed_with_style("Child", {
+                let mut s = Style::new();
+                s.width = Some(Scalar::Percent(50.0)); // 50% of 80 = 40
+                s.min_width = Some(Scalar::Cells(60)); // clamps UP to 60
+                s
+            }),
+        );
+        let available = Region::new(0, 0, 80, 50);
+        layout_vertical(&mut tree, &[child], available, (80, 50), false);
+        let n = tree.get(child).unwrap();
+        let w = n.layout_rect.x1 - n.layout_rect.x0;
+        assert_eq!(w, 60, "min-width should clamp the explicit 50% (40) up to 60");
+    }
+
+    // Main-axis min on an explicit size: a `height: 2; min-height: 5` child in a
+    // vertical layout must occupy 5 rows, not 2.
+    #[test]
+    fn vertical_min_height_clamps_explicit_main_axis() {
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(LayoutTestWidget::boxed("Container"));
+        let child = tree.mount(
+            root,
+            LayoutTestWidget::boxed_with_style("Child", {
+                let mut s = Style::new();
+                s.height = Some(Scalar::Cells(2));
+                s.min_height = Some(Scalar::Cells(5));
+                s
+            }),
+        );
+        let available = Region::new(0, 0, 80, 50);
+        layout_vertical(&mut tree, &[child], available, (80, 50), false);
+        let n = tree.get(child).unwrap();
+        let h = n.layout_rect.y1 - n.layout_rect.y0;
+        assert_eq!(h, 5, "min-height should clamp the explicit 2 up to 5 on the main axis");
+    }
+
+    // No min set → the clamp is a strict no-op (explicit size is preserved).
+    #[test]
+    fn explicit_size_without_min_is_unchanged() {
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(LayoutTestWidget::boxed("Container"));
+        let child = tree.mount(
+            root,
+            LayoutTestWidget::boxed_with_style(
+                "Child",
+                Style::new().height(Scalar::Cells(7)).width(Scalar::Cells(13)),
+            ),
+        );
+        let available = Region::new(0, 0, 80, 50);
+        layout_vertical(&mut tree, &[child], available, (80, 50), false);
+        let n = tree.get(child).unwrap();
+        assert_eq!(n.layout_rect.y1 - n.layout_rect.y0, 7);
+        assert_eq!(n.layout_rect.x1 - n.layout_rect.x0, 13);
+    }
+
     #[test]
     fn vertical_min_max_constraints() {
         let mut tree = WidgetTree::new();
