@@ -13,11 +13,12 @@ use crate::style::{
 use crate::widget_tree::WidgetTree;
 use crate::widgets::{
     APP_ROOT_HSCROLLBAR_ID, APP_ROOT_SCROLLBAR_CORNER_ID, APP_ROOT_VSCROLLBAR_ID,
+    CONTAINER_HSCROLLBAR_ID, CONTAINER_SCROLLBAR_CORNER_ID, CONTAINER_VSCROLLBAR_ID, Container,
     DATA_TABLE_HSCROLLBAR_ID, KEY_PANEL_VSCROLLBAR_ID, LOG_VSCROLLBAR_ID,
-    OPTION_LIST_VSCROLLBAR_ID, Overlay,
-    RICH_LOG_VSCROLLBAR_ID, SCROLL_VIEW_HSCROLLBAR_ID, SCROLL_VIEW_SCROLLBAR_CORNER_ID,
-    OutlineCell, SCROLL_VIEW_VSCROLLBAR_ID, ScrollBar, ScrollbarPolicy, Toast, Widget,
-    border_spacing_from_style, crop_line_horizontal, outline_edge_cells,
+    OPTION_LIST_VSCROLLBAR_ID, OutlineCell, Overlay, RICH_LOG_VSCROLLBAR_ID,
+    SCROLL_VIEW_HSCROLLBAR_ID, SCROLL_VIEW_SCROLLBAR_CORNER_ID, SCROLL_VIEW_VSCROLLBAR_ID,
+    ScrollBar, ScrollBarCorner, ScrollbarPolicy, Toast, Widget, border_spacing_from_style,
+    crop_line_horizontal, outline_edge_cells,
 };
 
 use rich_rs::{ControlType, MetaValue, Renderable, Segment, Segments, StyleMeta};
@@ -1389,6 +1390,9 @@ fn node_is_dedicated_scrollbar(tree: &WidgetTree, node_id: NodeId) -> bool {
                 | SCROLL_VIEW_VSCROLLBAR_ID
                 | SCROLL_VIEW_HSCROLLBAR_ID
                 | SCROLL_VIEW_SCROLLBAR_CORNER_ID
+                | CONTAINER_VSCROLLBAR_ID
+                | CONTAINER_HSCROLLBAR_ID
+                | CONTAINER_SCROLLBAR_CORNER_ID
                 | LOG_VSCROLLBAR_ID
                 | RICH_LOG_VSCROLLBAR_ID
                 | OPTION_LIST_VSCROLLBAR_ID
@@ -2075,9 +2079,7 @@ fn node_has_gutter(node: &crate::widget_tree::WidgetNode) -> bool {
     let l = node.layout_rect;
     // A degenerate/unset content rect (zero extent) means "no resolved content
     // box" — treat as no gutter and fall back to the layout rect elsewhere.
-    c.x1 > c.x0
-        && c.y1 > c.y0
-        && (c.x0 > l.x0 || c.y0 > l.y0 || c.x1 < l.x1 || c.y1 < l.y1)
+    c.x1 > c.x0 && c.y1 > c.y0 && (c.x0 > l.x0 || c.y0 > l.y0 || c.x1 < l.x1 || c.y1 < l.y1)
 }
 
 // ===========================================================================
@@ -2294,15 +2296,20 @@ fn host_scrollbar_children(tree: &WidgetTree, parent: NodeId) -> ScrollbarHostCh
         // Read css_id from node record (canonical source of truth after RA-2 step 6).
         let css_id = child.css_id.as_deref();
         match css_id {
-            Some(APP_ROOT_VSCROLLBAR_ID | SCROLL_VIEW_VSCROLLBAR_ID) => {
+            Some(APP_ROOT_VSCROLLBAR_ID | SCROLL_VIEW_VSCROLLBAR_ID | CONTAINER_VSCROLLBAR_ID) => {
                 children.vertical = Some(child_id)
             }
-            Some(APP_ROOT_HSCROLLBAR_ID | SCROLL_VIEW_HSCROLLBAR_ID | DATA_TABLE_HSCROLLBAR_ID) => {
-                children.horizontal = Some(child_id)
-            }
-            Some(APP_ROOT_SCROLLBAR_CORNER_ID | SCROLL_VIEW_SCROLLBAR_CORNER_ID) => {
-                children.corner = Some(child_id)
-            }
+            Some(
+                APP_ROOT_HSCROLLBAR_ID
+                | SCROLL_VIEW_HSCROLLBAR_ID
+                | CONTAINER_HSCROLLBAR_ID
+                | DATA_TABLE_HSCROLLBAR_ID,
+            ) => children.horizontal = Some(child_id),
+            Some(
+                APP_ROOT_SCROLLBAR_CORNER_ID
+                | SCROLL_VIEW_SCROLLBAR_CORNER_ID
+                | CONTAINER_SCROLLBAR_CORNER_ID,
+            ) => children.corner = Some(child_id),
             Some(
                 LOG_VSCROLLBAR_ID
                 | RICH_LOG_VSCROLLBAR_ID
@@ -2368,8 +2375,7 @@ fn host_content_extent(
         if docked {
             let w = child_rect.x1.saturating_sub(child_rect.x0);
             let h = child_rect.y1.saturating_sub(child_rect.y0);
-            match super::helpers::resolve_style_in_tree(tree, child_id)
-                .and_then(|style| style.dock)
+            match super::helpers::resolve_style_in_tree(tree, child_id).and_then(|style| style.dock)
             {
                 Some(crate::style::Dock::Top) => top_dock = top_dock.max(h),
                 Some(crate::style::Dock::Bottom) => bottom_dock = bottom_dock.max(h),
@@ -2418,6 +2424,89 @@ fn host_content_extent(
     (virtual_w.max(1), virtual_h.max(1), true)
 }
 
+/// Whether `node_id` is a plain container that should host runtime-injected
+/// scrollbar lanes for this layout pass.
+///
+/// A plain container (`Container`/`Horizontal`/`Vertical`/…) does not inject
+/// scrollbar lanes at compose time — whether it scrolls depends on its
+/// CSS-resolved `overflow`, which is only known here. This returns true when:
+///  - the node resolves `overflow-x` or `overflow-y` to `auto`/`scroll`, AND
+///  - it does not already own dedicated scrollbar lanes (so we never touch
+///    `ScrollView`/`AppRoot`/`Log`/… which inject their own), AND
+///  - it has at least one flow content child (so self-rendering widgets that
+///    happen to resolve to `overflow: scroll` are not affected), AND
+///  - it is not a suppressed content holder (the inner child of a `ScrollView`).
+fn plain_container_wants_scrollbar_lanes(tree: &WidgetTree, node_id: NodeId) -> bool {
+    let existing = host_scrollbar_children(tree, node_id);
+    if existing.vertical.is_some() || existing.horizontal.is_some() || existing.corner.is_some() {
+        return false;
+    }
+
+    let Some(node) = tree.get(node_id) else {
+        return false;
+    };
+    // Content holders (ScrollView's inner Container) never host lanes.
+    let any = node.widget.as_ref() as &dyn std::any::Any;
+    if let Some(container) = any.downcast_ref::<Container>()
+        && container.is_scrollbar_suppressed()
+    {
+        return false;
+    }
+
+    let meta = node_selector_meta(tree, node_id);
+    let style = resolve_node_style(tree, node_id, &meta);
+    let fallback = style.overflow;
+    let overflow_x = style.overflow_x.or(fallback);
+    let overflow_y = style.overflow_y.or(fallback);
+    let scrollable = matches!(
+        overflow_x,
+        Some(crate::style::Overflow::Auto | crate::style::Overflow::Scroll)
+    ) || matches!(
+        overflow_y,
+        Some(crate::style::Overflow::Auto | crate::style::Overflow::Scroll)
+    );
+    if !scrollable {
+        return false;
+    }
+
+    // Require at least one visible, non-docked flow child so self-rendering
+    // widgets (which scroll their own content) are not turned into hosts.
+    tree.children(node_id).iter().any(|&child_id| {
+        tree.get(child_id).is_some_and(|c| c.display) && !node_is_docked(tree, child_id)
+    })
+}
+
+/// Lazily mount dedicated scrollbar lane children into plain containers whose
+/// resolved `overflow` is `auto`/`scroll` (Python parity: a plain container
+/// reserves a scrollbar gutter and scrolls when overflow allows). Idempotent —
+/// only containers without existing lanes are touched. Runs at the start of the
+/// layout pass so the new nodes participate in display sync, gutter reservation
+/// (`apply_host_scrollbar_layout`), and rendering.
+fn ensure_container_scrollbar_lanes(tree: &mut WidgetTree) {
+    let Some(root) = tree.root() else {
+        return;
+    };
+    let candidates: Vec<NodeId> = tree
+        .walk_depth_first(root)
+        .into_iter()
+        .filter(|&id| plain_container_wants_scrollbar_lanes(tree, id))
+        .collect();
+
+    for node_id in candidates {
+        let mut vbar = ScrollBar::new(true, 2);
+        vbar.seed.css_id = Some(CONTAINER_VSCROLLBAR_ID.to_string());
+        tree.mount(node_id, Box::new(vbar));
+
+        let mut hbar = ScrollBar::new(false, 1);
+        hbar.seed.css_id = Some(CONTAINER_HSCROLLBAR_ID.to_string());
+        tree.mount(node_id, Box::new(hbar));
+
+        let mut corner = ScrollBarCorner::new();
+        corner.seed.css_id = Some(CONTAINER_SCROLLBAR_CORNER_ID.to_string());
+        tree.mount(node_id, Box::new(corner));
+    }
+}
+
 fn apply_host_scrollbar_layout(tree: &mut WidgetTree, viewport: (u16, u16)) {
     let Some(root) = tree.root() else {
         return;
@@ -2451,8 +2540,8 @@ fn apply_host_scrollbar_layout(tree: &mut WidgetTree, viewport: (u16, u16)) {
         // Pass the ACTUAL virtual content extent per axis (not clamped up to the
         // viewport) so a lane is reserved only on genuine overflow (see the
         // ScrollbarPolicy::resolve note about the phantom cross-axis scrollbar).
-        let mut geometry =
-            ScrollbarPolicy::from_style(&style, 2, 1).resolve(content_w, content_h, virtual_w, virtual_h);
+        let mut geometry = ScrollbarPolicy::from_style(&style, 2, 1)
+            .resolve(content_w, content_h, virtual_w, virtual_h);
 
         // Re-layout the children at the resolved viewport, then recompute, until
         // the reserved lanes stabilize (capped). The children were initially laid
@@ -2521,7 +2610,11 @@ fn apply_host_scrollbar_layout(tree: &mut WidgetTree, viewport: (u16, u16)) {
                     || outer_rect.y0 != content_rect.y0
                     || outer_rect.x1 != content_rect.x1
                     || outer_rect.y1 != content_rect.y1;
-                node.layout_rect = if has_chrome { outer_rect } else { viewport_rect };
+                node.layout_rect = if has_chrome {
+                    outer_rect
+                } else {
+                    viewport_rect
+                };
             }
             node.widget
                 .set_virtual_content_size(geometry.content_width, geometry.content_height);
@@ -2724,6 +2817,11 @@ pub fn run_layout_pass(tree: &mut WidgetTree, viewport: (u16, u16)) {
         Some(r) => r,
         None => return,
     };
+
+    // Lazily mount scrollbar lanes into plain containers whose resolved overflow
+    // is auto/scroll (must precede display sync + flow layout so the new nodes
+    // are visible to the rest of the pass).
+    ensure_container_scrollbar_lanes(tree);
 
     // Sync CSS display/visibility values to WidgetNode fields before layout.
     crate::css::apply_display_visibility_to_tree(tree);
@@ -4099,12 +4197,8 @@ Parent.show > Child { display: block; }
             x1: 40,
             y1: 30,
         };
-        let (virtual_w, virtual_h, has_content) = host_content_extent(
-            &tree,
-            host,
-            content_rect,
-            ScrollbarHostChildren::default(),
-        );
+        let (virtual_w, virtual_h, has_content) =
+            host_content_extent(&tree, host, content_rect, ScrollbarHostChildren::default());
 
         assert!(
             has_content,

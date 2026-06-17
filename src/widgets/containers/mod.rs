@@ -31,6 +31,9 @@ pub use center::Center;
 pub use center_middle::CenterMiddle;
 pub use constrained::Constrained;
 pub use container::Container;
+pub(crate) use container::{
+    CONTAINER_HSCROLLBAR_ID, CONTAINER_SCROLLBAR_CORNER_ID, CONTAINER_VSCROLLBAR_ID,
+};
 pub use frame::Frame;
 pub use grid::Grid;
 pub use horizontal::Horizontal;

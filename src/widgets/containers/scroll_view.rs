@@ -60,8 +60,18 @@ impl ScrollView {
     const OFFSET_X_ATTR: &'static str = "scrollview.offset_x";
 
     pub fn new(child: impl Widget + 'static) -> Self {
+        // If the content holder is a plain Container, suppress its scrollbar-lane
+        // injection: ScrollView owns and manages the scrollbar lanes itself, so
+        // the inner Container must not add a conflicting second set.
+        let mut child: Box<dyn Widget> = Box::new(child);
+        {
+            let child_any = &mut *child as &mut dyn std::any::Any;
+            if let Some(container) = child_any.downcast_mut::<Container>() {
+                container.suppress_scrollbars();
+            }
+        }
         Self {
-            child: Box::new(child),
+            child,
             child_extracted: false,
             height: None,
             offset_y: 0,
@@ -100,7 +110,9 @@ impl ScrollView {
 
     pub fn with_compose(mut self, children: ComposeResult) -> Self {
         if let Some(container) = self.child_container_mut() {
-            let existing = std::mem::replace(container, Container::new());
+            let mut replacement = Container::new();
+            replacement.suppress_scrollbars();
+            let existing = std::mem::replace(container, replacement);
             *container = existing.with_compose(children);
         }
         self
@@ -873,7 +885,8 @@ impl Widget for ScrollView {
                 .max(viewport_w);
             let next_show_v =
                 allow_scrollbars_v && (candidate_height > viewport_h || force_visible_v);
-            let next_show_h = allow_scrollbars_h && (candidate_width > viewport_w || force_visible_h);
+            let next_show_h =
+                allow_scrollbars_h && (candidate_width > viewport_w || force_visible_h);
 
             lines = candidate;
             content_width = candidate_width;
