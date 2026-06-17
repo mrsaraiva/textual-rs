@@ -120,6 +120,27 @@ pub(crate) fn apply_style_to_segments(
             // `style.background_style` (bg only). The App/Screen default
             // `color: $foreground` therefore reaches text glyphs but not the fill.
             let has_glyph = seg.text.chars().any(|c| !c.is_whitespace());
+            // text-opacity: 0% — mirror Python `TextOpacity.process_segments`
+            // (opacity == 0 branch): every cell becomes a blank with only the
+            // background set (`from_color(bgcolor=style.bgcolor)`), so the glyph run
+            // is replaced by spaces of equal cell width and the foreground is
+            // dropped entirely (fg = terminal-default). Applies to glyph cells AND
+            // to fg-bearing fill cells (the vertical-extend rows carry visual_style
+            // fg from the widget render), matching Python's per-line filter.
+            if matches!(text_opacity, Some(o) if o == 0.0) {
+                if has_glyph {
+                    let width = rich_rs::cell_len(&seg.text);
+                    seg.text = " ".repeat(width).into();
+                }
+                if s.color.is_some() {
+                    s.color = None;
+                    style_changed = true;
+                }
+                if style_changed || seg.style.is_some() {
+                    seg.style = Some(s);
+                }
+                return seg;
+            }
             // Preserve per-segment foregrounds unless unset.
             if s.color.is_none() && has_glyph {
                 let bg_for_text = s

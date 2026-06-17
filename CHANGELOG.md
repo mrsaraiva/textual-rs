@@ -7,6 +7,18 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-17 (fix(render): text-opacity 0% blanks glyphs and drops fg)
+
+- **fix(css): `text-opacity: 0%` produces blank cells with default foreground**
+  - Mirror Python `TextOpacity.process_segments`' `opacity == 0` branch: every
+    cell becomes `from_color(bgcolor=...)` — the glyph run is replaced by spaces
+    of equal cell width and the foreground is dropped entirely (terminal-default),
+    rather than recoloring the glyph to match the background. Applies to both
+    glyph cells and the fg-bearing vertical-extend fill rows. Makes the 0%-opacity
+    rows per-cell exact vs Python. (Non-zero text-opacity rows still diverge on the
+    glyph-row horizontal pad — a follow-on surface-precision sub-cluster.) 0
+    regressions; pty_parity 186; full suite green.
+
 ### 2026-06-17 (fix(css): Label no longer shadows inherited foreground)
 
 - **fix(css): remove `Label { fg: $foreground }` from the base defaults**
