@@ -2336,6 +2336,93 @@ mod tests {
     use super::*;
     use crate::style::Scalar;
 
+    // ---- nested selector (`&` parent reference) expansion tests ----
+    //
+    // TCSS nesting semantics (Python Textual parity):
+    //   - a nested selector WITHOUT `&` is a *descendant* of the parent,
+    //   - a nested selector WITH `&` compounds onto the parent (no descendant
+    //     space): `&.class` / `&:pseudo` attach directly to the parent selector.
+
+    #[test]
+    fn expand_nested_descendant_without_ampersand() {
+        let parents = vec!["#questions".to_string()];
+        assert_eq!(
+            expand_nested_selectors(&parents, ".button"),
+            vec!["#questions .button".to_string()]
+        );
+    }
+
+    #[test]
+    fn expand_nested_ampersand_class_compounds_no_space() {
+        // `&.affirmative` under `#questions .button` must compound onto the
+        // *last* compound of the parent: `#questions .button.affirmative`
+        // (NOT a descendant `#questions .button .affirmative`).
+        let parents = vec!["#questions .button".to_string()];
+        assert_eq!(
+            expand_nested_selectors(&parents, "&.affirmative"),
+            vec!["#questions .button.affirmative".to_string()]
+        );
+    }
+
+    #[test]
+    fn expand_nested_ampersand_pseudo_compounds_no_space() {
+        let parents = vec!["#questions .button".to_string()];
+        assert_eq!(
+            expand_nested_selectors(&parents, "&:hover"),
+            vec!["#questions .button:hover".to_string()]
+        );
+    }
+
+    #[test]
+    fn expand_nested_ampersand_selector_list_each_parent() {
+        // A comma-separated nested list compounds each branch onto each parent.
+        let parents = vec!["Button".to_string()];
+        assert_eq!(
+            expand_nested_selectors(&parents, "&.affirmative, &.negative"),
+            vec![
+                "Button.affirmative".to_string(),
+                "Button.negative".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn nested_tcss_block_parses_to_flat_equivalent() {
+        // The whole nesting02-style block must parse to the same rule set as
+        // the equivalent flat (nesting01-style) stylesheet.
+        let nested = StyleSheet::parse(
+            r#"
+            #questions {
+                border: heavy red;
+                .button {
+                    width: 1fr;
+                    &.affirmative { border: heavy green; }
+                    &.negative { border: heavy blue; }
+                }
+            }
+            "#,
+        );
+        let flat = StyleSheet::parse(
+            r#"
+            #questions { border: heavy red; }
+            #questions .button { width: 1fr; }
+            #questions .button.affirmative { border: heavy green; }
+            #questions .button.negative { border: heavy blue; }
+            "#,
+        );
+        assert_eq!(
+            nested.rules.len(),
+            flat.rules.len(),
+            "nested block must yield the same number of rules as the flat form"
+        );
+        for (n, f) in nested.rules.iter().zip(flat.rules.iter()) {
+            assert_eq!(
+                n.selector_chain, f.selector_chain,
+                "nested selector chain must match flat equivalent"
+            );
+        }
+    }
+
     #[test]
     fn parse_grid_size_one_value() {
         let style = parse_style_body("grid-size: 3;");
