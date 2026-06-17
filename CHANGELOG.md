@@ -7,6 +7,20 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-17 (fix(layout): overflow-y containers don't clamp child height — promotes min_height)
+
+- **fix(layout): a vertically-scrollable horizontal container lets children overflow**
+  - `layout_horizontal` clamped each child's cross-axis height down to the
+    container height unconditionally, so a child taller than the viewport (e.g.
+    `min-height` larger than the container) never produced vertical overflow.
+    Now, when the parent's resolved `overflow-y` is `auto`/`scroll`, the child
+    keeps its resolved height so the content overflows and scrolls (Python
+    parity) — mirroring the existing width-axis `allow_h_overflow` handling in
+    `layout_vertical`. Gated on overflow so `overflow: hidden` rows still clamp.
+    Combined with the plain-container scroll-host work, this promotes
+    `docs_min_height` (PTY 185 → 186) and un-ignores the container scrollbar-gutter
+    regression test.
+
 ### 2026-06-17 (feat(reactive): watch/recompose/validate/mutate + dynamic watch — Python parity)
 
 - **feat(reactive): close the reactivity gaps on the existing reactive system**

@@ -880,6 +880,15 @@ const CASES: &[Case] = &[
         status: Status::Pass,
     },
     Case {
+        name: "docs_min_height",
+        example: "min_height",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
         name: "docs_nesting01",
         example: "nesting01",
         args: &[],
@@ -2125,6 +2134,7 @@ pty_case!(docs_option_list_tables, "docs_option_list_tables");
 pty_case!(docs_max_width, "docs_max_width");
 pty_case!(docs_max_height, "docs_max_height");
 pty_case!(docs_min_width, "docs_min_width");
+pty_case!(docs_min_height, "docs_min_height");
 pty_case!(docs_nesting01, "docs_nesting01");
 pty_case!(docs_nesting02, "docs_nesting02");
 pty_case!(docs_outline, "docs_outline");

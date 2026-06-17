@@ -686,10 +686,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "blocked on layout: horizontal.rs clamps child cross-axis height to \
-                the container even when overflow-y is auto/scroll (out-of-lane). \
-                Container/runtime scroll-host plumbing is verified by the \
-                overflow_x_auto test above; this is the styles/min_height case."]
     fn overflow_y_auto_horizontal_reserves_vertical_scrollbar_gutter() {
         use crate::css::StyleSheet;
         use crate::runtime::run_layout_pass;

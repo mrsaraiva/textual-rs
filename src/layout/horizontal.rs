@@ -13,6 +13,7 @@ pub fn layout_horizontal(
     children: &[NodeId],
     available: Region,
     viewport: (u16, u16),
+    allow_v_overflow: bool,
 ) {
     if children.is_empty() {
         return;
@@ -181,7 +182,15 @@ pub fn layout_horizontal(
         // Apply explicit height constraint (P2-25: height_edge.size includes chrome).
         if let Some(edge_h) = spec.height_edge.size {
             let explicit_h = edge_h.saturating_sub(spec.margin.top + spec.margin.bottom);
-            layout_h = layout_h.min(explicit_h);
+            if allow_v_overflow {
+                // Vertically-scrollable parent (`overflow-y: auto|scroll`): let the
+                // child keep its resolved height (which may exceed the viewport, e.g.
+                // a `min-height` larger than the container) so the content overflows
+                // and can be scrolled, rather than clamping it to the viewport height.
+                layout_h = explicit_h;
+            } else {
+                layout_h = layout_h.min(explicit_h);
+            }
         }
 
         // Apply max constraints (border-box: value already includes chrome).

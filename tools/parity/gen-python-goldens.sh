@@ -227,6 +227,7 @@ CASE=docs_option_list_tables && want "$@" && run_case "$CASE" "$PY_DOCS/widgets"
 CASE=docs_max_width      && want "$@" && run_case "$CASE" "$PY_DOCS/styles"    "" "max_width.py"
 CASE=docs_max_height     && want "$@" && run_case "$CASE" "$PY_DOCS/styles"    "" "max_height.py"
 CASE=docs_min_width      && want "$@" && run_case "$CASE" "$PY_DOCS/styles"    "" "min_width.py"
+CASE=docs_min_height     && want "$@" && run_case "$CASE" "$PY_DOCS/styles"    "" "min_height.py"
 CASE=docs_nesting01      && want "$@" && run_case "$CASE" "$PY_DOCS/guide/css" "" "nesting01.py"
 CASE=docs_nesting02      && want "$@" && run_case "$CASE" "$PY_DOCS/guide/css" "" "nesting02.py"
 

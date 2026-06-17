@@ -285,6 +285,13 @@ pub fn resolve_layout(
                 style.overflow_x.or(style.overflow),
                 Some(crate::style::Overflow::Auto) | Some(crate::style::Overflow::Scroll)
             );
+            // Same for the vertical axis: a `overflow-y: auto|scroll` parent lets
+            // auto-height children keep their resolved height (exceeding the
+            // viewport, e.g. via `min-height`) so content overflows + can scroll.
+            let allow_v_overflow = matches!(
+                style.overflow_y.or(style.overflow),
+                Some(crate::style::Overflow::Auto) | Some(crate::style::Overflow::Scroll)
+            );
             // Transparent styling wrappers (`Node`, from `.id()`/`.class()`) stand
             // in for the styled widget itself. Python applies `content-align`
             // directly to that widget to position its (shrink-to-content) content
@@ -351,7 +358,7 @@ pub fn resolve_layout(
                     layout_grid(tree, &flow, inner, viewport, &style);
                 }
                 Layout::Horizontal => {
-                    layout_horizontal(tree, &flow, inner, viewport);
+                    layout_horizontal(tree, &flow, inner, viewport, allow_v_overflow);
                     apply_parent_align(tree, &flow, inner, Layout::Horizontal, effective_align);
                 }
             }
@@ -1146,7 +1153,7 @@ mod tests {
             }),
         );
         let available = Region::new(0, 0, 80, 50);
-        layout_horizontal(&mut tree, &[child], available, (80, 50));
+        layout_horizontal(&mut tree, &[child], available, (80, 50), false);
         let n = tree.get(child).unwrap();
         let h = n.layout_rect.y1 - n.layout_rect.y0;
         assert_eq!(h, 30, "min-height should clamp the explicit 50% (25) up to 30");
@@ -1225,7 +1232,7 @@ mod tests {
             }),
         );
         let available = Region::new(0, 0, 80, 50);
-        layout_horizontal(&mut tree, &[wrapper], available, (80, 50));
+        layout_horizontal(&mut tree, &[wrapper], available, (80, 50), false);
         let n = tree.get(wrapper).unwrap();
         let h = n.layout_rect.y1 - n.layout_rect.y0;
         assert_eq!(
@@ -1250,7 +1257,7 @@ mod tests {
             }),
         );
         let available = Region::new(0, 0, 80, 50);
-        layout_horizontal(&mut tree, &[wrapper], available, (80, 50));
+        layout_horizontal(&mut tree, &[wrapper], available, (80, 50), false);
         let n = tree.get(wrapper).unwrap();
         let h = n.layout_rect.y1 - n.layout_rect.y0;
         assert_eq!(h, 25, "wrapper must adopt the wrapped child's explicit 50% height");
@@ -1315,7 +1322,7 @@ mod tests {
         );
 
         let available = Region::new(0, 0, 80, 50);
-        layout_horizontal(&mut tree, &[a, b], available, (80, 50));
+        layout_horizontal(&mut tree, &[a, b], available, (80, 50), false);
 
         // A: 20x50 at (0,0)
         assert_layout_rect(&tree, a, 0, 0, 20, 50);
@@ -1334,7 +1341,7 @@ mod tests {
         let flex = tree.mount(root, LayoutTestWidget::boxed("Flex"));
 
         let available = Region::new(0, 0, 80, 50);
-        layout_horizontal(&mut tree, &[fixed, flex], available, (80, 50));
+        layout_horizontal(&mut tree, &[fixed, flex], available, (80, 50), false);
 
         assert_layout_rect(&tree, fixed, 0, 0, 20, 50);
         // Flex: remaining = 80 - 20 = 60.
@@ -1356,7 +1363,7 @@ mod tests {
         );
 
         let available = Region::new(0, 0, 80, 50);
-        layout_horizontal(&mut tree, &[child], available, (80, 50));
+        layout_horizontal(&mut tree, &[child], available, (80, 50), false);
 
         // Edge total width = 20 + 3 + 3 = 26
         // layout: x=0+3=3, y=0+2=2, w=26-3-3=20, h=50-2-2=46
@@ -1382,7 +1389,7 @@ mod tests {
         let b = tree.mount(root, LayoutTestWidget::boxed_with_style("B", style()));
 
         let available = Region::new(0, 0, 118, 10);
-        layout_horizontal(&mut tree, &[a, b], available, (118, 10));
+        layout_horizontal(&mut tree, &[a, b], available, (118, 10), false);
 
         // A box: x=0+2=2, width 56 → x1=58.
         assert_layout_rect(&tree, a, 2, 0, 58, 10);
