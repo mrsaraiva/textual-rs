@@ -7,6 +7,19 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-17 (fix(color): float-faithful auto/contrast compositing)
+
+- **fix(color): composite auto/contrast text with the fractional alpha directly**
+  - `Color::blend_over_float` mirrors Python `under.blend(over, factor)` /
+    `under + over.with_alpha(factor)`: `int(u + (o - u) * factor)` per channel,
+    in float, truncated. The auto/`$text` contrast paths previously did
+    `contrast.with_alpha(a).flatten_over(bg)`, which quantizes the alpha to u8
+    (`round(a*255)`) and then rounds the composite via integer division — drifting
+    the result by one (e.g. 87% contrast text). Switched the auto-color text fill
+    (`segments.rs`) and the content-align/vertical-extend fill (`core.rs`) to
+    `blend_over_float`. Styled parity 27→30 PASS (promoted `max_height`,
+    `max_width`, `min_width`), 0 regressions; pty_parity 186; full suite green.
+
 ### 2026-06-17 (fix(render): text-opacity 0% blanks glyphs and drops fg)
 
 - **fix(css): `text-opacity: 0%` produces blank cells with default foreground**

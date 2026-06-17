@@ -43,6 +43,9 @@ const PASSING: &[&str] = &[
     // Promoted after removing Label's stray `fg: $foreground` default so an
     // explicit ancestor `color` (e.g. Screen { color: black }) inherits down:
     "margin", "outline", "padding",
+    // Promoted after float-faithful auto/contrast compositing (blend_over_float):
+    // avoids u8 alpha-quantization drift on $text/auto-color text:
+    "max_height", "max_width", "min_width",
 ];
 
 struct StyledCase {

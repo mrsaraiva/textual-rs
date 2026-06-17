@@ -936,8 +936,9 @@ pub(crate) fn render_widget_with_meta<W: Widget + ?Sized>(
         if let Some(fg) = resolved.fg {
             s = s.with_color(fg.flatten_over(fill_inner_bg).to_simple_opaque());
         } else if let Some(auto) = resolved.fg_auto {
-            let contrast = crate::style::contrast_text(fill_inner_bg).with_alpha(auto.alpha());
-            s = s.with_color(contrast.flatten_over(fill_inner_bg).to_simple_opaque());
+            let contrast = crate::style::contrast_text(fill_inner_bg)
+                .blend_over_float(fill_inner_bg, auto.alpha());
+            s = s.with_color(contrast.to_simple_opaque());
         }
         s
     };

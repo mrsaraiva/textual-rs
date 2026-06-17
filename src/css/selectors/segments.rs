@@ -163,9 +163,11 @@ pub(crate) fn apply_style_to_segments(
                     } else {
                         auto_alpha
                     };
-                    let contrast =
-                        crate::style::contrast_text(bg_for_text).with_alpha(effective_alpha);
-                    let flat = contrast.flatten_over(bg_for_text);
+                    // Composite the contrast color using the fractional alpha
+                    // directly (Python `bg + contrast.with_alpha(a)` keeps the
+                    // float), avoiding u8 alpha quantization drift.
+                    let contrast = crate::style::contrast_text(bg_for_text);
+                    let flat = contrast.blend_over_float(bg_for_text, effective_alpha);
                     s.color = Some(flat.to_simple_opaque());
                     style_changed = true;
                 }
