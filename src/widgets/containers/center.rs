@@ -8,6 +8,8 @@ pub struct Center {
 }
 
 impl Center {
+    crate::delegate_ident_methods!(inner);
+
     pub fn new() -> Self {
         Self {
             inner: Container::new(),

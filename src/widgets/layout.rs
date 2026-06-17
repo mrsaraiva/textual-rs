@@ -31,6 +31,8 @@ pub struct Row {
 }
 
 impl Row {
+    crate::seed_ident_methods!();
+
     pub fn new() -> Self {
         Self {
             children: Vec::new(),
@@ -2450,5 +2452,21 @@ mod tests {
         let mut ctx = EventCtx::default();
         g.on_event(&Event::Action(Action::FocusNext), &mut ctx);
         assert!(!ctx.handled());
+    }
+
+    #[test]
+    fn row_id_and_class_are_carried_in_seed() {
+        let mut r = Row::new().id("row-ident").class("my-row");
+        let seed = r.take_node_seed();
+        assert_eq!(seed.css_id.as_deref(), Some("row-ident"));
+        assert!(seed.classes.iter().any(|c| c == "my-row"));
+    }
+
+    #[test]
+    fn grid_id_and_class_already_present() {
+        let mut g = Grid::new(2, 2).id("grid-ident").class("my-grid");
+        let seed = g.take_node_seed();
+        assert_eq!(seed.css_id.as_deref(), Some("grid-ident"));
+        assert!(seed.classes.iter().any(|c| c == "my-grid"));
     }
 }

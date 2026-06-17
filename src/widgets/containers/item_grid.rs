@@ -14,6 +14,8 @@ pub struct ItemGrid {
 }
 
 impl ItemGrid {
+    crate::delegate_ident_methods!(inner);
+
     pub fn new() -> Self {
         Self {
             inner: Container::new(),

@@ -9,6 +9,8 @@ pub struct HorizontalGroup {
 }
 
 impl HorizontalGroup {
+    crate::delegate_ident_methods!(inner);
+
     pub fn new() -> Self {
         Self {
             inner: Horizontal::new(),

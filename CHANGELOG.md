@@ -7,6 +7,18 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-17 (feat(widgets/containers): .id()/.class() builders on wrapper containers)
+
+- **feat(widgets/containers): `.id()`/`.class()` on wrapper containers**
+  - Wrapper containers delegate the `Widget` trait via `delegate_widget_to!` but
+    did not expose the `.id()`/`.class()` seed builders that `Container` has, so
+    `Horizontal::new().class("buttons")` didn't compile (ports used a
+    `Container` + `layout: horizontal` workaround). Added `delegate_ident_methods!`
+    to `Horizontal`, `Vertical`, `Center`, `Middle`, `CenterMiddle`, `Right`,
+    `HorizontalGroup`, `VerticalGroup`, `ItemGrid` (delegating to the inner
+    container) and `seed_ident_methods!` to `Row`; `Grid` already had them.
+    Matches Python's `id=`/`classes=` kwargs. +11 tests.
+
 ### 2026-06-17 (fix(widgets/Label): default to markup=true — Python parity)
 
 - **fix(widgets/Label): interpret console markup by default**

@@ -9,6 +9,8 @@ pub struct VerticalGroup {
 }
 
 impl VerticalGroup {
+    crate::delegate_ident_methods!(inner);
+
     pub fn new() -> Self {
         Self {
             inner: Vertical::new(),
