@@ -7,6 +7,30 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-17 (fix(layout): vw/vh axis, percent truncation, transparent-wrapper child sizing)
+
+- **fix(style): `vw`/`vh` resolve against the correct viewport axis**
+  - `resolve_scalar` took a single `viewport_size`, so `ViewWidth` and
+    `ViewHeight` both resolved against whichever axis the callsite passed —
+    `width: 25vh` became 25% of viewport *width*. Split into separate
+    `viewport_width`/`viewport_height` (Python `_resolve_view_height` always uses
+    height regardless of property), threaded the viewport through edge/grid/split
+    resolution.
+- **fix(style): percent/fraction scalars truncate, not round**
+  - `resolve_scalar` used `.round()`; Python keeps exact fractions and floors at
+    placement (`min-height: 75%` of 30 = 22, not 23). Switched Percent/Width/
+    Height/ViewWidth/ViewHeight/Fraction to `.floor()`.
+- **fix(layout): transparent `Node` wrapper no longer double-applies child size**
+  - A `Node`-wrapped sized child (`#id{min-height}` on the wrapper, `height:50%`
+    on the inner widget) collapsed the child height to `1fr` (dropping the value
+    and the min-clamp), then the inner widget re-applied its `%` against the
+    already-sized wrapper. Added axis-aware `wrapper_child_fill_axes`: the sole
+    flow child fills the wrapper on axes the wrapper sized (adopting it, clearing
+    that axis's min/max) — gated to axes where the wrapper has no explicit extent,
+    so vertical centering (`center07`) still works. +5 tests, PTY 185, 0
+    regressions. (Unblocks future `min_height`/`*_comparison` promotion once the
+    out-of-lane plain-container overflow + Placeholder auto-size land.)
+
 ### 2026-06-17 (feat(widgets/containers): .id()/.class() builders on wrapper containers)
 
 - **feat(widgets/containers): `.id()`/`.class()` on wrapper containers**

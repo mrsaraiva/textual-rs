@@ -19,7 +19,7 @@ fn resolve_grid_box_dim(
     scalar: Option<&Scalar>,
     cell_outer: u16,
     margin_total: u16,
-    viewport_size: u16,
+    viewport: (u16, u16),
     own_chrome: u16,
     box_sizing: BoxSizing,
     intrinsic_outer: Option<u16>,
@@ -31,7 +31,7 @@ fn resolve_grid_box_dim(
         None | Some(Scalar::Fraction(_)) => avail,
         Some(Scalar::Auto) => intrinsic_outer.unwrap_or(avail).min(avail),
         Some(s) => {
-            let cells = resolve_scalar_to_cells(s, avail, viewport_size);
+            let cells = resolve_scalar_to_cells(s, avail, viewport);
             let outer = if box_sizing == BoxSizing::BorderBox {
                 cells
             } else {
@@ -239,7 +239,7 @@ fn frac_value(v: f32) -> Rat {
 
 /// Apply `min-width`/`max-width` limits to an auto-column candidate width
 /// (Python `apply_width_limits`). Limits resolve against the container size.
-fn apply_width_limits(style: &Style, mut width: u16, size: u16, viewport: u16) -> u16 {
+fn apply_width_limits(style: &Style, mut width: u16, size: u16, viewport: (u16, u16)) -> u16 {
     if let Some(ref s) = style.min_width {
         width = width.max(resolve_scalar_to_cells(s, size, viewport));
     }
@@ -251,7 +251,7 @@ fn apply_width_limits(style: &Style, mut width: u16, size: u16, viewport: u16) -
 
 /// Apply `min-height`/`max-height` limits to an auto-row candidate height
 /// (Python `apply_height_limits`).
-fn apply_height_limits(style: &Style, mut height: u16, size: u16, viewport: u16) -> u16 {
+fn apply_height_limits(style: &Style, mut height: u16, size: u16, viewport: (u16, u16)) -> u16 {
     if let Some(ref s) = style.min_height {
         height = height.max(resolve_scalar_to_cells(s, size, viewport));
     }
@@ -494,7 +494,7 @@ pub fn layout_grid(
             let (own_h_chrome, _) = own_box_chrome(&cstyle);
             let content = measure_intrinsic_content_width(tree, p.child, viewport).unwrap_or(0);
             let mut w = content.saturating_add(own_h_chrome);
-            w = apply_width_limits(&cstyle, w, grid_available.width, viewport.0);
+            w = apply_width_limits(&cstyle, w, grid_available.width, viewport);
             width = width.max(w);
         }
         column_scalars[col] = Scalar::Cells(width);
@@ -543,7 +543,7 @@ pub fn layout_grid(
                 measure_intrinsic_content_height(tree, p.child, viewport, avail_content_w)
                     .unwrap_or(0);
             let mut h = content.saturating_add(own_v_chrome);
-            h = apply_height_limits(&cstyle, h, grid_available.height, viewport.1);
+            h = apply_height_limits(&cstyle, h, grid_available.height, viewport);
             height = height.max(h);
         }
         row_scalars[row] = Scalar::Cells(height);
@@ -624,7 +624,7 @@ pub fn layout_grid(
             style.width.as_ref(),
             cell_w,
             margin.left + margin.right,
-            viewport.0,
+            viewport,
             own_h_chrome,
             box_sizing,
             intrinsic_w_outer,
@@ -633,7 +633,7 @@ pub fn layout_grid(
             style.height.as_ref(),
             cell_h,
             margin.top + margin.bottom,
-            viewport.1,
+            viewport,
             own_v_chrome,
             box_sizing,
             intrinsic_h_outer,
@@ -641,7 +641,7 @@ pub fn layout_grid(
 
         // Apply max-width constraint.
         if let Some(ref s) = style.max_width {
-            let max_w = resolve_scalar_to_cells(s, available.width, viewport.0);
+            let max_w = resolve_scalar_to_cells(s, available.width, viewport);
             let max_w_outer = if box_sizing == BoxSizing::BorderBox {
                 max_w
             } else {
@@ -651,7 +651,7 @@ pub fn layout_grid(
         }
         // Apply min-width constraint.
         if let Some(ref s) = style.min_width {
-            let min_w = resolve_scalar_to_cells(s, available.width, viewport.0);
+            let min_w = resolve_scalar_to_cells(s, available.width, viewport);
             let min_w_outer = if box_sizing == BoxSizing::BorderBox {
                 min_w
             } else {
@@ -661,7 +661,7 @@ pub fn layout_grid(
         }
         // Apply max-height constraint.
         if let Some(ref s) = style.max_height {
-            let max_h = resolve_scalar_to_cells(s, available.height, viewport.1);
+            let max_h = resolve_scalar_to_cells(s, available.height, viewport);
             let max_h_outer = if box_sizing == BoxSizing::BorderBox {
                 max_h
             } else {
@@ -671,7 +671,7 @@ pub fn layout_grid(
         }
         // Apply min-height constraint.
         if let Some(ref s) = style.min_height {
-            let min_h = resolve_scalar_to_cells(s, available.height, viewport.1);
+            let min_h = resolve_scalar_to_cells(s, available.height, viewport);
             let min_h_outer = if box_sizing == BoxSizing::BorderBox {
                 min_h
             } else {

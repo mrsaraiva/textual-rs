@@ -56,7 +56,7 @@ pub(crate) fn carve_edge(
                 .and_then(|h| u16::try_from(h).ok())
                 .unwrap_or(current_h)
         }
-        Some(s) => resolve_scalar_to_cells(s, current_h, viewport.1),
+        Some(s) => resolve_scalar_to_cells(s, current_h, viewport),
     };
     let child_w = match style.width.as_ref() {
         None => current_w, // truly unset → full available width
@@ -77,27 +77,27 @@ pub(crate) fn carve_edge(
                 max_w.unwrap_or(current_w)
             }
         }
-        Some(s) => resolve_scalar_to_cells(s, current_w, viewport.0),
+        Some(s) => resolve_scalar_to_cells(s, current_w, viewport),
     };
 
     // Apply min/max width constraints from CSS style.
     let child_w = {
         let mut w = child_w;
         if let Some(ref s) = style.min_width {
-            w = w.max(resolve_scalar_to_cells(s, current_w, viewport.0));
+            w = w.max(resolve_scalar_to_cells(s, current_w, viewport));
         }
         if let Some(ref s) = style.max_width {
-            w = w.min(resolve_scalar_to_cells(s, current_w, viewport.0));
+            w = w.min(resolve_scalar_to_cells(s, current_w, viewport));
         }
         w
     };
     let child_h = {
         let mut h = child_h;
         if let Some(ref s) = style.min_height {
-            h = h.max(resolve_scalar_to_cells(s, current_h, viewport.1));
+            h = h.max(resolve_scalar_to_cells(s, current_h, viewport));
         }
         if let Some(ref s) = style.max_height {
-            h = h.min(resolve_scalar_to_cells(s, current_h, viewport.1));
+            h = h.min(resolve_scalar_to_cells(s, current_h, viewport));
         }
         h
     };
@@ -250,7 +250,7 @@ pub(crate) fn layout_absolute(
         // Resolve width/height (default to full available minus margin).
         let mut layout_w = match style.width.as_ref() {
             Some(s) => {
-                let content_w = resolve_scalar_to_cells(s, available.width, viewport.0);
+                let content_w = resolve_scalar_to_cells(s, available.width, viewport);
                 if box_sizing == BoxSizing::BorderBox && width_is_explicit {
                     content_w
                 } else {
@@ -261,7 +261,7 @@ pub(crate) fn layout_absolute(
         };
         let mut layout_h = match style.height.as_ref() {
             Some(s) => {
-                let content_h = resolve_scalar_to_cells(s, available.height, viewport.1);
+                let content_h = resolve_scalar_to_cells(s, available.height, viewport);
                 if box_sizing == BoxSizing::BorderBox && height_is_explicit {
                     content_h
                 } else {
@@ -273,7 +273,7 @@ pub(crate) fn layout_absolute(
 
         // Apply min/max constraints for absolute children (P2-24 follow-up).
         if let Some(ref s) = style.min_width {
-            let min_w = resolve_scalar_to_cells(s, available.width, viewport.0);
+            let min_w = resolve_scalar_to_cells(s, available.width, viewport);
             let min_w_outer = if box_sizing == BoxSizing::BorderBox {
                 min_w
             } else {
@@ -282,7 +282,7 @@ pub(crate) fn layout_absolute(
             layout_w = layout_w.max(min_w_outer);
         }
         if let Some(ref s) = style.max_width {
-            let max_w = resolve_scalar_to_cells(s, available.width, viewport.0);
+            let max_w = resolve_scalar_to_cells(s, available.width, viewport);
             let max_w_outer = if box_sizing == BoxSizing::BorderBox {
                 max_w
             } else {
@@ -291,7 +291,7 @@ pub(crate) fn layout_absolute(
             layout_w = layout_w.min(max_w_outer);
         }
         if let Some(ref s) = style.min_height {
-            let min_h = resolve_scalar_to_cells(s, available.height, viewport.1);
+            let min_h = resolve_scalar_to_cells(s, available.height, viewport);
             let min_h_outer = if box_sizing == BoxSizing::BorderBox {
                 min_h
             } else {
@@ -300,7 +300,7 @@ pub(crate) fn layout_absolute(
             layout_h = layout_h.max(min_h_outer);
         }
         if let Some(ref s) = style.max_height {
-            let max_h = resolve_scalar_to_cells(s, available.height, viewport.1);
+            let max_h = resolve_scalar_to_cells(s, available.height, viewport);
             let max_h_outer = if box_sizing == BoxSizing::BorderBox {
                 max_h
             } else {

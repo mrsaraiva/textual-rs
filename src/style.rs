@@ -763,31 +763,44 @@ pub enum Scalar {
 /// parent dimensions, used by the axis-absolute `Width`/`Height` (`w`/`h`) units
 /// which always resolve against a specific axis regardless of the property they
 /// appear on (Python `css/scalar.py` `_resolve_width`/`_resolve_height`).
+/// `viewport_width`/`viewport_height` are BOTH viewport dimensions, used the same
+/// way by the axis-absolute `ViewWidth`/`ViewHeight` (`vw`/`vh`) units: `25vh`
+/// is ALWAYS 25% of the viewport HEIGHT even on a `width` property, mirroring
+/// `_resolve_view_width`/`_resolve_view_height` (which take `viewport.width` /
+/// `viewport.height`). Passing a single axis here was the bug that made
+/// `width: 25vh` resolve against the viewport WIDTH.
 #[allow(clippy::too_many_arguments)]
 pub fn resolve_scalar(
     scalar: &Scalar,
     parent_size: u16,
     parent_width: u16,
     parent_height: u16,
-    viewport_size: u16,
+    viewport_width: u16,
+    viewport_height: u16,
     siblings_fr_total: f32,
     available: u16,
 ) -> u16 {
+    // Python resolves each scalar to an EXACT `Fraction` (`css/scalar.py`) and
+    // only converts to cells by TRUNCATION (`int()` / `Fraction.__floor__()`) at
+    // the box-model / placement step (`Widget._get_box_model`,
+    // `layouts/*.py`). Mirror that with `.floor()` so a non-integer percent like
+    // `min-height: 75%` of 30 (= 22.5) yields 22, not a rounded 23. (`.round()`
+    // only matched Python when the percentage landed on a whole number.)
     match scalar {
         Scalar::Auto => 0,
         Scalar::Cells(n) => *n,
-        Scalar::Percent(p) => (parent_size as f32 * p / 100.0).round() as u16,
+        Scalar::Percent(p) => (parent_size as f32 * p / 100.0).floor() as u16,
         Scalar::Fraction(f) => {
             if siblings_fr_total > 0.0 {
-                (available as f32 * f / siblings_fr_total).round() as u16
+                (available as f32 * f / siblings_fr_total).floor() as u16
             } else {
                 0
             }
         }
-        Scalar::Width(p) => (parent_width as f32 * p / 100.0).round() as u16,
-        Scalar::Height(p) => (parent_height as f32 * p / 100.0).round() as u16,
-        Scalar::ViewWidth(p) => (viewport_size as f32 * p / 100.0).round() as u16,
-        Scalar::ViewHeight(p) => (viewport_size as f32 * p / 100.0).round() as u16,
+        Scalar::Width(p) => (parent_width as f32 * p / 100.0).floor() as u16,
+        Scalar::Height(p) => (parent_height as f32 * p / 100.0).floor() as u16,
+        Scalar::ViewWidth(p) => (viewport_width as f32 * p / 100.0).floor() as u16,
+        Scalar::ViewHeight(p) => (viewport_height as f32 * p / 100.0).floor() as u16,
     }
 }
 
@@ -3152,31 +3165,45 @@ mod tests {
 
     // ---- Scalar resolve_scalar tests ----
 
+    // Signature: resolve_scalar(scalar, parent_size, parent_width, parent_height,
+    //                           viewport_width, viewport_height, fr_total, available)
     #[test]
     fn resolve_scalar_auto_returns_zero() {
-        assert_eq!(resolve_scalar(&Scalar::Auto, 100, 100, 50, 200, 0.0, 0), 0);
+        assert_eq!(resolve_scalar(&Scalar::Auto, 100, 100, 50, 200, 60, 0.0, 0), 0);
     }
 
     #[test]
     fn resolve_scalar_cells() {
-        assert_eq!(resolve_scalar(&Scalar::Cells(42), 100, 100, 50, 200, 0.0, 0), 42);
+        assert_eq!(
+            resolve_scalar(&Scalar::Cells(42), 100, 100, 50, 200, 60, 0.0, 0),
+            42
+        );
     }
 
     #[test]
     fn resolve_scalar_percent() {
-        assert_eq!(resolve_scalar(&Scalar::Percent(50.0), 80, 80, 40, 200, 0.0, 0), 40);
-        assert_eq!(resolve_scalar(&Scalar::Percent(100.0), 80, 80, 40, 200, 0.0, 0), 80);
-        assert_eq!(resolve_scalar(&Scalar::Percent(33.3), 100, 100, 50, 200, 0.0, 0), 33);
+        assert_eq!(
+            resolve_scalar(&Scalar::Percent(50.0), 80, 80, 40, 200, 60, 0.0, 0),
+            40
+        );
+        assert_eq!(
+            resolve_scalar(&Scalar::Percent(100.0), 80, 80, 40, 200, 60, 0.0, 0),
+            80
+        );
+        assert_eq!(
+            resolve_scalar(&Scalar::Percent(33.3), 100, 100, 50, 200, 60, 0.0, 0),
+            33
+        );
     }
 
     #[test]
     fn resolve_scalar_fraction() {
         // 1fr out of 3fr total, with 90 available → 30
-        assert_eq!(resolve_scalar(&Scalar::Fraction(1.0), 0, 0, 0, 0, 3.0, 90), 30);
+        assert_eq!(resolve_scalar(&Scalar::Fraction(1.0), 0, 0, 0, 0, 0, 3.0, 90), 30);
         // 2fr out of 3fr total, with 90 available → 60
-        assert_eq!(resolve_scalar(&Scalar::Fraction(2.0), 0, 0, 0, 0, 3.0, 90), 60);
+        assert_eq!(resolve_scalar(&Scalar::Fraction(2.0), 0, 0, 0, 0, 0, 3.0, 90), 60);
         // 0 total fr → 0
-        assert_eq!(resolve_scalar(&Scalar::Fraction(1.0), 0, 0, 0, 0, 0.0, 90), 0);
+        assert_eq!(resolve_scalar(&Scalar::Fraction(1.0), 0, 0, 0, 0, 0, 0.0, 90), 0);
     }
 
     #[test]
@@ -3184,7 +3211,10 @@ mod tests {
         // `40w` = 40% of the parent WIDTH, regardless of the axis. Here the axis
         // dim (`parent_size`) is the parent HEIGHT (50), but `Width` must use the
         // parent width (100): 40% of 100 = 40.
-        assert_eq!(resolve_scalar(&Scalar::Width(40.0), 50, 100, 50, 200, 0.0, 0), 40);
+        assert_eq!(
+            resolve_scalar(&Scalar::Width(40.0), 50, 100, 50, 200, 60, 0.0, 0),
+            40
+        );
     }
 
     #[test]
@@ -3192,19 +3222,59 @@ mod tests {
         // `50h` = 50% of the parent HEIGHT, regardless of the axis. Here the axis
         // dim is the parent WIDTH (100), but `Height` must use the height (50):
         // 50% of 50 = 25.
-        assert_eq!(resolve_scalar(&Scalar::Height(50.0), 100, 100, 50, 200, 0.0, 0), 25);
+        assert_eq!(
+            resolve_scalar(&Scalar::Height(50.0), 100, 100, 50, 200, 60, 0.0, 0),
+            25
+        );
     }
 
     #[test]
     fn resolve_scalar_view_width() {
-        assert_eq!(resolve_scalar(&Scalar::ViewWidth(50.0), 0, 0, 0, 120, 0.0, 0), 60);
+        // `50vw` = 50% of viewport WIDTH (120), not the height. 50% of 120 = 60.
+        assert_eq!(
+            resolve_scalar(&Scalar::ViewWidth(50.0), 0, 0, 0, 120, 30, 0.0, 0),
+            60
+        );
     }
 
     #[test]
     fn resolve_scalar_view_height() {
+        // `25vh` = 25% of viewport HEIGHT (200), not the width. 25% of 200 = 50.
         assert_eq!(
-            resolve_scalar(&Scalar::ViewHeight(25.0), 0, 0, 0, 200, 0.0, 0),
+            resolve_scalar(&Scalar::ViewHeight(25.0), 0, 0, 0, 120, 200, 0.0, 0),
             50
+        );
+    }
+
+    // Regression (docs/examples/styles/width_comparison): a `vh` unit on a WIDTH
+    // property must resolve against viewport HEIGHT, not viewport width. Before
+    // the fix, `width: 25vh` in a 120x30 terminal resolved to 25% of 120 = 30
+    // (using the width-axis viewport extent) instead of 25% of 30 (= 7.5 → 7,
+    // Python truncates). Symmetrically, `vw` on a height property uses viewport
+    // width.
+    #[test]
+    fn resolve_scalar_view_units_are_axis_absolute() {
+        // viewport = 120 wide x 30 tall.
+        // `25vh` resolves against HEIGHT (30): 25% of 30 = 7.5 → 7 (floor).
+        assert_eq!(
+            resolve_scalar(&Scalar::ViewHeight(25.0), 120, 120, 30, 120, 30, 0.0, 0),
+            7
+        );
+        // `15vw` resolves against WIDTH (120): 15% of 120 = 18.
+        assert_eq!(
+            resolve_scalar(&Scalar::ViewWidth(15.0), 30, 120, 30, 120, 30, 0.0, 0),
+            18
+        );
+    }
+
+    // Python truncates (`int()`/`Fraction.__floor__()`) rather than rounds: a
+    // non-integer percent floors down. Guards the `.round()` → `.floor()` change.
+    #[test]
+    fn resolve_scalar_percent_truncates() {
+        // 75% of 30 = 22.5 → 22 (Python `min-height: 75%` cross-axis height).
+        assert_eq!(
+            resolve_scalar(&Scalar::Percent(75.0), 30, 30, 30, 0, 0, 0.0, 0),
+            22
         );
     }
 
@@ -3345,12 +3415,18 @@ mod tests {
 
     #[test]
     fn scalar_percent_zero() {
-        assert_eq!(resolve_scalar(&Scalar::Percent(0.0), 100, 100, 50, 200, 0.0, 0), 0);
+        assert_eq!(
+            resolve_scalar(&Scalar::Percent(0.0), 100, 100, 50, 200, 60, 0.0, 0),
+            0
+        );
     }
 
     #[test]
     fn scalar_cells_zero() {
-        assert_eq!(resolve_scalar(&Scalar::Cells(0), 100, 100, 50, 200, 0.0, 0), 0);
+        assert_eq!(
+            resolve_scalar(&Scalar::Cells(0), 100, 100, 50, 200, 60, 0.0, 0),
+            0
+        );
     }
 
     // ---- Grid field combine/inherit tests ----

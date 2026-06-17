@@ -75,11 +75,73 @@ pub(crate) fn wrapper_unset_height(tree: &WidgetTree, wrapper: NodeId) -> Option
         // splitting one track via `1fr`. (Fixes docs/how-to/layout05, where 19
         // `Node`-wrapped `Tweet` placeholders must overflow their column.)
         None => None,
-        // Any explicit, non-auto wrapped-child height (e.g. a `1fr` container)
-        // keeps the flex-fill share so `Node`-wrapped `1fr` containers split
-        // their track (docs_containers04) instead of overflowing.
-        _ => Some(Scalar::Fraction(1.0)),
+        // Any explicit, non-auto wrapped-child height passes THROUGH verbatim so
+        // the wrapper sizes exactly as the widget it stands in for. For a `1fr`
+        // container this is `Fraction(1.0)` (flex-fill share — `Node`-wrapped
+        // `1fr` containers still split their track, docs_containers04). For an
+        // explicit `%`/cells/`w`/`h`/`vw`/`vh` height (e.g. `Node`-wrapped
+        // `Placeholder { height: 50% }` carrying a `#pN { min-height: … }` id —
+        // Python applies both the explicit height AND the min to the SAME widget,
+        // since it has no wrapper), it is that exact scalar — NOT a `1fr` share,
+        // which would discard the explicit height and skip the cross-axis
+        // min-clamp (`extract_child_spec` only clamps a CONCRETE edge size to its
+        // minimum). Fixes docs/examples/styles/min_height.
+        Some(&scalar) => Some(scalar),
     }
+}
+
+/// For a node whose parent is a transparent styling wrapper (`Node`) and which is
+/// that wrapper's sole flow child, report on which axes `(width, height)` the
+/// child must FILL the wrapper region.
+///
+/// A wrapper sized BY the child (its OWN axis is unset, so it adopted the child's
+/// `width`/`height` via [`wrapper_unset_height`]/[`wrapper_child_auto_axes`])
+/// must have the child fill that axis — otherwise the child re-applies its own
+/// explicit size against the already-sized wrapper and shrinks: a
+/// `Node("#p3") { min-height: 30 } > Placeholder { height: 50% }` makes the
+/// wrapper 30 tall (adopted height + its own min), and the Placeholder must fill
+/// all 30 (Python has no wrapper — `height` and `min-height` apply to ONE box).
+///
+/// But when the wrapper carries its OWN explicit extent on an axis (e.g.
+/// `Node("#hello") { height: 9; content-align: … middle } > Static(text)`), the
+/// child must KEEP its natural (auto-content) size on that axis so the wrapper's
+/// `content-align` can position it — forcing it to fill would defeat the
+/// centering (regression guard: `docs_center07`). Returns `(false, false)` for
+/// non-wrappers / non-sole children.
+pub(crate) fn wrapper_child_fill_axes(tree: &WidgetTree, node: NodeId) -> (bool, bool) {
+    let Some(parent) = tree.parent(node) else {
+        return (false, false);
+    };
+    let parent_is_wrapper = tree
+        .get(parent)
+        .map(|n| n.widget.is_transparent_wrapper())
+        .unwrap_or(false);
+    if !parent_is_wrapper {
+        return (false, false);
+    }
+    // Sole *flow* child (display-on, not `display: none`); a wrapper conceptually
+    // wraps exactly one widget, but guard against stray hidden siblings.
+    let flow: Vec<NodeId> = tree
+        .children(parent)
+        .iter()
+        .copied()
+        .filter(|&c| {
+            tree.get(c).map(|n| n.display).unwrap_or(false)
+                && get_node_style(tree, c).display != Some(crate::style::Display::None)
+        })
+        .collect();
+    if flow.as_slice() != [node] {
+        return (false, false);
+    }
+    // Fill an axis only when the wrapper has NO explicit extent of its own on it
+    // (so it was sized by adopting the child). An explicit wrapper extent means
+    // the wrapper owns the box and the child should keep its natural size for the
+    // wrapper's `content-align` to act on.
+    let wrapper_style = get_node_style(tree, parent);
+    (
+        wrapper_style.width.is_none(),
+        wrapper_style.height.is_none(),
+    )
 }
 
 /// Seed width-dependent intrinsic measurement for the children of a transparent
@@ -210,7 +272,10 @@ pub(crate) fn own_box_chrome(style: &Style) -> (u16, u16) {
 ///
 /// `parent_size` is the parent extent on the scalar's OWN axis (what `Percent`
 /// uses). `parent_width`/`parent_height` are both parent dims, needed by the
-/// axis-absolute `w`/`h` (`Scalar::Width`/`Scalar::Height`) units. Most call
+/// axis-absolute `w`/`h` (`Scalar::Width`/`Scalar::Height`) units. `viewport` is
+/// the FULL viewport `(width, height)`, needed by the axis-absolute `vw`/`vh`
+/// (`Scalar::ViewWidth`/`Scalar::ViewHeight`) units which always resolve against
+/// a fixed viewport axis regardless of the property they appear on. Most call
 /// sites only have one axis dim handy; use [`resolve_scalar_to_cells`] which
 /// assumes the scalar's own axis equals `parent_size` for `w`/`h` too (correct
 /// when sizing the same axis), or [`resolve_scalar_to_cells_2d`] to pass both.
@@ -219,14 +284,15 @@ pub(crate) fn resolve_scalar_to_cells_2d(
     parent_size: u16,
     parent_width: u16,
     parent_height: u16,
-    viewport_size: u16,
+    viewport: (u16, u16),
 ) -> u16 {
     resolve_scalar(
         scalar,
         parent_size,
         parent_width,
         parent_height,
-        viewport_size,
+        viewport.0,
+        viewport.1,
         0.0,
         0,
     )
@@ -236,18 +302,20 @@ pub(crate) fn resolve_scalar_to_cells_2d(
 /// known. For `w`/`h` units this approximates the other axis with `parent_size`
 /// — acceptable for measurement-only call sites (intrinsic content sizing) where
 /// `w`/`h` are rare; the flow layouts use [`resolve_scalar_to_cells_2d`] with the
-/// real parent width AND height for correct `w`/`h` resolution.
+/// real parent width AND height for correct `w`/`h` resolution. `vw`/`vh` always
+/// resolve against the correct viewport axis (the full `viewport` is threaded).
 pub(crate) fn resolve_scalar_to_cells(
     scalar: &Scalar,
     parent_size: u16,
-    viewport_size: u16,
+    viewport: (u16, u16),
 ) -> u16 {
     resolve_scalar(
         scalar,
         parent_size,
         parent_size,
         parent_size,
-        viewport_size,
+        viewport.0,
+        viewport.1,
         0.0,
         0,
     )
@@ -289,22 +357,22 @@ pub(crate) fn extract_child_spec(
     let min_h_cells = style
         .min_height
         .as_ref()
-        .map(|s| resolve_scalar_to_cells_2d(s, parent_height, parent_width, parent_height, viewport.1))
+        .map(|s| resolve_scalar_to_cells_2d(s, parent_height, parent_width, parent_height, viewport))
         .unwrap_or(0);
     let min_w_cells = style
         .min_width
         .as_ref()
-        .map(|s| resolve_scalar_to_cells_2d(s, parent_width, parent_width, parent_height, viewport.0))
+        .map(|s| resolve_scalar_to_cells_2d(s, parent_width, parent_width, parent_height, viewport))
         .unwrap_or(0);
 
     let max_h_cells = style
         .max_height
         .as_ref()
-        .map(|s| resolve_scalar_to_cells_2d(s, parent_height, parent_width, parent_height, viewport.1));
+        .map(|s| resolve_scalar_to_cells_2d(s, parent_height, parent_width, parent_height, viewport));
     let max_w_cells = style
         .max_width
         .as_ref()
-        .map(|s| resolve_scalar_to_cells_2d(s, parent_width, parent_width, parent_height, viewport.0));
+        .map(|s| resolve_scalar_to_cells_2d(s, parent_width, parent_width, parent_height, viewport));
 
     // Margin-adjusted parent dims for `w`/`h` units (Python resolves these
     // against `container - margin.totals` on BOTH axes).
@@ -346,7 +414,7 @@ pub(crate) fn extract_child_spec(
                     parent_height,
                     parent_width_adj,
                     parent_height_adj,
-                    viewport.1,
+                    viewport,
                     min_h_cells,
                     v_chrome,
                 )
@@ -393,7 +461,7 @@ pub(crate) fn extract_child_spec(
             parent_height.saturating_sub(margin.top + margin.bottom),
             parent_width_adj,
             parent_height_adj,
-            viewport.1,
+            viewport,
             min_h_cells,
             v_chrome,
         ),
@@ -425,7 +493,7 @@ pub(crate) fn extract_child_spec(
                     parent_width,
                     parent_width_adj,
                     parent_height_adj,
-                    viewport.0,
+                    viewport,
                     min_w_cells,
                     h_chrome,
                 )
@@ -436,7 +504,7 @@ pub(crate) fn extract_child_spec(
             parent_width,
             parent_width_adj,
             parent_height_adj,
-            viewport.0,
+            viewport,
             min_w_cells,
             h_chrome,
         ),
@@ -689,7 +757,7 @@ fn measure_child_outer_width(
         None | Some(Scalar::Auto) | Some(Scalar::Fraction(_)) => {
             measure_intrinsic_content_width(tree, node, viewport).unwrap_or(0)
         }
-        Some(other) => resolve_scalar_to_cells(other, 0, viewport.0),
+        Some(other) => resolve_scalar_to_cells(other, 0, viewport),
     };
     let mut outer = content.saturating_add(h_chrome);
     // Respect min/max-width: Textual treats these as outer-size bounds for the
@@ -697,10 +765,10 @@ fn measure_child_outer_width(
     // Button's `min-width: 16`). Without the min clamp a narrow label would make
     // its auto-width parent under-size and clip the widget.
     if let Some(min_w) = style.min_width.as_ref() {
-        outer = outer.max(resolve_scalar_to_cells(min_w, 0, viewport.0));
+        outer = outer.max(resolve_scalar_to_cells(min_w, 0, viewport));
     }
     if let Some(max_w) = style.max_width.as_ref() {
-        let max = resolve_scalar_to_cells(max_w, 0, viewport.0);
+        let max = resolve_scalar_to_cells(max_w, 0, viewport);
         if max > 0 {
             outer = outer.min(max);
         }
@@ -754,13 +822,13 @@ fn measure_child_outer_height(
                 content.saturating_add(v_chrome)
             }
         }
-        Some(other) => resolve_scalar_to_cells(other, 0, viewport.1).saturating_add(v_chrome),
+        Some(other) => resolve_scalar_to_cells(other, 0, viewport).saturating_add(v_chrome),
     };
     if let Some(min_h) = style.min_height.as_ref() {
-        outer = outer.max(resolve_scalar_to_cells(min_h, 0, viewport.1));
+        outer = outer.max(resolve_scalar_to_cells(min_h, 0, viewport));
     }
     if let Some(max_h) = style.max_height.as_ref() {
-        let max = resolve_scalar_to_cells(max_h, 0, viewport.1);
+        let max = resolve_scalar_to_cells(max_h, 0, viewport);
         if max > 0 {
             outer = outer.min(max);
         }
@@ -782,7 +850,7 @@ fn scalar_to_edge(
     parent_size: u16,
     parent_width: u16,
     parent_height: u16,
-    viewport_size: u16,
+    viewport: (u16, u16),
     min_cells: u16,
     chrome: u16,
 ) -> Edge {
@@ -809,7 +877,7 @@ fn scalar_to_edge(
                 parent_size,
                 parent_width,
                 parent_height,
-                viewport_size,
+                viewport,
             );
             Edge {
                 size: Some(cells.saturating_add(chrome)),

@@ -45,6 +45,28 @@ pub fn layout_vertical(
             style.height = Some(h);
         }
 
+        // This `child` is a wrapped widget (its parent — the node being laid out
+        // here — is a transparent wrapper for which `child` is the sole flow
+        // child). On an axis the wrapper sized by ADOPTING this widget's extent
+        // (its own axis unset), the widget must FILL the wrapper instead of
+        // re-applying its own explicit size against it (which would shrink a
+        // `height: 50%` widget to 50% of an already-50%-sized wrapper —
+        // `min_height`). The widget's own min/max on that axis were applied at the
+        // wrapper; clear them to avoid double-application. Axes where the wrapper
+        // carries its OWN extent are left untouched so the widget keeps its
+        // natural size for the wrapper's `content-align` (`docs_center07`).
+        let (fill_w, fill_h) = super::common::wrapper_child_fill_axes(tree, child);
+        if fill_h {
+            style.height = Some(crate::style::Scalar::Percent(100.0));
+            style.min_height = None;
+            style.max_height = None;
+        }
+        if fill_w {
+            style.width = Some(crate::style::Scalar::Percent(100.0));
+            style.min_width = None;
+            style.max_width = None;
+        }
+
         let width_is_auto = matches!(
             style.width.as_ref(),
             None | Some(crate::style::Scalar::Auto)

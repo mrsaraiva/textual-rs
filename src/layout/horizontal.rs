@@ -38,6 +38,26 @@ pub fn layout_horizontal(
             {
                 style.height = Some(h);
             }
+
+            // A wrapped widget (this `child`'s parent is a transparent wrapper and
+            // `child` is its sole flow child) must FILL the wrapper on each axis
+            // the wrapper sized by ADOPTING the widget's extent — re-applying the
+            // widget's own explicit size against the wrapper would shrink it (a
+            // `height: 50%` widget would become 50% of an already-sized wrapper).
+            // Own min/max on a filled axis were applied at the wrapper; clear them.
+            // Axes where the wrapper has its OWN extent keep the widget's natural
+            // size for the wrapper's `content-align` (`docs_center07`).
+            let (fill_w, fill_h) = super::common::wrapper_child_fill_axes(tree, child);
+            if fill_h {
+                style.height = Some(crate::style::Scalar::Percent(100.0));
+                style.min_height = None;
+                style.max_height = None;
+            }
+            if fill_w {
+                style.width = Some(crate::style::Scalar::Percent(100.0));
+                style.min_width = None;
+                style.max_width = None;
+            }
             // `style.width`/`style.height` were normalized to `Some(Auto)` above
             // for transparent wrappers with auto children, so a plain `Some(Auto)`
             // check covers both real auto widgets and those wrappers.

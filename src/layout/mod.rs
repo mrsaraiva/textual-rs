@@ -1195,6 +1195,67 @@ mod tests {
         assert_eq!(h, 5, "min-height should clamp the explicit 2 up to 5 on the main axis");
     }
 
+    // Python parity (`docs/examples/styles/min_height.py`): a transparent `Node`
+    // wrapper (from `.id()`) carries the `#pN { min-height: … }` id while the
+    // wrapped leaf carries `Placeholder { height: 50% }`. Python has no wrapper —
+    // both the explicit height AND the min apply to the SAME widget. So the
+    // wrapper must adopt the wrapped child's explicit `height: 50%` (not collapse
+    // to `1fr`, which discards the explicit height and skips the cross-axis
+    // min-clamp), then grow to its own `min-height` on the cross axis.
+    #[test]
+    fn horizontal_wrapper_adopts_child_height_and_clamps_min() {
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(LayoutTestWidget::boxed("Container"));
+        // Wrapper: unset height + min-height: 30 (like `#p3 { min-height: 30 }`).
+        let wrapper = tree.mount(
+            root,
+            LayoutTestWidget::boxed_wrapper_with_style("Wrapper", {
+                let mut s = Style::new();
+                s.min_height = Some(Scalar::Cells(30));
+                s
+            }),
+        );
+        // Wrapped leaf: explicit `height: 50%` (like `Placeholder { height: 50% }`).
+        tree.mount(
+            wrapper,
+            LayoutTestWidget::boxed_with_style("Leaf", {
+                let mut s = Style::new();
+                s.height = Some(Scalar::Percent(50.0)); // 50% of 50 = 25
+                s
+            }),
+        );
+        let available = Region::new(0, 0, 80, 50);
+        layout_horizontal(&mut tree, &[wrapper], available, (80, 50));
+        let n = tree.get(wrapper).unwrap();
+        let h = n.layout_rect.y1 - n.layout_rect.y0;
+        assert_eq!(
+            h, 30,
+            "wrapper must adopt child height 50% (25) then clamp up to min-height 30"
+        );
+    }
+
+    // Counterpart: without a `min-height`, the wrapper still adopts the wrapped
+    // child's explicit `height: 50%` (not a full-container `1fr` fill).
+    #[test]
+    fn horizontal_wrapper_adopts_child_explicit_height() {
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(LayoutTestWidget::boxed("Container"));
+        let wrapper = tree.mount(root, LayoutTestWidget::boxed_wrapper("Wrapper"));
+        tree.mount(
+            wrapper,
+            LayoutTestWidget::boxed_with_style("Leaf", {
+                let mut s = Style::new();
+                s.height = Some(Scalar::Percent(50.0)); // 50% of 50 = 25
+                s
+            }),
+        );
+        let available = Region::new(0, 0, 80, 50);
+        layout_horizontal(&mut tree, &[wrapper], available, (80, 50));
+        let n = tree.get(wrapper).unwrap();
+        let h = n.layout_rect.y1 - n.layout_rect.y0;
+        assert_eq!(h, 25, "wrapper must adopt the wrapped child's explicit 50% height");
+    }
+
     // No min set → the clamp is a strict no-op (explicit size is preserved).
     #[test]
     fn explicit_size_without_min_is_unchanged() {
