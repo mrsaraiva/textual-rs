@@ -7,6 +7,21 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-17 (fix(render): vertical-extend fill carries $foreground)
+
+- **fix(render): rows beyond content height inherit the resolved foreground**
+  - The keystone fill-split painted the entire `set_shape` extend (both trailing
+    horizontal pad AND vertical fill rows) background-only. But Python only leaves
+    the horizontal trailing pad fg-default (`_styles_cache` `adjust_cell_length`
+    with `inner.rich_style`); the vertical extend rows beyond the cached content
+    use `widget.render_line`'s `Strip.blank(width, visual_style.rich_style)`, which
+    carries `$foreground` (or `color: auto` contrast). Split the non-aligned fill
+    into a bg-only horizontal `adjust_line_length` pad plus fg-bearing vertical
+    blank rows (shared `fill_fg_style` with the content-align pad). Styled parity
+    19→24 PASS (promoted `content_align_all`, `text_overflow`, `text_wrap`,
+    `visibility`, `dimensions04`), 0 regressions; pty_parity holds at 186; full
+    suite green with no snapshot deltas.
+
 ### 2026-06-17 (fix(render): default-fg keystone — 4-surface fill split)
 
 - **fix(render): split the widget fill style into Python's content/pad/align/box surfaces**

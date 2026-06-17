@@ -37,6 +37,9 @@ const PASSING: &[&str] = &[
     // inherit $foreground; content-align fill carries fg; other fill bg-only):
     "border_title_colors", "outline_vs_border", "colors", "colors01", "margin01",
     "widget",
+    // Promoted after the vertical-extend fill fix (rows beyond content height
+    // carry $foreground via visual_style; trailing horizontal pad stays bg-only):
+    "content_align_all", "text_overflow", "text_wrap", "visibility", "dimensions04",
 ];
 
 struct StyledCase {

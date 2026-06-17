@@ -926,19 +926,25 @@ pub(crate) fn render_widget_with_meta<W: Widget + ?Sized>(
         .map(|c| c.flatten_over(fill_parent_bg))
         .unwrap_or(fill_parent_bg);
 
+    // Fill style that carries the resolved foreground over the inner background.
+    // Mirrors Python's `visual_style.rich_style` (color = background + $foreground,
+    // or auto-contrast for `color: auto`). Used for BOTH content-align padding
+    // (visual.py `Strip.align`) and the vertical extend beyond content (widget.py
+    // `render_line` IndexError fallback `Strip.blank(width, visual_style.rich_style)`).
+    let fill_fg_style = {
+        let mut s = rich_rs::Style::new().with_bgcolor(fill_inner_bg.to_simple_opaque());
+        if let Some(fg) = resolved.fg {
+            s = s.with_color(fg.flatten_over(fill_inner_bg).to_simple_opaque());
+        } else if let Some(auto) = resolved.fg_auto {
+            let contrast = crate::style::contrast_text(fill_inner_bg).with_alpha(auto.alpha());
+            s = s.with_color(contrast.flatten_over(fill_inner_bg).to_simple_opaque());
+        }
+        s
+    };
+
     if let Some(content_align) = resolved.content_align {
         // Content-align padding carries the resolved fg (Strip.align semantics).
-        // Mirror apply_style_to_segments for both explicit `color` and
-        // auto-contrast `color: auto` so the alignment fill matches the glyphs.
-        let mut align_pad = rich_rs::Style::new().with_bgcolor(fill_inner_bg.to_simple_opaque());
-        if let Some(fg) = resolved.fg {
-            align_pad = align_pad.with_color(fg.flatten_over(fill_inner_bg).to_simple_opaque());
-        } else if let Some(auto) = resolved.fg_auto {
-            let contrast =
-                crate::style::contrast_text(fill_inner_bg).with_alpha(auto.alpha());
-            align_pad =
-                align_pad.with_color(contrast.flatten_over(fill_inner_bg).to_simple_opaque());
-        }
+        let align_pad = fill_fg_style;
         lines = apply_content_alignment(
             lines,
             content_width + line_pad * 2,
@@ -972,20 +978,30 @@ pub(crate) fn render_widget_with_meta<W: Widget + ?Sized>(
         // layout rect. This allows widgets to paint only explicit cells.
         final_lines.extend(lines);
     } else {
-        // Fill for the non-aligned vertical extend and trailing horizontal space
-        // is BACKGROUND-ONLY (Python `to_strip` uses `style.background_style`, and
-        // box/padding fill uses `inner.rich_style` — both fg = default). The
-        // content-align surfaces, which DO carry fg, were already painted above.
+        // Two distinct fill surfaces, mirroring Python:
+        //  - Trailing HORIZONTAL pad of a content row is BACKGROUND-ONLY
+        //    (_styles_cache `adjust_cell_length(content_width, inner.rich_style)`,
+        //    where `inner` = Style(background=...) has no fg → default fg).
+        //  - VERTICAL extend beyond the content rows carries the resolved fg
+        //    (widget.py `render_line` IndexError → Strip.blank(width,
+        //    visual_style.rich_style)`, where visual_style includes $foreground).
         let inner_bg = fill_inner_bg;
         let fill = rich_rs::Style::new().with_bgcolor(inner_bg.to_simple_opaque());
         let pad_fill = fill;
-        lines = rich_rs::Segment::set_shape(
-            &lines,
-            content_width + line_pad * 2,
-            Some(content_height),
-            Some(fill),
-            false,
-        );
+        let fill_width = content_width + line_pad * 2;
+        // Horizontal pad of existing content rows: background-only.
+        let mut shaped: Vec<Vec<rich_rs::Segment>> = lines
+            .iter()
+            .take(content_height)
+            .map(|line| rich_rs::Segment::adjust_line_length(line, fill_width, Some(fill), true))
+            .collect();
+        // Vertical extend rows: full style with foreground.
+        let vfill_blank =
+            vec![rich_rs::Segment::styled(" ".repeat(fill_width), fill_fg_style)];
+        while shaped.len() < content_height {
+            shaped.push(vfill_blank.clone());
+        }
+        lines = shaped;
 
         // Apply left/right padding.
         let pad_left = padding.left as usize;
