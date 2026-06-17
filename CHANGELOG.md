@@ -7,6 +7,21 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-17 (test(parity): interactive styled-parity harness — focus/hover/active states)
+
+- **test(parity): `visual_parity_interactive.rs` — styled parity for POST-INTERACTION frames**
+  - The static styled harness only captures the initial frame, so focus/hover/active
+    color states were never checked (e.g. a focused Button's `text-style: reverse`
+    band). New harness sends keys, waits for re-stabilization, then compares per-cell
+    RGB (incl. the `reverse` attr) vs a Python golden. First case `button_focus`
+    (PENDING/tracked) documents the focused-button reverse-band divergence: Python
+    bakes the button's `line-pad: 1` spaces into the styled label so the reverse band
+    covers them; Rust's custom button render centers with unstyled spaces (band too
+    narrow). A naive line-pad fix shifts button centering/truncation (regresses pty
+    goldens + narrow key-panel buttons) so it needs a proper button-render rework;
+    plus a residual surface/blend bg delta (color-workstream cluster). Harness now
+    CATCHES this class of bug instead of it being eyeballed.
+
 ### 2026-06-17 (fix(render): default-fg keystone — 4-surface fill split)
 
 - **fix(render): split the widget fill style into Python's content/pad/align/box surfaces**
