@@ -32,12 +32,10 @@ struct Case {
 // Interactive cases. keys are sent after the initial frame stabilizes.
 const CASES: &[Case] = &[
     // Tab focuses the first Button -> exercises the `:focus` text-style (b reverse).
-    // PENDING: the focus reverse band is too narrow in Rust — Python applies the
-    // button's `line-pad: 1` spaces as part of the styled label (so they're inside
-    // the reverse band), while Rust's custom button render centers with unstyled
-    // spaces. A naive line-pad fix shifts button centering/truncation (breaks pty
-    // goldens + narrow key-panel buttons), so it needs a proper button-render
-    // rework. Plus a residual surface/blend bg delta (the color-workstream cluster).
+    // The reverse-band width is now FIXED (button render applies `line-pad: 1` as
+    // styled label spaces when the label fits, matching Python; band spans " Default ").
+    // PENDING only on the residual surface/blend bg delta (#282828 vs #272727) — the
+    // color-workstream cluster, not button-specific. Flips to PASS once that lands.
     Case { name: "button_focus", bin: "button", py_rel: "widgets/button.py", keys: "\t", pending: true },
 ];
 

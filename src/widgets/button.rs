@@ -623,15 +623,34 @@ impl Widget for Button {
             return content.render(console, &content_options);
         }
 
+        // `line-pad`: when the label fits, pad it with styled spaces that SHARE the
+        // label's text-style, so the `:focus` reverse band covers them (matching
+        // Python — content.py pads the styled content; only the content-align fill
+        // is background-only). Plain text is unchanged: the line-pad spaces replace
+        // centering spaces 1:1 (left shrinks by line_pad, the styled pad adds it
+        // back), so glyph positions are identical. For buttons too narrow to fit
+        // label + line-pad we keep the prior truncation — narrow-button line-pad is
+        // a tracked edge case we can't yet verify against Python.
         let label = self.label.as_str();
-        let label_width = rich_rs::cell_len(label).min(width);
-        let left = width.saturating_sub(label_width) / 2;
-        let right = width.saturating_sub(label_width) - left;
+        let line_pad = {
+            let meta = crate::css::selector_meta_generic(self);
+            crate::css::resolve_style(self, &meta).line_pad.unwrap_or(0) as usize
+        };
+        let label_cells = rich_rs::cell_len(label);
+        let (content, content_width) = if line_pad > 0 && label_cells + line_pad * 2 <= width {
+            let pad = " ".repeat(line_pad);
+            (format!("{pad}{label}{pad}"), label_cells + line_pad * 2)
+        } else {
+            let w = label_cells.min(width);
+            (rich_rs::set_cell_size(label, w), w)
+        };
+        let left = width.saturating_sub(content_width) / 2;
+        let right = width.saturating_sub(content_width) - left;
         let mut out = Segments::new();
         if left > 0 {
             out.push(Self::no_style_space_segment(left));
         }
-        out.push(Segment::new(rich_rs::set_cell_size(label, label_width)));
+        out.push(Segment::new(rich_rs::set_cell_size(&content, content_width)));
         if right > 0 {
             out.push(Self::no_style_space_segment(right));
         }

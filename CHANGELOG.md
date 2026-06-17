@@ -7,6 +7,18 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-17 (fix(button): focus reverse band covers line-pad spaces)
+
+- **fix(button): apply `line-pad` as styled label spaces so the `:focus` reverse band matches Python**
+  - The Button's custom render centered the label with unstyled spaces and ignored
+    `line-pad: 1`, so the focused-button `text-style: reverse` band covered only the
+    glyphs (`"Default"`) instead of `" Default "` like Python. Now the label is padded
+    with `line-pad` styled spaces **when it fits** (plain text unchanged — the pad
+    replaces centering spaces 1:1; verified pty 186 + full suite green, no collateral).
+    Narrow buttons (label + line-pad > width) keep prior truncation — a tracked edge
+    case (no Python reference yet). Caught by the interactive harness; `button_focus`
+    remains PENDING only on the residual surface/blend bg delta (color-workstream).
+
 ### 2026-06-17 (test(parity): interactive styled-parity harness — focus/hover/active states)
 
 - **test(parity): `visual_parity_interactive.rs` — styled parity for POST-INTERACTION frames**
