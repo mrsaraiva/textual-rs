@@ -85,8 +85,8 @@ pub use header::{Header, HeaderClock, HeaderClockSpace, HeaderIcon, HeaderTitle}
 pub use help_panel::HelpPanel;
 pub use helpers::WidgetRenderable;
 pub(crate) use helpers::adjust_line_length_no_bg;
-pub(crate) use helpers::border_chars;
 pub(crate) use helpers::border_spacing_from_style;
+pub(crate) use helpers::{OutlineCell, outline_edge_cells};
 pub(crate) use helpers::crop_line_horizontal;
 pub use input::{Input, InputType, SuggestFromList, Suggester};
 pub(crate) use key_panel::KEY_PANEL_VSCROLLBAR_ID;

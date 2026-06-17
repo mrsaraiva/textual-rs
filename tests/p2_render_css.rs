@@ -673,60 +673,15 @@ fn p2g35_constrain_none_does_not_clamp() {
 }
 
 // ===========================================================================
-// P2-28 behavioral: outline paints outside border box
+// P2-28 behavioral: outline paints OVER the widget's own edge cells
 // ===========================================================================
 
 #[test]
-fn p2_28_outline_paints_outside_border_box() {
-    // Outline should paint characters in cells OUTSIDE the widget's border box.
-    // Uses inline styles (tree pipeline overwrites CSS context with defaults).
-    // Inner Container with padding insets the Label so outline has room on all sides.
-    use textual::style::{BorderEdge, BorderType, Color, Spacing};
-
-    let red = Color::parse("red").unwrap();
-    let outline_edge = BorderEdge::Edge {
-        border_type: BorderType::Solid,
-        color: red,
-    };
-
-    let mut label = Label::new("hi");
-    label.seed_mut().styles.set_width(2);
-    label.seed_mut().styles.style.outline_top = outline_edge;
-    label.seed_mut().styles.style.outline_bottom = outline_edge;
-    label.seed_mut().styles.style.outline_left = outline_edge;
-    label.seed_mut().styles.style.outline_right = outline_edge;
-
-    // Nested: outer Container (root, no style) > inner Container (padding 3) > Label.
-    let mut inner = Container::new().with_child(label);
-    inner.seed_mut().styles.set_width(20);
-    inner.seed_mut().styles.style.padding = Some(Spacing::all(3));
-    let mut root = Container::new().with_child(inner);
-
-    let (_tree, frame, _lines) = tree_render(&mut root, 20, 8);
-
-    // Inner Container fills viewport (20x8), Label is inset by padding 3.
-    // Label "hi" has content_width=2, so layout rect is at approximately (3, 3) with w=2, h=1.
-    // Outline paints OUTSIDE the 2x1 label rect:
-    //   Top:    row 2, cols 3..5 → '─'
-    //   Bottom: row 4, cols 3..5 → '─'
-    //   Left:   col 2, row 3 → '│'
-    //   Right: may be clipped by current content-box clipping rules.
-    let top_cell = frame.get(3, 2);
-    assert_eq!(top_cell.text, "─", "top outline at (3,2)");
-    let bottom_cell = frame.get(3, 4);
-    assert_eq!(bottom_cell.text, "─", "bottom outline at (3,4)");
-    let left_cell = frame.get(2, 3);
-    assert_eq!(left_cell.text, "│", "left outline at (2,3)");
-
-    // Label text is inside (at outline-inner positions).
-    assert_eq!(frame.get(3, 3).text, "h", "label text at (3,3)");
-    assert_eq!(frame.get(4, 3).text, "i", "label text at (4,3)");
-}
-
-#[test]
-fn p2_28_outline_clipped_at_viewport_edge() {
-    // Outline edges beyond viewport bounds are silently clipped (no panic).
-    // Label at viewport edge: top/left outlines clipped, bottom/right visible.
+fn p2_28_outline_paints_over_widget_edges() {
+    // Outline does NOT reserve layout space; it is drawn OVER the widget's own
+    // edge cells (and over any child content composited there), mirroring Python
+    // `StylesCache.render_line`. The root Container fills the frame; the outline
+    // overdraws its perimeter rows/cols.
     use textual::style::{BorderEdge, BorderType, Color};
 
     let red = Color::parse("red").unwrap();
@@ -735,26 +690,65 @@ fn p2_28_outline_clipped_at_viewport_edge() {
         color: red,
     };
 
-    let mut label = Label::new("edge");
-    label.seed_mut().styles.set_width(4);
-    label.seed_mut().styles.style.outline_top = outline_edge;
-    label.seed_mut().styles.style.outline_bottom = outline_edge;
-    label.seed_mut().styles.style.outline_left = outline_edge;
-    label.seed_mut().styles.style.outline_right = outline_edge;
+    // Outline on a Container child that fills the root frame (6x3). The child is
+    // a real tree node (not the root), so it goes through the per-node render
+    // path where the deferred outline paint runs. The outline overdraws its own
+    // perimeter: top outline on row 0, bottom on the last row, sides on cols
+    // 0/w-1 of the interior rows.
+    let mut outlined = Container::new().with_child(Label::new("CD"));
+    outlined.seed_mut().styles.style.outline_top = outline_edge;
+    outlined.seed_mut().styles.style.outline_bottom = outline_edge;
+    outlined.seed_mut().styles.style.outline_left = outline_edge;
+    outlined.seed_mut().styles.style.outline_right = outline_edge;
+    let mut root = Container::new().with_child(outlined);
 
-    let mut root = Container::new().with_child(label);
-    root.seed_mut().styles.set_width(10);
+    let (_tree, frame, _lines) = tree_render(&mut root, 6, 3);
+
+    // Outlined child fills the frame: cols 0..=5, rows 0..=2.
+    // Top outline overdraws row 0.
+    assert_eq!(frame.get(0, 0).text, "┌", "top-left corner at (0,0)");
+    assert_eq!(frame.get(2, 0).text, "─", "top outline middle at (2,0)");
+    assert_eq!(frame.get(5, 0).text, "┐", "top-right corner at (5,0)");
+    // Bottom outline overdraws row 2 (the last row).
+    assert_eq!(frame.get(0, 2).text, "└", "bottom-left corner at (0,2)");
+    assert_eq!(frame.get(2, 2).text, "─", "bottom outline middle at (2,2)");
+    assert_eq!(frame.get(5, 2).text, "┘", "bottom-right corner at (5,2)");
+    // Side outlines overdraw col 0 / col 5 of the interior row 1.
+    assert_eq!(frame.get(0, 1).text, "│", "left outline at (0,1)");
+    assert_eq!(frame.get(5, 1).text, "│", "right outline at (5,1)");
+}
+
+#[test]
+fn p2_28_outline_clipped_at_viewport_edge() {
+    // Outline edges at/over viewport bounds are clipped to the frame (no panic).
+    // The outline overdraws the widget's own perimeter cells; cells off-frame are
+    // skipped silently.
+    use textual::style::{BorderEdge, BorderType, Color};
+
+    let red = Color::parse("red").unwrap();
+    let outline_edge = BorderEdge::Edge {
+        border_type: BorderType::Solid,
+        color: red,
+    };
+
+    // Outlined Container child fills the root frame (10x3).
+    let mut outlined = Container::new().with_child(Label::new("cd"));
+    outlined.seed_mut().styles.style.outline_top = outline_edge;
+    outlined.seed_mut().styles.style.outline_bottom = outline_edge;
+    outlined.seed_mut().styles.style.outline_left = outline_edge;
+    outlined.seed_mut().styles.style.outline_right = outline_edge;
+
+    let mut root = Container::new().with_child(outlined);
     let (_tree, frame, _lines) = tree_render(&mut root, 10, 3);
 
-    // Label "edge" has content_width=4, so layout rect is (0, 0, 4, 1).
-    // Top: row -1 (clipped), Left: col -1 (clipped).
-    // Bottom: row 1, cols 0..4 → '─'
-    // Right edge may be clipped by current content-box clipping rules.
-    assert_eq!(frame.get(0, 1).text, "─", "bottom outline at (0,1)");
-    assert_eq!(frame.get(3, 1).text, "─", "bottom outline at (3,1)");
-
-    // Label text intact.
-    assert_eq!(frame.get(0, 0).text, "e", "label text at (0,0)");
+    // Outlined rect: cols 0..=9, rows 0..=2 (fully on-frame).
+    // Top outline overdraws row 0; bottom outline overdraws row 2.
+    assert_eq!(frame.get(0, 0).text, "┌", "top-left corner at (0,0)");
+    assert_eq!(frame.get(0, 2).text, "└", "bottom-left corner at (0,2)");
+    assert_eq!(frame.get(9, 2).text, "┘", "bottom-right corner at (9,2)");
+    // Side outlines overdraw col 0 / col 9 of interior row 1.
+    assert_eq!(frame.get(0, 1).text, "│", "left outline at (0,1)");
+    assert_eq!(frame.get(9, 1).text, "│", "right outline at (9,1)");
 }
 
 // ===========================================================================

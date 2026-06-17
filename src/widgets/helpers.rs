@@ -707,6 +707,93 @@ fn border_side_segment(
     Segment::styled(ch.to_string(), s)
 }
 
+/// A single outline perimeter cell: `(col, row, glyph, style)` in widget-local
+/// coordinates (col `0..width`, row `0..height`).
+pub(crate) type OutlineCell = (usize, usize, char, rich_rs::Style);
+
+/// Compute the perimeter cells for a widget's CSS `outline`.
+///
+/// Unlike `border` (which reserves layout space), `outline` is drawn ON TOP of
+/// the widget's own edge cells without changing its size, and — critically for
+/// containers — ON TOP of any already-composited child content at those edges.
+/// This mirrors Python `StylesCache.render_line` (the "Draw any outline" block):
+/// the top/bottom rows become full outline rows (with corners when side outlines
+/// are present), and each interior row gets a side glyph at col 0 / col w-1.
+///
+/// The returned cells are painted into the frame buffer AFTER children render,
+/// so the outline correctly overdraws the widget's edges regardless of whether
+/// the outlined node is a leaf or a container wrapping a child. Glyphs are
+/// colored with the outline color flattened over the base/parent background
+/// (`outer_bg`); the cell background is the widget surface (`inner_bg`).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn outline_edge_cells(
+    width: usize,
+    height: usize,
+    outline_top: BorderEdge,
+    outline_right: BorderEdge,
+    outline_bottom: BorderEdge,
+    outline_left: BorderEdge,
+    inner_bg: crate::style::Color,
+    outer_bg: crate::style::Color,
+) -> Vec<OutlineCell> {
+    let has_top = outline_top.is_set();
+    let has_right = outline_right.is_set();
+    let has_bottom = outline_bottom.is_set();
+    let has_left = outline_left.is_set();
+    if !has_top && !has_right && !has_bottom && !has_left {
+        return Vec::new();
+    }
+    let width = width.max(1);
+    let height = height.max(1);
+    let inner = Some(inner_bg);
+    let outer = Some(outer_bg);
+
+    let mut cells: Vec<OutlineCell> = Vec::new();
+
+    // Build a horizontal edge row (top or bottom) and emit its per-cell glyphs.
+    let mut push_horizontal_row = |edge: BorderEdge, row: usize| {
+        let segs = border_horizontal_row(edge, inner, outer, width, has_left, has_right, row == 0);
+        let mut col = 0usize;
+        for seg in segs {
+            let style = seg.style.unwrap_or_default();
+            for ch in seg.text.chars() {
+                if col >= width {
+                    break;
+                }
+                cells.push((col, row, ch, style));
+                col += 1;
+            }
+        }
+    };
+
+    if has_top {
+        push_horizontal_row(outline_top, 0);
+    }
+    if has_bottom && height > 1 {
+        push_horizontal_row(outline_bottom, height - 1);
+    }
+
+    // Side glyphs on interior rows (rows not covered by the top/bottom rows).
+    let first_interior = usize::from(has_top);
+    let last_interior = height.saturating_sub(usize::from(has_bottom));
+    for row in first_interior..last_interior {
+        if has_left {
+            let seg = border_side_segment(outline_left, inner, outer, Side::Left);
+            if let Some(ch) = seg.text.chars().next() {
+                cells.push((0, row, ch, seg.style.unwrap_or_default()));
+            }
+        }
+        if has_right && width > 1 {
+            let seg = border_side_segment(outline_right, inner, outer, Side::Right);
+            if let Some(ch) = seg.text.chars().next() {
+                cells.push((width - 1, row, ch, seg.style.unwrap_or_default()));
+            }
+        }
+    }
+
+    cells
+}
+
 fn apply_text_style_flags(style: &mut rich_rs::Style, flags: &crate::style::TextStyleFlags) {
     if flags.bold {
         *style = style.clone().with_bold(true);

@@ -301,10 +301,11 @@ fn render_blank_border_consumes_space() {
 
 #[test]
 fn render_outline_uses_table_chars() {
-    // Outline cells are painted into the parent's region (outside the child's box).
-    // Parent 12×6, child with margin:1 and round outline on all sides.
-    // Child occupies rows 1..4, cols 1..10 inside the parent.
-    // Outline cells: top=row 0, bottom=row 5, left=col 0, right=col 11.
+    // Outline is drawn OVER the widget's OWN edge cells (it does not reserve
+    // layout space), matching Python `StylesCache.render_line`. Parent 12×6,
+    // child with margin:1 and round outline on all sides. The child occupies
+    // rows 1..=4, cols 1..=10 inside the parent. Outline cells therefore land on
+    // the child's own perimeter: top=row 1, bottom=row 4, left=col 1, right=col 10.
     let red = Color::parse("red").unwrap();
     let round_edge = BorderEdge::Edge {
         border_type: BorderType::Round,
@@ -320,32 +321,32 @@ fn render_outline_uses_table_chars() {
     let mut root = Container::new().with_child(fill);
     let (_tree, frame, _lines) = tree_render(&mut root, 12, 6);
 
-    // top outline, middle column → chars[0][1] = '─'
+    // top outline, middle column → chars[0][1] = '─' (child's own top row)
     assert_eq!(
-        frame.get(5, 0).text,
+        frame.get(5, 1).text,
         "─",
         "top outline middle col should be ─"
     );
-    // bottom outline, middle column → chars[2][1] = '─'
+    // bottom outline, middle column → chars[2][1] = '─' (child's own bottom row)
     assert_eq!(
-        frame.get(5, 5).text,
+        frame.get(5, 4).text,
         "─",
         "bottom outline middle col should be ─"
     );
-    // left outline, middle row → chars[1][0] = '│'
+    // left outline, middle row → chars[1][0] = '│' (child's own left col)
     assert_eq!(
-        frame.get(0, 2).text,
+        frame.get(1, 2).text,
         "│",
         "left outline middle row should be │"
     );
-    // right outline, middle row → chars[1][2] = '│'
+    // right outline, middle row → chars[1][2] = '│' (child's own right col)
     assert_eq!(
-        frame.get(11, 2).text,
+        frame.get(10, 2).text,
         "│",
         "right outline middle row should be │"
     );
 
-    // --- Outer outline: locks new top-vs-bottom distinction ---
+    // --- Outer outline: locks top-vs-bottom / left-vs-right glyph distinction ---
     let outer_edge = BorderEdge::Edge {
         border_type: BorderType::Outer,
         color: red,
@@ -361,18 +362,18 @@ fn render_outline_uses_table_chars() {
     let (_tree2, frame2, _lines2) = tree_render(&mut root2, 12, 6);
 
     // top outline → chars[0][1] = '▀'
-    assert_eq!(frame2.get(5, 0).text, "▀", "outer top outline should be ▀");
-    // bottom outline → chars[2][1] = '▄' (NEW: different from old '▀')
+    assert_eq!(frame2.get(5, 1).text, "▀", "outer top outline should be ▀");
+    // bottom outline → chars[2][1] = '▄' (distinct from top '▀')
     assert_eq!(
-        frame2.get(5, 5).text,
+        frame2.get(5, 4).text,
         "▄",
         "outer bottom outline should be ▄"
     );
     // left outline → chars[1][0] = '▌'
-    assert_eq!(frame2.get(0, 2).text, "▌", "outer left outline should be ▌");
-    // right outline → chars[1][2] = '▐' (NEW: different from old '▌')
+    assert_eq!(frame2.get(1, 2).text, "▌", "outer left outline should be ▌");
+    // right outline → chars[1][2] = '▐' (distinct from left '▌')
     assert_eq!(
-        frame2.get(11, 2).text,
+        frame2.get(10, 2).text,
         "▐",
         "outer right outline should be ▐"
     );

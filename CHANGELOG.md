@@ -7,6 +7,25 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-17 (fix(render): outline paints over the widget's own edge cells)
+
+- **fix(render): `outline` overdraws the widget edge instead of reserving space**
+  - The old `paint_outline` drew one cell OUTSIDE the layout rect. Python's
+    `outline` reserves no space and is drawn over the widget's own perimeter
+    cells (and over child content composited there). Replaced with
+    `outline_edge_cells()` (perimeter glyphs from the existing border-char/style
+    logic) painted AFTER children via `paint_outline_cells()`, so it overdraws
+    final content on both leaves and containers. Promotes `docs_outline`,
+    `docs_outline01` (PTY 164 → 166).
+- **fix(render): scrollbar styling resolves from the host, not the bar itself**
+  - `scrollbar-color`/`-background`/`-corner-color` are not inherited, so a
+    `ScrollBar`/`ScrollBarCorner` reading its own style never saw the host's
+    `scrollbar-color`. Added `current_host_style()` (the stack entry below the
+    bar = the host during render) and resolve color/background/corner + base bg
+    from it (Python `self.parent.styles.scrollbar_*`). Fixes the cyan thumb /
+    host-colored corner; full scrollbar parity still pending out-of-lane
+    named-color and geometry fixes.
+
 ### 2026-06-17 (feat(layout): width/height units + align middle + 1fr margin reserve)
 
 - **feat(style): `w`/`h` scalar units (% of the parent's *other* axis)**

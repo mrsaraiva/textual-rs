@@ -7,7 +7,7 @@ use crate::debug::{debug_layout, debug_render};
 use crate::node_id::{NodeId, node_id_to_ffi};
 use crate::render::{DirtyRegion, FrameBuffer};
 use crate::style::{
-    BorderEdge, Color, Constrain, Hatch, KeylineType, Layout, OverlayMode, TextOverflow, TextWrap,
+    Color, Constrain, Hatch, KeylineType, Layout, OverlayMode, TextOverflow, TextWrap,
     color_from_simple,
 };
 use crate::widget_tree::WidgetTree;
@@ -16,8 +16,8 @@ use crate::widgets::{
     DATA_TABLE_HSCROLLBAR_ID, KEY_PANEL_VSCROLLBAR_ID, LOG_VSCROLLBAR_ID,
     OPTION_LIST_VSCROLLBAR_ID, Overlay,
     RICH_LOG_VSCROLLBAR_ID, SCROLL_VIEW_HSCROLLBAR_ID, SCROLL_VIEW_SCROLLBAR_CORNER_ID,
-    SCROLL_VIEW_VSCROLLBAR_ID, ScrollBar, ScrollbarPolicy, Toast, Widget,
-    border_spacing_from_style, crop_line_horizontal,
+    OutlineCell, SCROLL_VIEW_VSCROLLBAR_ID, ScrollBar, ScrollbarPolicy, Toast, Widget,
+    border_spacing_from_style, crop_line_horizontal, outline_edge_cells,
 };
 
 use rich_rs::{ControlType, MetaValue, Renderable, Segment, Segments, StyleMeta};
@@ -732,6 +732,13 @@ fn render_tree_node(
     let meta = node_selector_meta_from_node(node, node_id);
     let resolved = resolve_node_style(tree, node_id, &meta);
 
+    // CSS `outline` is drawn OVER this node's own edge cells (without reserving
+    // layout space) AND over any child content composited at those edges. It is
+    // therefore computed here (while the ancestor style stack is the base
+    // background) but PAINTED after children render — see `deferred_outline`
+    // below. Mirrors Python `StylesCache.render_line` outline block.
+    let mut deferred_outline: Option<(Vec<OutlineCell>, i32, i32, ClipRect)> = None;
+
     if should_render {
         let dest_x = i32::from(rect.x0) + ctx.origin_x;
         let dest_y = i32::from(rect.y0) + ctx.origin_y;
@@ -892,8 +899,39 @@ fn render_tree_node(
             frame.write_line_at(x0 as usize, y as usize, &cropped, false);
         }
 
-        // P2-28: Paint outline edges outside the widget's layout rect.
-        paint_outline(&resolved, dest_x, dest_y, w, h, ctx.clip, frame);
+        // CSS `outline`: compute perimeter cells now (the ancestor style stack
+        // still represents the base/parent background), but defer painting until
+        // AFTER children render so the outline overdraws the final composited
+        // content at this node's edges. This makes outline correct for both leaf
+        // widgets and containers that wrap a child (e.g. `Static::new(..).id(..)`,
+        // which produces a Node wrapper).
+        if resolved.outline_top.is_set()
+            || resolved.outline_right.is_set()
+            || resolved.outline_bottom.is_set()
+            || resolved.outline_left.is_set()
+        {
+            let outer_bg = crate::css::current_composited_background().unwrap_or_else(|| {
+                crate::style::parse_color_like("$background")
+                    .unwrap_or(crate::style::Color::rgb(0, 0, 0))
+            });
+            let inner_bg = resolved
+                .bg
+                .map(|c| c.flatten_over(outer_bg))
+                .unwrap_or(outer_bg);
+            let cells = outline_edge_cells(
+                w,
+                h,
+                resolved.outline_top,
+                resolved.outline_right,
+                resolved.outline_bottom,
+                resolved.outline_left,
+                inner_bg,
+                outer_bg,
+            );
+            if !cells.is_empty() {
+                deferred_outline = Some((cells, dest_x, dest_y, ctx.clip));
+            }
+        }
 
         // P2-34: Apply hatch fill to blank cells within the widget area.
         if let Some(ref hatch) = resolved.hatch {
@@ -1029,7 +1067,45 @@ fn render_tree_node(
         );
     }
 
+    // CSS `outline`: paint perimeter cells over the final composited content at
+    // this node's edges (after children). Glyphs and styles were baked above.
+    if let Some((cells, dest_x, dest_y, clip)) = deferred_outline {
+        paint_outline_cells(frame, &cells, dest_x, dest_y, clip);
+    }
+
     pop_style_context();
+}
+
+/// Paint precomputed `outline` perimeter cells into the frame buffer.
+///
+/// Each cell is `(col, row, glyph, style)` in widget-local coordinates; it is
+/// written at `(dest_x + col, dest_y + row)` if inside the clip and frame.
+fn paint_outline_cells(
+    frame: &mut FrameBuffer,
+    cells: &[OutlineCell],
+    dest_x: i32,
+    dest_y: i32,
+    clip: ClipRect,
+) {
+    let frame_clip = ClipRect::for_frame(frame);
+    let Some(paint_clip) = clip.intersect(frame_clip) else {
+        return;
+    };
+    for (col, row, ch, style) in cells {
+        let x = dest_x + *col as i32;
+        let y = dest_y + *row as i32;
+        if x < paint_clip.x0 || x >= paint_clip.x1 || y < paint_clip.y0 || y >= paint_clip.y1 {
+            continue;
+        }
+        let (ux, uy) = (x as usize, y as usize);
+        if ux >= frame.width || uy >= frame.height {
+            continue;
+        }
+        let cell = frame.get_mut(ux, uy);
+        cell.text = ch.to_string();
+        cell.style = Some(*style);
+        cell.continuation = false;
+    }
 }
 
 fn render_app_root_tree_layer(
@@ -1373,131 +1449,6 @@ impl ClipRect {
             Some(Self { x0, y0, x1, y1 })
         }
     }
-}
-
-// ===========================================================================
-// P2-28: Outline rendering (paints OUTSIDE the border box)
-// ===========================================================================
-
-/// Paint outline edges outside a widget's layout rect into the frame buffer.
-///
-/// Unlike CSS `border` which occupies space within the layout rect, `outline`
-/// paints in the surrounding cells without affecting layout. Each outline edge
-/// is 1 cell wide and uses the same border-character rendering as regular
-/// borders, but positioned outside the widget's bounding box.
-///
-/// Cells that fall outside the frame or clip rect are silently skipped.
-fn paint_outline(
-    resolved: &crate::style::Style,
-    dest_x: i32,
-    dest_y: i32,
-    w: usize,
-    h: usize,
-    clip: ClipRect,
-    frame: &mut FrameBuffer,
-) {
-    let outline_top = &resolved.outline_top;
-    let outline_right = &resolved.outline_right;
-    let outline_bottom = &resolved.outline_bottom;
-    let outline_left = &resolved.outline_left;
-
-    if !outline_top.is_set()
-        && !outline_right.is_set()
-        && !outline_bottom.is_set()
-        && !outline_left.is_set()
-    {
-        return;
-    }
-
-    let frame_clip = ClipRect {
-        x0: 0,
-        y0: 0,
-        x1: frame.width as i32,
-        y1: frame.height as i32,
-    };
-    let Some(paint_clip) = clip.intersect(frame_clip) else {
-        return;
-    };
-    // Outline paints just outside the layout rect. Expand the clip by one cell
-    // so right/bottom edges are not dropped when descendants are clipped to
-    // their content box.
-    let paint_clip = ClipRect {
-        x0: paint_clip.x0.saturating_sub(1),
-        y0: paint_clip.y0.saturating_sub(1),
-        x1: paint_clip.x1.saturating_add(1),
-        y1: paint_clip.y1.saturating_add(1),
-    };
-
-    let fallback_bg =
-        crate::style::parse_color_like("$background").unwrap_or(crate::style::Color::rgb(0, 0, 0));
-
-    // Helper: paint a single outline cell if it's within bounds.
-    let paint_cell = |frame: &mut FrameBuffer, x: i32, y: i32, ch: char, edge: &BorderEdge| {
-        if x < paint_clip.x0 || x >= paint_clip.x1 || y < paint_clip.y0 || y >= paint_clip.y1 {
-            return;
-        }
-        let ux = x as usize;
-        let uy = y as usize;
-        if ux >= frame.width || uy >= frame.height {
-            return;
-        }
-        let color = edge.color().unwrap_or(fallback_bg);
-        let style = rich_rs::Style::new()
-            .with_color(color.to_simple_opaque())
-            .with_bgcolor(fallback_bg.to_simple_opaque());
-        let cell = frame.get_mut(ux, uy);
-        cell.text = ch.to_string();
-        cell.style = Some(style);
-        cell.continuation = false;
-    };
-
-    // Top outline: row at dest_y - 1, columns [dest_x .. dest_x + w).
-    if outline_top.is_set() {
-        let y = dest_y - 1;
-        let ch = outline_char_horizontal(outline_top, true);
-        for col in 0..w as i32 {
-            paint_cell(frame, dest_x + col, y, ch, outline_top);
-        }
-    }
-
-    // Bottom outline: row at dest_y + h, columns [dest_x .. dest_x + w).
-    if outline_bottom.is_set() {
-        let y = dest_y + h as i32;
-        let ch = outline_char_horizontal(outline_bottom, false);
-        for col in 0..w as i32 {
-            paint_cell(frame, dest_x + col, y, ch, outline_bottom);
-        }
-    }
-
-    // Left outline: column at dest_x - 1, rows [dest_y .. dest_y + h).
-    if outline_left.is_set() {
-        let x = dest_x - 1;
-        let ch = outline_char_vertical(outline_left, true);
-        for row in 0..h as i32 {
-            paint_cell(frame, x, dest_y + row, ch, outline_left);
-        }
-    }
-
-    // Right outline: column at dest_x + w, rows [dest_y .. dest_y + h).
-    if outline_right.is_set() {
-        let x = dest_x + w as i32;
-        let ch = outline_char_vertical(outline_right, false);
-        for row in 0..h as i32 {
-            paint_cell(frame, x, dest_y + row, ch, outline_right);
-        }
-    }
-}
-
-/// Pick the horizontal outline character (top or bottom row, middle column).
-fn outline_char_horizontal(edge: &BorderEdge, top: bool) -> char {
-    let (chars, _) = crate::widgets::border_chars(edge.edge_type());
-    chars[if top { 0 } else { 2 }][1]
-}
-
-/// Pick the vertical outline character (middle row, left or right column).
-fn outline_char_vertical(edge: &BorderEdge, left: bool) -> char {
-    let (chars, _) = crate::widgets::border_chars(edge.edge_type());
-    chars[1][if left { 0 } else { 2 }]
 }
 
 // ===========================================================================

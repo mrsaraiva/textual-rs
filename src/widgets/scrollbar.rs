@@ -684,10 +684,20 @@ impl Widget for ScrollBar {
             options.size.0.max(1)
         };
 
-        let resolved = crate::css::current_self_style().unwrap_or_default();
+        // Scrollbar color/background tokens are read from the HOST widget's
+        // resolved styles, not the scrollbar's own. Mirrors Python `ScrollBar`
+        // (textual/src/textual/scrollbar.py:282-294): `styles = self.parent.styles`
+        // and `base_background, _ = self.parent.background_colors`. These tokens
+        // are NOT inherited, so a dedicated scrollbar must read its host's styles.
+        // Fall back to the scrollbar's own resolved style only if there is no host
+        // (e.g. off-tree rendering).
+        let resolved = crate::css::current_host_style()
+            .or_else(crate::css::current_self_style)
+            .unwrap_or_default();
         let style = &resolved;
         let base_bg = style
             .bg
+            .or_else(crate::css::current_composited_background)
             .or_else(|| crate::style::parse_color_like("$background"))
             .unwrap_or_else(|| Color::rgb(0, 0, 0));
         let bg_raw = if self.grabbed {
@@ -920,10 +930,16 @@ impl Widget for ScrollBarCorner {
     fn render(&self, _console: &rich_rs::Console, options: &rich_rs::ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
         let height = options.size.1.max(1);
-        let resolved = crate::css::current_self_style().unwrap_or_default();
+        // Corner color is read from the HOST widget's resolved styles, not the
+        // corner's own. Mirrors Python `ScrollBarCorner` (scrollbar.py:408-410):
+        // `styles = self.parent.styles; color = styles.scrollbar_corner_color`.
+        let resolved = crate::css::current_host_style()
+            .or_else(crate::css::current_self_style)
+            .unwrap_or_default();
         let style = &resolved;
         let base_bg = style
             .bg
+            .or_else(crate::css::current_composited_background)
             .or_else(|| crate::style::parse_color_like("$background"))
             .unwrap_or_else(|| Color::rgb(0, 0, 0));
         let color = style
@@ -1231,5 +1247,52 @@ mod tests {
         // 1 row drag at scale 50/34, with fixed gain 0.7, quantized to 1/8.
         // Effective target is ~1 line per row (wheel parity).
         assert!((offset - 1.0).abs() < f32::EPSILON);
+    }
+
+    /// The scrollbar reads its color tokens from the HOST widget's resolved
+    /// style (Python `self.parent.styles.scrollbar_*`), not its own. With a host
+    /// style carrying `scrollbar-color`, the rendered thumb must use that color.
+    #[test]
+    fn scrollbar_color_resolves_from_host_style() {
+        use crate::css::SelectorMeta;
+        let mut host = Style::default();
+        host.scrollbar_color = Some(Color::rgb(0, 255, 255));
+        host.scrollbar_background = Some(Color::rgb(0, 0, 255));
+        let host_meta = SelectorMeta::new("Screen".to_string(), None, Vec::new());
+
+        let mut bar = ScrollBar::new(true, 1);
+        bar.set_window_virtual_size(100);
+        bar.set_window_size(20);
+        bar.on_layout(1, 20);
+        let self_meta = SelectorMeta::new("ScrollBar".to_string(), None, Vec::new());
+
+        let console = rich_rs::Console::new();
+        let mut options = console.options().clone();
+        options.size = (1, 20);
+        options.max_width = 1;
+        options.max_height = 20;
+
+        // Push host then self, mirroring the render-time stack order.
+        crate::css::push_style_context(host_meta, host);
+        crate::css::push_style_context(self_meta, Style::default());
+        let segments = Widget::render(&bar, &console, &options);
+        crate::css::pop_style_context();
+        crate::css::pop_style_context();
+
+        // The thumb body is painted with `reverse=true` and `color = thumb`.
+        let cyan = Color::rgb(0, 255, 255).to_simple_opaque();
+        let blue = Color::rgb(0, 0, 255).to_simple_opaque();
+        let thumb_seg = segments
+            .iter()
+            .find(|s| s.style.and_then(|st| st.color) == Some(cyan))
+            .expect("thumb should use host scrollbar-color (cyan)");
+        assert_eq!(thumb_seg.style.and_then(|s| s.reverse), Some(true));
+        // Track cells use the host scrollbar-background (blue).
+        assert!(
+            segments
+                .iter()
+                .any(|s| s.style.and_then(|st| st.bgcolor) == Some(blue)),
+            "track should use host scrollbar-background (blue)"
+        );
     }
 }

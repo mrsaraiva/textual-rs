@@ -230,4 +230,8 @@ CASE=docs_min_width      && want "$@" && run_case "$CASE" "$PY_DOCS/styles"    "
 CASE=docs_nesting01      && want "$@" && run_case "$CASE" "$PY_DOCS/guide/css" "" "nesting01.py"
 CASE=docs_nesting02      && want "$@" && run_case "$CASE" "$PY_DOCS/guide/css" "" "nesting02.py"
 
+# Engine-gap wave 2 (render): outline painted over the widget's own edge cells.
+CASE=docs_outline        && want "$@" && run_case "$CASE" "$PY_DOCS/styles"        "" "outline.py"
+CASE=docs_outline01      && want "$@" && run_case "$CASE" "$PY_DOCS/guide/styles"  "" "outline01.py"
+
 echo "done."

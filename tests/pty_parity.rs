@@ -897,6 +897,25 @@ const CASES: &[Case] = &[
         golden_replacements: &[],
         status: Status::Pass,
     },
+    // Engine-gap wave 2 (render): outline painted over the widget's own edge cells.
+    Case {
+        name: "docs_outline",
+        example: "outline",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_outline01",
+        example: "outline01",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
     Case {
         name: "docs_checkbox",
         example: "checkbox",
@@ -1934,6 +1953,8 @@ pty_case!(docs_max_height, "docs_max_height");
 pty_case!(docs_min_width, "docs_min_width");
 pty_case!(docs_nesting01, "docs_nesting01");
 pty_case!(docs_nesting02, "docs_nesting02");
+pty_case!(docs_outline, "docs_outline");
+pty_case!(docs_outline01, "docs_outline01");
 pty_case!(docs_prevent, "docs_prevent");
 pty_case!(docs_center08, "docs_center08");
 pty_case!(docs_center09, "docs_center09");

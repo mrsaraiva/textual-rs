@@ -269,6 +269,26 @@ pub(crate) fn current_self_style() -> Option<Style> {
     STYLE_STACK.with(|stack| stack.borrow().last().cloned())
 }
 
+/// Returns the resolved style of the **host (parent) of the widget currently
+/// being rendered**, i.e. the entry directly below the top of `STYLE_STACK`.
+///
+/// During a `render()` call the top of the stack is the widget's own style (see
+/// [`current_self_style`]); the element below it is the host that owns this
+/// widget. Mirrors Python `ScrollBar`/`ScrollBarCorner`, which read
+/// `self.parent.styles.scrollbar_*` (textual/src/textual/scrollbar.py): scrollbar
+/// color/background/corner tokens are NOT inherited, so a dedicated scrollbar must
+/// read them from its host widget's resolved styles, not from its own.
+///
+/// Returns `None` when there is no host (e.g. the widget is the stack root, or
+/// this is called outside a render call).
+pub(crate) fn current_host_style() -> Option<Style> {
+    STYLE_STACK.with(|stack| {
+        let stack = stack.borrow();
+        let len = stack.len();
+        (len >= 2).then(|| stack[len - 2].clone())
+    })
+}
+
 /// Returns the effective painted background color from the current ancestor stack.
 ///
 /// CSS `bg` is not inherited semantically, but render-time composition needs the
