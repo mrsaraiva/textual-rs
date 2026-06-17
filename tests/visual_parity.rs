@@ -30,25 +30,42 @@ struct StyledCase {
     xfail: Option<&'static str>,
 }
 
-// First batch: color-focused styles examples.
+macro_rules! sc {
+    ($n:literal, $p:literal) => { StyledCase { name: $n, bin: $n, py_rel: $p, xfail: None } };
+    ($n:literal, $p:literal, $x:literal) => { StyledCase { name: $n, bin: $n, py_rel: $p, xfail: Some($x) } };
+}
+
+// Styles batch (color-focused). Measured 2026-06-17 at cell-RGB exactness:
+// 5 PASS, 16 XFAIL. The xfails are the COLOR-PARITY WORKSTREAM — the plain-text
+// pty harness can't see these; each is a real per-cell-color divergence vs Python.
+// Clusters: default-fg emission (Rust leaves un-set text fg as terminal-default;
+// Python emits resolved $foreground/$text — needs base `color: $foreground` +
+// fg applied to content cells), color blend (tint/opacity), border/outline/
+// scrollbar/hatch color application, auto-contrast `color: auto N%`.
 const CASES: &[StyledCase] = &[
-    StyledCase { name: "background", bin: "background", py_rel: "styles/background.py", xfail: None },
-    StyledCase { name: "color", bin: "color", py_rel: "styles/color.py", xfail: None },
-    StyledCase { name: "color_auto", bin: "color_auto", py_rel: "styles/color_auto.py", xfail: None },
-    StyledCase {
-        name: "background_tint",
-        bin: "background_tint",
-        py_rel: "styles/background_tint.py",
-        xfail: Some("`color: auto 90%` auto-contrast color + background-tint blend rounding differ \
-                     (fg #e0e0e0 vs py #e9eaeb; bg off-by-1)"),
-    },
-    StyledCase {
-        name: "colors",
-        bin: "colors",
-        py_rel: "guide/styles/colors.py",
-        xfail: Some("Rust leaves un-set text fg as terminal-default; Python emits the resolved \
-                     theme $text (#e0e0e0). Default-foreground emission model."),
-    },
+    sc!("background", "styles/background.py"),
+    sc!("color", "styles/color.py"),
+    sc!("color_auto", "styles/color_auto.py"),
+    sc!("text_style_all", "styles/text_style_all.py", "styled color-parity: text-style + default-fg"),
+    sc!("tint", "styles/tint.py", "styled color-parity: tint blend"),
+    sc!("background_transparency", "styles/background_transparency.py", "styled color-parity: bg alpha blend"),
+    sc!("opacity", "styles/opacity.py", "styled color-parity: opacity blend"),
+    sc!("text_opacity", "styles/text_opacity.py", "styled color-parity: text-opacity blend"),
+    sc!("hatch", "styles/hatch.py", "styled color-parity: hatch color"),
+    sc!("border", "styles/border.py"),
+    sc!("outline", "styles/outline.py", "styled color-parity: outline color + default-fg"),
+    sc!("scrollbar_size", "styles/scrollbar_size.py", "styled color-parity: scrollbar color"),
+    sc!("text_overflow", "styles/text_overflow.py", "styled color-parity: default-fg"),
+    sc!("text_wrap", "styles/text_wrap.py", "styled color-parity: default-fg"),
+    sc!("align_all", "styles/align_all.py"),
+    sc!("content_align_all", "styles/content_align_all.py", "styled color-parity: default-fg"),
+    sc!("margin", "styles/margin.py", "styled color-parity: default-fg/surface"),
+    sc!("padding", "styles/padding.py", "styled color-parity: default-fg/surface"),
+    sc!("link_color", "styles/link_color.py", "styled color-parity: link color application"),
+    sc!("background_tint", "styles/background_tint.py",
+        "styled color-parity: color: auto N% auto-contrast + background-tint blend"),
+    sc!("colors", "guide/styles/colors.py",
+        "styled color-parity: default-foreground emission (un-set text fg vs $text)"),
 ];
 
 fn repo() -> PathBuf {
@@ -152,8 +169,10 @@ fn golden_path(name: &str) -> PathBuf {
 #[test]
 fn visual_parity_batch() {
     let regen = std::env::var("REGEN_STYLED").is_ok();
+    let report_only = std::env::var("REPORT_ONLY").is_ok(); // tally, never panic
     let py_base = repo().join("../textual/docs/examples");
     let mut failures: Vec<String> = Vec::new();
+    let (mut n_pass, mut n_xfail, mut n_fail) = (0u32, 0u32, 0u32);
 
     for case in CASES {
         if regen {
@@ -182,13 +201,14 @@ fn visual_parity_batch() {
             let actual = capture(CommandBuilder::new(bin.to_str().unwrap()), repo());
             let matches = actual.trim() == golden.trim();
             match (matches, case.xfail) {
-                (true, None) => eprintln!("PASS  {}", case.name),
-                (false, Some(reason)) => eprintln!("XFAIL {} (known: {reason})", case.name),
+                (true, None) => { n_pass += 1; eprintln!("PASS  {}", case.name); }
+                (false, Some(reason)) => { n_xfail += 1; eprintln!("XFAIL {} (known: {reason})", case.name); }
                 (true, Some(_)) => {
                     eprintln!("UNEXPECTED PASS {} — its xfail bug appears fixed; clear the xfail", case.name);
-                    failures.push(format!("{} (unexpected-pass)", case.name));
+                    if !report_only { failures.push(format!("{} (unexpected-pass)", case.name)); }
                 }
                 (false, None) => {
+                    n_fail += 1;
                     let gl: Vec<&str> = golden.lines().collect();
                     let al: Vec<&str> = actual.lines().collect();
                     let mut first = String::from("(len diff)");
@@ -201,13 +221,16 @@ fn visual_parity_batch() {
                         }
                     }
                     eprintln!("FAIL  {}\n  {first}", case.name);
-                    failures.push(case.name.to_string());
+                    if !report_only { failures.push(case.name.to_string()); }
                 }
             }
         }
     }
 
-    if !regen && !failures.is_empty() {
+    if !regen {
+        eprintln!("\nstyled tally: {n_pass} PASS, {n_xfail} XFAIL, {n_fail} FAIL (of {})", CASES.len());
+    }
+    if !regen && !report_only && !failures.is_empty() {
         panic!("styled parity FAILED for: {}", failures.join(", "));
     }
 }

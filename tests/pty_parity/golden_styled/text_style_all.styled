@@ -1,0 +1,276 @@
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 0--
+[0-1] "  " fg=def bg=#121212
+[2-5] "none" fg=#e0e0e0 bg=#121212
+[6-30] "                         " fg=def bg=#121212
+[31-34] "bold" fg=#e0e0e0 bg=#121212
+[35-60] "                          " fg=def bg=#121212
+[61-66] "italic" fg=#e0e0e0 bg=#121212
+[67-89] "                       " fg=def bg=#121212
+[90-96] "reverse" fg=#e0e0e0 bg=#121212
+[97-119] "                       " fg=def bg=#121212
+--row 1--
+[0-1] "  " fg=def bg=#121212
+[2-17] "I must not fear." fg=#e0e0e0 bg=#121212
+[18-30] "             " fg=def bg=#121212
+[31-46] "I must not fear." fg=#e0e0e0 bg=#121212
+[47-60] "              " fg=def bg=#121212
+[61-76] "I must not fear." fg=#e0e0e0 bg=#121212
+[77-89] "             " fg=def bg=#121212
+[90-105] "I must not fear." fg=#e0e0e0 bg=#121212
+[106-119] "              " fg=def bg=#121212
+--row 2--
+[0-1] "  " fg=def bg=#121212
+[2-25] "Fear is the mind-killer." fg=#e0e0e0 bg=#121212
+[26-30] "     " fg=def bg=#121212
+[31-54] "Fear is the mind-killer." fg=#e0e0e0 bg=#121212
+[55-60] "      " fg=def bg=#121212
+[61-84] "Fear is the mind-killer." fg=#e0e0e0 bg=#121212
+[85-89] "     " fg=def bg=#121212
+[90-113] "Fear is the mind-killer." fg=#e0e0e0 bg=#121212
+[114-119] "      " fg=def bg=#121212
+--row 3--
+[0-1] "  " fg=def bg=#121212
+[2-25] "Fear is the little-death" fg=#e0e0e0 bg=#121212
+[26-30] "     " fg=def bg=#121212
+[31-54] "Fear is the little-death" fg=#e0e0e0 bg=#121212
+[55-60] "      " fg=def bg=#121212
+[61-84] "Fear is the little-death" fg=#e0e0e0 bg=#121212
+[85-89] "     " fg=def bg=#121212
+[90-113] "Fear is the little-death" fg=#e0e0e0 bg=#121212
+[114-119] "      " fg=def bg=#121212
+--row 4--
+[0-1] "  " fg=def bg=#121212
+[2-18] "that brings total" fg=#e0e0e0 bg=#121212
+[19-30] "            " fg=def bg=#121212
+[31-47] "that brings total" fg=#e0e0e0 bg=#121212
+[48-60] "             " fg=def bg=#121212
+[61-77] "that brings total" fg=#e0e0e0 bg=#121212
+[78-89] "            " fg=def bg=#121212
+[90-106] "that brings total" fg=#e0e0e0 bg=#121212
+[107-119] "             " fg=def bg=#121212
+--row 5--
+[0-1] "  " fg=def bg=#121212
+[2-14] "obliteration." fg=#e0e0e0 bg=#121212
+[15-30] "                " fg=def bg=#121212
+[31-43] "obliteration." fg=#e0e0e0 bg=#121212
+[44-60] "                 " fg=def bg=#121212
+[61-73] "obliteration." fg=#e0e0e0 bg=#121212
+[74-89] "                " fg=def bg=#121212
+[90-102] "obliteration." fg=#e0e0e0 bg=#121212
+[103-119] "                 " fg=def bg=#121212
+--row 6--
+[0-1] "  " fg=def bg=#121212
+[2-21] "I will face my fear." fg=#e0e0e0 bg=#121212
+[22-30] "         " fg=def bg=#121212
+[31-50] "I will face my fear." fg=#e0e0e0 bg=#121212
+[51-60] "          " fg=def bg=#121212
+[61-80] "I will face my fear." fg=#e0e0e0 bg=#121212
+[81-89] "         " fg=def bg=#121212
+[90-109] "I will face my fear." fg=#e0e0e0 bg=#121212
+[110-119] "          " fg=def bg=#121212
+--row 7--
+[0-1] "  " fg=def bg=#121212
+[2-25] "I will permit it to pass" fg=#e0e0e0 bg=#121212
+[26-30] "     " fg=def bg=#121212
+[31-54] "I will permit it to pass" fg=#e0e0e0 bg=#121212
+[55-60] "      " fg=def bg=#121212
+[61-84] "I will permit it to pass" fg=#e0e0e0 bg=#121212
+[85-89] "     " fg=def bg=#121212
+[90-113] "I will permit it to pass" fg=#e0e0e0 bg=#121212
+[114-119] "      " fg=def bg=#121212
+--row 8--
+[0-1] "  " fg=def bg=#121212
+[2-24] "over me and through me." fg=#e0e0e0 bg=#121212
+[25-30] "      " fg=def bg=#121212
+[31-53] "over me and through me." fg=#e0e0e0 bg=#121212
+[54-60] "       " fg=def bg=#121212
+[61-83] "over me and through me." fg=#e0e0e0 bg=#121212
+[84-89] "      " fg=def bg=#121212
+[90-112] "over me and through me." fg=#e0e0e0 bg=#121212
+[113-119] "       " fg=def bg=#121212
+--row 9--
+[0-1] "  " fg=def bg=#121212
+[2-27] "And when it has gone past," fg=#e0e0e0 bg=#121212
+[28-30] "   " fg=def bg=#121212
+[31-58] "And when it has gone past, I" fg=#e0e0e0 bg=#121212
+[59-60] "  " fg=def bg=#121212
+[61-86] "And when it has gone past," fg=#e0e0e0 bg=#121212
+[87-89] "   " fg=def bg=#121212
+[90-117] "And when it has gone past, I" fg=#e0e0e0 bg=#121212
+[118-119] "  " fg=def bg=#121212
+--row 10--
+[0-1] "  " fg=def bg=#121212
+[2-26] "I will turn the inner eye" fg=#e0e0e0 bg=#121212
+[27-30] "    " fg=def bg=#121212
+[31-56] "will turn the inner eye to" fg=#e0e0e0 bg=#121212
+[57-60] "    " fg=def bg=#121212
+[61-85] "I will turn the inner eye" fg=#e0e0e0 bg=#121212
+[86-89] "    " fg=def bg=#121212
+[90-115] "will turn the inner eye to" fg=#e0e0e0 bg=#121212
+[116-119] "    " fg=def bg=#121212
+--row 11--
+[0-1] "  " fg=def bg=#121212
+[2-17] "to see its path." fg=#e0e0e0 bg=#121212
+[18-30] "             " fg=def bg=#121212
+[31-43] "see its path." fg=#e0e0e0 bg=#121212
+[44-60] "                 " fg=def bg=#121212
+[61-76] "to see its path." fg=#e0e0e0 bg=#121212
+[77-89] "             " fg=def bg=#121212
+[90-102] "see its path." fg=#e0e0e0 bg=#121212
+[103-119] "                 " fg=def bg=#121212
+--row 12--
+[0-1] "  " fg=def bg=#121212
+[2-24] "Where the fear has gone" fg=#e0e0e0 bg=#121212
+[25-30] "      " fg=def bg=#121212
+[31-53] "Where the fear has gone" fg=#e0e0e0 bg=#121212
+[54-60] "       " fg=def bg=#121212
+[61-83] "Where the fear has gone" fg=#e0e0e0 bg=#121212
+[84-89] "      " fg=def bg=#121212
+[90-112] "Where the fear has gone" fg=#e0e0e0 bg=#121212
+[113-119] "       " fg=def bg=#121212
+--row 13--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 14--
+[0-1] "  " fg=def bg=#121212
+[2-7] "strike" fg=#e0e0e0 bg=#121212
+[8-30] "                       " fg=def bg=#121212
+[31-39] "underline" fg=#e0e0e0 bg=#121212
+[40-60] "                     " fg=def bg=#121212
+[61-71] "bold italic" fg=#e0e0e0 bg=#121212
+[72-89] "                  " fg=def bg=#121212
+[90-103] "reverse strike" fg=#e0e0e0 bg=#121212
+[104-119] "                " fg=def bg=#121212
+--row 15--
+[0-1] "  " fg=def bg=#121212
+[2-17] "I must not fear." fg=#e0e0e0 bg=#121212
+[18-30] "             " fg=def bg=#121212
+[31-46] "I must not fear." fg=#e0e0e0 bg=#121212
+[47-60] "              " fg=def bg=#121212
+[61-76] "I must not fear." fg=#e0e0e0 bg=#121212
+[77-89] "             " fg=def bg=#121212
+[90-105] "I must not fear." fg=#e0e0e0 bg=#121212
+[106-119] "              " fg=def bg=#121212
+--row 16--
+[0-1] "  " fg=def bg=#121212
+[2-25] "Fear is the mind-killer." fg=#e0e0e0 bg=#121212
+[26-30] "     " fg=def bg=#121212
+[31-54] "Fear is the mind-killer." fg=#e0e0e0 bg=#121212
+[55-60] "      " fg=def bg=#121212
+[61-84] "Fear is the mind-killer." fg=#e0e0e0 bg=#121212
+[85-89] "     " fg=def bg=#121212
+[90-113] "Fear is the mind-killer." fg=#e0e0e0 bg=#121212
+[114-119] "      " fg=def bg=#121212
+--row 17--
+[0-1] "  " fg=def bg=#121212
+[2-25] "Fear is the little-death" fg=#e0e0e0 bg=#121212
+[26-30] "     " fg=def bg=#121212
+[31-54] "Fear is the little-death" fg=#e0e0e0 bg=#121212
+[55-60] "      " fg=def bg=#121212
+[61-84] "Fear is the little-death" fg=#e0e0e0 bg=#121212
+[85-89] "     " fg=def bg=#121212
+[90-113] "Fear is the little-death" fg=#e0e0e0 bg=#121212
+[114-119] "      " fg=def bg=#121212
+--row 18--
+[0-1] "  " fg=def bg=#121212
+[2-18] "that brings total" fg=#e0e0e0 bg=#121212
+[19-30] "            " fg=def bg=#121212
+[31-47] "that brings total" fg=#e0e0e0 bg=#121212
+[48-60] "             " fg=def bg=#121212
+[61-77] "that brings total" fg=#e0e0e0 bg=#121212
+[78-89] "            " fg=def bg=#121212
+[90-106] "that brings total" fg=#e0e0e0 bg=#121212
+[107-119] "             " fg=def bg=#121212
+--row 19--
+[0-1] "  " fg=def bg=#121212
+[2-14] "obliteration." fg=#e0e0e0 bg=#121212
+[15-30] "                " fg=def bg=#121212
+[31-43] "obliteration." fg=#e0e0e0 bg=#121212
+[44-60] "                 " fg=def bg=#121212
+[61-73] "obliteration." fg=#e0e0e0 bg=#121212
+[74-89] "                " fg=def bg=#121212
+[90-102] "obliteration." fg=#e0e0e0 bg=#121212
+[103-119] "                 " fg=def bg=#121212
+--row 20--
+[0-1] "  " fg=def bg=#121212
+[2-21] "I will face my fear." fg=#e0e0e0 bg=#121212
+[22-30] "         " fg=def bg=#121212
+[31-50] "I will face my fear." fg=#e0e0e0 bg=#121212
+[51-60] "          " fg=def bg=#121212
+[61-80] "I will face my fear." fg=#e0e0e0 bg=#121212
+[81-89] "         " fg=def bg=#121212
+[90-109] "I will face my fear." fg=#e0e0e0 bg=#121212
+[110-119] "          " fg=def bg=#121212
+--row 21--
+[0-1] "  " fg=def bg=#121212
+[2-25] "I will permit it to pass" fg=#e0e0e0 bg=#121212
+[26-30] "     " fg=def bg=#121212
+[31-54] "I will permit it to pass" fg=#e0e0e0 bg=#121212
+[55-60] "      " fg=def bg=#121212
+[61-84] "I will permit it to pass" fg=#e0e0e0 bg=#121212
+[85-89] "     " fg=def bg=#121212
+[90-113] "I will permit it to pass" fg=#e0e0e0 bg=#121212
+[114-119] "      " fg=def bg=#121212
+--row 22--
+[0-1] "  " fg=def bg=#121212
+[2-24] "over me and through me." fg=#e0e0e0 bg=#121212
+[25-30] "      " fg=def bg=#121212
+[31-53] "over me and through me." fg=#e0e0e0 bg=#121212
+[54-60] "       " fg=def bg=#121212
+[61-83] "over me and through me." fg=#e0e0e0 bg=#121212
+[84-89] "      " fg=def bg=#121212
+[90-112] "over me and through me." fg=#e0e0e0 bg=#121212
+[113-119] "       " fg=def bg=#121212
+--row 23--
+[0-1] "  " fg=def bg=#121212
+[2-27] "And when it has gone past," fg=#e0e0e0 bg=#121212
+[28-30] "   " fg=def bg=#121212
+[31-58] "And when it has gone past, I" fg=#e0e0e0 bg=#121212
+[59-60] "  " fg=def bg=#121212
+[61-86] "And when it has gone past," fg=#e0e0e0 bg=#121212
+[87-89] "   " fg=def bg=#121212
+[90-117] "And when it has gone past, I" fg=#e0e0e0 bg=#121212
+[118-119] "  " fg=def bg=#121212
+--row 24--
+[0-1] "  " fg=def bg=#121212
+[2-26] "I will turn the inner eye" fg=#e0e0e0 bg=#121212
+[27-30] "    " fg=def bg=#121212
+[31-56] "will turn the inner eye to" fg=#e0e0e0 bg=#121212
+[57-60] "    " fg=def bg=#121212
+[61-85] "I will turn the inner eye" fg=#e0e0e0 bg=#121212
+[86-89] "    " fg=def bg=#121212
+[90-115] "will turn the inner eye to" fg=#e0e0e0 bg=#121212
+[116-119] "    " fg=def bg=#121212
+--row 25--
+[0-1] "  " fg=def bg=#121212
+[2-17] "to see its path." fg=#e0e0e0 bg=#121212
+[18-30] "             " fg=def bg=#121212
+[31-43] "see its path." fg=#e0e0e0 bg=#121212
+[44-60] "                 " fg=def bg=#121212
+[61-76] "to see its path." fg=#e0e0e0 bg=#121212
+[77-89] "             " fg=def bg=#121212
+[90-102] "see its path." fg=#e0e0e0 bg=#121212
+[103-119] "                 " fg=def bg=#121212
+--row 26--
+[0-1] "  " fg=def bg=#121212
+[2-24] "Where the fear has gone" fg=#e0e0e0 bg=#121212
+[25-30] "      " fg=def bg=#121212
+[31-53] "Where the fear has gone" fg=#e0e0e0 bg=#121212
+[54-60] "       " fg=def bg=#121212
+[61-83] "Where the fear has gone" fg=#e0e0e0 bg=#121212
+[84-89] "      " fg=def bg=#121212
+[90-112] "Where the fear has gone" fg=#e0e0e0 bg=#121212
+[113-119] "       " fg=def bg=#121212
+--row 27--
+[0-1] "  " fg=def bg=#121212
+[2-28] "there will be nothing. Only" fg=#e0e0e0 bg=#121212
+[29-30] "  " fg=def bg=#121212
+[31-57] "there will be nothing. Only" fg=#e0e0e0 bg=#121212
+[58-60] "   " fg=def bg=#121212
+[61-87] "there will be nothing. Only" fg=#e0e0e0 bg=#121212
+[88-89] "  " fg=def bg=#121212
+[90-116] "there will be nothing. Only" fg=#e0e0e0 bg=#121212
+[117-119] "   " fg=def bg=#121212
+--row 28--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 29--

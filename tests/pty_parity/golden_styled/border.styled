@@ -1,0 +1,100 @@
+[0-119] "                                                                                                                        " fg=def bg=#ffffff
+--row 0--
+[0-0] " " fg=def bg=#ffffff
+[1-118] "┌────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐" fg=#ff0000 bg=#ffcccc
+[119-119] " " fg=def bg=#ffffff
+--row 1--
+[0-0] " " fg=def bg=#ffffff
+[1-118] "│                                                                                                                    │" fg=#ff0000 bg=#ffcccc
+[119-119] " " fg=def bg=#ffffff
+--row 2--
+[0-0] " " fg=def bg=#ffffff
+[1-118] "│                                               My border is solid red                                               │" fg=#ff0000 bg=#ffcccc
+[119-119] " " fg=def bg=#ffffff
+--row 3--
+[0-0] " " fg=def bg=#ffffff
+[1-118] "│                                                                                                                    │" fg=#ff0000 bg=#ffcccc
+[119-119] " " fg=def bg=#ffffff
+--row 4--
+[0-0] " " fg=def bg=#ffffff
+[1-118] "└────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘" fg=#ff0000 bg=#ffcccc
+[119-119] " " fg=def bg=#ffffff
+--row 5--
+[0-119] "                                                                                                                        " fg=def bg=#ffffff
+--row 6--
+[0-0] " " fg=def bg=#ffffff
+[1-118] "┏╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍┓" fg=#008000 bg=#cce5cc
+[119-119] " " fg=def bg=#ffffff
+--row 7--
+[0-0] " " fg=def bg=#ffffff
+[1-118] "╏                                                                                                                    ╏" fg=#008000 bg=#cce5cc
+[119-119] " " fg=def bg=#ffffff
+--row 8--
+[0-0] " " fg=def bg=#ffffff
+[1-118] "╏                                             My border is dashed green                                              ╏" fg=#008000 bg=#cce5cc
+[119-119] " " fg=def bg=#ffffff
+--row 9--
+[0-0] " " fg=def bg=#ffffff
+[1-118] "╏                                                                                                                    ╏" fg=#008000 bg=#cce5cc
+[119-119] " " fg=def bg=#ffffff
+--row 10--
+[0-0] " " fg=def bg=#ffffff
+[1-118] "┗╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍┛" fg=#008000 bg=#cce5cc
+[119-119] " " fg=def bg=#ffffff
+--row 11--
+[0-119] "                                                                                                                        " fg=def bg=#ffffff
+--row 12--
+[0-0] " " fg=def bg=#ffffff
+[1-1] "▊" fg=#0000ff bg=#ffffff
+[2-117] "▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔" fg=#0000ff bg=#ccccff
+[118-118] "▎" fg=#0000ff bg=#ffffff
+[119-119] " " fg=def bg=#ffffff
+--row 13--
+[0-0] " " fg=def bg=#ffffff
+[1-1] "▊" fg=#0000ff bg=#ffffff
+[2-117] "                                                                                                                    " fg=#0000ff bg=#ccccff
+[118-118] "▎" fg=#0000ff bg=#ffffff
+[119-119] " " fg=def bg=#ffffff
+--row 14--
+[0-0] " " fg=def bg=#ffffff
+[1-1] "▊" fg=#0000ff bg=#ffffff
+[2-117] "                                               My border is tall blue                                               " fg=#0000ff bg=#ccccff
+[118-118] "▎" fg=#0000ff bg=#ffffff
+[119-119] " " fg=def bg=#ffffff
+--row 15--
+[0-0] " " fg=def bg=#ffffff
+[1-1] "▊" fg=#0000ff bg=#ffffff
+[2-117] "                                                                                                                    " fg=#0000ff bg=#ccccff
+[118-118] "▎" fg=#0000ff bg=#ffffff
+[119-119] " " fg=def bg=#ffffff
+--row 16--
+[0-0] " " fg=def bg=#ffffff
+[1-1] "▊" fg=#0000ff bg=#ffffff
+[2-117] "▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁" fg=#0000ff bg=#ccccff
+[118-118] "▎" fg=#0000ff bg=#ffffff
+[119-119] " " fg=def bg=#ffffff
+--row 17--
+[0-119] "                                                                                                                        " fg=def bg=#ffffff
+--row 18--
+[0-119] "                                                                                                                        " fg=def bg=#ffffff
+--row 19--
+[0-119] "                                                                                                                        " fg=def bg=#ffffff
+--row 20--
+[0-119] "                                                                                                                        " fg=def bg=#ffffff
+--row 21--
+[0-119] "                                                                                                                        " fg=def bg=#ffffff
+--row 22--
+[0-119] "                                                                                                                        " fg=def bg=#ffffff
+--row 23--
+[0-119] "                                                                                                                        " fg=def bg=#ffffff
+--row 24--
+[0-119] "                                                                                                                        " fg=def bg=#ffffff
+--row 25--
+[0-119] "                                                                                                                        " fg=def bg=#ffffff
+--row 26--
+[0-119] "                                                                                                                        " fg=def bg=#ffffff
+--row 27--
+[0-119] "                                                                                                                        " fg=def bg=#ffffff
+--row 28--
+[0-119] "                                                                                                                        " fg=def bg=#ffffff
+--row 29--

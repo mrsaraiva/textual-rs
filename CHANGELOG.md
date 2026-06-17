@@ -7,6 +7,18 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-17 (test(parity): widen styled harness to 21 styles — color-parity gap mapped)
+
+- **test(parity): widened the styled harness + measured the real color-parity gap**
+  - Extended `visual_parity.rs` to 21 color-focused `styles/` examples with a
+    `REPORT_ONLY` measure mode. At exact per-cell RGB: **5 PASS** (background,
+    color, color_auto, border, align_all), **16 XFAIL** documented. This quantifies
+    that the plain-text harness was masking a broad **color-parity workstream**
+    (default-fg emission, tint/opacity blend, outline/scrollbar/hatch color
+    application, `color: auto N%`), not two bugs. Note: a naive base
+    `color: $foreground` actually *regressed* parity for some examples — the
+    default-fg model needs a more careful fix (deferred to the workstream).
+
 ### 2026-06-17 (test(parity): T-visual styled-parity harness — color verification)
 
 - **test(parity): styled (per-cell RGB) parity harness (`tests/visual_parity.rs`)**
