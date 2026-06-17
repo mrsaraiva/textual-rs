@@ -278,6 +278,24 @@ impl Widget for Placeholder {
         out
     }
 
+    /// Intrinsic content width for `width: auto` sizing (Python parity).
+    ///
+    /// Python `Placeholder.render()` returns the label string (e.g. `"#auto"`).
+    /// A `width: auto` box model shrinks to that rendered text width, so
+    /// `Placeholder(id="auto")` becomes 5 cells wide — not flex-filled.
+    ///
+    /// Kept separate from `content_width()` so an UNSET width (the common case)
+    /// still flex-fills, matching Python's default `1fr` behavior for placeholders
+    /// whose width is not explicitly set to `auto`.
+    fn auto_content_width(&self) -> Option<usize> {
+        let label = if self.label.is_empty() {
+            "Placeholder"
+        } else {
+            &self.label
+        };
+        Some(rich_rs::cell_len(label).max(1))
+    }
+
     fn layout_height(&self) -> Option<usize> {
         None
     }
@@ -540,6 +558,55 @@ mod tests {
         assert!(
             ops.iter()
                 .any(|(_id, op)| matches!(op, crate::event::ClassOp::Add(c) if c == "-size"))
+        );
+    }
+
+    /// Python parity (`width: auto` shrink-to-content):
+    /// A `Placeholder` with an explicit `width: auto` CSS rule must report its
+    /// label text width via `auto_content_width()` so the layout engine shrinks
+    /// the widget to that intrinsic width instead of flex-filling.
+    ///
+    /// Example: `Placeholder(id="auto")` has label `"#auto"` (5 cells) →
+    /// `auto_content_width()` = 5.  Without this, the `#auto` bar in
+    /// `docs/examples/styles/width_comparison` is 10 cells wide (flex-fill)
+    /// instead of Python's 5.
+    ///
+    /// The UNSET width case (no `width:` in CSS) must still flex-fill, which is
+    /// guarded by the separate `content_width() == None` assertion.
+    #[test]
+    fn auto_content_width_returns_label_cell_width() {
+        // Named placeholder: label derived from id → "#auto" = 5 cells.
+        let ph = Placeholder::new("").id("auto");
+        assert_eq!(
+            Widget::auto_content_width(&ph),
+            Some(5),
+            "`width: auto` Placeholder(id='auto') must shrink to 5 cells (#auto)"
+        );
+
+        // Explicit label.
+        let ph = Placeholder::new("Hello");
+        assert_eq!(Widget::auto_content_width(&ph), Some(5));
+
+        // Fallback label when neither label nor id is given.
+        let ph = Placeholder::new("");
+        assert_eq!(
+            Widget::auto_content_width(&ph),
+            Some(rich_rs::cell_len("Placeholder")),
+            "empty-label Placeholder must report 'Placeholder' cell width"
+        );
+    }
+
+    /// `content_width()` must stay `None` so an UNSET width flex-fills the
+    /// container (Python's `1fr` default for bare Placeholder instances).
+    /// Only the `width: auto` measurement path (`auto_content_width`) opts in.
+    #[test]
+    fn content_width_stays_none_for_unset_width_flex_fill() {
+        let ph = Placeholder::new("Hello");
+        assert_eq!(
+            Widget::content_width(&ph),
+            None,
+            "Placeholder with unset width must not leak a content-width hint \
+             (would collapse flex-fill to content-width)"
         );
     }
 }
