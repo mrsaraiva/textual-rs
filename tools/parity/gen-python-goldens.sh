@@ -255,4 +255,11 @@ CASE=docs_key03      && want "$@" && run_case "$CASE" "$PY_DOCS/guide/input" "" 
 CASE=docs_binding01  && want "$@" && run_case "$CASE" "$PY_DOCS/guide/input" "" "binding01.py"
 CASE=docs_dom2       && want "$@" && run_case "$CASE" "$PY_DOCS/guide" "" "dom2.py"
 
+# Label markup-default flip (2026-06-17): link_* examples now render markup correctly.
+CASE=docs_link_color            && want "$@" && run_case "$CASE" "$PY_DOCS/styles" "" "link_color.py"
+CASE=docs_link_color_hover      && want "$@" && run_case "$CASE" "$PY_DOCS/styles" "" "link_color_hover.py"
+CASE=docs_link_background       && want "$@" && run_case "$CASE" "$PY_DOCS/styles" "" "link_background.py"
+CASE=docs_link_background_hover && want "$@" && run_case "$CASE" "$PY_DOCS/styles" "" "link_background_hover.py"
+CASE=docs_link_style            && want "$@" && run_case "$CASE" "$PY_DOCS/styles" "" "link_style.py"
+
 echo "done."

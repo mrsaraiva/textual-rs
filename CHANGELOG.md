@@ -7,6 +7,14 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-17 (test(parity): promote 5 link_* examples — PTY 185)
+
+- **test(parity): promote `docs_link_color`, `docs_link_color_hover`,
+  `docs_link_background`, `docs_link_background_hover`, `docs_link_style`**
+  - Enabled by the `Label` markup-default flip (link markup now renders; link
+    colors drop in plain capture so they match Python). PTY 180 → 185.
+    (`links` still has a `Static` trailing-newline residual.)
+
 ### 2026-06-17 (fix(layout): vw/vh axis, percent truncation, transparent-wrapper child sizing)
 
 - **fix(style): `vw`/`vh` resolve against the correct viewport axis**

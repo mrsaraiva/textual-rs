@@ -1044,6 +1044,52 @@ const CASES: &[Case] = &[
         golden_replacements: &[],
         status: Status::Pass,
     },
+    // Label markup-default flip: link_* examples render markup (colors drop in plain capture).
+    Case {
+        name: "docs_link_color",
+        example: "link_color",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_link_color_hover",
+        example: "link_color_hover",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_link_background",
+        example: "link_background",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_link_background_hover",
+        example: "link_background_hover",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_link_style",
+        example: "link_style",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
     Case {
         name: "docs_checkbox",
         example: "checkbox",
@@ -2097,6 +2143,11 @@ pty_case!(docs_content01, "docs_content01");
 pty_case!(docs_key03, "docs_key03");
 pty_case!(docs_binding01, "docs_binding01");
 pty_case!(docs_dom2, "docs_dom2");
+pty_case!(docs_link_color, "docs_link_color");
+pty_case!(docs_link_color_hover, "docs_link_color_hover");
+pty_case!(docs_link_background, "docs_link_background");
+pty_case!(docs_link_background_hover, "docs_link_background_hover");
+pty_case!(docs_link_style, "docs_link_style");
 pty_case!(docs_prevent, "docs_prevent");
 pty_case!(docs_center08, "docs_center08");
 pty_case!(docs_center09, "docs_center09");
