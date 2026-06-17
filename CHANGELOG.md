@@ -7,6 +7,19 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-17 (fix(render): default-fg keystone — 4-surface fill split)
+
+- **fix(render): split the widget fill style into Python's content/pad/align/box surfaces**
+  - `core.rs` previously painted ALL fill (line-extend, h-pad, v-align rows, box/blank)
+    with one `fill` style that carried the widget's resolved fg, so fill cells got a
+    concrete fg where Python leaves terminal-default — the root of the styled color gap.
+    Split it to mirror Python `content.py`/`_styles_cache.py`: glyph text keeps fg
+    (inherited `$foreground` via base `Screen { color }`), horizontal content-pad +
+    CSS-padding/box fill are background-only (fg=default), vertical content-align rows
+    keep fg. Styled parity 13→19 PASS, 0 regressions; pty_parity holds at 186. One
+    meta-only snapshot delta (no visual change). Remaining styled divergences
+    (`color: auto`, interactive/focus states, blend specifics) are follow-on clusters.
+
 ### 2026-06-17 (test(parity): styled harness auto-discovers all styles — full color sizing)
 
 - **test(parity): `visual_parity.rs` now auto-discovers every styles example**

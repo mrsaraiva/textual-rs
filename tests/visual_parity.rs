@@ -33,6 +33,10 @@ const PASSING: &[&str] = &[
     // Promoted from the 87-example full sizing (already cell-exact vs Python):
     "border_subtitle_align", "border_title_align", "grid_columns", "grid_gutter",
     "grid_rows", "grid_size_both", "grid_size_columns", "screen",
+    // Promoted after the foreground/fill-surface fix (default-colored glyphs
+    // inherit $foreground; content-align fill carries fg; other fill bg-only):
+    "border_title_colors", "outline_vs_border", "colors", "colors01", "margin01",
+    "widget",
 ];
 
 struct StyledCase {

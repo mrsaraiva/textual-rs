@@ -10,6 +10,7 @@ Screen {
     overflow-y: auto;
     overflow-x: hidden;
     bg: $background;
+    color: $foreground;
 
     &:inline {
         height: auto;

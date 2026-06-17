@@ -914,13 +914,38 @@ pub(crate) fn render_widget_with_meta<W: Widget + ?Sized>(
         rich_rs::Segment::split_and_crop_lines(segments, content_width, None, false, false)
     };
 
+    // Shared inner background for fill surfaces (content-align pad below and the
+    // set_shape/CSS-pad fill further down).
+    let fill_fallback_bg =
+        crate::style::parse_color_like("$background").unwrap_or(crate::style::Color::rgb(0, 0, 0));
+    let fill_parent_bg = crate::css::current_composited_background()
+        .or_else(|| parent_style.clone().and_then(|s| s.bg))
+        .unwrap_or(fill_fallback_bg);
+    let fill_inner_bg = resolved
+        .bg
+        .map(|c| c.flatten_over(fill_parent_bg))
+        .unwrap_or(fill_parent_bg);
+
     if let Some(content_align) = resolved.content_align {
+        // Content-align padding carries the resolved fg (Strip.align semantics).
+        // Mirror apply_style_to_segments for both explicit `color` and
+        // auto-contrast `color: auto` so the alignment fill matches the glyphs.
+        let mut align_pad = rich_rs::Style::new().with_bgcolor(fill_inner_bg.to_simple_opaque());
+        if let Some(fg) = resolved.fg {
+            align_pad = align_pad.with_color(fg.flatten_over(fill_inner_bg).to_simple_opaque());
+        } else if let Some(auto) = resolved.fg_auto {
+            let contrast =
+                crate::style::contrast_text(fill_inner_bg).with_alpha(auto.alpha());
+            align_pad =
+                align_pad.with_color(contrast.flatten_over(fill_inner_bg).to_simple_opaque());
+        }
         lines = apply_content_alignment(
             lines,
             content_width + line_pad * 2,
             content_height,
             content_align.horizontal,
             content_align.vertical,
+            align_pad,
         );
     }
 
@@ -947,21 +972,13 @@ pub(crate) fn render_widget_with_meta<W: Widget + ?Sized>(
         // layout rect. This allows widgets to paint only explicit cells.
         final_lines.extend(lines);
     } else {
-        // Ensure content height is respected before padding.
-        let mut fill = rich_rs::Style::new();
-        let fallback_bg = crate::style::parse_color_like("$background")
-            .unwrap_or(crate::style::Color::rgb(0, 0, 0));
-        let parent_bg = crate::css::current_composited_background()
-            .or_else(|| parent_style.clone().and_then(|s| s.bg))
-            .unwrap_or(fallback_bg);
-        let inner_bg = resolved
-            .bg
-            .map(|c| c.flatten_over(parent_bg))
-            .unwrap_or(parent_bg);
-        fill = fill.with_bgcolor(inner_bg.to_simple_opaque());
-        if let Some(fg) = resolved.fg {
-            fill = fill.with_color(fg.flatten_over(inner_bg).to_simple_opaque());
-        }
+        // Fill for the non-aligned vertical extend and trailing horizontal space
+        // is BACKGROUND-ONLY (Python `to_strip` uses `style.background_style`, and
+        // box/padding fill uses `inner.rich_style` — both fg = default). The
+        // content-align surfaces, which DO carry fg, were already painted above.
+        let inner_bg = fill_inner_bg;
+        let fill = rich_rs::Style::new().with_bgcolor(inner_bg.to_simple_opaque());
+        let pad_fill = fill;
         lines = rich_rs::Segment::set_shape(
             &lines,
             content_width + line_pad * 2,
@@ -977,11 +994,11 @@ pub(crate) fn render_widget_with_meta<W: Widget + ?Sized>(
         for line in lines {
             let mut out = Vec::new();
             if pad_left > 0 {
-                out.push(rich_rs::Segment::styled(" ".repeat(pad_left), fill));
+                out.push(rich_rs::Segment::styled(" ".repeat(pad_left), pad_fill));
             }
             out.extend(line);
             if pad_right > 0 {
-                out.push(rich_rs::Segment::styled(" ".repeat(pad_right), fill));
+                out.push(rich_rs::Segment::styled(" ".repeat(pad_right), pad_fill));
             }
             padded_lines.push(out);
         }
@@ -991,14 +1008,14 @@ pub(crate) fn render_widget_with_meta<W: Widget + ?Sized>(
         let pad_bottom = padding.bottom as usize;
         let padded_width = content_width + line_pad * 2 + pad_left + pad_right;
         if pad_top > 0 {
-            let blank = vec![rich_rs::Segment::styled(" ".repeat(padded_width), fill)];
+            let blank = vec![rich_rs::Segment::styled(" ".repeat(padded_width), pad_fill)];
             for _ in 0..pad_top {
                 final_lines.push(blank.clone());
             }
         }
         final_lines.extend(padded_lines);
         if pad_bottom > 0 {
-            let blank = vec![rich_rs::Segment::styled(" ".repeat(padded_width), fill)];
+            let blank = vec![rich_rs::Segment::styled(" ".repeat(padded_width), pad_fill)];
             for _ in 0..pad_bottom {
                 final_lines.push(blank.clone());
             }
@@ -1045,7 +1062,15 @@ fn apply_content_alignment(
     content_height: usize,
     horizontal: HorizontalAlign,
     vertical: VerticalAlign,
+    pad_style: rich_rs::Style,
 ) -> Vec<Vec<rich_rs::Segment>> {
+    // Content-align padding (both axes) is painted with the full visual style
+    // (fg = resolved color), matching Python Textual's `Strip.align`, which pads
+    // alignment space with the widget's rich_style (visual.py `to_strips`). This
+    // is distinct from non-aligned trailing space, which is `to_strip`
+    // background-only padding.
+    let pad_segment =
+        |width: usize| rich_rs::Segment::styled(" ".repeat(width), pad_style);
     let mut aligned: Vec<Vec<rich_rs::Segment>> = Vec::with_capacity(lines.len());
     for mut line in lines {
         let has_synthetic_padding = line.iter().any(|segment| {
@@ -1071,9 +1096,17 @@ fn apply_content_alignment(
             HorizontalAlign::Right => content_width.saturating_sub(line_width),
         };
         if left_pad > 0 {
-            line.insert(0, rich_rs::Segment::new(" ".repeat(left_pad)));
+            line.insert(0, pad_segment(left_pad));
         }
-        aligned.push(helpers::adjust_line_length_no_bg(&line, content_width));
+        // Right-extend with the same fg-carrying pad style (not no_text_style),
+        // so the trailing alignment space matches Python's Strip.align fg.
+        let cur = rich_rs::Segment::get_line_length(&line);
+        if cur < content_width {
+            line.push(pad_segment(content_width - cur));
+        } else if cur > content_width {
+            line = rich_rs::Segment::adjust_line_length(&line, content_width, None, false);
+        }
+        aligned.push(line);
     }
 
     if aligned.len() >= content_height {
@@ -1087,15 +1120,21 @@ fn apply_content_alignment(
         VerticalAlign::Middle => extra_rows / 2,
         VerticalAlign::Bottom => extra_rows,
     };
-    if top_pad == 0 {
-        return aligned;
-    }
+    let bottom_pad = extra_rows - top_pad;
 
-    let mut out = Vec::with_capacity(top_pad + aligned.len());
+    // Pad BOTH top and bottom to fill content_height here, so every alignment
+    // blank row carries the fg-bearing pad style (Strip.align). If we left the
+    // bottom to set_shape, those rows would be background-only and mismatch
+    // Python (which paints all alignment space with the widget rich_style).
+    let blank_row = vec![pad_segment(content_width)];
+    let mut out = Vec::with_capacity(content_height);
     for _ in 0..top_pad {
-        out.push(Vec::new());
+        out.push(blank_row.clone());
     }
     out.extend(aligned);
+    for _ in 0..bottom_pad {
+        out.push(blank_row.clone());
+    }
     out
 }
 

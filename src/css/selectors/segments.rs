@@ -112,8 +112,16 @@ pub(crate) fn apply_style_to_segments(
                 }
             }
             let text_opacity = style.text_opacity.map(|value| value as f32 / 100.0);
+            // Only stamp the widget's resolved foreground onto segments carrying a
+            // visible glyph. Whitespace-only fill (padding, content-area extend,
+            // blank rows) must keep fg = terminal-default unless it was given an
+            // explicit fg at construction — mirroring Python Textual's `to_strip`,
+            // where glyph cells use the full style but pad cells use
+            // `style.background_style` (bg only). The App/Screen default
+            // `color: $foreground` therefore reaches text glyphs but not the fill.
+            let has_glyph = seg.text.chars().any(|c| !c.is_whitespace());
             // Preserve per-segment foregrounds unless unset.
-            if s.color.is_none() {
+            if s.color.is_none() && has_glyph {
                 let bg_for_text = s
                     .bgcolor
                     .map(crate::style::color_from_simple)
