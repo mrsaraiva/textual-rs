@@ -953,6 +953,97 @@ const CASES: &[Case] = &[
         golden_replacements: &[],
         status: Status::Pass,
     },
+    // Docs port-wave promotions (2026-06-17): stub ports with a stable matching screen.
+    Case {
+        name: "docs_hello01",
+        example: "hello01",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_hello02",
+        example: "hello02",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_checker03",
+        example: "checker03",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_fizzbuzz02",
+        example: "fizzbuzz02",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_tooltip01",
+        example: "tooltip01",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_tooltip02",
+        example: "tooltip02",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_content01",
+        example: "content01",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_key03",
+        example: "key03",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_binding01",
+        example: "binding01",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_dom2",
+        example: "dom2",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
     Case {
         name: "docs_checkbox",
         example: "checkbox",
@@ -1996,6 +2087,16 @@ pty_case!(docs_border_title_align, "docs_border_title_align");
 pty_case!(docs_border_subtitle_align, "docs_border_subtitle_align");
 pty_case!(docs_border_title_colors, "docs_border_title_colors");
 pty_case!(docs_border_title, "docs_border_title");
+pty_case!(docs_hello01, "docs_hello01");
+pty_case!(docs_hello02, "docs_hello02");
+pty_case!(docs_checker03, "docs_checker03");
+pty_case!(docs_fizzbuzz02, "docs_fizzbuzz02");
+pty_case!(docs_tooltip01, "docs_tooltip01");
+pty_case!(docs_tooltip02, "docs_tooltip02");
+pty_case!(docs_content01, "docs_content01");
+pty_case!(docs_key03, "docs_key03");
+pty_case!(docs_binding01, "docs_binding01");
+pty_case!(docs_dom2, "docs_dom2");
 pty_case!(docs_prevent, "docs_prevent");
 pty_case!(docs_center08, "docs_center08");
 pty_case!(docs_center09, "docs_center09");

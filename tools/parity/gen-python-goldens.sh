@@ -240,4 +240,19 @@ CASE=docs_border_subtitle_align && want "$@" && run_case "$CASE" "$PY_DOCS/style
 CASE=docs_border_title_colors   && want "$@" && run_case "$CASE" "$PY_DOCS/styles"       "" "border_title_colors.py"
 CASE=docs_border_title          && want "$@" && run_case "$CASE" "$PY_DOCS/guide/styles" "" "border_title.py"
 
+# Docs port-wave promotions (2026-06-17): stub ports with a STABLE screen matching
+# Python. (checker01/screen01/screen02/key01/key02/actions01/actions02/dom1 are
+# ported but excluded — their screen has a time-varying element so the golden
+# harness can't stabilize them; kept as ported-not-promoted.)
+CASE=docs_hello01    && want "$@" && run_case "$CASE" "$PY_DOCS/guide/widgets" "" "hello01.py"
+CASE=docs_hello02    && want "$@" && run_case "$CASE" "$PY_DOCS/guide/widgets" "" "hello02.py"
+CASE=docs_checker03  && want "$@" && run_case "$CASE" "$PY_DOCS/guide/widgets" "" "checker03.py"
+CASE=docs_fizzbuzz02 && want "$@" && run_case "$CASE" "$PY_DOCS/guide/widgets" "" "fizzbuzz02.py"
+CASE=docs_tooltip01  && want "$@" && run_case "$CASE" "$PY_DOCS/guide/widgets" "" "tooltip01.py"
+CASE=docs_tooltip02  && want "$@" && run_case "$CASE" "$PY_DOCS/guide/widgets" "" "tooltip02.py"
+CASE=docs_content01  && want "$@" && run_case "$CASE" "$PY_DOCS/guide/content" "" "content01.py"
+CASE=docs_key03      && want "$@" && run_case "$CASE" "$PY_DOCS/guide/input" "" "key03.py"
+CASE=docs_binding01  && want "$@" && run_case "$CASE" "$PY_DOCS/guide/input" "" "binding01.py"
+CASE=docs_dom2       && want "$@" && run_case "$CASE" "$PY_DOCS/guide" "" "dom2.py"
+
 echo "done."

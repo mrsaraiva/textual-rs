@@ -7,6 +7,15 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-17 (test(parity): promote 10 port-wave docs examples — PTY 180)
+
+- **test(parity): promote 10 newly-ported docs examples to PTY cases**
+  - `docs_hello01`, `docs_hello02`, `docs_checker03`, `docs_fizzbuzz02`,
+    `docs_tooltip01`, `docs_tooltip02`, `docs_content01`, `docs_key03`,
+    `docs_binding01`, `docs_dom2` — the port-wave ports whose initial screen is
+    stable and byte-matches Python. PTY 170 → 180, 0 regressions. (The other
+    ported stubs are behavioral/time-varying — kept ported-not-promoted.)
+
 ### 2026-06-17 (port(examples): final 70 stub docs examples — porting complete)
 
 - **port(examples): ported the last 70 auto-generated stub docs examples**
