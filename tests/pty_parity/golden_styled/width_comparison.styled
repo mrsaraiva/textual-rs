@@ -1,0 +1,292 @@
+[0-8] "         " fg=#e7e0e6 bg=#4d1144
+[9-23] "               " fg=#eae2e4 bg=#5e2233
+[24-35] "            " fg=#ece5e5 bg=#6f3c3c
+[36-42] "       " fg=#eee8e3 bg=#80552b
+[43-60] "                  " fg=#eeeddf bg=#807709
+[61-68] "        " fg=#e8ede4 bg=#557733
+[69-73] "     " fg=#e3ede7 bg=#2b774d
+[74-84] "           " fg=#e1eceb bg=#1a6f66
+[85-119] "                                   " fg=#dfebec bg=#09666f
+--row 0--
+[0-8] "         " fg=#e7e0e6 bg=#4d1144
+[9-23] "               " fg=#eae2e4 bg=#5e2233
+[24-35] "            " fg=#ece5e5 bg=#6f3c3c
+[36-42] "       " fg=#eee8e3 bg=#80552b
+[43-60] "                  " fg=#eeeddf bg=#807709
+[61-68] "        " fg=#e8ede4 bg=#557733
+[69-73] "     " fg=#e3ede7 bg=#2b774d
+[74-84] "           " fg=#e1eceb bg=#1a6f66
+[85-119] "                                   " fg=#dfebec bg=#09666f
+--row 1--
+[0-8] "         " fg=#e7e0e6 bg=#4d1144
+[9-23] "               " fg=#eae2e4 bg=#5e2233
+[24-35] "            " fg=#ece5e5 bg=#6f3c3c
+[36-42] "       " fg=#eee8e3 bg=#80552b
+[43-60] "                  " fg=#eeeddf bg=#807709
+[61-68] "        " fg=#e8ede4 bg=#557733
+[69-73] "     " fg=#e3ede7 bg=#2b774d
+[74-84] "           " fg=#e1eceb bg=#1a6f66
+[85-119] "                                   " fg=#dfebec bg=#09666f
+--row 2--
+[0-8] "         " fg=#e7e0e6 bg=#4d1144
+[9-23] "               " fg=#eae2e4 bg=#5e2233
+[24-35] "            " fg=#ece5e5 bg=#6f3c3c
+[36-42] "       " fg=#eee8e3 bg=#80552b
+[43-60] "                  " fg=#eeeddf bg=#807709
+[61-68] "        " fg=#e8ede4 bg=#557733
+[69-73] "     " fg=#e3ede7 bg=#2b774d
+[74-84] "           " fg=#e1eceb bg=#1a6f66
+[85-119] "                                   " fg=#dfebec bg=#09666f
+--row 3--
+[0-8] "         " fg=#e7e0e6 bg=#4d1144
+[9-23] "               " fg=#eae2e4 bg=#5e2233
+[24-35] "            " fg=#ece5e5 bg=#6f3c3c
+[36-42] "       " fg=#eee8e3 bg=#80552b
+[43-60] "                  " fg=#eeeddf bg=#807709
+[61-68] "        " fg=#e8ede4 bg=#557733
+[69-73] "     " fg=#e3ede7 bg=#2b774d
+[74-84] "           " fg=#e1eceb bg=#1a6f66
+[85-119] "                                   " fg=#dfebec bg=#09666f
+--row 4--
+[0-8] "         " fg=#e7e0e6 bg=#4d1144
+[9-23] "               " fg=#eae2e4 bg=#5e2233
+[24-35] "            " fg=#ece5e5 bg=#6f3c3c
+[36-42] "       " fg=#eee8e3 bg=#80552b
+[43-60] "                  " fg=#eeeddf bg=#807709
+[61-68] "        " fg=#e8ede4 bg=#557733
+[69-73] "     " fg=#e3ede7 bg=#2b774d
+[74-84] "           " fg=#e1eceb bg=#1a6f66
+[85-119] "                                   " fg=#dfebec bg=#09666f
+--row 5--
+[0-8] "         " fg=#e7e0e6 bg=#4d1144
+[9-23] "               " fg=#eae2e4 bg=#5e2233
+[24-35] "            " fg=#ece5e5 bg=#6f3c3c
+[36-42] "       " fg=#eee8e3 bg=#80552b
+[43-60] "                  " fg=#eeeddf bg=#807709
+[61-68] "        " fg=#e8ede4 bg=#557733
+[69-73] "     " fg=#e3ede7 bg=#2b774d
+[74-84] "           " fg=#e1eceb bg=#1a6f66
+[85-119] "                                   " fg=#dfebec bg=#09666f
+--row 6--
+[0-8] "         " fg=#e7e0e6 bg=#4d1144
+[9-23] "               " fg=#eae2e4 bg=#5e2233
+[24-35] "            " fg=#ece5e5 bg=#6f3c3c
+[36-42] "       " fg=#eee8e3 bg=#80552b
+[43-60] "                  " fg=#eeeddf bg=#807709
+[61-68] "        " fg=#e8ede4 bg=#557733
+[69-73] "     " fg=#e3ede7 bg=#2b774d
+[74-84] "           " fg=#e1eceb bg=#1a6f66
+[85-119] "                                   " fg=#dfebec bg=#09666f
+--row 7--
+[0-8] "         " fg=#e7e0e6 bg=#4d1144
+[9-23] "               " fg=#eae2e4 bg=#5e2233
+[24-35] "            " fg=#ece5e5 bg=#6f3c3c
+[36-42] "       " fg=#eee8e3 bg=#80552b
+[43-60] "                  " fg=#eeeddf bg=#807709
+[61-68] "        " fg=#e8ede4 bg=#557733
+[69-73] "     " fg=#e3ede7 bg=#2b774d
+[74-84] "           " fg=#e1eceb bg=#1a6f66
+[85-119] "                                   " fg=#dfebec bg=#09666f
+--row 8--
+[0-8] "         " fg=#e7e0e6 bg=#4d1144
+[9-23] "               " fg=#eae2e4 bg=#5e2233
+[24-35] "            " fg=#ece5e5 bg=#6f3c3c
+[36-42] "       " fg=#eee8e3 bg=#80552b
+[43-60] "                  " fg=#eeeddf bg=#807709
+[61-68] "        " fg=#e8ede4 bg=#557733
+[69-73] "     " fg=#e3ede7 bg=#2b774d
+[74-84] "           " fg=#e1eceb bg=#1a6f66
+[85-119] "                                   " fg=#dfebec bg=#09666f
+--row 9--
+[0-8] "         " fg=#e7e0e6 bg=#4d1144
+[9-23] "               " fg=#eae2e4 bg=#5e2233
+[24-35] "            " fg=#ece5e5 bg=#6f3c3c
+[36-42] "       " fg=#eee8e3 bg=#80552b
+[43-60] "                  " fg=#eeeddf bg=#807709
+[61-68] "        " fg=#e8ede4 bg=#557733
+[69-73] "     " fg=#e3ede7 bg=#2b774d
+[74-84] "           " fg=#e1eceb bg=#1a6f66
+[85-119] "                                   " fg=#dfebec bg=#09666f
+--row 10--
+[0-8] "         " fg=#e7e0e6 bg=#4d1144
+[9-23] "               " fg=#eae2e4 bg=#5e2233
+[24-35] "            " fg=#ece5e5 bg=#6f3c3c
+[36-42] "       " fg=#eee8e3 bg=#80552b
+[43-60] "                  " fg=#eeeddf bg=#807709
+[61-68] "        " fg=#e8ede4 bg=#557733
+[69-73] "     " fg=#e3ede7 bg=#2b774d
+[74-84] "           " fg=#e1eceb bg=#1a6f66
+[85-119] "                                   " fg=#dfebec bg=#09666f
+--row 11--
+[0-8] "         " fg=#e7e0e6 bg=#4d1144
+[9-23] "               " fg=#eae2e4 bg=#5e2233
+[24-35] "            " fg=#ece5e5 bg=#6f3c3c
+[36-42] "       " fg=#eee8e3 bg=#80552b
+[43-60] "                  " fg=#eeeddf bg=#807709
+[61-68] "        " fg=#e8ede4 bg=#557733
+[69-73] "     " fg=#e3ede7 bg=#2b774d
+[74-84] "           " fg=#e1eceb bg=#1a6f66
+[85-119] "                                   " fg=#dfebec bg=#09666f
+--row 12--
+[0-8] "         " fg=#e7e0e6 bg=#4d1144
+[9-23] "               " fg=#eae2e4 bg=#5e2233
+[24-35] "            " fg=#ece5e5 bg=#6f3c3c
+[36-42] "       " fg=#eee8e3 bg=#80552b
+[43-60] "                  " fg=#eeeddf bg=#807709
+[61-68] "        " fg=#e8ede4 bg=#557733
+[69-73] "     " fg=#e3ede7 bg=#2b774d
+[74-84] "           " fg=#e1eceb bg=#1a6f66
+[85-119] "                                   " fg=#dfebec bg=#09666f
+--row 13--
+[0-8] " #cells  " fg=#e7e0e6 bg=#4d1144
+[9-23] "   #percent    " fg=#eae2e4 bg=#5e2233
+[24-35] "     #w     " fg=#ece5e5 bg=#6f3c3c
+[36-42] "  #h   " fg=#eee8e3 bg=#80552b
+[43-60] "       #vw        " fg=#eeeddf bg=#807709
+[61-68] "  #vh   " fg=#e8ede4 bg=#557733
+[69-73] "#auto" fg=#e3ede7 bg=#2b774d
+[74-84] "   #fr1    " fg=#e1eceb bg=#1a6f66
+[85-119] "               #fr3                " fg=#dfebec bg=#09666f
+--row 14--
+[0-8] "         " fg=#e7e0e6 bg=#4d1144
+[9-23] "               " fg=#eae2e4 bg=#5e2233
+[24-35] "            " fg=#ece5e5 bg=#6f3c3c
+[36-42] "       " fg=#eee8e3 bg=#80552b
+[43-60] "                  " fg=#eeeddf bg=#807709
+[61-68] "        " fg=#e8ede4 bg=#557733
+[69-73] "     " fg=#e3ede7 bg=#2b774d
+[74-84] "           " fg=#e1eceb bg=#1a6f66
+[85-119] "                                   " fg=#dfebec bg=#09666f
+--row 15--
+[0-8] "         " fg=#e7e0e6 bg=#4d1144
+[9-23] "               " fg=#eae2e4 bg=#5e2233
+[24-35] "            " fg=#ece5e5 bg=#6f3c3c
+[36-42] "       " fg=#eee8e3 bg=#80552b
+[43-60] "                  " fg=#eeeddf bg=#807709
+[61-68] "        " fg=#e8ede4 bg=#557733
+[69-73] "     " fg=#e3ede7 bg=#2b774d
+[74-84] "           " fg=#e1eceb bg=#1a6f66
+[85-119] "                                   " fg=#dfebec bg=#09666f
+--row 16--
+[0-8] "         " fg=#e7e0e6 bg=#4d1144
+[9-23] "               " fg=#eae2e4 bg=#5e2233
+[24-35] "            " fg=#ece5e5 bg=#6f3c3c
+[36-42] "       " fg=#eee8e3 bg=#80552b
+[43-60] "                  " fg=#eeeddf bg=#807709
+[61-68] "        " fg=#e8ede4 bg=#557733
+[69-73] "     " fg=#e3ede7 bg=#2b774d
+[74-84] "           " fg=#e1eceb bg=#1a6f66
+[85-119] "                                   " fg=#dfebec bg=#09666f
+--row 17--
+[0-8] "         " fg=#e7e0e6 bg=#4d1144
+[9-23] "               " fg=#eae2e4 bg=#5e2233
+[24-35] "            " fg=#ece5e5 bg=#6f3c3c
+[36-42] "       " fg=#eee8e3 bg=#80552b
+[43-60] "                  " fg=#eeeddf bg=#807709
+[61-68] "        " fg=#e8ede4 bg=#557733
+[69-73] "     " fg=#e3ede7 bg=#2b774d
+[74-84] "           " fg=#e1eceb bg=#1a6f66
+[85-119] "                                   " fg=#dfebec bg=#09666f
+--row 18--
+[0-8] "         " fg=#e7e0e6 bg=#4d1144
+[9-23] "               " fg=#eae2e4 bg=#5e2233
+[24-35] "            " fg=#ece5e5 bg=#6f3c3c
+[36-42] "       " fg=#eee8e3 bg=#80552b
+[43-60] "                  " fg=#eeeddf bg=#807709
+[61-68] "        " fg=#e8ede4 bg=#557733
+[69-73] "     " fg=#e3ede7 bg=#2b774d
+[74-84] "           " fg=#e1eceb bg=#1a6f66
+[85-119] "                                   " fg=#dfebec bg=#09666f
+--row 19--
+[0-8] "         " fg=#e7e0e6 bg=#4d1144
+[9-23] "               " fg=#eae2e4 bg=#5e2233
+[24-35] "            " fg=#ece5e5 bg=#6f3c3c
+[36-42] "       " fg=#eee8e3 bg=#80552b
+[43-60] "                  " fg=#eeeddf bg=#807709
+[61-68] "        " fg=#e8ede4 bg=#557733
+[69-73] "     " fg=#e3ede7 bg=#2b774d
+[74-84] "           " fg=#e1eceb bg=#1a6f66
+[85-119] "                                   " fg=#dfebec bg=#09666f
+--row 20--
+[0-8] "         " fg=#e7e0e6 bg=#4d1144
+[9-23] "               " fg=#eae2e4 bg=#5e2233
+[24-35] "            " fg=#ece5e5 bg=#6f3c3c
+[36-42] "       " fg=#eee8e3 bg=#80552b
+[43-60] "                  " fg=#eeeddf bg=#807709
+[61-68] "        " fg=#e8ede4 bg=#557733
+[69-73] "     " fg=#e3ede7 bg=#2b774d
+[74-84] "           " fg=#e1eceb bg=#1a6f66
+[85-119] "                                   " fg=#dfebec bg=#09666f
+--row 21--
+[0-8] "         " fg=#e7e0e6 bg=#4d1144
+[9-23] "               " fg=#eae2e4 bg=#5e2233
+[24-35] "            " fg=#ece5e5 bg=#6f3c3c
+[36-42] "       " fg=#eee8e3 bg=#80552b
+[43-60] "                  " fg=#eeeddf bg=#807709
+[61-68] "        " fg=#e8ede4 bg=#557733
+[69-73] "     " fg=#e3ede7 bg=#2b774d
+[74-84] "           " fg=#e1eceb bg=#1a6f66
+[85-119] "                                   " fg=#dfebec bg=#09666f
+--row 22--
+[0-8] "         " fg=#e7e0e6 bg=#4d1144
+[9-23] "               " fg=#eae2e4 bg=#5e2233
+[24-35] "            " fg=#ece5e5 bg=#6f3c3c
+[36-42] "       " fg=#eee8e3 bg=#80552b
+[43-60] "                  " fg=#eeeddf bg=#807709
+[61-68] "        " fg=#e8ede4 bg=#557733
+[69-73] "     " fg=#e3ede7 bg=#2b774d
+[74-84] "           " fg=#e1eceb bg=#1a6f66
+[85-119] "                                   " fg=#dfebec bg=#09666f
+--row 23--
+[0-8] "         " fg=#e7e0e6 bg=#4d1144
+[9-23] "               " fg=#eae2e4 bg=#5e2233
+[24-35] "            " fg=#ece5e5 bg=#6f3c3c
+[36-42] "       " fg=#eee8e3 bg=#80552b
+[43-60] "                  " fg=#eeeddf bg=#807709
+[61-68] "        " fg=#e8ede4 bg=#557733
+[69-73] "     " fg=#e3ede7 bg=#2b774d
+[74-84] "           " fg=#e1eceb bg=#1a6f66
+[85-119] "                                   " fg=#dfebec bg=#09666f
+--row 24--
+[0-8] "         " fg=#e7e0e6 bg=#4d1144
+[9-23] "               " fg=#eae2e4 bg=#5e2233
+[24-35] "            " fg=#ece5e5 bg=#6f3c3c
+[36-42] "       " fg=#eee8e3 bg=#80552b
+[43-60] "                  " fg=#eeeddf bg=#807709
+[61-68] "        " fg=#e8ede4 bg=#557733
+[69-73] "     " fg=#e3ede7 bg=#2b774d
+[74-84] "           " fg=#e1eceb bg=#1a6f66
+[85-119] "                                   " fg=#dfebec bg=#09666f
+--row 25--
+[0-8] "         " fg=#e7e0e6 bg=#4d1144
+[9-23] "               " fg=#eae2e4 bg=#5e2233
+[24-35] "            " fg=#ece5e5 bg=#6f3c3c
+[36-42] "       " fg=#eee8e3 bg=#80552b
+[43-60] "                  " fg=#eeeddf bg=#807709
+[61-68] "        " fg=#e8ede4 bg=#557733
+[69-73] "     " fg=#e3ede7 bg=#2b774d
+[74-84] "           " fg=#e1eceb bg=#1a6f66
+[85-119] "                                   " fg=#dfebec bg=#09666f
+--row 26--
+[0-8] "         " fg=#e7e0e6 bg=#4d1144
+[9-23] "               " fg=#eae2e4 bg=#5e2233
+[24-35] "            " fg=#ece5e5 bg=#6f3c3c
+[36-42] "       " fg=#eee8e3 bg=#80552b
+[43-60] "                  " fg=#eeeddf bg=#807709
+[61-68] "        " fg=#e8ede4 bg=#557733
+[69-73] "     " fg=#e3ede7 bg=#2b774d
+[74-84] "           " fg=#e1eceb bg=#1a6f66
+[85-119] "                                   " fg=#dfebec bg=#09666f
+--row 27--
+[0-8] "         " fg=#e7e0e6 bg=#4d1144
+[9-23] "               " fg=#eae2e4 bg=#5e2233
+[24-35] "            " fg=#ece5e5 bg=#6f3c3c
+[36-42] "       " fg=#eee8e3 bg=#80552b
+[43-60] "                  " fg=#eeeddf bg=#807709
+[61-68] "        " fg=#e8ede4 bg=#557733
+[69-73] "     " fg=#e3ede7 bg=#2b774d
+[74-84] "           " fg=#e1eceb bg=#1a6f66
+[85-119] "                                   " fg=#dfebec bg=#09666f
+--row 28--
+[0-119] "····•····•····•····•····•····•····•····•····•····•····•····•····•····•····•····•····•····•····•····•····•····•····•····•" fg=#e0e0e0 bg=#fea62b
+--row 29--

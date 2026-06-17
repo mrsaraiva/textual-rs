@@ -1,0 +1,116 @@
+[0-29] "┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓" fg=#ffffff bg=#800080
+[30-119] "                                                                                          " fg=def bg=#121212
+--row 0--
+[0-0] "┃" fg=#ffffff bg=#800080
+[1-28] "                            " fg=def bg=#800080
+[29-29] "┃" fg=#ffffff bg=#800080
+[30-119] "                                                                                          " fg=def bg=#121212
+--row 1--
+[0-0] "┃" fg=#ffffff bg=#800080
+[1-1] " " fg=def bg=#800080
+[2-17] "I must not fear." fg=#e0e0e0 bg=#800080
+[18-28] "           " fg=def bg=#800080
+[29-29] "┃" fg=#ffffff bg=#800080
+[30-119] "                                                                                          " fg=def bg=#121212
+--row 2--
+[0-0] "┃" fg=#ffffff bg=#800080
+[1-1] " " fg=def bg=#800080
+[2-25] "Fear is the mind-killer." fg=#e0e0e0 bg=#800080
+[26-28] "   " fg=def bg=#800080
+[29-29] "┃" fg=#ffffff bg=#800080
+[30-119] "                                                                                          " fg=def bg=#121212
+--row 3--
+[0-0] "┃" fg=#ffffff bg=#800080
+[1-28] "                            " fg=def bg=#800080
+[29-29] "┃" fg=#ffffff bg=#800080
+[30-119] "                                                                                          " fg=def bg=#121212
+--row 4--
+[0-29] "┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛" fg=#ffffff bg=#800080
+[30-119] "                                                                                          " fg=def bg=#121212
+--row 5--
+[0-33] "┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓" fg=#ffffff bg=#006400
+[34-119] "                                                                                      " fg=def bg=#121212
+--row 6--
+[0-0] "┃" fg=#ffffff bg=#006400
+[1-32] "                                " fg=def bg=#006400
+[33-33] "┃" fg=#ffffff bg=#006400
+[34-119] "                                                                                      " fg=def bg=#121212
+--row 7--
+[0-0] "┃" fg=#ffffff bg=#006400
+[1-1] " " fg=def bg=#006400
+[2-17] "I must not fear." fg=#e0e0e0 bg=#006400
+[18-32] "               " fg=def bg=#006400
+[33-33] "┃" fg=#ffffff bg=#006400
+[34-119] "                                                                                      " fg=def bg=#121212
+--row 8--
+[0-0] "┃" fg=#ffffff bg=#006400
+[1-1] " " fg=def bg=#006400
+[2-25] "Fear is the mind-killer." fg=#e0e0e0 bg=#006400
+[26-32] "       " fg=def bg=#006400
+[33-33] "┃" fg=#ffffff bg=#006400
+[34-119] "                                                                                      " fg=def bg=#121212
+--row 9--
+[0-0] "┃" fg=#ffffff bg=#006400
+[1-1] " " fg=def bg=#006400
+[2-30] "Fear is the little-death that" fg=#e0e0e0 bg=#006400
+[31-32] "  " fg=def bg=#006400
+[33-33] "┃" fg=#ffffff bg=#006400
+[34-119] "                                                                                      " fg=def bg=#121212
+--row 10--
+[0-0] "┃" fg=#ffffff bg=#006400
+[1-1] " " fg=def bg=#006400
+[2-27] "brings total obliteration." fg=#e0e0e0 bg=#006400
+[28-32] "     " fg=def bg=#006400
+[33-33] "┃" fg=#ffffff bg=#006400
+[34-119] "                                                                                      " fg=def bg=#121212
+--row 11--
+[0-0] "┃" fg=#ffffff bg=#006400
+[1-1] " " fg=def bg=#006400
+[2-21] "I will face my fear." fg=#e0e0e0 bg=#006400
+[22-32] "           " fg=def bg=#006400
+[33-33] "┃" fg=#ffffff bg=#006400
+[34-119] "                                                                                      " fg=def bg=#121212
+--row 12--
+[0-0] "┃" fg=#ffffff bg=#006400
+[1-1] " " fg=def bg=#006400
+[2-30] "I will permit it to pass over" fg=#e0e0e0 bg=#006400
+[31-32] "  " fg=def bg=#006400
+[33-33] "┃" fg=#ffffff bg=#006400
+[34-119] "                                                                                      " fg=def bg=#121212
+--row 13--
+[0-0] "┃" fg=#ffffff bg=#006400
+[1-32] "                                " fg=def bg=#006400
+[33-33] "┃" fg=#ffffff bg=#006400
+[34-119] "                                                                                      " fg=def bg=#121212
+--row 14--
+[0-33] "┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛" fg=#ffffff bg=#006400
+[34-119] "                                                                                      " fg=def bg=#121212
+--row 15--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 16--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 17--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 18--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 19--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 20--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 21--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 22--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 23--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 24--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 25--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 26--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 27--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 28--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 29--

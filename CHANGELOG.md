@@ -7,6 +7,18 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-17 (test(parity): styled harness auto-discovers all styles — full color sizing)
+
+- **test(parity): `visual_parity.rs` now auto-discovers every styles example**
+  - Replaced the hand-listed cases with auto-discovery of every `styles/` +
+    `guide/styles/` example that has a built Rust binary (**87 discovered**) +
+    a `PASSING` allowlist (asserted exact) with the rest reported as the
+    color-parity workstream. Full sizing at exact per-cell RGB:
+    **13 PASS, 74 PENDING.** The test fails only on a `PASSING` regression;
+    `REPORT_ONLY=1` tallies, `REGEN_STYLED=1` regenerates Python goldens (87
+    committed as the parity baseline). This is the systematic engine for the
+    color-parity workstream (fix a root cluster → re-measure the flip).
+
 ### 2026-06-17 (test(parity): widen styled harness to 21 styles — color-parity gap mapped)
 
 - **test(parity): widened the styled harness + measured the real color-parity gap**

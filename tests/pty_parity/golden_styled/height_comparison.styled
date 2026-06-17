@@ -1,0 +1,90 @@
+[0-118] "                                                         #cells                                                        " fg=#e7e0e6 bg=#4d1144
+[119-119] "·" fg=#e0e0e0 bg=#fea62b
+--row 0--
+[0-118] "                                                                                                                       " fg=#e7e0e6 bg=#4d1144
+[119-119] "·" fg=#e0e0e0 bg=#fea62b
+--row 1--
+[0-118] "                                                                                                                       " fg=#eae2e4 bg=#5e2233
+[119-119] "·" fg=#e0e0e0 bg=#fea62b
+--row 2--
+[0-118] "                                                        #percent                                                       " fg=#eae2e4 bg=#5e2233
+[119-119] "·" fg=#e0e0e0 bg=#fea62b
+--row 3--
+[0-118] "                                                                                                                       " fg=#eae2e4 bg=#5e2233
+[119-119] "•" fg=#e0e0e0 bg=#fea62b
+--row 4--
+[0-118] "                                                                                                                       " fg=#ece5e5 bg=#6f3c3c
+[119-119] "·" fg=#e0e0e0 bg=#fea62b
+--row 5--
+[0-118] "                                                                                                                       " fg=#ece5e5 bg=#6f3c3c
+[119-119] "·" fg=#e0e0e0 bg=#fea62b
+--row 6--
+[0-118] "                                                           #w                                                          " fg=#ece5e5 bg=#6f3c3c
+[119-119] "·" fg=#e0e0e0 bg=#fea62b
+--row 7--
+[0-118] "                                                                                                                       " fg=#ece5e5 bg=#6f3c3c
+[119-119] "·" fg=#e0e0e0 bg=#fea62b
+--row 8--
+[0-118] "                                                                                                                       " fg=#ece5e5 bg=#6f3c3c
+[119-119] "•" fg=#e0e0e0 bg=#fea62b
+--row 9--
+[0-118] "                                                                                                                       " fg=#ece5e5 bg=#6f3c3c
+[119-119] "·" fg=#e0e0e0 bg=#fea62b
+--row 10--
+[0-118] "                                                                                                                       " fg=#eee8e3 bg=#80552b
+[119-119] "·" fg=#e0e0e0 bg=#fea62b
+--row 11--
+[0-118] "                                                           #h                                                          " fg=#eee8e3 bg=#80552b
+[119-119] "·" fg=#e0e0e0 bg=#fea62b
+--row 12--
+[0-118] "                                                                                                                       " fg=#eee8e3 bg=#80552b
+[119-119] "·" fg=#e0e0e0 bg=#fea62b
+--row 13--
+[0-118] "                                                                                                                       " fg=#eee8e3 bg=#80552b
+[119-119] "•" fg=#e0e0e0 bg=#fea62b
+--row 14--
+[0-118] "                                                                                                                       " fg=#eeeddf bg=#807709
+[119-119] "·" fg=#e0e0e0 bg=#fea62b
+--row 15--
+[0-118] "                                                                                                                       " fg=#eeeddf bg=#807709
+[119-119] "·" fg=#e0e0e0 bg=#fea62b
+--row 16--
+[0-118] "                                                                                                                       " fg=#eeeddf bg=#807709
+[119-119] "·" fg=#e0e0e0 bg=#fea62b
+--row 17--
+[0-118] "                                                          #vw                                                          " fg=#eeeddf bg=#807709
+[119-119] "·" fg=#e0e0e0 bg=#fea62b
+--row 18--
+[0-118] "                                                                                                                       " fg=#eeeddf bg=#807709
+[119-119] "•" fg=#e0e0e0 bg=#fea62b
+--row 19--
+[0-118] "                                                                                                                       " fg=#eeeddf bg=#807709
+[119-119] "·" fg=#e0e0e0 bg=#fea62b
+--row 20--
+[0-118] "                                                                                                                       " fg=#eeeddf bg=#807709
+[119-119] "·" fg=#e0e0e0 bg=#fea62b
+--row 21--
+[0-118] "                                                                                                                       " fg=#eeeddf bg=#807709
+[119-119] "·" fg=#e0e0e0 bg=#fea62b
+--row 22--
+[0-118] "                                                                                                                       " fg=#e8ede4 bg=#557733
+[119-119] "·" fg=#e0e0e0 bg=#fea62b
+--row 23--
+[0-118] "                                                          #vh                                                          " fg=#e8ede4 bg=#557733
+[119-119] "•" fg=#e0e0e0 bg=#fea62b
+--row 24--
+[0-118] "                                                                                                                       " fg=#e8ede4 bg=#557733
+[119-119] "·" fg=#e0e0e0 bg=#fea62b
+--row 25--
+[0-118] "                                                         #auto                                                         " fg=#e3ede7 bg=#2b774d
+[119-119] "·" fg=#e0e0e0 bg=#fea62b
+--row 26--
+[0-118] "                                                          #fr1                                                         " fg=#e1eceb bg=#1a6f66
+[119-119] "·" fg=#e0e0e0 bg=#fea62b
+--row 27--
+[0-118] "                                                          #fr2                                                         " fg=#dfebec bg=#09666f
+[119-119] "·" fg=#e0e0e0 bg=#fea62b
+--row 28--
+[0-118] "                                                                                                                       " fg=#dfebec bg=#09666f
+[119-119] "•" fg=#e0e0e0 bg=#fea62b
+--row 29--

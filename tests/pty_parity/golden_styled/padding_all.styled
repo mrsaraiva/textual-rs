@@ -1,0 +1,108 @@
+[0-9] "no padding" fg=#e7e0e6 bg=#4d1144
+[10-29] "                    " fg=def bg=#121212
+[30-41] "            " fg=def bg=#5e2233
+[42-60] "                   " fg=def bg=#121212
+[61-82] "                      " fg=def bg=#6f3c3c
+[83-90] "        " fg=def bg=#121212
+[91-113] "                       " fg=def bg=#80552b
+[114-119] "      " fg=def bg=#121212
+--row 0--
+[0-29] "                              " fg=def bg=#121212
+[30-30] " " fg=def bg=#5e2233
+[31-40] "padding: 1" fg=#eae2e4 bg=#5e2233
+[41-41] " " fg=def bg=#5e2233
+[42-60] "                   " fg=def bg=#121212
+[61-65] "     " fg=def bg=#6f3c3c
+[66-77] "padding: 1 5" fg=#ece5e5 bg=#6f3c3c
+[78-82] "     " fg=def bg=#6f3c3c
+[83-90] "        " fg=def bg=#121212
+[91-96] "      " fg=def bg=#80552b
+[97-112] "padding: 1 1 2 6" fg=#eee8e3 bg=#80552b
+[113-113] " " fg=def bg=#80552b
+[114-119] "      " fg=def bg=#121212
+--row 1--
+[0-29] "                              " fg=def bg=#121212
+[30-41] "            " fg=def bg=#5e2233
+[42-60] "                   " fg=def bg=#121212
+[61-82] "                      " fg=def bg=#6f3c3c
+[83-90] "        " fg=def bg=#121212
+[91-113] "                       " fg=def bg=#80552b
+[114-119] "      " fg=def bg=#121212
+--row 2--
+[0-90] "                                                                                           " fg=def bg=#121212
+[91-113] "                       " fg=def bg=#80552b
+[114-119] "      " fg=def bg=#121212
+--row 3--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 4--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 5--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 6--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 7--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 8--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 9--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 10--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 11--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 12--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 13--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 14--
+[0-13] "              " fg=def bg=#807709
+[14-29] "                " fg=def bg=#121212
+[30-45] "padding-right: 3" fg=#e8ede4 bg=#557733
+[46-48] "   " fg=def bg=#557733
+[49-60] "            " fg=def bg=#121212
+[61-77] "padding-bottom: 4" fg=#e3ede7 bg=#2b774d
+[78-90] "             " fg=def bg=#121212
+[91-93] "   " fg=def bg=#1a6f66
+[94-108] "padding-left: 3" fg=#e1eceb bg=#1a6f66
+[109-119] "           " fg=def bg=#121212
+--row 15--
+[0-13] "              " fg=def bg=#807709
+[14-60] "                                               " fg=def bg=#121212
+[61-77] "                 " fg=def bg=#2b774d
+[78-119] "                                          " fg=def bg=#121212
+--row 16--
+[0-13] "              " fg=def bg=#807709
+[14-60] "                                               " fg=def bg=#121212
+[61-77] "                 " fg=def bg=#2b774d
+[78-119] "                                          " fg=def bg=#121212
+--row 17--
+[0-13] "              " fg=def bg=#807709
+[14-60] "                                               " fg=def bg=#121212
+[61-77] "                 " fg=def bg=#2b774d
+[78-119] "                                          " fg=def bg=#121212
+--row 18--
+[0-13] "padding-top: 4" fg=#eeeddf bg=#807709
+[14-60] "                                               " fg=def bg=#121212
+[61-77] "                 " fg=def bg=#2b774d
+[78-119] "                                          " fg=def bg=#121212
+--row 19--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 20--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 21--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 22--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 23--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 24--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 25--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 26--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 27--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 28--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 29--

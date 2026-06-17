@@ -2,14 +2,20 @@
 //!
 //! Locked design: exact per-cell match, forced truecolor, no tmux — BOTH the
 //! Rust example and the Python source run through the SAME portable-pty + vt100
-//! path, and goldens store per-cell RGB. This catches color/background bugs the
+//! path, and goldens store per-cell RGB. Catches color/background bugs the
 //! plain-text `pty_parity` harness is blind to.
 //!
-//! Goldens are generated FROM PYTHON (the parity source of truth):
-//!   REGEN_STYLED=1 cargo test --test visual_parity
-//! and compared against the Rust example:
-//!   cargo test --test visual_parity
+//! AUTO-DISCOVERS every `styles/` + `guide/styles/` example that has a built
+//! Rust binary + a Python source. Only the `PASSING` allowlist is ASSERTED
+//! (must match Python exactly); the rest are reported as the color-parity
+//! workstream (PENDING) or flagged READY (matches → promote into PASSING). The
+//! test fails only on a PASSING regression.
+//!
+//!   REGEN_STYLED=1 cargo test --test visual_parity   # (re)gen goldens from Python
+//!   REPORT_ONLY=1  cargo test --test visual_parity   # full tally, never panics
+//!   cargo test --test visual_parity                  # assert PASSING set
 
+use std::collections::HashSet;
 use std::io::Read;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -21,55 +27,51 @@ const ROWS: u16 = 30;
 const COLS: u16 = 120;
 const PYTHON: &str = "/tmp/textual-venv/bin/python";
 
-struct StyledCase {
-    name: &'static str,
-    bin: &'static str,    // rust example binary under docs/examples/target/debug/examples/
-    py_rel: &'static str, // relative to ../textual/docs/examples/
-    /// `Some(reason)` => known styled divergence (documented bug); the harness
-    /// asserts it STILL diverges (a match means the bug was fixed — update this).
-    xfail: Option<&'static str>,
-}
-
-macro_rules! sc {
-    ($n:literal, $p:literal) => { StyledCase { name: $n, bin: $n, py_rel: $p, xfail: None } };
-    ($n:literal, $p:literal, $x:literal) => { StyledCase { name: $n, bin: $n, py_rel: $p, xfail: Some($x) } };
-}
-
-// Styles batch (color-focused). Measured 2026-06-17 at cell-RGB exactness:
-// 5 PASS, 16 XFAIL. The xfails are the COLOR-PARITY WORKSTREAM — the plain-text
-// pty harness can't see these; each is a real per-cell-color divergence vs Python.
-// Clusters: default-fg emission (Rust leaves un-set text fg as terminal-default;
-// Python emits resolved $foreground/$text — needs base `color: $foreground` +
-// fg applied to content cells), color blend (tint/opacity), border/outline/
-// scrollbar/hatch color application, auto-contrast `color: auto N%`.
-const CASES: &[StyledCase] = &[
-    sc!("background", "styles/background.py"),
-    sc!("color", "styles/color.py"),
-    sc!("color_auto", "styles/color_auto.py"),
-    sc!("text_style_all", "styles/text_style_all.py", "styled color-parity: text-style + default-fg"),
-    sc!("tint", "styles/tint.py", "styled color-parity: tint blend"),
-    sc!("background_transparency", "styles/background_transparency.py", "styled color-parity: bg alpha blend"),
-    sc!("opacity", "styles/opacity.py", "styled color-parity: opacity blend"),
-    sc!("text_opacity", "styles/text_opacity.py", "styled color-parity: text-opacity blend"),
-    sc!("hatch", "styles/hatch.py", "styled color-parity: hatch color"),
-    sc!("border", "styles/border.py"),
-    sc!("outline", "styles/outline.py", "styled color-parity: outline color + default-fg"),
-    sc!("scrollbar_size", "styles/scrollbar_size.py", "styled color-parity: scrollbar color"),
-    sc!("text_overflow", "styles/text_overflow.py", "styled color-parity: default-fg"),
-    sc!("text_wrap", "styles/text_wrap.py", "styled color-parity: default-fg"),
-    sc!("align_all", "styles/align_all.py"),
-    sc!("content_align_all", "styles/content_align_all.py", "styled color-parity: default-fg"),
-    sc!("margin", "styles/margin.py", "styled color-parity: default-fg/surface"),
-    sc!("padding", "styles/padding.py", "styled color-parity: default-fg/surface"),
-    sc!("link_color", "styles/link_color.py", "styled color-parity: link color application"),
-    sc!("background_tint", "styles/background_tint.py",
-        "styled color-parity: color: auto N% auto-contrast + background-tint blend"),
-    sc!("colors", "guide/styles/colors.py",
-        "styled color-parity: default-foreground emission (un-set text fg vs $text)"),
+/// Styled-verified examples (asserted exact). Grows as color-parity clusters land.
+const PASSING: &[&str] = &[
+    "background", "color", "color_auto", "border", "align_all",
+    // Promoted from the 87-example full sizing (already cell-exact vs Python):
+    "border_subtitle_align", "border_title_align", "grid_columns", "grid_gutter",
+    "grid_rows", "grid_size_both", "grid_size_columns", "screen",
 ];
+
+struct StyledCase {
+    name: String,
+    py_rel: String,
+}
 
 fn repo() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+}
+
+/// Discover styled candidates: a Python source under styles/ or guide/styles/
+/// that has a matching built Rust example binary.
+fn discover() -> Vec<StyledCase> {
+    let mut cases = Vec::new();
+    let mut seen = HashSet::new();
+    for sub in ["styles", "guide/styles"] {
+        let dir = repo().join("../textual/docs/examples").join(sub);
+        let Ok(rd) = std::fs::read_dir(&dir) else { continue };
+        let mut paths: Vec<PathBuf> = rd
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.extension().map(|x| x == "py").unwrap_or(false))
+            .collect();
+        paths.sort();
+        for p in paths {
+            let stem = p.file_stem().unwrap().to_string_lossy().to_string();
+            if seen.contains(&stem) {
+                continue;
+            }
+            let bin = repo().join("docs/examples/target/debug/examples").join(&stem);
+            if !bin.exists() {
+                continue;
+            }
+            seen.insert(stem.clone());
+            cases.push(StyledCase { name: stem.clone(), py_rel: format!("{sub}/{stem}.py") });
+        }
+    }
+    cases
 }
 
 fn col(c: vt100::Color) -> String {
@@ -80,10 +82,7 @@ fn col(c: vt100::Color) -> String {
     }
 }
 
-/// Capture a command's stable screen as a styled grid, serialized RLE-per-row
-/// (runs of cells sharing fg+bg). Trailing whitespace at end of each row is
-/// trimmed only when its bg is the row's final run bg AND chars are blank — we
-/// keep bg-significant trailing cells.
+/// Capture a command's stable screen as RLE-per-row styled runs (cells sharing fg+bg).
 fn capture(mut cmd: CommandBuilder, cwd: PathBuf) -> String {
     cmd.cwd(cwd);
     cmd.env("TERM", "xterm-256color");
@@ -104,48 +103,47 @@ fn capture(mut cmd: CommandBuilder, cwd: PathBuf) -> String {
     let t = std::thread::spawn(move || {
         let mut buf = [0u8; 8192];
         while let Ok(n) = reader.read(&mut buf) {
-            if n == 0 { break; }
+            if n == 0 {
+                break;
+            }
             feed.lock().unwrap().process(&buf[..n]);
         }
     });
 
     let mut prev = String::new();
     let mut out = String::new();
-    for _ in 0..60 {
+    for _ in 0..50 {
         std::thread::sleep(Duration::from_millis(250));
         let p = parser.lock().unwrap();
         let screen = p.screen();
         let mut text = String::new();
         let mut serial = String::new();
         for r in 0..ROWS {
-            let mut run_start = 0u16;
-            let mut run_fg = String::new();
-            let mut run_bg = String::new();
-            let mut run_txt = String::new();
-            let mut flush = |start: u16, end: u16, txt: &str, fg: &str, bg: &str, s: &mut String| {
-                if !fg.is_empty() {
-                    s.push_str(&format!("[{start}-{end}] {:?} fg={fg} bg={bg}\n", txt));
-                }
-            };
+            let mut start = 0u16;
+            let (mut fg, mut bg, mut run) = (String::new(), String::new(), String::new());
             for c in 0..COLS {
-                let cell = screen.cell(r, c);
-                let (ch, fg, bg) = match cell {
+                let (ch, cfg, cbg) = match screen.cell(r, c) {
                     Some(cl) => (cl.contents(), col(cl.fgcolor()), col(cl.bgcolor())),
                     None => (String::new(), "def".into(), "def".into()),
                 };
                 let chs = if ch.is_empty() { " ".to_string() } else { ch };
                 text.push_str(&chs);
                 if c == 0 {
-                    run_start = 0; run_fg = fg; run_bg = bg; run_txt = chs;
-                } else if fg == run_fg && bg == run_bg {
-                    run_txt.push_str(&chs);
+                    start = 0;
+                    fg = cfg;
+                    bg = cbg;
+                    run = chs;
+                } else if cfg == fg && cbg == bg {
+                    run.push_str(&chs);
                 } else {
-                    flush(run_start, c - 1, &run_txt, &run_fg, &run_bg, &mut serial);
-                    run_start = c; run_fg = fg; run_bg = bg; run_txt = chs;
+                    serial.push_str(&format!("[{start}-{}] {run:?} fg={fg} bg={bg}\n", c - 1));
+                    start = c;
+                    fg = cfg;
+                    bg = cbg;
+                    run = chs;
                 }
             }
-            flush(run_start, COLS - 1, &run_txt, &run_fg, &run_bg, &mut serial);
-            serial.push_str(&format!("--row {r}--\n"));
+            serial.push_str(&format!("[{start}-{}] {run:?} fg={fg} bg={bg}\n--row {r}--\n", COLS - 1));
         }
         if !text.trim().is_empty() && text == prev {
             out = serial;
@@ -169,68 +167,63 @@ fn golden_path(name: &str) -> PathBuf {
 #[test]
 fn visual_parity_batch() {
     let regen = std::env::var("REGEN_STYLED").is_ok();
-    let report_only = std::env::var("REPORT_ONLY").is_ok(); // tally, never panic
-    let py_base = repo().join("../textual/docs/examples");
-    let mut failures: Vec<String> = Vec::new();
-    let (mut n_pass, mut n_xfail, mut n_fail) = (0u32, 0u32, 0u32);
+    let report_only = std::env::var("REPORT_ONLY").is_ok();
+    let cases = discover();
+    let mut regressions: Vec<String> = Vec::new();
+    let (mut n_pass, mut n_ready, mut n_pending, mut n_skip) = (0u32, 0u32, 0u32, 0u32);
+    let mut ready: Vec<String> = Vec::new();
 
-    for case in CASES {
+    for case in &cases {
         if regen {
-            let script = py_base.join(case.py_rel);
-            assert!(script.exists(), "missing py {}", script.display());
+            let script = repo().join("../textual/docs/examples").join(&case.py_rel);
             let cwd = script.parent().unwrap().to_path_buf();
             let mut cmd = CommandBuilder::new(PYTHON);
             cmd.arg(script.to_str().unwrap());
             let g = capture(cmd, cwd);
-            std::fs::create_dir_all(golden_path(case.name).parent().unwrap()).ok();
-            std::fs::write(golden_path(case.name), &g).expect("write golden");
-            eprintln!("regen {} ({} rows captured)", case.name, g.matches("--row").count());
-        } else {
-            let bin = repo().join("docs/examples/target/debug/examples").join(case.bin);
-            if !bin.exists() {
-                eprintln!("SKIP  {} (rust bin not built)", case.name);
+            if g.trim().is_empty() {
+                eprintln!("regen SKIP {} (empty capture)", case.name);
                 continue;
             }
-            let golden = match std::fs::read_to_string(golden_path(case.name)) {
-                Ok(g) => g,
-                Err(_) => {
-                    eprintln!("SKIP  {} (no styled golden; run REGEN_STYLED=1)", case.name);
-                    continue;
-                }
-            };
-            let actual = capture(CommandBuilder::new(bin.to_str().unwrap()), repo());
-            let matches = actual.trim() == golden.trim();
-            match (matches, case.xfail) {
-                (true, None) => { n_pass += 1; eprintln!("PASS  {}", case.name); }
-                (false, Some(reason)) => { n_xfail += 1; eprintln!("XFAIL {} (known: {reason})", case.name); }
-                (true, Some(_)) => {
-                    eprintln!("UNEXPECTED PASS {} — its xfail bug appears fixed; clear the xfail", case.name);
-                    if !report_only { failures.push(format!("{} (unexpected-pass)", case.name)); }
-                }
-                (false, None) => {
-                    n_fail += 1;
-                    let gl: Vec<&str> = golden.lines().collect();
-                    let al: Vec<&str> = actual.lines().collect();
-                    let mut first = String::from("(len diff)");
-                    for i in 0..gl.len().max(al.len()) {
-                        let g = gl.get(i).copied().unwrap_or("<none>");
-                        let a = al.get(i).copied().unwrap_or("<none>");
-                        if g != a {
-                            first = format!("line {i}:\n    py  : {g}\n    rust: {a}");
-                            break;
-                        }
-                    }
-                    eprintln!("FAIL  {}\n  {first}", case.name);
-                    if !report_only { failures.push(case.name.to_string()); }
-                }
+            std::fs::create_dir_all(golden_path(&case.name).parent().unwrap()).ok();
+            std::fs::write(golden_path(&case.name), &g).expect("write golden");
+            continue;
+        }
+        let golden = match std::fs::read_to_string(golden_path(&case.name)) {
+            Ok(g) => g,
+            Err(_) => {
+                n_skip += 1;
+                continue;
+            }
+        };
+        let bin = repo().join("docs/examples/target/debug/examples").join(&case.name);
+        let actual = capture(CommandBuilder::new(bin.to_str().unwrap()), repo());
+        let matches = actual.trim() == golden.trim();
+        let passing = PASSING.contains(&case.name.as_str());
+        match (matches, passing) {
+            (true, true) => n_pass += 1,
+            (true, false) => {
+                n_ready += 1;
+                ready.push(case.name.clone());
+            }
+            (false, false) => n_pending += 1,
+            (false, true) => {
+                eprintln!("REGRESSION {} (in PASSING but now diverges)", case.name);
+                regressions.push(case.name.clone());
             }
         }
     }
 
     if !regen {
-        eprintln!("\nstyled tally: {n_pass} PASS, {n_xfail} XFAIL, {n_fail} FAIL (of {})", CASES.len());
+        eprintln!(
+            "\nstyled tally (of {} discovered): {n_pass} PASS, {n_ready} READY-to-promote, \
+             {n_pending} PENDING (workstream), {n_skip} no-golden",
+            cases.len()
+        );
+        if !ready.is_empty() {
+            eprintln!("READY (match Python — add to PASSING): {}", ready.join(", "));
+        }
     }
-    if !regen && !report_only && !failures.is_empty() {
-        panic!("styled parity FAILED for: {}", failures.join(", "));
+    if !regen && !report_only && !regressions.is_empty() {
+        panic!("styled PASSING regressed: {}", regressions.join(", "));
     }
 }

@@ -1,0 +1,120 @@
+[0-119] "                                                                                                                        " fg=def bg=#ffffff
+--row 0--
+[0-119] "                                                                                                                        " fg=def bg=#ffffff
+--row 1--
+[0-1] "  " fg=def bg=#ffffff
+[2-117] "▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁" fg=#000000 bg=#ffffff
+[118-119] "  " fg=def bg=#ffffff
+--row 2--
+[0-1] "  " fg=def bg=#ffffff
+[2-2] "▎" fg=#000000 bg=#ccccff
+[3-116] "                                                                                                                  " fg=def bg=#ccccff
+[117-117] "▊" fg=#000000 bg=#ccccff
+[118-119] "  " fg=def bg=#ffffff
+--row 3--
+[0-1] "  " fg=def bg=#ffffff
+[2-2] "▎" fg=#000000 bg=#ccccff
+[3-3] " " fg=def bg=#ccccff
+[4-24] "I'm using border-box!" fg=#000000 bg=#ccccff
+[25-116] "                                                                                            " fg=def bg=#ccccff
+[117-117] "▊" fg=#000000 bg=#ccccff
+[118-119] "  " fg=def bg=#ffffff
+--row 4--
+[0-1] "  " fg=def bg=#ffffff
+[2-2] "▎" fg=#000000 bg=#ccccff
+[3-116] "                                                                                                                  " fg=def bg=#ccccff
+[117-117] "▊" fg=#000000 bg=#ccccff
+[118-119] "  " fg=def bg=#ffffff
+--row 5--
+[0-1] "  " fg=def bg=#ffffff
+[2-117] "▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔" fg=#000000 bg=#ffffff
+[118-119] "  " fg=def bg=#ffffff
+--row 6--
+[0-119] "                                                                                                                        " fg=def bg=#ffffff
+--row 7--
+[0-119] "                                                                                                                        " fg=def bg=#ffffff
+--row 8--
+[0-1] "  " fg=def bg=#ffffff
+[2-117] "▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁" fg=#000000 bg=#ffffff
+[118-119] "  " fg=def bg=#ffffff
+--row 9--
+[0-1] "  " fg=def bg=#ffffff
+[2-2] "▎" fg=#000000 bg=#ccccff
+[3-116] "                                                                                                                  " fg=def bg=#ccccff
+[117-117] "▊" fg=#000000 bg=#ccccff
+[118-119] "  " fg=def bg=#ffffff
+--row 10--
+[0-1] "  " fg=def bg=#ffffff
+[2-2] "▎" fg=#000000 bg=#ccccff
+[3-3] " " fg=def bg=#ccccff
+[4-25] "I'm using content-box!" fg=#000000 bg=#ccccff
+[26-116] "                                                                                           " fg=def bg=#ccccff
+[117-117] "▊" fg=#000000 bg=#ccccff
+[118-119] "  " fg=def bg=#ffffff
+--row 11--
+[0-1] "  " fg=def bg=#ffffff
+[2-2] "▎" fg=#000000 bg=#ccccff
+[3-3] " " fg=def bg=#ccccff
+[4-115] "                                                                                                                " fg=#000000 bg=#ccccff
+[116-116] " " fg=def bg=#ccccff
+[117-117] "▊" fg=#000000 bg=#ccccff
+[118-119] "  " fg=def bg=#ffffff
+--row 12--
+[0-1] "  " fg=def bg=#ffffff
+[2-2] "▎" fg=#000000 bg=#ccccff
+[3-3] " " fg=def bg=#ccccff
+[4-115] "                                                                                                                " fg=#000000 bg=#ccccff
+[116-116] " " fg=def bg=#ccccff
+[117-117] "▊" fg=#000000 bg=#ccccff
+[118-119] "  " fg=def bg=#ffffff
+--row 13--
+[0-1] "  " fg=def bg=#ffffff
+[2-2] "▎" fg=#000000 bg=#ccccff
+[3-3] " " fg=def bg=#ccccff
+[4-115] "                                                                                                                " fg=#000000 bg=#ccccff
+[116-116] " " fg=def bg=#ccccff
+[117-117] "▊" fg=#000000 bg=#ccccff
+[118-119] "  " fg=def bg=#ffffff
+--row 14--
+[0-1] "  " fg=def bg=#ffffff
+[2-2] "▎" fg=#000000 bg=#ccccff
+[3-3] " " fg=def bg=#ccccff
+[4-115] "                                                                                                                " fg=#000000 bg=#ccccff
+[116-116] " " fg=def bg=#ccccff
+[117-117] "▊" fg=#000000 bg=#ccccff
+[118-119] "  " fg=def bg=#ffffff
+--row 15--
+[0-1] "  " fg=def bg=#ffffff
+[2-2] "▎" fg=#000000 bg=#ccccff
+[3-116] "                                                                                                                  " fg=def bg=#ccccff
+[117-117] "▊" fg=#000000 bg=#ccccff
+[118-119] "  " fg=def bg=#ffffff
+--row 16--
+[0-1] "  " fg=def bg=#ffffff
+[2-117] "▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔" fg=#000000 bg=#ffffff
+[118-119] "  " fg=def bg=#ffffff
+--row 17--
+[0-119] "                                                                                                                        " fg=def bg=#ffffff
+--row 18--
+[0-119] "                                                                                                                        " fg=def bg=#ffffff
+--row 19--
+[0-119] "                                                                                                                        " fg=def bg=#ffffff
+--row 20--
+[0-119] "                                                                                                                        " fg=def bg=#ffffff
+--row 21--
+[0-119] "                                                                                                                        " fg=def bg=#ffffff
+--row 22--
+[0-119] "                                                                                                                        " fg=def bg=#ffffff
+--row 23--
+[0-119] "                                                                                                                        " fg=def bg=#ffffff
+--row 24--
+[0-119] "                                                                                                                        " fg=def bg=#ffffff
+--row 25--
+[0-119] "                                                                                                                        " fg=def bg=#ffffff
+--row 26--
+[0-119] "                                                                                                                        " fg=def bg=#ffffff
+--row 27--
+[0-119] "                                                                                                                        " fg=def bg=#ffffff
+--row 28--
+[0-119] "                                                                                                                        " fg=def bg=#ffffff
+--row 29--

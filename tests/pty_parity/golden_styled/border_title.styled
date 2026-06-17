@@ -1,0 +1,97 @@
+[0-59] "┏━━━━━━━━━━━━━━━━━━ Litany Against Fear ━━━━━━━━━━━━━━━━━━━┓" fg=#ffff00 bg=#00008b
+[60-119] "                                                            " fg=def bg=#121212
+--row 0--
+[0-0] "┃" fg=#ffff00 bg=#00008b
+[1-16] "I must not fear." fg=#e0e0e0 bg=#00008b
+[17-58] "                                          " fg=def bg=#00008b
+[59-59] "┃" fg=#ffff00 bg=#00008b
+[60-119] "                                                            " fg=def bg=#121212
+--row 1--
+[0-0] "┃" fg=#ffff00 bg=#00008b
+[1-24] "Fear is the mind-killer." fg=#e0e0e0 bg=#00008b
+[25-58] "                                  " fg=def bg=#00008b
+[59-59] "┃" fg=#ffff00 bg=#00008b
+[60-119] "                                                            " fg=def bg=#121212
+--row 2--
+[0-0] "┃" fg=#ffff00 bg=#00008b
+[1-56] "Fear is the little-death that brings total obliteration." fg=#e0e0e0 bg=#00008b
+[57-58] "  " fg=def bg=#00008b
+[59-59] "┃" fg=#ffff00 bg=#00008b
+[60-119] "                                                            " fg=def bg=#121212
+--row 3--
+[0-0] "┃" fg=#ffff00 bg=#00008b
+[1-20] "I will face my fear." fg=#e0e0e0 bg=#00008b
+[21-58] "                                      " fg=def bg=#00008b
+[59-59] "┃" fg=#ffff00 bg=#00008b
+[60-119] "                                                            " fg=def bg=#121212
+--row 4--
+[0-0] "┃" fg=#ffff00 bg=#00008b
+[1-48] "I will permit it to pass over me and through me." fg=#e0e0e0 bg=#00008b
+[49-58] "          " fg=def bg=#00008b
+[59-59] "┃" fg=#ffff00 bg=#00008b
+[60-119] "                                                            " fg=def bg=#121212
+--row 5--
+[0-0] "┃" fg=#ffff00 bg=#00008b
+[1-55] "And when it has gone past, I will turn the inner eye to" fg=#e0e0e0 bg=#00008b
+[56-58] "   " fg=def bg=#00008b
+[59-59] "┃" fg=#ffff00 bg=#00008b
+[60-119] "                                                            " fg=def bg=#121212
+--row 6--
+[0-0] "┃" fg=#ffff00 bg=#00008b
+[1-13] "see its path." fg=#e0e0e0 bg=#00008b
+[14-58] "                                             " fg=def bg=#00008b
+[59-59] "┃" fg=#ffff00 bg=#00008b
+[60-119] "                                                            " fg=def bg=#121212
+--row 7--
+[0-0] "┃" fg=#ffff00 bg=#00008b
+[1-58] "Where the fear has gone there will be nothing. Only I will" fg=#e0e0e0 bg=#00008b
+[59-59] "┃" fg=#ffff00 bg=#00008b
+[60-119] "                                                            " fg=def bg=#121212
+--row 8--
+[0-0] "┃" fg=#ffff00 bg=#00008b
+[1-7] "remain." fg=#e0e0e0 bg=#00008b
+[8-58] "                                                   " fg=def bg=#00008b
+[59-59] "┃" fg=#ffff00 bg=#00008b
+[60-119] "                                                            " fg=def bg=#121212
+--row 9--
+[0-59] "┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━ by Frank Herbert, in “Dune” ━┛" fg=#ffff00 bg=#00008b
+[60-119] "                                                            " fg=def bg=#121212
+--row 10--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 11--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 12--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 13--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 14--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 15--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 16--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 17--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 18--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 19--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 20--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 21--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 22--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 23--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 24--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 25--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 26--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 27--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 28--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 29--

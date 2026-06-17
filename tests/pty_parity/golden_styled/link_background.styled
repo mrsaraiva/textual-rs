@@ -1,0 +1,68 @@
+[0-28] "Visit the Textualize website." fg=#e0e0e0 bg=#121212
+[29-119] "                                                                                           " fg=def bg=#121212
+--row 0--
+[0-5] "Click " fg=#e0e0e0 bg=#121212
+[6-9] "here" fg=#ffdddd bg=#ff0000
+[10-29] " for the bell sound." fg=#e0e0e0 bg=#121212
+[30-119] "                                                                                          " fg=def bg=#121212
+--row 1--
+[0-18] "You can also click " fg=#e0e0e0 bg=#121212
+[19-22] "here" fg=#efefdf bg=#888809
+[23-42] " for the bell sound." fg=#e0e0e0 bg=#121212
+[43-119] "                                                                             " fg=def bg=#121212
+--row 2--
+[0-21] "Exit this application." fg=#211505 bg=#fea62b
+[22-119] "                                                                                                  " fg=def bg=#121212
+--row 3--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 4--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 5--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 6--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 7--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 8--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 9--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 10--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 11--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 12--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 13--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 14--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 15--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 16--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 17--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 18--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 19--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 20--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 21--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 22--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 23--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 24--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 25--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 26--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 27--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 28--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 29--

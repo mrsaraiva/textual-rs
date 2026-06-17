@@ -1,0 +1,121 @@
+[0-29] "                              " fg=def bg=#800080
+[30-119] "                                                                                          " fg=def bg=#121212
+--row 0--
+[0-29] "                              " fg=def bg=#800080
+[30-119] "                                                                                          " fg=def bg=#121212
+--row 1--
+[0-3] "    " fg=def bg=#800080
+[4-19] "I must not fear." fg=#e0e0e0 bg=#800080
+[20-29] "          " fg=def bg=#800080
+[30-119] "                                                                                          " fg=def bg=#121212
+--row 2--
+[0-3] "    " fg=def bg=#800080
+[4-14] "Fear is the" fg=#e0e0e0 bg=#800080
+[15-29] "               " fg=def bg=#800080
+[30-119] "                                                                                          " fg=def bg=#121212
+--row 3--
+[0-3] "    " fg=def bg=#800080
+[4-15] "mind-killer." fg=#e0e0e0 bg=#800080
+[16-29] "              " fg=def bg=#800080
+[30-119] "                                                                                          " fg=def bg=#121212
+--row 4--
+[0-3] "    " fg=def bg=#800080
+[4-14] "Fear is the" fg=#e0e0e0 bg=#800080
+[15-29] "               " fg=def bg=#800080
+[30-119] "                                                                                          " fg=def bg=#121212
+--row 5--
+[0-3] "    " fg=def bg=#800080
+[4-20] "little-death that" fg=#e0e0e0 bg=#800080
+[21-29] "         " fg=def bg=#800080
+[30-119] "                                                                                          " fg=def bg=#121212
+--row 6--
+[0-3] "    " fg=def bg=#800080
+[4-15] "brings total" fg=#e0e0e0 bg=#800080
+[16-29] "              " fg=def bg=#800080
+[30-119] "                                                                                          " fg=def bg=#121212
+--row 7--
+[0-3] "    " fg=def bg=#800080
+[4-16] "obliteration." fg=#e0e0e0 bg=#800080
+[17-29] "             " fg=def bg=#800080
+[30-119] "                                                                                          " fg=def bg=#121212
+--row 8--
+[0-3] "    " fg=def bg=#800080
+[4-23] "I will face my fear." fg=#e0e0e0 bg=#800080
+[24-29] "      " fg=def bg=#800080
+[30-119] "                                                                                          " fg=def bg=#121212
+--row 9--
+[0-3] "    " fg=def bg=#800080
+[4-22] "I will permit it to" fg=#e0e0e0 bg=#800080
+[23-29] "       " fg=def bg=#800080
+[30-119] "                                                                                          " fg=def bg=#121212
+--row 10--
+[0-3] "    " fg=def bg=#800080
+[4-19] "pass over me and" fg=#e0e0e0 bg=#800080
+[20-29] "          " fg=def bg=#800080
+[30-119] "                                                                                          " fg=def bg=#121212
+--row 11--
+[0-3] "    " fg=def bg=#800080
+[4-14] "through me." fg=#e0e0e0 bg=#800080
+[15-29] "               " fg=def bg=#800080
+[30-119] "                                                                                          " fg=def bg=#121212
+--row 12--
+[0-3] "    " fg=def bg=#800080
+[4-23] "And when it has gone" fg=#e0e0e0 bg=#800080
+[24-29] "      " fg=def bg=#800080
+[30-119] "                                                                                          " fg=def bg=#121212
+--row 13--
+[0-3] "    " fg=def bg=#800080
+[4-24] "past, I will turn the" fg=#e0e0e0 bg=#800080
+[25-29] "     " fg=def bg=#800080
+[30-119] "                                                                                          " fg=def bg=#121212
+--row 14--
+[0-3] "    " fg=def bg=#800080
+[4-23] "inner eye to see its" fg=#e0e0e0 bg=#800080
+[24-29] "      " fg=def bg=#800080
+[30-119] "                                                                                          " fg=def bg=#121212
+--row 15--
+[0-3] "    " fg=def bg=#800080
+[4-8] "path." fg=#e0e0e0 bg=#800080
+[9-29] "                     " fg=def bg=#800080
+[30-119] "                                                                                          " fg=def bg=#121212
+--row 16--
+[0-3] "    " fg=def bg=#800080
+[4-21] "Where the fear has" fg=#e0e0e0 bg=#800080
+[22-29] "        " fg=def bg=#800080
+[30-119] "                                                                                          " fg=def bg=#121212
+--row 17--
+[0-3] "    " fg=def bg=#800080
+[4-21] "gone there will be" fg=#e0e0e0 bg=#800080
+[22-29] "        " fg=def bg=#800080
+[30-119] "                                                                                          " fg=def bg=#121212
+--row 18--
+[0-3] "    " fg=def bg=#800080
+[4-23] "nothing. Only I will" fg=#e0e0e0 bg=#800080
+[24-29] "      " fg=def bg=#800080
+[30-119] "                                                                                          " fg=def bg=#121212
+--row 19--
+[0-3] "    " fg=def bg=#800080
+[4-10] "remain." fg=#e0e0e0 bg=#800080
+[11-29] "                   " fg=def bg=#800080
+[30-119] "                                                                                          " fg=def bg=#121212
+--row 20--
+[0-29] "                              " fg=def bg=#800080
+[30-119] "                                                                                          " fg=def bg=#121212
+--row 21--
+[0-29] "                              " fg=def bg=#800080
+[30-119] "                                                                                          " fg=def bg=#121212
+--row 22--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 23--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 24--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 25--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 26--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 27--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 28--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 29--

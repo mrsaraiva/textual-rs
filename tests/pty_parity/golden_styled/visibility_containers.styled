@@ -1,0 +1,124 @@
+[0-119] "                                                                                                                        " fg=def bg=#ffffff
+--row 0--
+[0-1] "  " fg=def bg=#ffffff
+[2-39] "                                      " fg=#191118 bg=#c388bb
+[40-78] "                                       " fg=#1b1316 bg=#d499aa
+[79-117] "                                       " fg=#1d1717 bg=#e5b2b2
+[118-119] "  " fg=def bg=#ffffff
+--row 1--
+[0-1] "  " fg=def bg=#ffffff
+[2-39] "                                      " fg=#191118 bg=#c388bb
+[40-78] "                                       " fg=#1b1316 bg=#d499aa
+[79-117] "                                       " fg=#1d1717 bg=#e5b2b2
+[118-119] "  " fg=def bg=#ffffff
+--row 2--
+[0-1] "  " fg=def bg=#ffffff
+[2-39] "                                      " fg=#191118 bg=#c388bb
+[40-78] "                                       " fg=#1b1316 bg=#d499aa
+[79-117] "                                       " fg=#1d1717 bg=#e5b2b2
+[118-119] "  " fg=def bg=#ffffff
+--row 3--
+[0-1] "  " fg=def bg=#ffffff
+[2-39] "             Placeholder              " fg=#191118 bg=#c388bb
+[40-78] "              Placeholder              " fg=#1b1316 bg=#d499aa
+[79-117] "              Placeholder              " fg=#1d1717 bg=#e5b2b2
+[118-119] "  " fg=def bg=#ffffff
+--row 4--
+[0-1] "  " fg=def bg=#ffffff
+[2-39] "                                      " fg=#191118 bg=#c388bb
+[40-78] "                                       " fg=#1b1316 bg=#d499aa
+[79-117] "                                       " fg=#1d1717 bg=#e5b2b2
+[118-119] "  " fg=def bg=#ffffff
+--row 5--
+[0-1] "  " fg=def bg=#ffffff
+[2-39] "                                      " fg=#191118 bg=#c388bb
+[40-78] "                                       " fg=#1b1316 bg=#d499aa
+[79-117] "                                       " fg=#1d1717 bg=#e5b2b2
+[118-119] "  " fg=def bg=#ffffff
+--row 6--
+[0-1] "  " fg=def bg=#ffffff
+[2-39] "                                      " fg=#191118 bg=#c388bb
+[40-78] "                                       " fg=#1b1316 bg=#d499aa
+[79-117] "                                       " fg=#1d1717 bg=#e5b2b2
+[118-119] "  " fg=def bg=#ffffff
+--row 7--
+[0-1] "  " fg=def bg=#ffffff
+[2-39] "                                      " fg=#191118 bg=#c388bb
+[40-78] "                                       " fg=#1b1316 bg=#d499aa
+[79-117] "                                       " fg=#1d1717 bg=#e5b2b2
+[118-119] "  " fg=def bg=#ffffff
+--row 8--
+[0-119] "                                                                                                                        " fg=def bg=#ffffff
+--row 9--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 10--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 11--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 12--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 13--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 14--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 15--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 16--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 17--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 18--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 19--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 20--
+[0-1] "  " fg=def bg=#121212
+[2-39] "                                      " fg=#141e19 bg=#a1eec3
+[40-78] "                                       " fg=#121d1c bg=#90e5dd
+[79-117] "                                       " fg=#101c1d bg=#7fdde5
+[118-119] "  " fg=def bg=#121212
+--row 21--
+[0-1] "  " fg=def bg=#121212
+[2-39] "                                      " fg=#141e19 bg=#a1eec3
+[40-78] "                                       " fg=#121d1c bg=#90e5dd
+[79-117] "                                       " fg=#101c1d bg=#7fdde5
+[118-119] "  " fg=def bg=#121212
+--row 22--
+[0-1] "  " fg=def bg=#121212
+[2-39] "                                      " fg=#141e19 bg=#a1eec3
+[40-78] "                                       " fg=#121d1c bg=#90e5dd
+[79-117] "                                       " fg=#101c1d bg=#7fdde5
+[118-119] "  " fg=def bg=#121212
+--row 23--
+[0-1] "  " fg=def bg=#121212
+[2-39] "             Placeholder              " fg=#141e19 bg=#a1eec3
+[40-78] "              Placeholder              " fg=#121d1c bg=#90e5dd
+[79-117] "              Placeholder              " fg=#101c1d bg=#7fdde5
+[118-119] "  " fg=def bg=#121212
+--row 24--
+[0-1] "  " fg=def bg=#121212
+[2-39] "                                      " fg=#141e19 bg=#a1eec3
+[40-78] "                                       " fg=#121d1c bg=#90e5dd
+[79-117] "                                       " fg=#101c1d bg=#7fdde5
+[118-119] "  " fg=def bg=#121212
+--row 25--
+[0-1] "  " fg=def bg=#121212
+[2-39] "                                      " fg=#141e19 bg=#a1eec3
+[40-78] "                                       " fg=#121d1c bg=#90e5dd
+[79-117] "                                       " fg=#101c1d bg=#7fdde5
+[118-119] "  " fg=def bg=#121212
+--row 26--
+[0-1] "  " fg=def bg=#121212
+[2-39] "                                      " fg=#141e19 bg=#a1eec3
+[40-78] "                                       " fg=#121d1c bg=#90e5dd
+[79-117] "                                       " fg=#101c1d bg=#7fdde5
+[118-119] "  " fg=def bg=#121212
+--row 27--
+[0-1] "  " fg=def bg=#121212
+[2-39] "                                      " fg=#141e19 bg=#a1eec3
+[40-78] "                                       " fg=#121d1c bg=#90e5dd
+[79-117] "                                       " fg=#101c1d bg=#7fdde5
+[118-119] "  " fg=def bg=#121212
+--row 28--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 29--

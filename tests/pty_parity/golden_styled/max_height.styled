@@ -1,0 +1,135 @@
+[0-29] "                              " fg=#e7e0e6 bg=#4d1144
+[30-59] "                              " fg=#eae2e4 bg=#5e2233
+[60-89] "                              " fg=#ece5e5 bg=#6f3c3c
+[90-119] "                              " fg=#eee8e3 bg=#80552b
+--row 0--
+[0-29] "                              " fg=#e7e0e6 bg=#4d1144
+[30-59] "                              " fg=#eae2e4 bg=#5e2233
+[60-89] "                              " fg=#ece5e5 bg=#6f3c3c
+[90-119] "                              " fg=#eee8e3 bg=#80552b
+--row 1--
+[0-29] "                              " fg=#e7e0e6 bg=#4d1144
+[30-59] "                              " fg=#eae2e4 bg=#5e2233
+[60-89] "                              " fg=#ece5e5 bg=#6f3c3c
+[90-119] "                              " fg=#eee8e3 bg=#80552b
+--row 2--
+[0-29] "                              " fg=#e7e0e6 bg=#4d1144
+[30-59] "                              " fg=#eae2e4 bg=#5e2233
+[60-89] "                              " fg=#ece5e5 bg=#6f3c3c
+[90-119] "                              " fg=#eee8e3 bg=#80552b
+--row 3--
+[0-29] "                              " fg=#e7e0e6 bg=#4d1144
+[30-59] "                              " fg=#eae2e4 bg=#5e2233
+[60-89] "                              " fg=#ece5e5 bg=#6f3c3c
+[90-119] "        max-height: 10        " fg=#eee8e3 bg=#80552b
+--row 4--
+[0-29] "       max-height: 10w        " fg=#e7e0e6 bg=#4d1144
+[30-59] "                              " fg=#eae2e4 bg=#5e2233
+[60-89] "                              " fg=#ece5e5 bg=#6f3c3c
+[90-119] "                              " fg=#eee8e3 bg=#80552b
+--row 5--
+[0-29] "                              " fg=#e7e0e6 bg=#4d1144
+[30-59] "                              " fg=#eae2e4 bg=#5e2233
+[60-89] "                              " fg=#ece5e5 bg=#6f3c3c
+[90-119] "                              " fg=#eee8e3 bg=#80552b
+--row 6--
+[0-29] "                              " fg=#e7e0e6 bg=#4d1144
+[30-59] "                              " fg=#eae2e4 bg=#5e2233
+[60-89] "       max-height: 50%        " fg=#ece5e5 bg=#6f3c3c
+[90-119] "                              " fg=#eee8e3 bg=#80552b
+--row 7--
+[0-29] "                              " fg=#e7e0e6 bg=#4d1144
+[30-59] "                              " fg=#eae2e4 bg=#5e2233
+[60-89] "                              " fg=#ece5e5 bg=#6f3c3c
+[90-119] "                              " fg=#eee8e3 bg=#80552b
+--row 8--
+[0-29] "                              " fg=#e7e0e6 bg=#4d1144
+[30-59] "                              " fg=#eae2e4 bg=#5e2233
+[60-89] "                              " fg=#ece5e5 bg=#6f3c3c
+[90-119] "                              " fg=#eee8e3 bg=#80552b
+--row 9--
+[0-29] "                              " fg=#e7e0e6 bg=#4d1144
+[30-59] "                              " fg=#eae2e4 bg=#5e2233
+[60-89] "                              " fg=#ece5e5 bg=#6f3c3c
+[90-119] "                              " fg=def bg=#121212
+--row 10--
+[0-29] "                              " fg=#e7e0e6 bg=#4d1144
+[30-59] "                              " fg=#eae2e4 bg=#5e2233
+[60-89] "                              " fg=#ece5e5 bg=#6f3c3c
+[90-119] "                              " fg=def bg=#121212
+--row 11--
+[0-29] "                              " fg=def bg=#121212
+[30-59] "                              " fg=#eae2e4 bg=#5e2233
+[60-89] "                              " fg=#ece5e5 bg=#6f3c3c
+[90-119] "                              " fg=def bg=#121212
+--row 12--
+[0-29] "                              " fg=def bg=#121212
+[30-59] "                              " fg=#eae2e4 bg=#5e2233
+[60-89] "                              " fg=#ece5e5 bg=#6f3c3c
+[90-119] "                              " fg=def bg=#121212
+--row 13--
+[0-29] "                              " fg=def bg=#121212
+[30-59] "       max-height: 999        " fg=#eae2e4 bg=#5e2233
+[60-89] "                              " fg=#ece5e5 bg=#6f3c3c
+[90-119] "                              " fg=def bg=#121212
+--row 14--
+[0-29] "                              " fg=def bg=#121212
+[30-59] "                              " fg=#eae2e4 bg=#5e2233
+[60-119] "                                                            " fg=def bg=#121212
+--row 15--
+[0-29] "                              " fg=def bg=#121212
+[30-59] "                              " fg=#eae2e4 bg=#5e2233
+[60-119] "                                                            " fg=def bg=#121212
+--row 16--
+[0-29] "                              " fg=def bg=#121212
+[30-59] "                              " fg=#eae2e4 bg=#5e2233
+[60-119] "                                                            " fg=def bg=#121212
+--row 17--
+[0-29] "                              " fg=def bg=#121212
+[30-59] "                              " fg=#eae2e4 bg=#5e2233
+[60-119] "                                                            " fg=def bg=#121212
+--row 18--
+[0-29] "                              " fg=def bg=#121212
+[30-59] "                              " fg=#eae2e4 bg=#5e2233
+[60-119] "                                                            " fg=def bg=#121212
+--row 19--
+[0-29] "                              " fg=def bg=#121212
+[30-59] "                              " fg=#eae2e4 bg=#5e2233
+[60-119] "                                                            " fg=def bg=#121212
+--row 20--
+[0-29] "                              " fg=def bg=#121212
+[30-59] "                              " fg=#eae2e4 bg=#5e2233
+[60-119] "                                                            " fg=def bg=#121212
+--row 21--
+[0-29] "                              " fg=def bg=#121212
+[30-59] "                              " fg=#eae2e4 bg=#5e2233
+[60-119] "                                                            " fg=def bg=#121212
+--row 22--
+[0-29] "                              " fg=def bg=#121212
+[30-59] "                              " fg=#eae2e4 bg=#5e2233
+[60-119] "                                                            " fg=def bg=#121212
+--row 23--
+[0-29] "                              " fg=def bg=#121212
+[30-59] "                              " fg=#eae2e4 bg=#5e2233
+[60-119] "                                                            " fg=def bg=#121212
+--row 24--
+[0-29] "                              " fg=def bg=#121212
+[30-59] "                              " fg=#eae2e4 bg=#5e2233
+[60-119] "                                                            " fg=def bg=#121212
+--row 25--
+[0-29] "                              " fg=def bg=#121212
+[30-59] "                              " fg=#eae2e4 bg=#5e2233
+[60-119] "                                                            " fg=def bg=#121212
+--row 26--
+[0-29] "                              " fg=def bg=#121212
+[30-59] "                              " fg=#eae2e4 bg=#5e2233
+[60-119] "                                                            " fg=def bg=#121212
+--row 27--
+[0-29] "                              " fg=def bg=#121212
+[30-59] "                              " fg=#eae2e4 bg=#5e2233
+[60-119] "                                                            " fg=def bg=#121212
+--row 28--
+[0-29] "                              " fg=def bg=#121212
+[30-59] "                              " fg=#eae2e4 bg=#5e2233
+[60-119] "                                                            " fg=def bg=#121212
+--row 29--

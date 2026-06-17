@@ -1,0 +1,194 @@
+[0-59] "                                                            " fg=def bg=#add8e6
+[60-119] "                                                            " fg=def bg=#cd5c5c
+--row 0--
+[0-1] "  " fg=def bg=#add8e6
+[2-13] "Left aligned" fg=#000000 bg=#add8e6
+[14-59] "                                              " fg=def bg=#add8e6
+[60-82] "                       " fg=def bg=#cd5c5c
+[83-96] "Center aligned" fg=#ffffff bg=#cd5c5c
+[97-119] "                       " fg=def bg=#cd5c5c
+--row 1--
+[0-1] "  " fg=def bg=#add8e6
+[2-54] "I must not fear. Fear is the mind-killer. Fear is the" fg=#000000 bg=#add8e6
+[55-59] "     " fg=def bg=#add8e6
+[60-62] "   " fg=def bg=#cd5c5c
+[63-115] "I must not fear. Fear is the mind-killer. Fear is the" fg=#ffffff bg=#cd5c5c
+[116-119] "    " fg=def bg=#cd5c5c
+--row 2--
+[0-1] "  " fg=def bg=#add8e6
+[2-57] "little-death that brings total obliteration. I will face" fg=#000000 bg=#add8e6
+[58-59] "  " fg=def bg=#add8e6
+[60-61] "  " fg=def bg=#cd5c5c
+[62-117] "little-death that brings total obliteration. I will face" fg=#ffffff bg=#cd5c5c
+[118-119] "  " fg=def bg=#cd5c5c
+--row 3--
+[0-1] "  " fg=def bg=#add8e6
+[2-54] "my fear. I will permit it to pass over me and through" fg=#000000 bg=#add8e6
+[55-59] "     " fg=def bg=#add8e6
+[60-62] "   " fg=def bg=#cd5c5c
+[63-115] "my fear. I will permit it to pass over me and through" fg=#ffffff bg=#cd5c5c
+[116-119] "    " fg=def bg=#cd5c5c
+--row 4--
+[0-1] "  " fg=def bg=#add8e6
+[2-4] "me." fg=#000000 bg=#add8e6
+[5-59] "                                                       " fg=def bg=#add8e6
+[60-87] "                            " fg=def bg=#cd5c5c
+[88-90] "me." fg=#ffffff bg=#cd5c5c
+[91-119] "                             " fg=def bg=#cd5c5c
+--row 5--
+[0-1] "  " fg=def bg=#add8e6
+[2-57] "                                                        " fg=#000000 bg=#add8e6
+[58-59] "  " fg=def bg=#add8e6
+[60-61] "  " fg=def bg=#cd5c5c
+[62-117] "                                                        " fg=#ffffff bg=#cd5c5c
+[118-119] "  " fg=def bg=#cd5c5c
+--row 6--
+[0-1] "  " fg=def bg=#add8e6
+[2-57] "                                                        " fg=#000000 bg=#add8e6
+[58-59] "  " fg=def bg=#add8e6
+[60-61] "  " fg=def bg=#cd5c5c
+[62-117] "                                                        " fg=#ffffff bg=#cd5c5c
+[118-119] "  " fg=def bg=#cd5c5c
+--row 7--
+[0-1] "  " fg=def bg=#add8e6
+[2-57] "                                                        " fg=#000000 bg=#add8e6
+[58-59] "  " fg=def bg=#add8e6
+[60-61] "  " fg=def bg=#cd5c5c
+[62-117] "                                                        " fg=#ffffff bg=#cd5c5c
+[118-119] "  " fg=def bg=#cd5c5c
+--row 8--
+[0-1] "  " fg=def bg=#add8e6
+[2-57] "                                                        " fg=#000000 bg=#add8e6
+[58-59] "  " fg=def bg=#add8e6
+[60-61] "  " fg=def bg=#cd5c5c
+[62-117] "                                                        " fg=#ffffff bg=#cd5c5c
+[118-119] "  " fg=def bg=#cd5c5c
+--row 9--
+[0-1] "  " fg=def bg=#add8e6
+[2-57] "                                                        " fg=#000000 bg=#add8e6
+[58-59] "  " fg=def bg=#add8e6
+[60-61] "  " fg=def bg=#cd5c5c
+[62-117] "                                                        " fg=#ffffff bg=#cd5c5c
+[118-119] "  " fg=def bg=#cd5c5c
+--row 10--
+[0-1] "  " fg=def bg=#add8e6
+[2-57] "                                                        " fg=#000000 bg=#add8e6
+[58-59] "  " fg=def bg=#add8e6
+[60-61] "  " fg=def bg=#cd5c5c
+[62-117] "                                                        " fg=#ffffff bg=#cd5c5c
+[118-119] "  " fg=def bg=#cd5c5c
+--row 11--
+[0-1] "  " fg=def bg=#add8e6
+[2-57] "                                                        " fg=#000000 bg=#add8e6
+[58-59] "  " fg=def bg=#add8e6
+[60-61] "  " fg=def bg=#cd5c5c
+[62-117] "                                                        " fg=#ffffff bg=#cd5c5c
+[118-119] "  " fg=def bg=#cd5c5c
+--row 12--
+[0-1] "  " fg=def bg=#add8e6
+[2-57] "                                                        " fg=#000000 bg=#add8e6
+[58-59] "  " fg=def bg=#add8e6
+[60-61] "  " fg=def bg=#cd5c5c
+[62-117] "                                                        " fg=#ffffff bg=#cd5c5c
+[118-119] "  " fg=def bg=#cd5c5c
+--row 13--
+[0-59] "                                                            " fg=def bg=#add8e6
+[60-119] "                                                            " fg=def bg=#cd5c5c
+--row 14--
+[0-59] "                                                            " fg=def bg=#98fb98
+[60-119] "                                                            " fg=def bg=#db7093
+--row 15--
+[0-44] "                                             " fg=def bg=#98fb98
+[45-57] "Right aligned" fg=#000000 bg=#98fb98
+[58-59] "  " fg=def bg=#98fb98
+[60-61] "  " fg=def bg=#db7093
+[62-70] "Justified" fg=#000000 bg=#db7093
+[71-119] "                                                 " fg=def bg=#db7093
+--row 16--
+[0-4] "     " fg=def bg=#98fb98
+[5-57] "I must not fear. Fear is the mind-killer. Fear is the" fg=#000000 bg=#98fb98
+[58-59] "  " fg=def bg=#98fb98
+[60-61] "  " fg=def bg=#db7093
+[62-117] "I must not fear. Fear is the mind-killer.  Fear  is  the" fg=#000000 bg=#db7093
+[118-119] "  " fg=def bg=#db7093
+--row 17--
+[0-1] "  " fg=def bg=#98fb98
+[2-57] "little-death that brings total obliteration. I will face" fg=#000000 bg=#98fb98
+[58-59] "  " fg=def bg=#98fb98
+[60-61] "  " fg=def bg=#db7093
+[62-117] "little-death that brings total obliteration. I will face" fg=#000000 bg=#db7093
+[118-119] "  " fg=def bg=#db7093
+--row 18--
+[0-4] "     " fg=def bg=#98fb98
+[5-57] "my fear. I will permit it to pass over me and through" fg=#000000 bg=#98fb98
+[58-59] "  " fg=def bg=#98fb98
+[60-61] "  " fg=def bg=#db7093
+[62-117] "my fear. I will permit it to pass over  me  and  through" fg=#000000 bg=#db7093
+[118-119] "  " fg=def bg=#db7093
+--row 19--
+[0-54] "                                                       " fg=def bg=#98fb98
+[55-57] "me." fg=#000000 bg=#98fb98
+[58-59] "  " fg=def bg=#98fb98
+[60-61] "  " fg=def bg=#db7093
+[62-64] "me." fg=#000000 bg=#db7093
+[65-119] "                                                       " fg=def bg=#db7093
+--row 20--
+[0-1] "  " fg=def bg=#98fb98
+[2-57] "                                                        " fg=#000000 bg=#98fb98
+[58-59] "  " fg=def bg=#98fb98
+[60-61] "  " fg=def bg=#db7093
+[62-117] "                                                        " fg=#000000 bg=#db7093
+[118-119] "  " fg=def bg=#db7093
+--row 21--
+[0-1] "  " fg=def bg=#98fb98
+[2-57] "                                                        " fg=#000000 bg=#98fb98
+[58-59] "  " fg=def bg=#98fb98
+[60-61] "  " fg=def bg=#db7093
+[62-117] "                                                        " fg=#000000 bg=#db7093
+[118-119] "  " fg=def bg=#db7093
+--row 22--
+[0-1] "  " fg=def bg=#98fb98
+[2-57] "                                                        " fg=#000000 bg=#98fb98
+[58-59] "  " fg=def bg=#98fb98
+[60-61] "  " fg=def bg=#db7093
+[62-117] "                                                        " fg=#000000 bg=#db7093
+[118-119] "  " fg=def bg=#db7093
+--row 23--
+[0-1] "  " fg=def bg=#98fb98
+[2-57] "                                                        " fg=#000000 bg=#98fb98
+[58-59] "  " fg=def bg=#98fb98
+[60-61] "  " fg=def bg=#db7093
+[62-117] "                                                        " fg=#000000 bg=#db7093
+[118-119] "  " fg=def bg=#db7093
+--row 24--
+[0-1] "  " fg=def bg=#98fb98
+[2-57] "                                                        " fg=#000000 bg=#98fb98
+[58-59] "  " fg=def bg=#98fb98
+[60-61] "  " fg=def bg=#db7093
+[62-117] "                                                        " fg=#000000 bg=#db7093
+[118-119] "  " fg=def bg=#db7093
+--row 25--
+[0-1] "  " fg=def bg=#98fb98
+[2-57] "                                                        " fg=#000000 bg=#98fb98
+[58-59] "  " fg=def bg=#98fb98
+[60-61] "  " fg=def bg=#db7093
+[62-117] "                                                        " fg=#000000 bg=#db7093
+[118-119] "  " fg=def bg=#db7093
+--row 26--
+[0-1] "  " fg=def bg=#98fb98
+[2-57] "                                                        " fg=#000000 bg=#98fb98
+[58-59] "  " fg=def bg=#98fb98
+[60-61] "  " fg=def bg=#db7093
+[62-117] "                                                        " fg=#000000 bg=#db7093
+[118-119] "  " fg=def bg=#db7093
+--row 27--
+[0-1] "  " fg=def bg=#98fb98
+[2-57] "                                                        " fg=#000000 bg=#98fb98
+[58-59] "  " fg=def bg=#98fb98
+[60-61] "  " fg=def bg=#db7093
+[62-117] "                                                        " fg=#000000 bg=#db7093
+[118-119] "  " fg=def bg=#db7093
+--row 28--
+[0-59] "                                                            " fg=def bg=#98fb98
+[60-119] "                                                            " fg=def bg=#db7093
+--row 29--

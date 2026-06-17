@@ -1,0 +1,226 @@
+[0-78] "                                                                               " fg=def bg=#cd81f0
+[79-79] " " fg=def bg=#121212
+[80-119] "                                        " fg=def bg=#add8e6
+--row 0--
+[0-1] "  " fg=def bg=#cd81f0
+[2-12] "Grid cell 1" fg=#660066 bg=#cd81f0
+[13-78] "                                                                  " fg=def bg=#cd81f0
+[79-79] " " fg=def bg=#121212
+[80-81] "  " fg=def bg=#add8e6
+[82-92] "Grid cell 2" fg=#000000 bg=#add8e6
+[93-119] "                           " fg=def bg=#add8e6
+--row 1--
+[0-78] "                                                                               " fg=def bg=#cd81f0
+[79-79] " " fg=def bg=#121212
+[80-81] "  " fg=def bg=#add8e6
+[82-117] "                                    " fg=#000000 bg=#add8e6
+[118-119] "  " fg=def bg=#add8e6
+--row 2--
+[0-1] "  " fg=def bg=#cd81f0
+[2-13] "row-span: 3;" fg=#660066 bg=#cd81f0
+[14-78] "                                                                 " fg=def bg=#cd81f0
+[79-79] " " fg=def bg=#121212
+[80-81] "  " fg=def bg=#add8e6
+[82-117] "                                    " fg=#000000 bg=#add8e6
+[118-119] "  " fg=def bg=#add8e6
+--row 3--
+[0-1] "  " fg=def bg=#cd81f0
+[2-16] "column-span: 2;" fg=#660066 bg=#cd81f0
+[17-78] "                                                              " fg=def bg=#cd81f0
+[79-79] " " fg=def bg=#121212
+[80-81] "  " fg=def bg=#add8e6
+[82-117] "                                    " fg=#000000 bg=#add8e6
+[118-119] "  " fg=def bg=#add8e6
+--row 4--
+[0-1] "  " fg=def bg=#cd81f0
+[2-76] "                                                                           " fg=#660066 bg=#cd81f0
+[77-78] "  " fg=def bg=#cd81f0
+[79-79] " " fg=def bg=#121212
+[80-119] "                                        " fg=def bg=#add8e6
+--row 5--
+[0-1] "  " fg=def bg=#cd81f0
+[2-76] "                                                                           " fg=#660066 bg=#cd81f0
+[77-78] "  " fg=def bg=#cd81f0
+[79-119] "                                         " fg=def bg=#121212
+--row 6--
+[0-1] "  " fg=def bg=#cd81f0
+[2-76] "                                                                           " fg=#660066 bg=#cd81f0
+[77-78] "  " fg=def bg=#cd81f0
+[79-79] " " fg=def bg=#121212
+[80-119] "                                        " fg=def bg=#add8e6
+--row 7--
+[0-1] "  " fg=def bg=#cd81f0
+[2-76] "                                                                           " fg=#660066 bg=#cd81f0
+[77-78] "  " fg=def bg=#cd81f0
+[79-79] " " fg=def bg=#121212
+[80-81] "  " fg=def bg=#add8e6
+[82-92] "Grid cell 3" fg=#000000 bg=#add8e6
+[93-119] "                           " fg=def bg=#add8e6
+--row 8--
+[0-1] "  " fg=def bg=#cd81f0
+[2-76] "                                                                           " fg=#660066 bg=#cd81f0
+[77-78] "  " fg=def bg=#cd81f0
+[79-79] " " fg=def bg=#121212
+[80-81] "  " fg=def bg=#add8e6
+[82-117] "                                    " fg=#000000 bg=#add8e6
+[118-119] "  " fg=def bg=#add8e6
+--row 9--
+[0-1] "  " fg=def bg=#cd81f0
+[2-76] "                                                                           " fg=#660066 bg=#cd81f0
+[77-78] "  " fg=def bg=#cd81f0
+[79-79] " " fg=def bg=#121212
+[80-81] "  " fg=def bg=#add8e6
+[82-117] "                                    " fg=#000000 bg=#add8e6
+[118-119] "  " fg=def bg=#add8e6
+--row 10--
+[0-1] "  " fg=def bg=#cd81f0
+[2-76] "                                                                           " fg=#660066 bg=#cd81f0
+[77-78] "  " fg=def bg=#cd81f0
+[79-79] " " fg=def bg=#121212
+[80-81] "  " fg=def bg=#add8e6
+[82-117] "                                    " fg=#000000 bg=#add8e6
+[118-119] "  " fg=def bg=#add8e6
+--row 11--
+[0-1] "  " fg=def bg=#cd81f0
+[2-76] "                                                                           " fg=#660066 bg=#cd81f0
+[77-78] "  " fg=def bg=#cd81f0
+[79-79] " " fg=def bg=#121212
+[80-81] "  " fg=def bg=#add8e6
+[82-117] "                                    " fg=#000000 bg=#add8e6
+[118-119] "  " fg=def bg=#add8e6
+--row 12--
+[0-1] "  " fg=def bg=#cd81f0
+[2-76] "                                                                           " fg=#660066 bg=#cd81f0
+[77-78] "  " fg=def bg=#cd81f0
+[79-79] " " fg=def bg=#121212
+[80-119] "                                        " fg=def bg=#add8e6
+--row 13--
+[0-1] "  " fg=def bg=#cd81f0
+[2-76] "                                                                           " fg=#660066 bg=#cd81f0
+[77-78] "  " fg=def bg=#cd81f0
+[79-119] "                                         " fg=def bg=#121212
+--row 14--
+[0-1] "  " fg=def bg=#cd81f0
+[2-76] "                                                                           " fg=#660066 bg=#cd81f0
+[77-78] "  " fg=def bg=#cd81f0
+[79-79] " " fg=def bg=#121212
+[80-119] "                                        " fg=def bg=#add8e6
+--row 15--
+[0-1] "  " fg=def bg=#cd81f0
+[2-76] "                                                                           " fg=#660066 bg=#cd81f0
+[77-78] "  " fg=def bg=#cd81f0
+[79-79] " " fg=def bg=#121212
+[80-81] "  " fg=def bg=#add8e6
+[82-92] "Grid cell 4" fg=#000000 bg=#add8e6
+[93-119] "                           " fg=def bg=#add8e6
+--row 16--
+[0-1] "  " fg=def bg=#cd81f0
+[2-76] "                                                                           " fg=#660066 bg=#cd81f0
+[77-78] "  " fg=def bg=#cd81f0
+[79-79] " " fg=def bg=#121212
+[80-81] "  " fg=def bg=#add8e6
+[82-117] "                                    " fg=#000000 bg=#add8e6
+[118-119] "  " fg=def bg=#add8e6
+--row 17--
+[0-1] "  " fg=def bg=#cd81f0
+[2-76] "                                                                           " fg=#660066 bg=#cd81f0
+[77-78] "  " fg=def bg=#cd81f0
+[79-79] " " fg=def bg=#121212
+[80-81] "  " fg=def bg=#add8e6
+[82-117] "                                    " fg=#000000 bg=#add8e6
+[118-119] "  " fg=def bg=#add8e6
+--row 18--
+[0-1] "  " fg=def bg=#cd81f0
+[2-76] "                                                                           " fg=#660066 bg=#cd81f0
+[77-78] "  " fg=def bg=#cd81f0
+[79-79] " " fg=def bg=#121212
+[80-81] "  " fg=def bg=#add8e6
+[82-117] "                                    " fg=#000000 bg=#add8e6
+[118-119] "  " fg=def bg=#add8e6
+--row 19--
+[0-1] "  " fg=def bg=#cd81f0
+[2-76] "                                                                           " fg=#660066 bg=#cd81f0
+[77-78] "  " fg=def bg=#cd81f0
+[79-79] " " fg=def bg=#121212
+[80-81] "  " fg=def bg=#add8e6
+[82-117] "                                    " fg=#000000 bg=#add8e6
+[118-119] "  " fg=def bg=#add8e6
+--row 20--
+[0-78] "                                                                               " fg=def bg=#cd81f0
+[79-79] " " fg=def bg=#121212
+[80-119] "                                        " fg=def bg=#add8e6
+--row 21--
+[0-119] "                                                                                                                        " fg=def bg=#121212
+--row 22--
+[0-38] "                                       " fg=def bg=#add8e6
+[39-39] " " fg=def bg=#121212
+[40-78] "                                       " fg=def bg=#add8e6
+[79-79] " " fg=def bg=#121212
+[80-119] "                                        " fg=def bg=#add8e6
+--row 23--
+[0-1] "  " fg=def bg=#add8e6
+[2-12] "Grid cell 5" fg=#000000 bg=#add8e6
+[13-38] "                          " fg=def bg=#add8e6
+[39-39] " " fg=def bg=#121212
+[40-41] "  " fg=def bg=#add8e6
+[42-52] "Grid cell 6" fg=#000000 bg=#add8e6
+[53-78] "                          " fg=def bg=#add8e6
+[79-79] " " fg=def bg=#121212
+[80-81] "  " fg=def bg=#add8e6
+[82-92] "Grid cell 7" fg=#000000 bg=#add8e6
+[93-119] "                           " fg=def bg=#add8e6
+--row 24--
+[0-1] "  " fg=def bg=#add8e6
+[2-36] "                                   " fg=#000000 bg=#add8e6
+[37-38] "  " fg=def bg=#add8e6
+[39-39] " " fg=def bg=#121212
+[40-41] "  " fg=def bg=#add8e6
+[42-76] "                                   " fg=#000000 bg=#add8e6
+[77-78] "  " fg=def bg=#add8e6
+[79-79] " " fg=def bg=#121212
+[80-81] "  " fg=def bg=#add8e6
+[82-117] "                                    " fg=#000000 bg=#add8e6
+[118-119] "  " fg=def bg=#add8e6
+--row 25--
+[0-1] "  " fg=def bg=#add8e6
+[2-36] "                                   " fg=#000000 bg=#add8e6
+[37-38] "  " fg=def bg=#add8e6
+[39-39] " " fg=def bg=#121212
+[40-41] "  " fg=def bg=#add8e6
+[42-76] "                                   " fg=#000000 bg=#add8e6
+[77-78] "  " fg=def bg=#add8e6
+[79-79] " " fg=def bg=#121212
+[80-81] "  " fg=def bg=#add8e6
+[82-117] "                                    " fg=#000000 bg=#add8e6
+[118-119] "  " fg=def bg=#add8e6
+--row 26--
+[0-1] "  " fg=def bg=#add8e6
+[2-36] "                                   " fg=#000000 bg=#add8e6
+[37-38] "  " fg=def bg=#add8e6
+[39-39] " " fg=def bg=#121212
+[40-41] "  " fg=def bg=#add8e6
+[42-76] "                                   " fg=#000000 bg=#add8e6
+[77-78] "  " fg=def bg=#add8e6
+[79-79] " " fg=def bg=#121212
+[80-81] "  " fg=def bg=#add8e6
+[82-117] "                                    " fg=#000000 bg=#add8e6
+[118-119] "  " fg=def bg=#add8e6
+--row 27--
+[0-1] "  " fg=def bg=#add8e6
+[2-36] "                                   " fg=#000000 bg=#add8e6
+[37-38] "  " fg=def bg=#add8e6
+[39-39] " " fg=def bg=#121212
+[40-41] "  " fg=def bg=#add8e6
+[42-76] "                                   " fg=#000000 bg=#add8e6
+[77-78] "  " fg=def bg=#add8e6
+[79-79] " " fg=def bg=#121212
+[80-81] "  " fg=def bg=#add8e6
+[82-117] "                                    " fg=#000000 bg=#add8e6
+[118-119] "  " fg=def bg=#add8e6
+--row 28--
+[0-38] "                                       " fg=def bg=#add8e6
+[39-39] " " fg=def bg=#121212
+[40-78] "                                       " fg=def bg=#add8e6
+[79-79] " " fg=def bg=#121212
+[80-119] "                                        " fg=def bg=#add8e6
+--row 29--
