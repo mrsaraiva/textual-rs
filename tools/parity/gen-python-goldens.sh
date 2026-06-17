@@ -223,4 +223,11 @@ CASE=docs_stopwatch03    && want "$@" && run_case "$CASE" "$PY_DOCS/tutorial" ""
 CASE=docs_stopwatch04    && want "$@" && run_case "$CASE" "$PY_DOCS/tutorial" "" "stopwatch04.py"
 CASE=docs_option_list_tables && want "$@" && run_case "$CASE" "$PY_DOCS/widgets" "" "option_list_tables.py"
 
+# Engine-gap wave 2 (layoutsize): w/h units + align middle + 1fr margin-reserve.
+CASE=docs_max_width      && want "$@" && run_case "$CASE" "$PY_DOCS/styles"    "" "max_width.py"
+CASE=docs_max_height     && want "$@" && run_case "$CASE" "$PY_DOCS/styles"    "" "max_height.py"
+CASE=docs_min_width      && want "$@" && run_case "$CASE" "$PY_DOCS/styles"    "" "min_width.py"
+CASE=docs_nesting01      && want "$@" && run_case "$CASE" "$PY_DOCS/guide/css" "" "nesting01.py"
+CASE=docs_nesting02      && want "$@" && run_case "$CASE" "$PY_DOCS/guide/css" "" "nesting02.py"
+
 echo "done."

@@ -295,16 +295,53 @@ pub fn resolve_layout(
                 .get(node)
                 .map(|n| n.widget.is_transparent_wrapper())
                 .unwrap_or(false);
-            let effective_align = style.align.or_else(|| {
-                if is_transparent_wrapper {
-                    style.content_align.map(|ca| crate::style::Align {
-                        horizontal: ca.horizontal,
-                        vertical: ca.vertical,
-                    })
-                } else {
-                    None
-                }
-            });
+            let effective_align = style
+                .align
+                .or_else(|| {
+                    if is_transparent_wrapper {
+                        style.content_align.map(|ca| crate::style::Align {
+                            horizontal: ca.horizontal,
+                            vertical: ca.vertical,
+                        })
+                    } else {
+                        None
+                    }
+                })
+                // A transparent styling wrapper (`Node`, from `.id()`/`.class()`)
+                // that carries an explicit `align` is the Rust stand-in for the
+                // styled container itself (e.g. `Horizontal#questions` in Python is
+                // a `Node("#questions") > Horizontal` here). The wrapper's single
+                // flow child fills the wrapper region, so aligning that child within
+                // the wrapper is a no-op — the `align` must instead govern the
+                // child's OWN children. When THIS node is a wrapper's sole flow
+                // child and has no `align` of its own, inherit the wrapper's
+                // explicit `align` so it centers/positions its content like Python.
+                .or_else(|| {
+                    let parent = tree.parent(node)?;
+                    let parent_is_wrapper = tree
+                        .get(parent)
+                        .map(|n| n.widget.is_transparent_wrapper())
+                        .unwrap_or(false);
+                    if !parent_is_wrapper {
+                        return None;
+                    }
+                    // Only when this node is the wrapper's single flow child (the
+                    // collapsed-region case); otherwise the wrapper's own
+                    // `apply_parent_align` is meaningful and must not be duplicated.
+                    let parent_flow_children: Vec<NodeId> = tree
+                        .children(parent)
+                        .iter()
+                        .copied()
+                        .filter(|&c| {
+                            tree.get(c).map(|n| n.display).unwrap_or(false)
+                                && get_node_style(tree, c).display != Some(Display::None)
+                        })
+                        .collect();
+                    if parent_flow_children.as_slice() != [node] {
+                        return None;
+                    }
+                    get_node_style(tree, parent).align
+                });
             match strategy {
                 Layout::Vertical => {
                     layout_vertical(tree, &flow, inner, viewport, allow_h_overflow);
@@ -407,6 +444,13 @@ mod tests {
             Box::new(Self {
                 transparent_wrapper: true,
                 ..Self::new(label)
+            })
+        }
+
+        fn boxed_wrapper_with_style(label: &'static str, style: Style) -> Box<dyn Widget> {
+            Box::new(Self {
+                transparent_wrapper: true,
+                ..Self::new(label).with_style(style)
             })
         }
 
@@ -897,6 +941,34 @@ mod tests {
         assert_layout_rect(&tree, flex, 0, 10, 80, 50);
     }
 
+    // Gap 3 (vertical axis): two `1fr` children with `margin: 1 0` must reserve
+    // the COLLAPSED total margin before fr distribution. Collapsed margin =
+    // first.top(1) + interior max(1,1)=1 + last.bottom(1) = 3. total 30 - 3 = 27
+    // → box heights 13 and 14 (deterministic remainder cascade), NOT 12/12.
+    #[test]
+    fn vertical_two_fr_with_margin_reserve_collapsed_margin() {
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(LayoutTestWidget::boxed("Container"));
+        let style = || {
+            let mut s = Style::new();
+            s.height = Some(Scalar::Fraction(1.0));
+            s.margin = Some(Spacing::new(1, 0, 1, 0));
+            s
+        };
+        let a = tree.mount(root, LayoutTestWidget::boxed_with_style("A", style()));
+        let b = tree.mount(root, LayoutTestWidget::boxed_with_style("B", style()));
+
+        let available = Region::new(0, 0, 80, 30);
+        layout_vertical(&mut tree, &[a, b], available, (80, 30), false);
+
+        // A: y0 = 0 + top margin 1 = 1, box height 13 → y1 = 14.
+        assert_layout_rect(&tree, a, 0, 1, 80, 14);
+        // Advance: 14 + bottom margin 1 = 15; collapse with B's top margin
+        // (max(1,1)=1) → B top margin starts at 14, y0 = 15. Box height 14 →
+        // y1 = 29 (leaves the final bottom margin row).
+        assert_layout_rect(&tree, b, 0, 15, 80, 29);
+    }
+
     #[test]
     fn vertical_two_unset_height_children_each_fill_container() {
         // Python parity (`docs/examples/how-to/layout01.py`): two bare,
@@ -1228,6 +1300,33 @@ mod tests {
         // Edge total width = 20 + 3 + 3 = 26
         // layout: x=0+3=3, y=0+2=2, w=26-3-3=20, h=50-2-2=46
         assert_layout_rect(&tree, child, 3, 2, 23, 48);
+    }
+
+    // Gap 3 regression: two `1fr` children with `margin: 0 2` in a horizontal
+    // row must each receive a box width of `(total - collapsed_margin) / 2`.
+    // Collapsed margin = first.left(2) + interior max(2,2)=2 + last.right(2) = 6.
+    // total 118 - 6 = 112 → 56 each (NOT 55, which is the off-by-one bug where
+    // the margins were subtracted per-child after splitting the full width).
+    #[test]
+    fn horizontal_two_fr_with_margin_reserve_collapsed_margin() {
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(LayoutTestWidget::boxed("Container"));
+        let style = || {
+            let mut s = Style::new();
+            s.width = Some(Scalar::Fraction(1.0));
+            s.margin = Some(Spacing::new(0, 2, 0, 2));
+            s
+        };
+        let a = tree.mount(root, LayoutTestWidget::boxed_with_style("A", style()));
+        let b = tree.mount(root, LayoutTestWidget::boxed_with_style("B", style()));
+
+        let available = Region::new(0, 0, 118, 10);
+        layout_horizontal(&mut tree, &[a, b], available, (118, 10));
+
+        // A box: x=0+2=2, width 56 → x1=58.
+        assert_layout_rect(&tree, a, 2, 0, 58, 10);
+        // Gap between boxes is collapsed max(2,2)=2 → B box starts at 58+2=60.
+        assert_layout_rect(&tree, b, 60, 0, 116, 10);
     }
 
     // =========================================================================
@@ -1702,6 +1801,103 @@ mod tests {
 
         assert_layout_rect(&tree, parent, 0, 0, 80, 20);
         assert_layout_rect(&tree, child, 0, 0, 80, 5);
+    }
+
+    // Gap 2 regression: `align: center middle` on a horizontal container must
+    // vertically center its auto-height children, not leave them at the top.
+    // Mirrors guide/css/nesting01: a Horizontal (#questions) with two auto-height
+    // buttons. Each button is intrinsic height 3 (1 line + tall border), so the
+    // row used height is 3 in a 50-row container → centered at y0 = (50-3)/2 = 23.
+    #[test]
+    fn resolve_layout_align_middle_centers_auto_height_children() {
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(LayoutTestWidget::boxed_with_style("Container", {
+            let mut s = Style::new();
+            s.layout = Some(Layout::Horizontal);
+            s.align = Some(crate::style::Align {
+                horizontal: crate::style::HorizontalAlign::Center,
+                vertical: crate::style::VerticalAlign::Middle,
+            });
+            s
+        }));
+        // Two fixed-width, intrinsic-height-3 children (auto height).
+        let a = tree.mount(
+            root,
+            LayoutTestWidget::boxed_with_style_and_intrinsic_height(
+                "A",
+                Style::new().width(Scalar::Cells(20)),
+                3,
+            ),
+        );
+        let b = tree.mount(
+            root,
+            LayoutTestWidget::boxed_with_style_and_intrinsic_height(
+                "B",
+                Style::new().width(Scalar::Cells(20)),
+                3,
+            ),
+        );
+
+        resolve_layout(&mut tree, root, Region::new(0, 0, 80, 50), (80, 50));
+
+        // Used height = 3; container height 50 → top offset (50-3)/2 = 23.
+        // Used width = 40; container width 80 → left offset (80-40)/2 = 20.
+        assert_layout_rect(&tree, a, 20, 23, 40, 26);
+        assert_layout_rect(&tree, b, 40, 23, 60, 26);
+    }
+
+    // Gap 2 (wrapper case): `align: center middle` on a transparent `Node` wrapper
+    // (the Rust stand-in for `Horizontal#questions` in Python's nesting01) must
+    // govern the wrapped Horizontal's buttons, not the (full-region) Horizontal
+    // itself. Mirrors `guide/css/nesting01`: Node(#questions, align: center
+    // middle) > Horizontal > two fixed-width auto-height buttons.
+    #[test]
+    fn resolve_layout_wrapper_align_middle_centers_grandchildren() {
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(LayoutTestWidget::boxed("Container"));
+        // Transparent wrapper carrying the explicit align.
+        let wrapper = tree.mount(
+            root,
+            LayoutTestWidget::boxed_wrapper_with_style("Node", {
+                let mut s = Style::new();
+                s.align = Some(crate::style::Align {
+                    horizontal: crate::style::HorizontalAlign::Center,
+                    vertical: crate::style::VerticalAlign::Middle,
+                });
+                s
+            }),
+        );
+        let row = tree.mount(
+            wrapper,
+            LayoutTestWidget::boxed_with_style("Horizontal", {
+                let mut s = Style::new();
+                s.layout = Some(Layout::Horizontal);
+                s
+            }),
+        );
+        let a = tree.mount(
+            row,
+            LayoutTestWidget::boxed_with_style_and_intrinsic_height(
+                "A",
+                Style::new().width(Scalar::Cells(20)),
+                3,
+            ),
+        );
+        let b = tree.mount(
+            row,
+            LayoutTestWidget::boxed_with_style_and_intrinsic_height(
+                "B",
+                Style::new().width(Scalar::Cells(20)),
+                3,
+            ),
+        );
+
+        resolve_layout(&mut tree, root, Region::new(0, 0, 80, 50), (80, 50));
+
+        // Buttons centered vertically (top offset (50-3)/2 = 23) and the 40-wide
+        // row centered horizontally (left offset (80-40)/2 = 20).
+        assert_layout_rect(&tree, a, 20, 23, 40, 26);
+        assert_layout_rect(&tree, b, 40, 23, 60, 26);
     }
 
     // =========================================================================

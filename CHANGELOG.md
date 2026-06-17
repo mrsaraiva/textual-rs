@@ -7,6 +7,32 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-17 (feat(layout): width/height units + align middle + 1fr margin reserve)
+
+- **feat(style): `w`/`h` scalar units (% of the parent's *other* axis)**
+  - Added `Scalar::Width`/`Scalar::Height` so `40w` resolves to 40% of the parent
+    WIDTH and `50h` to 50% of the parent HEIGHT regardless of which property they
+    set (Python `_resolve_width`/`_resolve_height`). `parse_scalar` now parses them
+    (after `vw`/`vh`, which share the trailing letter), `resolve_scalar` takes the
+    parent width and height separately, and both dims are threaded through edge/
+    min/max resolution (margin-adjusted on each axis). `interpolate_scalar` gained
+    matching arms so the new units animate.
+- **fix(layout): `align: … middle` reaches children behind a transparent wrapper**
+  - When a node carries no `align` of its own and is the sole flow child of a
+    transparent wrapper (`Node`) that does, it inherits that align — so an inner
+    `Horizontal` applies the wrapper's center/middle to its buttons (Python has no
+    wrapper; `#questions` *is* the `Horizontal`).
+- **fix(layout): reserve collapsed margin before distributing `1fr` space**
+  - Flow layouts divided the full available size among edges and subtracted each
+    child's margin per-child afterward; fixed edges fold margin in but `fr` edges
+    did not, so two `1fr` children split the full width and lost a cell each.
+    Now the collapsed total margin is reserved from the resolver total *before*
+    distribution and sizes resolve on margin-excluded boxes (Python
+    `_resolve.resolve_box_models` + `layouts/horizontal.py`), fixing the inner
+    `1fr` off-by-one. Subsumes the old partial `collapse_overlap` mitigation.
+  - Promotes `docs_max_width`, `docs_max_height`, `docs_min_width`,
+    `docs_nesting01`, `docs_nesting02` (PTY 159 → 164).
+
 ### 2026-06-16 (fix(Placeholder): default label derives from id)
 
 - **fix(widgets/Placeholder): unlabelled Placeholder renders `#<id>`**

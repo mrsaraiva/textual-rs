@@ -851,6 +851,52 @@ const CASES: &[Case] = &[
         golden_replacements: &[],
         status: Status::Pass,
     },
+    // Engine-gap wave 2 (layoutsize): w/h units + align middle + 1fr margin-reserve.
+    Case {
+        name: "docs_max_width",
+        example: "max_width",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_max_height",
+        example: "max_height",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_min_width",
+        example: "min_width",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_nesting01",
+        example: "nesting01",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_nesting02",
+        example: "nesting02",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
     Case {
         name: "docs_checkbox",
         example: "checkbox",
@@ -1883,6 +1929,11 @@ pty_case!(docs_checkbox, "docs_checkbox");
 pty_case!(docs_stopwatch03, "docs_stopwatch03");
 pty_case!(docs_stopwatch04, "docs_stopwatch04");
 pty_case!(docs_option_list_tables, "docs_option_list_tables");
+pty_case!(docs_max_width, "docs_max_width");
+pty_case!(docs_max_height, "docs_max_height");
+pty_case!(docs_min_width, "docs_min_width");
+pty_case!(docs_nesting01, "docs_nesting01");
+pty_case!(docs_nesting02, "docs_nesting02");
 pty_case!(docs_prevent, "docs_prevent");
 pty_case!(docs_center08, "docs_center08");
 pty_case!(docs_center09, "docs_center09");

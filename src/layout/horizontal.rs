@@ -97,58 +97,63 @@ pub fn layout_horizontal(
 
     // Phase 2: build edges for width distribution.
     //
-    // Python parity (`layouts/horizontal.py`): adjacent horizontal margins
-    // COLLAPSE — the gap between child `i` and `i+1` is `max(margin_i.right,
-    // margin_{i+1}.left)`, not their sum. Each `width_edge.size` from
-    // `extract_child_spec` already folds in this child's FULL left+right margin,
-    // which would double-count the shared gap. Subtract the overlap (the smaller
-    // of each interior pair of adjacent margins) from the first child's reserved
-    // edge so the TOTAL width reserved for fixed children matches Python's single
-    // collapsed `resolve_margin`, freeing that space for any flexible (`fr`)
-    // siblings. Positioning (Phase 3) applies the collapse per-gap.
-    let mut edges: Vec<Edge> = specs.iter().map(|s| s.width_edge).collect();
-    let collapse_overlap: u16 = specs
-        .windows(2)
-        .map(|pair| pair[0].margin.right.min(pair[1].margin.left))
-        .sum();
-    // Only fixed-size (`Some`) edges fold margin into their size; a flexible
-    // (`fr`/`auto`) first child keeps its margin out of the edge size, so the
-    // overlap must NOT be removed from (nor later restored to) it.
-    let mut overlap_removed_from_first = 0u16;
-    if collapse_overlap > 0 {
-        if let Some(first) = edges.first_mut() {
-            if let Some(size) = first.size.as_mut() {
-                *size = size.saturating_sub(collapse_overlap);
-                overlap_removed_from_first = collapse_overlap;
+    // Python parity (`_resolve.resolve_box_models` + `layouts/horizontal.py`):
+    // the COLLAPSED total margin is reserved from the container width BEFORE the
+    // fraction distribution, then the remaining space is divided among the
+    // children's BOX widths (margin-excluded). Adjacent horizontal margins
+    // COLLAPSE — the interior gap between child `i` and `i+1` is
+    // `max(margin_i.right, margin_{i+1}.left)`, not their sum.
+    //
+    // `extract_child_spec` folds each child's FULL left+right margin into a FIXED
+    // edge's `size` (flexible `fr`/`auto` edges carry no margin). To divide on a
+    // uniform, margin-excluded basis we strip each fixed edge's own margin here
+    // and reserve the single collapsed margin total from the resolver input — so
+    // a `fr` child also has its share of the margin reserved (without this, two
+    // `1fr` children split the FULL width and then each loses its margin in
+    // Phase 3, under-sizing every flexible box by its margin).
+    let collapsed_margin_total: u16 = {
+        let interior: u16 = specs
+            .windows(2)
+            .map(|pair| pair[0].margin.right.max(pair[1].margin.left))
+            .sum();
+        interior
+            .saturating_add(specs[0].margin.left)
+            .saturating_add(specs[specs.len() - 1].margin.right)
+    };
+    let edges: Vec<Edge> = specs
+        .iter()
+        .map(|s| {
+            let margin_lr = s.margin.left + s.margin.right;
+            Edge {
+                // Fixed edges include margin in `size`/`min_size`; strip it so the
+                // resolver works on box widths. Flexible edges (`size: None`)
+                // carry no margin in `size` already.
+                size: s.width_edge.size.map(|sz| sz.saturating_sub(margin_lr)),
+                fraction: s.width_edge.fraction,
+                min_size: s.width_edge.min_size.saturating_sub(margin_lr),
             }
-        }
-    }
-    let widths = layout_resolve_1d(available.width, &edges);
+        })
+        .collect();
+    let resolve_total = available.width.saturating_sub(collapsed_margin_total);
+    let widths = layout_resolve_1d(resolve_total, &edges);
 
     // Phase 3: compute rects and write to tree.
     //
-    // `layout_left` is the left edge of the current child's LAYOUT box (margin
-    // already applied). The first child's left edge is `available.x +
-    // margin.left`; each subsequent child's left edge is the previous layout
-    // box's right edge plus the COLLAPSED gap (`max(this.right, next.left)`), so
-    // adjacent margins overlap instead of summing (Python
-    // `layouts/horizontal.py`).
+    // `layout_left` is the left edge of the current child's LAYOUT (box) region.
+    // The resolved `widths[i]` are already margin-excluded box widths. The first
+    // child's left edge is `available.x + margin.left`; each subsequent child's
+    // left edge is the previous box's right edge plus the COLLAPSED gap
+    // (`max(this.right, next.left)`), so adjacent margins overlap instead of
+    // summing (Python `layouts/horizontal.py`).
     let mut layout_left = available.x.saturating_add(specs[0].margin.left);
     for (i, &child) in children.iter().enumerate() {
         let spec = &specs[i];
-        // If `collapse_overlap` was removed from child 0's (fixed) edge in Phase
-        // 2, add it back here to recover its true outer width; otherwise (flexible
-        // first child, or no overlap) the resolved width is already correct.
-        let total_w = if i == 0 {
-            widths[i].saturating_add(overlap_removed_from_first)
-        } else {
-            widths[i]
-        };
+        // Resolved widths are already box (margin-excluded) widths.
+        let layout_w = widths[i];
 
         // Layout rect excludes margin.
         let layout_x = layout_left;
         let layout_y = available.y.saturating_add(spec.margin.top);
-        let layout_w = total_w.saturating_sub(spec.margin.left + spec.margin.right);
         let mut layout_h = available
             .height
             .saturating_sub(spec.margin.top + spec.margin.bottom);

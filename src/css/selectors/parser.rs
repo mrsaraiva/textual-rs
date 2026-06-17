@@ -1993,11 +1993,21 @@ fn parse_scalar(value: &str) -> Option<Scalar> {
     if let Some(raw) = value.strip_suffix("fr") {
         return raw.trim().parse::<f32>().ok().map(Scalar::Fraction);
     }
+    // `vw`/`vh` must be checked BEFORE the single-letter `w`/`h` units, since
+    // they share the trailing `w`/`h` character.
     if let Some(raw) = value.strip_suffix("vw") {
         return raw.trim().parse::<f32>().ok().map(Scalar::ViewWidth);
     }
     if let Some(raw) = value.strip_suffix("vh") {
         return raw.trim().parse::<f32>().ok().map(Scalar::ViewHeight);
+    }
+    // `w` / `h` units: percentage of the parent WIDTH / HEIGHT respectively,
+    // regardless of which axis the property sizes (Python `css/scalar.py`).
+    if let Some(raw) = value.strip_suffix('w') {
+        return raw.trim().parse::<f32>().ok().map(Scalar::Width);
+    }
+    if let Some(raw) = value.strip_suffix('h') {
+        return raw.trim().parse::<f32>().ok().map(Scalar::Height);
     }
     value.parse::<u16>().ok().map(Scalar::Cells)
 }
@@ -2672,6 +2682,39 @@ mod tests {
         let style = parse_style_body("width: 50% !important;");
         assert_eq!(style.width, Some(Scalar::Percent(50.0)));
         assert!(style.importance.get(StyleProperty::Width));
+    }
+
+    // Gap 1: `w`/`h` Scalar units. `40w` = 40% of parent WIDTH, `50h` = 50% of
+    // parent HEIGHT. These must parse distinctly from `vw`/`vh` (which share the
+    // trailing letter) and from a bare cell count.
+    #[test]
+    fn parse_width_height_units() {
+        assert_eq!(
+            parse_style_body("width: 40w;").width,
+            Some(Scalar::Width(40.0))
+        );
+        assert_eq!(
+            parse_style_body("height: 50h;").height,
+            Some(Scalar::Height(50.0))
+        );
+        // The other axis is expressible: `min-height: 40w`.
+        assert_eq!(
+            parse_style_body("min-height: 40w;").min_height,
+            Some(Scalar::Width(40.0))
+        );
+        assert_eq!(
+            parse_style_body("max-width: 25h;").max_width,
+            Some(Scalar::Height(25.0))
+        );
+        // `vw`/`vh` must still win over `w`/`h`.
+        assert_eq!(
+            parse_style_body("width: 25vw;").width,
+            Some(Scalar::ViewWidth(25.0))
+        );
+        assert_eq!(
+            parse_style_body("height: 25vh;").height,
+            Some(Scalar::ViewHeight(25.0))
+        );
     }
 
     #[test]

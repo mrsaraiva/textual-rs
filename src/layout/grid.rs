@@ -121,6 +121,9 @@ fn resolve_fixed_scalar(scalar: &Scalar, size: u16, viewport: u16) -> Rat {
     match scalar {
         Scalar::Cells(n) => Rat::whole(*n as i64),
         Scalar::Percent(p) => exact(*p, size),
+        // `w`/`h` track units are rare; resolve against the track-axis size (the
+        // grid track resolver only knows one axis here).
+        Scalar::Width(p) | Scalar::Height(p) => exact(*p, size),
         Scalar::ViewWidth(p) | Scalar::ViewHeight(p) => exact(*p, viewport),
         // Auto / Fraction are handled before calling this; treat defensively as 0.
         Scalar::Auto | Scalar::Fraction(_) => Rat::zero(),

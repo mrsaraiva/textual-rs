@@ -196,8 +196,38 @@ pub fn layout_vertical(
     }
 
     // Phase 2: build edges for height distribution.
-    let edges: Vec<Edge> = specs.iter().map(|s| s.height_edge).collect();
-    let heights = layout_resolve_1d(available.height, &edges);
+    //
+    // Python parity (`_resolve.resolve_box_models` + `layouts/vertical.py`): the
+    // COLLAPSED total vertical margin is reserved from the container height
+    // BEFORE the fraction distribution, then the remainder is divided among the
+    // children's BOX heights (margin-excluded). `extract_child_spec` folds each
+    // child's FULL top+bottom margin into a FIXED edge's `size` (flexible
+    // `fr`/`auto` edges carry no margin); strip it here and reserve the single
+    // collapsed total from the resolver input so a `fr` child also has its share
+    // of the margin reserved (otherwise two `1fr` children split the FULL height
+    // and each loses its margin in Phase 3, under-sizing every flexible box).
+    let collapsed_margin_total: u16 = {
+        let interior: u16 = specs
+            .windows(2)
+            .map(|pair| pair[0].margin.bottom.max(pair[1].margin.top))
+            .sum();
+        interior
+            .saturating_add(specs[0].margin.top)
+            .saturating_add(specs[specs.len() - 1].margin.bottom)
+    };
+    let edges: Vec<Edge> = specs
+        .iter()
+        .map(|s| {
+            let margin_tb = s.margin.top + s.margin.bottom;
+            Edge {
+                size: s.height_edge.size.map(|sz| sz.saturating_sub(margin_tb)),
+                fraction: s.height_edge.fraction,
+                min_size: s.height_edge.min_size.saturating_sub(margin_tb),
+            }
+        })
+        .collect();
+    let resolve_total = available.height.saturating_sub(collapsed_margin_total);
+    let heights = layout_resolve_1d(resolve_total, &edges);
 
     // Phase 3: compute rects and write to tree (mutable borrow).
     // Track previous child's bottom margin for CSS-style margin collapsing:
@@ -206,10 +236,12 @@ pub fn layout_vertical(
     let mut prev_margin_bottom: u16 = 0;
     for (i, &child) in children.iter().enumerate() {
         let spec = &specs[i];
-        let total_h = heights[i];
+        // Resolved heights are already box (margin-excluded) heights.
+        let layout_h = heights[i];
 
-        // Collapse vertical margins between adjacent children: subtract the
-        // overlap so the effective gap equals max(prev_bottom, cur_top).
+        // Margins are positioned explicitly below (top margin added to `y`, the
+        // gap between siblings collapsed). The first child's top margin advances
+        // `y`; collapse the overlap with the previous child's bottom margin.
         let collapse = prev_margin_bottom.min(spec.margin.top);
         y = y.saturating_sub(collapse);
 
@@ -220,7 +252,6 @@ pub fn layout_vertical(
             .width
             .saturating_sub(spec.margin.left + spec.margin.right);
         let mut layout_w = base_w;
-        let layout_h = total_h.saturating_sub(spec.margin.top + spec.margin.bottom);
 
         // Apply explicit width constraint (P2-25: width_edge.size includes chrome).
         if let Some(edge_w) = spec.width_edge.size {
@@ -278,7 +309,9 @@ pub fn layout_vertical(
             node.content_rect = Region::new(content_x, content_y, content_w, content_h).to_rect();
         }
 
-        y = y.saturating_add(total_h);
+        // Advance past this child's full outer box: top margin + box height +
+        // bottom margin. `layout_h` is the resolved (max-clamped) box height.
+        y = layout_y.saturating_add(layout_h).saturating_add(spec.margin.bottom);
         prev_margin_bottom = spec.margin.bottom;
     }
 }

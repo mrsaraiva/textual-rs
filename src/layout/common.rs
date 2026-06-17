@@ -206,12 +206,51 @@ pub(crate) fn own_box_chrome(style: &Style) -> (u16, u16) {
     (h, v)
 }
 
+/// Resolve a scalar to cells against an axis size.
+///
+/// `parent_size` is the parent extent on the scalar's OWN axis (what `Percent`
+/// uses). `parent_width`/`parent_height` are both parent dims, needed by the
+/// axis-absolute `w`/`h` (`Scalar::Width`/`Scalar::Height`) units. Most call
+/// sites only have one axis dim handy; use [`resolve_scalar_to_cells`] which
+/// assumes the scalar's own axis equals `parent_size` for `w`/`h` too (correct
+/// when sizing the same axis), or [`resolve_scalar_to_cells_2d`] to pass both.
+pub(crate) fn resolve_scalar_to_cells_2d(
+    scalar: &Scalar,
+    parent_size: u16,
+    parent_width: u16,
+    parent_height: u16,
+    viewport_size: u16,
+) -> u16 {
+    resolve_scalar(
+        scalar,
+        parent_size,
+        parent_width,
+        parent_height,
+        viewport_size,
+        0.0,
+        0,
+    )
+}
+
+/// Resolve a scalar to cells when only the scalar's own-axis parent size is
+/// known. For `w`/`h` units this approximates the other axis with `parent_size`
+/// — acceptable for measurement-only call sites (intrinsic content sizing) where
+/// `w`/`h` are rare; the flow layouts use [`resolve_scalar_to_cells_2d`] with the
+/// real parent width AND height for correct `w`/`h` resolution.
 pub(crate) fn resolve_scalar_to_cells(
     scalar: &Scalar,
     parent_size: u16,
     viewport_size: u16,
 ) -> u16 {
-    resolve_scalar(scalar, parent_size, viewport_size, 0.0, 0)
+    resolve_scalar(
+        scalar,
+        parent_size,
+        parent_size,
+        parent_size,
+        viewport_size,
+        0.0,
+        0,
+    )
 }
 
 /// Build a [`ChildSpec`] from a resolved style.
@@ -244,26 +283,33 @@ pub(crate) fn extract_child_spec(
         )
     };
 
-    // Resolve min sizes to cells.
+    // Resolve min/max sizes to cells. Use the 2D form so `w`/`h` units resolve
+    // against the correct parent axis (e.g. `min-height: 40w` = 40% of parent
+    // WIDTH), while `%`/`cells` keep resolving against the property's own axis.
     let min_h_cells = style
         .min_height
         .as_ref()
-        .map(|s| resolve_scalar_to_cells(s, parent_height, viewport.1))
+        .map(|s| resolve_scalar_to_cells_2d(s, parent_height, parent_width, parent_height, viewport.1))
         .unwrap_or(0);
     let min_w_cells = style
         .min_width
         .as_ref()
-        .map(|s| resolve_scalar_to_cells(s, parent_width, viewport.0))
+        .map(|s| resolve_scalar_to_cells_2d(s, parent_width, parent_width, parent_height, viewport.0))
         .unwrap_or(0);
 
     let max_h_cells = style
         .max_height
         .as_ref()
-        .map(|s| resolve_scalar_to_cells(s, parent_height, viewport.1));
+        .map(|s| resolve_scalar_to_cells_2d(s, parent_height, parent_width, parent_height, viewport.1));
     let max_w_cells = style
         .max_width
         .as_ref()
-        .map(|s| resolve_scalar_to_cells(s, parent_width, viewport.0));
+        .map(|s| resolve_scalar_to_cells_2d(s, parent_width, parent_width, parent_height, viewport.0));
+
+    // Margin-adjusted parent dims for `w`/`h` units (Python resolves these
+    // against `container - margin.totals` on BOTH axes).
+    let parent_width_adj = parent_width.saturating_sub(margin.left + margin.right);
+    let parent_height_adj = parent_height.saturating_sub(margin.top + margin.bottom);
 
     // Full horizontal chrome (margin + border + padding), independent of
     // box-sizing. For `width: auto` the intrinsic `content_width()` represents
@@ -295,7 +341,15 @@ pub(crate) fn extract_child_spec(
             } else {
                 // `height: auto` with no measurable content: flex-fill (existing
                 // behavior — distinct from an UNSET height, handled below).
-                scalar_to_edge(None, parent_height, viewport.1, min_h_cells, v_chrome)
+                scalar_to_edge(
+                    None,
+                    parent_height,
+                    parent_width_adj,
+                    parent_height_adj,
+                    viewport.1,
+                    min_h_cells,
+                    v_chrome,
+                )
             }
         }
         None => {
@@ -337,6 +391,8 @@ pub(crate) fn extract_child_spec(
         _ => scalar_to_edge(
             style.height.as_ref(),
             parent_height.saturating_sub(margin.top + margin.bottom),
+            parent_width_adj,
+            parent_height_adj,
             viewport.1,
             min_h_cells,
             v_chrome,
@@ -364,12 +420,22 @@ pub(crate) fn extract_child_spec(
                     min_size,
                 }
             } else {
-                scalar_to_edge(None, parent_width, viewport.0, min_w_cells, h_chrome)
+                scalar_to_edge(
+                    None,
+                    parent_width,
+                    parent_width_adj,
+                    parent_height_adj,
+                    viewport.0,
+                    min_w_cells,
+                    h_chrome,
+                )
             }
         }
         _ => scalar_to_edge(
             style.width.as_ref(),
             parent_width,
+            parent_width_adj,
+            parent_height_adj,
             viewport.0,
             min_w_cells,
             h_chrome,
@@ -704,10 +770,18 @@ fn measure_child_outer_height(
 
 /// Convert a CSS [`Scalar`] size into an [`Edge`] for the 1D resolver.
 ///
-/// `chrome` is the total border+padding+margin for this axis.
+/// `parent_size` is the parent extent on the scalar's OWN axis (what `Percent`
+/// resolves against). `parent_width`/`parent_height` are both parent dims, used
+/// by the axis-absolute `w`/`h` (`Scalar::Width`/`Scalar::Height`) units. All
+/// three should be margin-adjusted by the caller to match Python
+/// (`container - margin.totals`). `chrome` is the total border+padding+margin
+/// for this axis.
+#[allow(clippy::too_many_arguments)]
 fn scalar_to_edge(
     scalar: Option<&Scalar>,
     parent_size: u16,
+    parent_width: u16,
+    parent_height: u16,
     viewport_size: u16,
     min_cells: u16,
     chrome: u16,
@@ -729,8 +803,14 @@ fn scalar_to_edge(
             min_size: min_cells.saturating_add(chrome),
         },
         Some(scalar) => {
-            // Percent, ViewWidth, ViewHeight — resolve to cells.
-            let cells = resolve_scalar_to_cells(scalar, parent_size, viewport_size);
+            // Percent, Width (`w`), Height (`h`), ViewWidth, ViewHeight.
+            let cells = resolve_scalar_to_cells_2d(
+                scalar,
+                parent_size,
+                parent_width,
+                parent_height,
+                viewport_size,
+            );
             Edge {
                 size: Some(cells.saturating_add(chrome)),
                 fraction: 1,
