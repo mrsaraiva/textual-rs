@@ -3,11 +3,6 @@
 /// Demonstrates `border-subtitle-align` with left, center, and right
 /// alignment variants. Three Label widgets each have a border and a subtitle
 /// text aligned differently.
-///
-/// Framework gap: `Label` (and widgets in general) do not yet expose a
-/// `border_subtitle` text setter in textual-rs. Python sets
-/// `lbl.border_subtitle = "..."` at runtime; that API does not exist here.
-/// The CSS alignment properties are included verbatim.
 use textual::prelude::*;
 
 const CSS: &str = r##"
@@ -46,9 +41,21 @@ impl TextualApp for BorderSubtitleAlignApp {
 
     fn compose(&mut self) -> AppRoot {
         AppRoot::new()
-            .with_child(Label::new("My subtitle is on the left.").with_id("label1"))
-            .with_child(Label::new("My subtitle is centered").with_id("label2"))
-            .with_child(Label::new("My subtitle is on the right").with_id("label3"))
+            .with_child(
+                Label::new("My subtitle is on the left.")
+                    .with_id("label1")
+                    .with_border_subtitle("< Left"),
+            )
+            .with_child(
+                Label::new("My subtitle is centered")
+                    .with_id("label2")
+                    .with_border_subtitle("Centered!"),
+            )
+            .with_child(
+                Label::new("My subtitle is on the right")
+                    .with_id("label3")
+                    .with_border_subtitle("Right >"),
+            )
     }
 }
 

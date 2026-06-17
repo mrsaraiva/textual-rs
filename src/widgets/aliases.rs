@@ -69,6 +69,28 @@ impl Static {
         self.label.set_text(String::new());
         self.content = StaticContent::Plain;
     }
+
+    /// Set the text rendered on the top border (Python `widget.border_title`).
+    pub fn with_border_title(mut self, title: impl Into<String>) -> Self {
+        self.label = self.label.with_border_title(title);
+        self
+    }
+
+    /// Set the text rendered on the bottom border (Python `widget.border_subtitle`).
+    pub fn with_border_subtitle(mut self, subtitle: impl Into<String>) -> Self {
+        self.label = self.label.with_border_subtitle(subtitle);
+        self
+    }
+
+    /// Set or clear the border title at runtime.
+    pub fn set_border_title(&mut self, title: Option<impl Into<String>>) {
+        self.label.set_border_title(title);
+    }
+
+    /// Set or clear the border subtitle at runtime.
+    pub fn set_border_subtitle(&mut self, subtitle: Option<impl Into<String>>) {
+        self.label.set_border_subtitle(subtitle);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -167,6 +189,14 @@ impl Widget for Static {
 
     fn auto_content_width(&self) -> Option<usize> {
         self.label.auto_content_width()
+    }
+
+    fn border_title(&self) -> Option<&str> {
+        self.label.border_title()
+    }
+
+    fn border_subtitle(&self) -> Option<&str> {
+        self.label.border_subtitle()
     }
 
     fn set_inline_style(&mut self, style: crate::style::Style) {

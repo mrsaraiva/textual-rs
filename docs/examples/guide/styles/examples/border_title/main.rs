@@ -1,11 +1,8 @@
 /// Port of Python Textual `docs/examples/guide/styles/border_title.py`.
 ///
-/// Demonstrates border_title and border_subtitle set via on_mount styles.
-/// Note: border_title / border_subtitle / border_title_align are set inline
-/// via CSS since Rust does not yet expose on_mount style mutation API.
-///
-/// Framework gap: border_title / border_subtitle runtime mutation (on_mount)
-/// is not yet supported. CSS-only approximation used.
+/// Demonstrates border_title and border_subtitle on a Static.
+/// Python sets `background`/`width`/`border`/`border_title_align` at runtime in
+/// on_mount; the Rust port expresses those via CSS (equivalent static result).
 use textual::prelude::*;
 
 const CSS: &str = r##"
@@ -34,7 +31,11 @@ impl TextualApp for BorderTitleApp {
     }
 
     fn compose(&mut self) -> AppRoot {
-        AppRoot::new().with_child(Static::new(TEXT))
+        AppRoot::new().with_child(
+            Static::new(TEXT)
+                .with_border_title("Litany Against Fear")
+                .with_border_subtitle("by Frank Herbert, in “Dune”"),
+        )
     }
 }
 

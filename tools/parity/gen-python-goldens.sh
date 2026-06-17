@@ -234,4 +234,10 @@ CASE=docs_nesting02      && want "$@" && run_case "$CASE" "$PY_DOCS/guide/css" "
 CASE=docs_outline        && want "$@" && run_case "$CASE" "$PY_DOCS/styles"        "" "outline.py"
 CASE=docs_outline01      && want "$@" && run_case "$CASE" "$PY_DOCS/guide/styles"  "" "outline01.py"
 
+# Border-title widget API: Label/Static gained with_border_title/with_border_subtitle.
+CASE=docs_border_title_align    && want "$@" && run_case "$CASE" "$PY_DOCS/styles"       "" "border_title_align.py"
+CASE=docs_border_subtitle_align && want "$@" && run_case "$CASE" "$PY_DOCS/styles"       "" "border_subtitle_align.py"
+CASE=docs_border_title_colors   && want "$@" && run_case "$CASE" "$PY_DOCS/styles"       "" "border_title_colors.py"
+CASE=docs_border_title          && want "$@" && run_case "$CASE" "$PY_DOCS/guide/styles" "" "border_title.py"
+
 echo "done."

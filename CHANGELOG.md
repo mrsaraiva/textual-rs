@@ -7,6 +7,20 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-17 (feat(widgets): border_title/border_subtitle text setters on Label/Static)
+
+- **feat(widgets/Label, widgets/Static): border-title / border-subtitle text API**
+  - The render path already overlaid border title/subtitle text with align + color
+    (`overlay_border_text`), but `Label`/`Static` had no way to set the text, so the
+    `border_title*`/`border_subtitle*` examples rendered borders with no titles.
+    Added `with_border_title`/`with_border_subtitle` builders + `set_border_title`/
+    `set_border_subtitle` runtime setters (Python `widget.border_title = …`), and
+    overrode the `Widget::border_title()`/`border_subtitle()` getters. `Static`
+    delegates to its inner `Label`. Promotes `docs_border_title_align`,
+    `docs_border_subtitle_align`, `docs_border_title_colors`, `docs_border_title`
+    (PTY 166 → 170). (`border_sub_title_align_all` deferred — needs markup-in-titles
+    + `[link=…]`, tracked with the link-markup work.)
+
 ### 2026-06-17 (fix(render): outline paints over the widget's own edge cells)
 
 - **fix(render): `outline` overdraws the widget edge instead of reserving space**

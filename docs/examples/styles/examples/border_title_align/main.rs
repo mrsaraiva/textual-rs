@@ -2,10 +2,6 @@
 ///
 /// Demonstrates `border-title-align` CSS property with three Labels whose
 /// border titles are left-, center-, and right-aligned.
-///
-/// Framework gap: Label does not yet support `border_title` (no `with_border_title`
-/// builder method). The CSS (`border-title-align`, `border`) is ported verbatim;
-/// border titles will not render until Label gains `border_title()` support.
 use textual::prelude::*;
 
 const CSS: &str = r##"
@@ -44,9 +40,21 @@ impl TextualApp for BorderTitleAlignApp {
 
     fn compose(&mut self) -> AppRoot {
         AppRoot::new()
-            .with_child(Label::new("My title is on the left.").with_id("label1"))
-            .with_child(Label::new("My title is centered").with_id("label2"))
-            .with_child(Label::new("My title is on the right").with_id("label3"))
+            .with_child(
+                Label::new("My title is on the left.")
+                    .with_id("label1")
+                    .with_border_title("< Left"),
+            )
+            .with_child(
+                Label::new("My title is centered")
+                    .with_id("label2")
+                    .with_border_title("Centered!"),
+            )
+            .with_child(
+                Label::new("My title is on the right")
+                    .with_id("label3")
+                    .with_border_title("Right >"),
+            )
     }
 }
 

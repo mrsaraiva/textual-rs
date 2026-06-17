@@ -916,6 +916,43 @@ const CASES: &[Case] = &[
         golden_replacements: &[],
         status: Status::Pass,
     },
+    // Border-title widget API: Label/Static gained with_border_title/-subtitle.
+    Case {
+        name: "docs_border_title_align",
+        example: "border_title_align",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_border_subtitle_align",
+        example: "border_subtitle_align",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_border_title_colors",
+        example: "border_title_colors",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_border_title",
+        example: "border_title",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
     Case {
         name: "docs_checkbox",
         example: "checkbox",
@@ -1955,6 +1992,10 @@ pty_case!(docs_nesting01, "docs_nesting01");
 pty_case!(docs_nesting02, "docs_nesting02");
 pty_case!(docs_outline, "docs_outline");
 pty_case!(docs_outline01, "docs_outline01");
+pty_case!(docs_border_title_align, "docs_border_title_align");
+pty_case!(docs_border_subtitle_align, "docs_border_subtitle_align");
+pty_case!(docs_border_title_colors, "docs_border_title_colors");
+pty_case!(docs_border_title, "docs_border_title");
 pty_case!(docs_prevent, "docs_prevent");
 pty_case!(docs_center08, "docs_center08");
 pty_case!(docs_center09, "docs_center09");

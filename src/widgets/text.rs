@@ -46,6 +46,8 @@ pub struct Label {
     shrink: bool,
     layout_width: usize,
     variant: Option<LabelVariant>,
+    border_title: Option<String>,
+    border_subtitle: Option<String>,
     seed: NodeSeed,
 }
 
@@ -63,6 +65,8 @@ impl Label {
             shrink: false,
             layout_width: 0,
             variant: None,
+            border_title: None,
+            border_subtitle: None,
             seed,
         }
     }
@@ -80,6 +84,30 @@ impl Label {
 
     pub fn set_text(&mut self, text: impl Into<String>) {
         self.text = text.into();
+    }
+
+    /// Set the text rendered on the top border (Python `widget.border_title`).
+    /// Only visible when the widget has a border; align/colors come from the
+    /// `border-title-*` CSS properties.
+    pub fn with_border_title(mut self, title: impl Into<String>) -> Self {
+        self.border_title = Some(title.into());
+        self
+    }
+
+    /// Set the text rendered on the bottom border (Python `widget.border_subtitle`).
+    pub fn with_border_subtitle(mut self, subtitle: impl Into<String>) -> Self {
+        self.border_subtitle = Some(subtitle.into());
+        self
+    }
+
+    /// Set or clear the border title at runtime (Python `widget.border_title = ...`).
+    pub fn set_border_title(&mut self, title: Option<impl Into<String>>) {
+        self.border_title = title.map(Into::into);
+    }
+
+    /// Set or clear the border subtitle at runtime.
+    pub fn set_border_subtitle(&mut self, subtitle: Option<impl Into<String>>) {
+        self.border_subtitle = subtitle.map(Into::into);
     }
 
     pub fn wrap(mut self, wrap: bool) -> Self {
@@ -163,6 +191,14 @@ impl Label {
 }
 
 impl Widget for Label {
+    fn border_title(&self) -> Option<&str> {
+        self.border_title.as_deref()
+    }
+
+    fn border_subtitle(&self) -> Option<&str> {
+        self.border_subtitle.as_deref()
+    }
+
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         if self.markup {
             let rendered = console.render_str(&self.text, Some(true), None, None, None);

@@ -3,11 +3,6 @@
 /// Demonstrates border-title-color, border-title-background, border-title-style,
 /// border-subtitle-color, border-subtitle-background, and border-subtitle-style CSS
 /// properties on a Label.
-///
-/// NOTE: Python sets `label.border_title = "Textual Rocks"` and
-/// `label.border_subtitle = "Textual Rocks"` in on_mount. Label does not expose
-/// `border_title`/`border_subtitle` text setters in Rust yet (framework gap).
-/// The CSS styling rules are ported faithfully.
 use textual::prelude::*;
 
 const CSS: &str = r##"
@@ -38,7 +33,11 @@ impl TextualApp for BorderTitleApp {
     }
 
     fn compose(&mut self) -> AppRoot {
-        AppRoot::new().with_child(Label::new("Hello, World!"))
+        AppRoot::new().with_child(
+            Label::new("Hello, World!")
+                .with_border_title("Textual Rocks")
+                .with_border_subtitle("Textual Rocks"),
+        )
     }
 }
 
