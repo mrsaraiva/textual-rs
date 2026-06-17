@@ -48,6 +48,25 @@ impl Color {
             }
         }
 
+        // hsl(h, s%, l%) / hsla(h, s%, l%, a) — Python Textual supports CSS hsl().
+        for (prefix, has_alpha) in [("hsla(", true), ("hsl(", false)] {
+            if let Some(args) = value.strip_prefix(prefix).and_then(|s| s.strip_suffix(')')) {
+                let parts: Vec<&str> = args.split(',').map(|p| p.trim()).collect();
+                if parts.len() == if has_alpha { 4 } else { 3 } {
+                    let h: f32 = parts[0].parse().ok()?;
+                    let s: f32 = parts[1].trim_end_matches('%').trim().parse::<f32>().ok()? / 100.0;
+                    let l: f32 = parts[2].trim_end_matches('%').trim().parse::<f32>().ok()? / 100.0;
+                    let a = if has_alpha {
+                        (parts[3].parse::<f32>().ok()?.clamp(0.0, 1.0) * 255.0).round() as u8
+                    } else {
+                        255
+                    };
+                    let (r, g, b) = hsl_to_rgb(h, s, l);
+                    return Some(Color::rgba(r, g, b, a));
+                }
+            }
+        }
+
         // CSS / W3C named colors take precedence over rich-rs's ANSI-palette
         // names, so `white` = #ffffff (CSS) rather than ANSI standard white.
         // Mirrors Python Textual's COLOR_NAME_TO_RGB. (`ansi_*` names and
@@ -100,6 +119,42 @@ impl Color {
             mix(self.b, under.b),
         )
     }
+}
+
+/// CSS `hsl()` → RGB (Python Textual / CSS Color Module). `h` in degrees,
+/// `s`/`l` in [0,1].
+fn hsl_to_rgb(h: f32, s: f32, l: f32) -> (u8, u8, u8) {
+    let h = h.rem_euclid(360.0) / 360.0;
+    let s = s.clamp(0.0, 1.0);
+    let l = l.clamp(0.0, 1.0);
+    if s == 0.0 {
+        let v = (l * 255.0).round() as u8;
+        return (v, v, v);
+    }
+    let q = if l < 0.5 { l * (1.0 + s) } else { l + s - l * s };
+    let p = 2.0 * l - q;
+    let hue = |mut t: f32| -> f32 {
+        if t < 0.0 {
+            t += 1.0;
+        }
+        if t > 1.0 {
+            t -= 1.0;
+        }
+        if t < 1.0 / 6.0 {
+            p + (q - p) * 6.0 * t
+        } else if t < 1.0 / 2.0 {
+            q
+        } else if t < 2.0 / 3.0 {
+            p + (q - p) * (2.0 / 3.0 - t) * 6.0
+        } else {
+            p
+        }
+    };
+    (
+        (hue(h + 1.0 / 3.0) * 255.0).round() as u8,
+        (hue(h) * 255.0).round() as u8,
+        (hue(h - 1.0 / 3.0) * 255.0).round() as u8,
+    )
 }
 
 pub(crate) fn color_from_simple(color: rich_rs::SimpleColor) -> Color {
@@ -3110,6 +3165,18 @@ mod tests {
         assert_eq!(parse_color_like("rebeccapurple"), Some(Color::rgb(102, 51, 153)));
         // `ansi_*` names keep the terminal-palette values (handled separately).
         assert_eq!(parse_color_like("ansi_white"), Some(Color::rgb(192, 192, 192)));
+    }
+
+    #[test]
+    fn hsl_and_hsla_parse_to_rgb() {
+        // hsl(240,100%,50%) = pure blue (Python Textual / CSS).
+        assert_eq!(parse_color_like("hsl(240, 100%, 50%)"), Some(Color::rgb(0, 0, 255)));
+        assert_eq!(parse_color_like("hsl(0, 100%, 50%)"), Some(Color::rgb(255, 0, 0)));
+        assert_eq!(parse_color_like("hsl(120, 100%, 50%)"), Some(Color::rgb(0, 255, 0)));
+        // s=0 => grey at lightness.
+        assert_eq!(parse_color_like("hsl(0, 0%, 50%)"), Some(Color::rgb(128, 128, 128)));
+        // hsla carries alpha.
+        assert_eq!(parse_color_like("hsla(240, 100%, 50%, 0.5)"), Some(Color::rgba(0, 0, 255, 128)));
     }
 
     // ---- Existing foreground combine tests (kept) ----

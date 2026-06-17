@@ -7,6 +7,14 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-17 (fix(style): parse hsl()/hsla() colors)
+
+- **fix(style): `Color::parse` accepts `hsl(h, s%, l%)` and `hsla(h, s%, l%, a)`**
+  - Python Textual supports CSS `hsl()`; Rust dropped it (fell back to default).
+    Added HSL→RGB conversion. Fixes e.g. `background: hsl(240,100%,50%)` (blue) and
+    `color: hsl(...)` — caught by the new styled-parity harness on `styles/background`
+    + `styles/color`. +unit test.
+
 ### 2026-06-17 (fix(layout): overflow-y containers don't clamp child height — promotes min_height)
 
 - **fix(layout): a vertically-scrollable horizontal container lets children overflow**
