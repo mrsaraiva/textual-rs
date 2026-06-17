@@ -1,8 +1,116 @@
+/// Port of Python Textual `docs/examples/guide/compound/compound01.py`.
+///
+/// Demonstrates a compound widget (`InputWithLabel`) that combines a `Label`
+/// and an `Input` in a horizontal layout — a reusable building block.
+///
+/// Python structure:
+///   - `InputWithLabel(Widget)` — horizontal row: Label + Input
+///   - `CompoundApp(App)` — three `InputWithLabel` rows centered on screen
+use rich_rs::{Console, ConsoleOptions, Segments};
 use textual::prelude::*;
 
-fn main() -> Result<()> {
-    eprintln!(
-        "TODO: Port docs example 'compound01' from Python source 'guide/compound/compound01.py' (category 'guide/compound')."
-    );
-    Ok(())
+// ---------------------------------------------------------------------------
+// CSS (mirrors compound01.py exactly)
+// ---------------------------------------------------------------------------
+
+const CSS: &str = r#"
+Screen {
+    align: center middle;
+}
+
+InputWithLabel {
+    layout: horizontal;
+    height: auto;
+    width: 80%;
+    margin: 1;
+}
+
+InputWithLabel Label {
+    padding: 1;
+    width: 12;
+    text-align: right;
+}
+
+InputWithLabel Input {
+    width: 1fr;
+}
+"#;
+
+// ---------------------------------------------------------------------------
+// InputWithLabel — compound widget
+// ---------------------------------------------------------------------------
+
+/// A reusable compound widget: a right-aligned label beside an input field.
+///
+/// Mirrors Python's `InputWithLabel(Widget)` which composes a `Label` and
+/// an `Input` in a horizontal layout.
+struct InputWithLabel {
+    inner: Horizontal,
+}
+
+impl InputWithLabel {
+    fn new(label_text: &str) -> Self {
+        let inner = Horizontal::new()
+            .with_child(Label::new(label_text))
+            .with_child(Input::new());
+        Self { inner }
+    }
+}
+
+impl Widget for InputWithLabel {
+    fn style_type(&self) -> &'static str {
+        "InputWithLabel"
+    }
+
+    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        self.inner.render(console, options)
+    }
+
+    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+        self.inner.take_composed_children()
+    }
+
+    fn take_node_seed(&mut self) -> NodeSeed {
+        self.inner.take_node_seed()
+    }
+
+    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        self.inner.on_event(event, ctx);
+    }
+
+    fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+        self.inner.on_event_capture(event, ctx);
+    }
+
+    fn focusable(&self) -> bool {
+        false
+    }
+
+    fn can_focus_children(&self) -> bool {
+        true
+    }
+}
+
+// ---------------------------------------------------------------------------
+// App
+// ---------------------------------------------------------------------------
+
+struct CompoundApp;
+
+impl TextualApp for CompoundApp {
+    fn configure(&mut self, app: &mut App) -> textual::Result<()> {
+        app.load_stylesheet(CSS);
+        Ok(())
+    }
+
+    fn compose(&mut self) -> AppRoot {
+        AppRoot::new()
+            .with_child(InputWithLabel::new("First Name"))
+            .with_child(InputWithLabel::new("Last Name"))
+            .with_child(InputWithLabel::new("Email"))
+    }
+}
+
+fn main() -> textual::Result<()> {
+    run_sync(CompoundApp)
 }

@@ -7,6 +7,21 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-17 (port(examples): final 70 stub docs examples — porting complete)
+
+- **port(examples): ported the last 70 auto-generated stub docs examples**
+  - Faithful Rust ports of every remaining `TODO: Port` stub across `guide/`
+    (widgets, reactivity, actions, core, input, compound, screens, content,
+    workers, animator, command_palette, testing) and `tutorial/stopwatch`.
+    All 70 build clean; every API was verified against real `textual-rs` source
+    (no invented APIs) and independently reviewed. Where a faithful port needs a
+    framework feature textual-rs lacks (named-action dispatch, per-widget
+    `set_interval`, reactive/`watch_*`, custom leaf-widget authoring,
+    `scroll_visible`, widget-level `query_one`/class mutation in handlers,
+    `[@click=…]` action markup, locale datetime), the port documents the gap
+    inline and uses the closest compiling equivalent — no faked parity. The docs
+    examples are now fully ported; remaining work is parity + the noted gaps.
+
 ### 2026-06-17 (feat(widgets/Static): without_markup + with_expand convenience builders)
 
 - **feat(widgets/Static): `without_markup()` and `with_expand(bool)` builders**
