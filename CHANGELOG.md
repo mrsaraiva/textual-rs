@@ -7,6 +7,19 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-17 (fix(style): CSS named colors use W3C values, not the ANSI palette)
+
+- **fix(style): `color: white` is #ffffff (CSS), not the dim ANSI standard white**
+  - `parse_color_like`/`Color::parse` deferred named-color resolution to rich-rs,
+    whose color table uses the xterm/ANSI palette — so CSS keywords that collide
+    with ANSI names resolved to terminal-palette values (`white`→(170/192,…),
+    `cyan`→(0,170,170)) instead of their W3C values. Added the full CSS/W3C named
+    color table (Python Textual `COLOR_NAME_TO_RGB`, 148 web keywords) consulted
+    *before* the rich-rs fallback, so `white`=#ffffff, `cyan`=#00ffff, `green`=
+    #008000 (≠`lime`), etc., while xterm-only names still fall through to rich-rs.
+    `ansi_*` keywords keep their terminal-palette values. Unblocks correct
+    scrollbar/border/title color parity (rendered colors now match Python).
+
 ### 2026-06-17 (feat(widgets): border_title/border_subtitle text setters on Label/Static)
 
 - **feat(widgets/Label, widgets/Static): border-title / border-subtitle text API**
