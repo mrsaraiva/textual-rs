@@ -29,6 +29,24 @@ impl Static {
         }
     }
 
+    /// Disable Rich markup parsing for this widget's text content.
+    ///
+    /// Mirrors Python `Static(text, markup=False)`: tags are rendered as-is
+    /// (not interpreted).  The widget CSS type remains `Static`, so type-based
+    /// CSS rules such as `Static { height: 1fr }` still apply.
+    pub fn without_markup(mut self) -> Self {
+        self.label = self.label.with_markup(false);
+        self
+    }
+
+    /// When true, the widget expands to fill the available width.
+    ///
+    /// Mirrors Python `Static(expand=True)`.
+    pub fn with_expand(mut self, expand: bool) -> Self {
+        self.label = self.label.with_expand(expand);
+        self
+    }
+
     pub fn class(self, value: impl Into<String>) -> Node {
         Node::new(self).class(value)
     }

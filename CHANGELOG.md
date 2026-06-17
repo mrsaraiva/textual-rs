@@ -7,6 +7,12 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-17 (feat(widgets/Static): without_markup + with_expand convenience builders)
+
+- **feat(widgets/Static): `without_markup()` and `with_expand(bool)` builders**
+  - Mirror Python `Static(text, markup=False)` and `Static(expand=True)` by
+    delegating to the inner `Label`. (Static defaults to `markup=True`.)
+
 ### 2026-06-17 (fix(style): CSS named colors use W3C values, not the ANSI palette)
 
 - **fix(style): `color: white` is #ffffff (CSS), not the dim ANSI standard white**
