@@ -7,6 +7,33 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-16 (fix(layout/grid): faithful Python track resolution + spans + auto)
+
+- **fix(layout/grid): port Python's exact-rational grid track resolution**
+  - `layout_grid` converted each track to an `Edge` and ran the 1D resolver,
+    which treated `auto` as `1fr` (no content sizing), `.ceil()`-weighted `fr`,
+    and rounded `%`/fixed tracks independently (e.g. 25%→8 + 75%→23 = 31 > 30 →
+    off-by-one rows). Replaced with a faithful port of Python `_resolve.resolve`:
+    exact rational arithmetic, interleave frac+gutter and accumulate with
+    floor-toward-neg-inf so rounding cascades and tracks tile the container
+    exactly; `fr` weighted by value; `auto` columns/rows content-sized
+    (intrinsic + chrome, respecting min/max) before resolving; `column-span`/
+    `row-span` cells span the union of their tracks + gutters. Promotes
+    `docs_grid_rows`, `docs_grid_layout4_row_col_adjust`, `docs_grid_layout_auto`.
+
+### 2026-06-16 (fix(layout): clamp explicit/cross-axis sizes to min)
+
+- **fix(layout): min-width/min-height clamp concrete + cross-axis edges**
+  - `extract_child_spec` baked `min` into `Edge.min_size`, which the 1D resolver
+    honors only for flexible main-axis edges — so an explicit size (`size=Some`)
+    or the cross-axis was never min-clamped (`width:50%` + `min-width:60` resolved
+    to 50%, ignoring the min). Now the resolved concrete width/height is clamped
+    up to its `min_size` (outer, chrome-inclusive), matching Python
+    `Widget._get_box_model`'s `max(content, min)`. (Several min/max docs examples
+    still need the `w`/`h` Scalar units + non-`Node`-wrapped ids to fully match —
+    tracked follow-ups.)
+
+
 ### 2026-06-16 (feat(widgets): complete the uniform `.id()`/`.class()` sweep)
 
 - **feat(widgets): `.id()`/`.class()` on (nearly) every widget (Python parity)**

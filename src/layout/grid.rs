@@ -7,7 +7,6 @@ use super::common::{
     own_box_chrome, resolve_scalar_to_cells,
 };
 use super::region::{Region, border_spacing};
-use super::resolve_1d::{Edge, layout_resolve_1d};
 
 /// Resolve a child's OUTER size (excluding margin) on one axis within its grid
 /// cell, mirroring Python's `widget._get_box_model(cell_size)` (layouts/grid.py):
@@ -42,50 +41,230 @@ fn resolve_grid_box_dim(
         }
     }
 }
-fn grid_scalar_to_edge(scalar: &Scalar, parent_size: u16, viewport_size: u16) -> Edge {
-    match scalar {
-        Scalar::Auto => Edge {
-            size: None,
-            fraction: 1,
-            min_size: 0,
-        },
-        Scalar::Fraction(f) => Edge {
-            size: None,
-            fraction: f.ceil().max(1.0) as u16,
-            min_size: 0,
-        },
-        _ => {
-            // Cells, Percent, ViewWidth, ViewHeight → resolve to fixed cells.
-            let cells = resolve_scalar_to_cells(scalar, parent_size, viewport_size);
-            Edge {
-                size: Some(cells),
-                fraction: 1,
-                min_size: 0,
-            }
+/// A non-negative rational, used to mirror Python's `Fraction` exactly during
+/// grid track resolution (`textual/_resolve.py::resolve`). Keeping the offsets
+/// in exact rationals before flooring is what makes the cumulative offsets match
+/// Python cell-for-cell (e.g. `2fr 1fr 1fr` splits, mixed `1fr 6 25%` rows).
+#[derive(Clone, Copy, Debug)]
+struct Rat {
+    num: i64,
+    den: i64,
+}
+
+fn gcd(mut a: i64, mut b: i64) -> i64 {
+    a = a.abs();
+    b = b.abs();
+    while b != 0 {
+        let t = a % b;
+        a = b;
+        b = t;
+    }
+    a.max(1)
+}
+
+impl Rat {
+    fn new(num: i64, den: i64) -> Self {
+        debug_assert!(den != 0);
+        let (num, den) = if den < 0 { (-num, -den) } else { (num, den) };
+        let g = gcd(num, den);
+        Rat {
+            num: num / g,
+            den: den / g,
         }
+    }
+    fn whole(n: i64) -> Self {
+        Rat { num: n, den: 1 }
+    }
+    fn zero() -> Self {
+        Rat { num: 0, den: 1 }
+    }
+    fn add(self, o: Rat) -> Rat {
+        Rat::new(self.num * o.den + o.num * self.den, self.den * o.den)
+    }
+    fn sub(self, o: Rat) -> Rat {
+        Rat::new(self.num * o.den - o.num * self.den, self.den * o.den)
+    }
+    fn mul(self, o: Rat) -> Rat {
+        Rat::new(self.num * o.num, self.den * o.den)
+    }
+    fn div(self, o: Rat) -> Rat {
+        Rat::new(self.num * o.den, self.den * o.num)
+    }
+    /// Floor toward negative infinity (matches Python `Fraction.__floor__`).
+    fn floor(self) -> i64 {
+        if self.num >= 0 {
+            self.num / self.den
+        } else {
+            -((-self.num + self.den - 1) / self.den)
+        }
+    }
+    fn is_positive(self) -> bool {
+        self.num > 0
     }
 }
 
-/// Build [`Edge`] list for grid tracks (columns or rows).
-///
-/// Cycles the provided scalars to fill `count` tracks. When no scalars are
-/// provided, defaults to `1fr` for each track.
-fn build_grid_track_edges(
-    scalars: Option<&[Scalar]>,
-    count: usize,
-    parent_size: u16,
-    viewport_size: u16,
-) -> Vec<Edge> {
-    let default_scalar = Scalar::Fraction(1.0);
-    (0..count)
-        .map(|i| {
-            let scalar = match scalars {
-                Some(s) if !s.is_empty() => &s[i % s.len()],
-                _ => &default_scalar,
-            };
-            grid_scalar_to_edge(scalar, parent_size, viewport_size)
+/// Resolve a non-fractional grid track scalar to an exact rational size in cells
+/// against `size` (the container dimension) / `viewport`. Mirrors
+/// `Scalar.resolve`, but `auto`/`fr` are handled by the caller and never reach
+/// here.
+fn resolve_fixed_scalar(scalar: &Scalar, size: u16, viewport: u16) -> Rat {
+    // Percentages keep the exact rational `value * size / 100` (Python does NOT
+    // round here — rounding happens once at the cumulative-floor step). `value`
+    // is integral in practice but quantize to 1/1000 to be safe.
+    let exact = |v: f32, base: u16| -> Rat {
+        if v.fract() == 0.0 {
+            Rat::new(v as i64 * base as i64, 100)
+        } else {
+            Rat::new((v as f64 * 1000.0).round() as i64 * base as i64, 100_000)
+        }
+    };
+    match scalar {
+        Scalar::Cells(n) => Rat::whole(*n as i64),
+        Scalar::Percent(p) => exact(*p, size),
+        Scalar::ViewWidth(p) | Scalar::ViewHeight(p) => exact(*p, viewport),
+        // Auto / Fraction are handled before calling this; treat defensively as 0.
+        Scalar::Auto | Scalar::Fraction(_) => Rat::zero(),
+    }
+}
+
+/// Faithful port of Python Textual `_resolve.resolve()` (no expand/shrink/min):
+/// divide `total` cells across `dimensions` honoring `fr` weights (by value),
+/// fixed sizes (cells/percent/vw/vh resolved against `size`), with `gutter`
+/// between tracks. Returns `(offset, length)` per track, computed via cumulative
+/// floor of exact rationals — identical rounding to Python.
+fn resolve_tracks(
+    dimensions: &[Scalar],
+    total: u16,
+    gutter: u16,
+    size: u16,
+    viewport: u16,
+) -> Vec<(u16, u16)> {
+    let n = dimensions.len();
+    if n == 0 {
+        return Vec::new();
+    }
+
+    // (scalar, Some(resolved fixed) | None for fractional)
+    let resolved: Vec<(Scalar, Option<Rat>)> = dimensions
+        .iter()
+        .map(|s| {
+            if matches!(s, Scalar::Fraction(_)) {
+                (*s, None)
+            } else {
+                (*s, Some(resolve_fixed_scalar(s, size, viewport)))
+            }
         })
-        .collect()
+        .collect();
+
+    // Sum of fr `value`s (e.g. 2fr -> 2). Python uses `scalar.value`.
+    let total_fraction: Rat = resolved.iter().fold(Rat::zero(), |acc, (s, f)| {
+        if f.is_none() {
+            if let Scalar::Fraction(v) = s {
+                return acc.add(frac_value(*v));
+            }
+        }
+        acc
+    });
+
+    let total_gutter = (gutter as i64) * (n as i64 - 1);
+
+    let resolved_fractions: Vec<Rat> = if total_fraction.is_positive() {
+        let consumed: Rat = resolved
+            .iter()
+            .filter_map(|(_, f)| *f)
+            .fold(Rat::zero(), |a, f| a.add(f));
+        let mut remaining = Rat::whole(total as i64 - total_gutter).sub(consumed);
+        if !remaining.is_positive() {
+            remaining = Rat::zero();
+        }
+        let fraction_unit = remaining.div(total_fraction);
+        resolved
+            .iter()
+            .map(|(s, f)| match f {
+                Some(fixed) => *fixed,
+                None => {
+                    if let Scalar::Fraction(v) = s {
+                        frac_value(*v).mul(fraction_unit)
+                    } else {
+                        Rat::zero()
+                    }
+                }
+            })
+            .collect()
+    } else {
+        resolved
+            .iter()
+            .map(|(_, f)| f.unwrap_or(Rat::zero()))
+            .collect()
+    };
+
+    // Interleave [frac, gutter, frac, gutter, ...] and accumulate, then floor,
+    // matching Python's `accumulate` + `__floor__` per offset.
+    let fraction_gutter = Rat::whole(gutter as i64);
+    let mut offsets: Vec<i64> = Vec::with_capacity(n * 2 + 1);
+    offsets.push(0);
+    let mut acc = Rat::zero();
+    for frac in &resolved_fractions {
+        acc = acc.add(*frac);
+        offsets.push(acc.floor());
+        acc = acc.add(fraction_gutter);
+        offsets.push(acc.floor());
+    }
+
+    // results = zip(offsets[::2], offsets[1::2]) -> (offset, length)
+    let mut results = Vec::with_capacity(n);
+    for i in 0..n {
+        let o1 = offsets[i * 2];
+        let o2 = offsets[i * 2 + 1];
+        let off = o1.max(0) as u16;
+        let len = (o2 - o1).max(0) as u16;
+        results.push((off, len));
+    }
+    results
+}
+
+/// Convert an `fr` weight (`f32`) to an exact rational, mirroring Python's
+/// `Fraction.from_float(scalar.value)`. Grid `fr` weights are integers in
+/// practice (`1fr`, `2fr`), so quantize to 1/1000 to stay exact and bounded.
+fn frac_value(v: f32) -> Rat {
+    if v.fract() == 0.0 {
+        Rat::whole(v as i64)
+    } else {
+        Rat::new((v as f64 * 1000.0).round() as i64, 1000)
+    }
+}
+
+/// Apply `min-width`/`max-width` limits to an auto-column candidate width
+/// (Python `apply_width_limits`). Limits resolve against the container size.
+fn apply_width_limits(style: &Style, mut width: u16, size: u16, viewport: u16) -> u16 {
+    if let Some(ref s) = style.min_width {
+        width = width.max(resolve_scalar_to_cells(s, size, viewport));
+    }
+    if let Some(ref s) = style.max_width {
+        width = width.min(resolve_scalar_to_cells(s, size, viewport));
+    }
+    width
+}
+
+/// Apply `min-height`/`max-height` limits to an auto-row candidate height
+/// (Python `apply_height_limits`).
+fn apply_height_limits(style: &Style, mut height: u16, size: u16, viewport: u16) -> u16 {
+    if let Some(ref s) = style.min_height {
+        height = height.max(resolve_scalar_to_cells(s, size, viewport));
+    }
+    if let Some(ref s) = style.max_height {
+        height = height.min(resolve_scalar_to_cells(s, size, viewport));
+    }
+    height
+}
+
+/// Cycle `scalars` to produce exactly `count` values (Python `repeat_scalars`),
+/// defaulting to `default` when none are supplied.
+fn repeat_scalars(scalars: Option<&[Scalar]>, count: usize, default: Scalar) -> Vec<Scalar> {
+    match scalars {
+        Some(s) if !s.is_empty() => (0..count).map(|i| s[i % s.len()]).collect(),
+        _ => vec![default; count],
+    }
 }
 
 /// Compute the number of grid rows needed when children have column/row spans.
@@ -223,64 +402,22 @@ pub fn layout_grid(
         }
     };
 
-    // --- Resolve column widths ---
-    let total_gutter_v = if num_cols > 1 {
-        (num_cols as u16 - 1).saturating_mul(gutter_v)
-    } else {
-        0
-    };
-    let col_budget = grid_available.width.saturating_sub(total_gutter_v);
-    let col_edges = build_grid_track_edges(
-        parent_style.grid_columns.as_deref(),
-        num_cols,
-        grid_available.width,
-        viewport.0,
-    );
-    let col_widths = layout_resolve_1d(col_budget, &col_edges);
-
-    // --- Resolve row heights ---
-    let total_gutter_h = if num_rows > 1 {
-        (num_rows as u16 - 1).saturating_mul(gutter_h)
-    } else {
-        0
-    };
-    let row_budget = grid_available.height.saturating_sub(total_gutter_h);
-    let row_edges = build_grid_track_edges(
-        parent_style.grid_rows.as_deref(),
-        num_rows,
-        grid_available.height,
-        viewport.1,
-    );
-    let row_heights = layout_resolve_1d(row_budget, &row_edges);
-
-    // --- Precompute column x-offsets ---
-    let mut col_offsets = Vec::with_capacity(num_cols);
-    {
-        let mut x: u16 = 0;
-        for c in 0..num_cols {
-            col_offsets.push(x);
-            x = x.saturating_add(col_widths[c]);
-            if c + 1 < num_cols {
-                x = x.saturating_add(gutter_v);
-            }
-        }
+    // --- Placement: assign each child to its primary cell (occupancy-based) ---
+    // Mirrors Python's `cell_size_map`: per widget -> (start_col, start_row,
+    // col_span, row_span). Computed BEFORE track resolution so `auto` tracks can
+    // measure the widgets that occupy them.
+    struct Placement {
+        child: NodeId,
+        start_col: usize,
+        start_row: usize,
+        col_span: usize,
+        row_span: usize,
     }
-
-    // --- Precompute row y-offsets ---
-    let mut row_offsets = Vec::with_capacity(num_rows);
-    {
-        let mut y: u16 = 0;
-        for r in 0..num_rows {
-            row_offsets.push(y);
-            y = y.saturating_add(row_heights[r]);
-            if r + 1 < num_rows {
-                y = y.saturating_add(gutter_h);
-            }
-        }
-    }
-
-    // --- Place children into cells (occupancy-based when spans exist) ---
+    let mut placements: Vec<Placement> = Vec::with_capacity(children.len());
+    // cell_map[(col, row)] -> index into `placements` for the widget whose
+    // PRIMARY cell is (col, row); used for auto-track measurement.
     let mut occupied = vec![vec![false; num_cols]; num_rows];
+    let mut cell_owner = vec![vec![usize::MAX; num_cols]; num_rows];
     let mut next_row = 0usize;
     let mut next_col = 0usize;
 
@@ -289,7 +426,6 @@ pub fn layout_grid(
         let col_span = (style.column_span.unwrap_or(1).max(1) as usize).min(num_cols);
         let row_span = (style.row_span.unwrap_or(1).max(1) as usize).min(num_rows);
 
-        // Find next available cell for this child.
         let (start_col, start_row) = if any_spans {
             let pos = find_next_grid_slot(&occupied, col_span, row_span, num_cols);
             next_row = pos.1;
@@ -310,7 +446,6 @@ pub fn layout_grid(
             break; // No space left in the grid.
         }
 
-        // Mark occupied cells.
         let end_col = (start_col + col_span).min(num_cols);
         let end_row = (start_row + row_span).min(num_rows);
         for r in start_row..end_row {
@@ -318,8 +453,120 @@ pub fn layout_grid(
                 occupied[r][c] = true;
             }
         }
+        let idx = placements.len();
+        cell_owner[start_row][start_col] = idx;
+        placements.push(Placement {
+            child,
+            start_col,
+            start_row,
+            col_span,
+            row_span,
+        });
+    }
 
-        // Compute spanned cell area (includes inter-span gutters).
+    // --- Resolve column scalars (with auto handling) ---
+    let mut column_scalars = repeat_scalars(
+        parent_style.grid_columns.as_deref(),
+        num_cols,
+        Scalar::Fraction(1.0),
+    );
+    // An `auto` column sizes to the widest content of single-column widgets that
+    // start in that column (Python: `get_content_width + gutter.width`, with
+    // min/max-width limits). Mirrors grid.py "Handle any auto columns".
+    for col in 0..num_cols {
+        if !matches!(column_scalars[col], Scalar::Auto) {
+            continue;
+        }
+        let mut width: u16 = 0;
+        for row in 0..num_rows {
+            let owner = cell_owner[row][col];
+            if owner == usize::MAX {
+                continue;
+            }
+            let p = &placements[owner];
+            if p.col_span != 1 {
+                continue;
+            }
+            let cstyle = get_node_style(tree, p.child);
+            let (own_h_chrome, _) = own_box_chrome(&cstyle);
+            let content = measure_intrinsic_content_width(tree, p.child, viewport).unwrap_or(0);
+            let mut w = content.saturating_add(own_h_chrome);
+            w = apply_width_limits(&cstyle, w, grid_available.width, viewport.0);
+            width = width.max(w);
+        }
+        column_scalars[col] = Scalar::Cells(width);
+    }
+
+    let columns = resolve_tracks(
+        &column_scalars,
+        grid_available.width,
+        gutter_v,
+        grid_available.width,
+        viewport.0,
+    );
+    let col_offsets: Vec<u16> = columns.iter().map(|&(o, _)| o).collect();
+    let col_widths: Vec<u16> = columns.iter().map(|&(_, l)| l).collect();
+
+    // --- Resolve row scalars (with auto handling) ---
+    // Python default: `1fr` rows when the grid has a real height, but `auto`
+    // rows when the grid is auto-height (so rows size to their content).
+    let row_default = if matches!(parent_style.height, Some(Scalar::Auto)) {
+        Scalar::Auto
+    } else {
+        Scalar::Fraction(1.0)
+    };
+    let mut row_scalars = repeat_scalars(parent_style.grid_rows.as_deref(), num_rows, row_default);
+    // An `auto` row sizes to the tallest content of single-row widgets that start
+    // in that row, measured against their resolved column width (Python:
+    // `get_content_height(size, viewport, column_width - gutter_width)`).
+    for row in 0..num_rows {
+        if !matches!(row_scalars[row], Scalar::Auto) {
+            continue;
+        }
+        let mut height: u16 = 0;
+        for col in 0..num_cols {
+            let owner = cell_owner[row][col];
+            if owner == usize::MAX {
+                continue;
+            }
+            let p = &placements[owner];
+            if p.row_span != 1 {
+                continue;
+            }
+            let cstyle = get_node_style(tree, p.child);
+            let (own_h_chrome, own_v_chrome) = own_box_chrome(&cstyle);
+            let avail_content_w = col_widths[col].saturating_sub(own_h_chrome);
+            let content =
+                measure_intrinsic_content_height(tree, p.child, viewport, avail_content_w)
+                    .unwrap_or(0);
+            let mut h = content.saturating_add(own_v_chrome);
+            h = apply_height_limits(&cstyle, h, grid_available.height, viewport.1);
+            height = height.max(h);
+        }
+        row_scalars[row] = Scalar::Cells(height);
+    }
+
+    let rows = resolve_tracks(
+        &row_scalars,
+        grid_available.height,
+        gutter_h,
+        grid_available.height,
+        viewport.1,
+    );
+    let row_offsets: Vec<u16> = rows.iter().map(|&(o, _)| o).collect();
+    let row_heights: Vec<u16> = rows.iter().map(|&(_, l)| l).collect();
+
+    // --- Place children into their resolved cell rects ---
+    for p in &placements {
+        let child = p.child;
+        let style = get_node_style(tree, child);
+        let start_col = p.start_col;
+        let start_row = p.start_row;
+        let end_col = (start_col + p.col_span).min(num_cols);
+        let end_row = (start_row + p.row_span).min(num_rows);
+
+        // Compute spanned cell area (includes inter-span gutters), mirroring
+        // Python: cell_size = (cols[last][0] + cols[last][1] - cols[first][0]).
         let cell_x = col_offsets[start_col];
         let cell_y = row_offsets[start_row];
         let last_col = end_col - 1;
@@ -440,5 +687,94 @@ pub fn layout_grid(
             node.layout_rect = Region::new(layout_x, layout_y, layout_w, layout_h).to_rect();
             node.content_rect = Region::new(content_x, content_y, content_w, content_h).to_rect();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Helper: spanned cell extent across resolved tracks, mirroring the grid
+    /// placement math (`offset(last) + len(last) - offset(first)`).
+    fn span_extent(tracks: &[(u16, u16)], start: usize, span: usize) -> (u16, u16) {
+        let last = (start + span - 1).min(tracks.len() - 1);
+        let off = tracks[start].0;
+        let len = (tracks[last].0 + tracks[last].1).saturating_sub(off);
+        (off, len)
+    }
+
+    #[test]
+    fn fr_tracks_split_by_weight() {
+        // `2fr 1fr 1fr` over 120 cells, no gutter → 60 / 30 / 30.
+        let scalars = [Scalar::Fraction(2.0), Scalar::Fraction(1.0), Scalar::Fraction(1.0)];
+        let tracks = resolve_tracks(&scalars, 120, 0, 120, 80);
+        assert_eq!(tracks, vec![(0, 60), (60, 30), (90, 30)]);
+    }
+
+    #[test]
+    fn percent_rows_use_cumulative_floor() {
+        // `25% 75%` over 30 cells → floor(7.5)=7 then 30-7=23 (Python parity:
+        // cumulative floor, NOT independent rounding which would give 8 + 23 = 31).
+        let scalars = [Scalar::Percent(25.0), Scalar::Percent(75.0)];
+        let tracks = resolve_tracks(&scalars, 30, 0, 30, 24);
+        assert_eq!(tracks, vec![(0, 7), (7, 23)]);
+    }
+
+    #[test]
+    fn mixed_fr_fixed_percent_rows() {
+        // `grid-rows: 1fr 6 25%` cycled over 5 rows on a 40-cell column, no gutter.
+        // Fixed consume: 6 + floor-of-percent contributions; fr fills the rest.
+        // Verify the fixed (`6`) and percent (`25%` of 40 = 10) tracks are exact
+        // and the fr tracks absorb the remainder.
+        let scalars = repeat_scalars(
+            Some(&[Scalar::Fraction(1.0), Scalar::Cells(6), Scalar::Percent(25.0)]),
+            5,
+            Scalar::Fraction(1.0),
+        );
+        // rows: 1fr, 6, 25%, 1fr, 6
+        let tracks = resolve_tracks(&scalars, 40, 0, 40, 24);
+        // Two `6` fixed tracks + one 25% (=10) track = 22 consumed; remaining 18
+        // split across two 1fr → 9 each.
+        assert_eq!(tracks[1].1, 6);
+        assert_eq!(tracks[4].1, 6);
+        assert_eq!(tracks[2].1, 10);
+        assert_eq!(tracks[0].1, 9);
+        assert_eq!(tracks[3].1, 9);
+        // Tracks tile without gaps/overlap.
+        let total: u16 = tracks.iter().map(|&(_, l)| l).sum();
+        assert_eq!(total, 40);
+    }
+
+    #[test]
+    fn gutter_is_baked_into_offsets() {
+        // Two `1fr` over 20 cells with a 2-cell gutter → 9 / 9 with a 2 gap.
+        let scalars = [Scalar::Fraction(1.0), Scalar::Fraction(1.0)];
+        let tracks = resolve_tracks(&scalars, 20, 2, 20, 24);
+        assert_eq!(tracks, vec![(0, 9), (11, 9)]);
+    }
+
+    #[test]
+    fn column_span_unions_tracks_and_gutters() {
+        // 4 columns of `1fr` over 46 cells with a 2-cell gutter between them:
+        // total_gutter = 6, remaining = 40, fraction_unit = 10 → each track 10
+        // wide at offsets 0,12,24,36. A column-span of 2 from column 0 must cover
+        // the two tracks AND the gutter between them: 22 wide.
+        let scalars = vec![Scalar::Fraction(1.0); 4];
+        let tracks = resolve_tracks(&scalars, 46, 2, 46, 24);
+        assert_eq!(tracks, vec![(0, 10), (12, 10), (24, 10), (36, 10)]);
+        // span 2 from col 0 → covers cols 0..=1 incl. gutter: 0..(12+10)=22.
+        assert_eq!(span_extent(&tracks, 0, 2), (0, 22));
+        // span 3 from col 1 → cols 1..=3: offset 12, len (36+10)-12 = 34.
+        assert_eq!(span_extent(&tracks, 1, 3), (12, 34));
+    }
+
+    #[test]
+    fn auto_resolved_to_cells_passes_through() {
+        // After auto-track measurement, an `auto` column becomes `Cells(n)`; the
+        // resolver must treat it as a fixed track that does not absorb fr space.
+        // `auto(=14) 1fr 1fr` over 120, no gutter → 14 / 53 / 53.
+        let scalars = [Scalar::Cells(14), Scalar::Fraction(1.0), Scalar::Fraction(1.0)];
+        let tracks = resolve_tracks(&scalars, 120, 0, 120, 24);
+        assert_eq!(tracks, vec![(0, 14), (14, 53), (67, 53)]);
     }
 }
