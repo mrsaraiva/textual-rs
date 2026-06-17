@@ -102,6 +102,20 @@ impl Color {
         }
     }
 
+    /// Composite an opaque `over` color onto `under` using a fractional alpha,
+    /// faithful to Python `under.blend(over, factor)` == `under + over.with_alpha(factor)`:
+    /// `int(u + (o - u) * factor)` per channel, computed in float and TRUNCATED.
+    /// Use this instead of `with_alpha(f).flatten_over()` when the alpha is known
+    /// as a float — it avoids the u8 alpha quantization that drifts the result by
+    /// one (e.g. `auto`/contrast text at 87%).
+    pub fn blend_over_float(self, under: Color, factor: f32) -> Color {
+        let factor = factor.clamp(0.0, 1.0);
+        let mix = |o: u8, u: u8| -> u8 {
+            (u as f32 + (o as f32 - u as f32) * factor).clamp(0.0, 255.0) as u8
+        };
+        Color::rgb(mix(self.r, under.r), mix(self.g, under.g), mix(self.b, under.b))
+    }
+
     pub fn flatten_over(self, under: Color) -> Color {
         if self.a == 255 {
             return Color::rgb(self.r, self.g, self.b);
@@ -575,8 +589,12 @@ fn resolve_textual_dark_token(name: &str) -> Option<Color> {
 
         // Scrollbar tokens (mirrors Textual dark design defaults closely enough for parity).
         let scrollbar_background = darken_lab(background, 0.15 / 2.0);
-        let scrollbar = blend(scrollbar_background, primary, 0.40);
-        let scrollbar_hover = blend(scrollbar_background, primary, 0.50);
+        // Python: `(background-darken-1 + primary.with_alpha(0.4))` — a blend with
+        // the float factor 0.4/0.5, TRUNCATED (`int()`). Use blend_over_float so
+        // the baked scrollbar token matches Python's hex exactly (round() drifts
+        // the channel by one, e.g. #003055 vs #003054).
+        let scrollbar = primary.blend_over_float(scrollbar_background, 0.40);
+        let scrollbar_hover = primary.blend_over_float(scrollbar_background, 0.50);
         m.insert("scrollbar", scrollbar);
         m.insert("scrollbar-hover", scrollbar_hover);
         m.insert("scrollbar-active", primary);

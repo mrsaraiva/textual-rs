@@ -33,6 +33,80 @@ until the API stabilizes.
     goldens + narrow key-panel buttons) so it needs a proper button-render rework;
     plus a residual surface/blend bg delta (color-workstream cluster). Harness now
     CATCHES this class of bug instead of it being eyeballed.
+### 2026-06-17 (fix(theme): scrollbar token uses truncating float blend)
+
+- **fix(theme): `$scrollbar`/`$scrollbar-hover` match Python's hex exactly**
+  - Python bakes these as `(background-darken-1 + primary.with_alpha(0.4/0.5))`,
+    a float-factor blend truncated with `int()`. The Rust theme used the rounding
+    `blend`, drifting the channel by one (`#003055` vs Python `#003054`). Switched
+    to `blend_over_float`. Removes the scrollbar-color divergence shared across
+    every tall example (scrollbars/min_height/overflow/…); those examples still
+    have unrelated residual diffs. 0 regressions; pty_parity 186; full suite green.
+
+### 2026-06-17 (fix(render): default content-align skips the fg-bearing fill)
+
+- **fix(render): only run the alignment fill for a non-default content-align**
+  - Python `_visual_to_strips` guards `Strip.align` with `if content_align !=
+    ("left", "top")`. The Rust port ran the fg-bearing align pad for ALL
+    content-align values including the default `(left, top)`, so the trailing
+    horizontal pad of a content row was colored with `$foreground` instead of the
+    background-only `adjust_cell_length`/`inner.rich_style` extend (fg=default).
+    Added the `!= (left, top)` guard. Styled parity 30→31 PASS (promoted
+    `content_align`), 0 regressions (`content_align_all` still exact); pty_parity
+    186; full suite green.
+
+### 2026-06-17 (fix(color): float-faithful auto/contrast compositing)
+
+- **fix(color): composite auto/contrast text with the fractional alpha directly**
+  - `Color::blend_over_float` mirrors Python `under.blend(over, factor)` /
+    `under + over.with_alpha(factor)`: `int(u + (o - u) * factor)` per channel,
+    in float, truncated. The auto/`$text` contrast paths previously did
+    `contrast.with_alpha(a).flatten_over(bg)`, which quantizes the alpha to u8
+    (`round(a*255)`) and then rounds the composite via integer division — drifting
+    the result by one (e.g. 87% contrast text). Switched the auto-color text fill
+    (`segments.rs`) and the content-align/vertical-extend fill (`core.rs`) to
+    `blend_over_float`. Styled parity 27→30 PASS (promoted `max_height`,
+    `max_width`, `min_width`), 0 regressions; pty_parity 186; full suite green.
+
+### 2026-06-17 (fix(render): text-opacity 0% blanks glyphs and drops fg)
+
+- **fix(css): `text-opacity: 0%` produces blank cells with default foreground**
+  - Mirror Python `TextOpacity.process_segments`' `opacity == 0` branch: every
+    cell becomes `from_color(bgcolor=...)` — the glyph run is replaced by spaces
+    of equal cell width and the foreground is dropped entirely (terminal-default),
+    rather than recoloring the glyph to match the background. Applies to both
+    glyph cells and the fg-bearing vertical-extend fill rows. Makes the 0%-opacity
+    rows per-cell exact vs Python. (Non-zero text-opacity rows still diverge on the
+    glyph-row horizontal pad — a follow-on surface-precision sub-cluster.) 0
+    regressions; pty_parity 186; full suite green.
+
+### 2026-06-17 (fix(css): Label no longer shadows inherited foreground)
+
+- **fix(css): remove `Label { fg: $foreground }` from the base defaults**
+  - Python Textual's `Label` (and `Static`/`Widget`) DEFAULT_CSS sets no
+    `color`/`fg`; the foreground is supplied solely by `Screen { color:
+    $foreground }` inherited down the ancestor cascade (`visual_style`). The Rust
+    port had added an explicit `fg: $foreground` on `Label`, which shadowed any
+    explicit ancestor `color` — e.g. `Screen { color: black }` left labels at the
+    theme `$foreground` instead of black. Removed it; `Style::inherit_from`
+    already propagates the ancestor color. Styled parity 24→27 PASS (promoted
+    `margin`, `outline`, `padding`), 0 regressions; pty_parity 186; full suite
+    green with no snapshot deltas.
+
+### 2026-06-17 (fix(render): vertical-extend fill carries $foreground)
+
+- **fix(render): rows beyond content height inherit the resolved foreground**
+  - The keystone fill-split painted the entire `set_shape` extend (both trailing
+    horizontal pad AND vertical fill rows) background-only. But Python only leaves
+    the horizontal trailing pad fg-default (`_styles_cache` `adjust_cell_length`
+    with `inner.rich_style`); the vertical extend rows beyond the cached content
+    use `widget.render_line`'s `Strip.blank(width, visual_style.rich_style)`, which
+    carries `$foreground` (or `color: auto` contrast). Split the non-aligned fill
+    into a bg-only horizontal `adjust_line_length` pad plus fg-bearing vertical
+    blank rows (shared `fill_fg_style` with the content-align pad). Styled parity
+    19→24 PASS (promoted `content_align_all`, `text_overflow`, `text_wrap`,
+    `visibility`, `dimensions04`), 0 regressions; pty_parity holds at 186; full
+    suite green with no snapshot deltas.
 
 ### 2026-06-17 (fix(render): default-fg keystone — 4-surface fill split)
 

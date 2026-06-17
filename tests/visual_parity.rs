@@ -37,6 +37,19 @@ const PASSING: &[&str] = &[
     // inherit $foreground; content-align fill carries fg; other fill bg-only):
     "border_title_colors", "outline_vs_border", "colors", "colors01", "margin01",
     "widget",
+    // Promoted after the vertical-extend fill fix (rows beyond content height
+    // carry $foreground via visual_style; trailing horizontal pad stays bg-only):
+    "content_align_all", "text_overflow", "text_wrap", "visibility", "dimensions04",
+    // Promoted after removing Label's stray `fg: $foreground` default so an
+    // explicit ancestor `color` (e.g. Screen { color: black }) inherits down:
+    "margin", "outline", "padding",
+    // Promoted after float-faithful auto/contrast compositing (blend_over_float):
+    // avoids u8 alpha-quantization drift on $text/auto-color text:
+    "max_height", "max_width", "min_width",
+    // Promoted after skipping the fg-bearing align fill for the default
+    // content-align (left, top) — matches Python's `!= ("left","top")` guard,
+    // so the trailing pad of the content row stays background-only:
+    "content_align",
 ];
 
 struct StyledCase {
