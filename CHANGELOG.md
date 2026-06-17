@@ -7,6 +7,18 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-17 (test(parity): T-visual styled-parity harness — color verification)
+
+- **test(parity): styled (per-cell RGB) parity harness (`tests/visual_parity.rs`)**
+  - The plain-text `pty_parity` harness can't see color, so `styles/` examples
+    "passed" on text while their colors were unverified. New tiered styled harness
+    runs BOTH the Rust example and the Python source through one `portable-pty +
+    vt100 + COLORTERM=truecolor` path and compares per-cell `(char, fg, bg)` exactly
+    — no tmux. Goldens generated from Python (`REGEN_STYLED=1`). First batch:
+    `background`, `color`, `color_auto` **styled-verified PASS**; `background_tint`
+    (auto-contrast `color: auto N%` + tint-blend rounding) and `colors` (default
+    foreground emission) tracked as documented XFAILs.
+
 ### 2026-06-17 (fix(style): parse hsl()/hsla() colors)
 
 - **fix(style): `Color::parse` accepts `hsl(h, s%, l%)` and `hsla(h, s%, l%, a)`**
