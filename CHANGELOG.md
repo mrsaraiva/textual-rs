@@ -7,6 +7,16 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-17 (fix(theme): scrollbar token uses truncating float blend)
+
+- **fix(theme): `$scrollbar`/`$scrollbar-hover` match Python's hex exactly**
+  - Python bakes these as `(background-darken-1 + primary.with_alpha(0.4/0.5))`,
+    a float-factor blend truncated with `int()`. The Rust theme used the rounding
+    `blend`, drifting the channel by one (`#003055` vs Python `#003054`). Switched
+    to `blend_over_float`. Removes the scrollbar-color divergence shared across
+    every tall example (scrollbars/min_height/overflow/…); those examples still
+    have unrelated residual diffs. 0 regressions; pty_parity 186; full suite green.
+
 ### 2026-06-17 (fix(render): default content-align skips the fg-bearing fill)
 
 - **fix(render): only run the alignment fill for a non-default content-align**

@@ -589,8 +589,12 @@ fn resolve_textual_dark_token(name: &str) -> Option<Color> {
 
         // Scrollbar tokens (mirrors Textual dark design defaults closely enough for parity).
         let scrollbar_background = darken_lab(background, 0.15 / 2.0);
-        let scrollbar = blend(scrollbar_background, primary, 0.40);
-        let scrollbar_hover = blend(scrollbar_background, primary, 0.50);
+        // Python: `(background-darken-1 + primary.with_alpha(0.4))` — a blend with
+        // the float factor 0.4/0.5, TRUNCATED (`int()`). Use blend_over_float so
+        // the baked scrollbar token matches Python's hex exactly (round() drifts
+        // the channel by one, e.g. #003055 vs #003054).
+        let scrollbar = primary.blend_over_float(scrollbar_background, 0.40);
+        let scrollbar_hover = primary.blend_over_float(scrollbar_background, 0.50);
         m.insert("scrollbar", scrollbar);
         m.insert("scrollbar-hover", scrollbar_hover);
         m.insert("scrollbar-active", primary);
