@@ -614,7 +614,7 @@ fn sync_widget_controlled_child_display_tree(
     changed
 }
 
-fn recompose_node_subtree(tree: &mut crate::widget_tree::WidgetTree, node_id: NodeId) {
+pub(crate) fn recompose_node_subtree(tree: &mut crate::widget_tree::WidgetTree, node_id: NodeId) {
     let Some(node) = tree.get_mut(node_id) else {
         return;
     };
@@ -4402,8 +4402,32 @@ impl App {
     ) {
         let mut repaint_requested = false;
         let mut layout_requested = false;
+        let mut recompose_requested = false;
         let mut all_class_ops: Vec<(NodeId, ClassOp)> = Vec::new();
         for mut entry in entries {
+            // Dynamic watchers (Python `DOMNode.watch(obj, field, cb)`): fire for
+            // the entry's initial changes BEFORE widget dispatch, while no tree
+            // borrow is held (the callbacks receive `&mut App`). Only fields with a
+            // registered watcher are processed; the changes are then re-recorded so
+            // the widget's own `reactive_dispatch` still runs.
+            let has_watcher = entry
+                .pending_field_names()
+                .iter()
+                .any(|field| self.has_dynamic_watcher(node_id, field));
+            if has_watcher {
+                let changes = entry.take_pending_changes();
+                for change in changes {
+                    if self.has_dynamic_watcher(node_id, change.field_name) {
+                        self.notify_dynamic_watchers(
+                            node_id,
+                            change.field_name,
+                            change.new_value.as_ref(),
+                        );
+                    }
+                    entry.record_change(change);
+                }
+            }
+
             let mut result = if let Some(tree) = self.active_widget_tree_mut() {
                 if let Some(node) = tree.get_mut(node_id) {
                     entry.run_with_dispatch(|changes, ctx| {
@@ -4419,6 +4443,7 @@ impl App {
             };
             repaint_requested |= result.needs_repaint;
             layout_requested |= result.needs_layout;
+            recompose_requested |= result.needs_recompose;
             if !result.class_ops.is_empty() {
                 all_class_ops.append(&mut result.class_ops);
             }
@@ -4433,6 +4458,14 @@ impl App {
                     }
                 }
             }
+        }
+
+        // A recompose request rebuilds the node's subtree (Python
+        // `reactive(recompose=True)`): re-run `compose()` and remount children.
+        // This implies layout + repaint, which the recompose machinery handles.
+        if recompose_requested {
+            self.request_widget_recompose_nodes(&[node_id]);
+            pending.request_flags(crate::event::InvalidationFlags::layout());
         }
 
         if layout_requested {
@@ -7157,6 +7190,53 @@ mod tests {
         assert_eq!(watch_calls.load(Ordering::SeqCst), 1);
         assert!(pending.flags.content);
         assert!(pending.is_dirty());
+    }
+
+    #[test]
+    fn reactive_phase_fires_dynamic_watcher_with_value() {
+        // A dynamic watcher registered via App::watch_reactive on a node's field
+        // fires during the reactive phase, receiving the new value — and the
+        // widget's own watcher still runs.
+        let _ = take_runtime_reactive_entries();
+        let watch_calls = Arc::new(AtomicUsize::new(0));
+        let init_calls = Arc::new(AtomicUsize::new(0));
+
+        let mut tree = crate::widget_tree::WidgetTree::new();
+        let target = tree.set_root(Box::new(ReactivePhaseProbeWidget::new(
+            Arc::clone(&watch_calls),
+            Arc::clone(&init_calls),
+            false,
+            false,
+        )));
+        // Toggle sets `value` to 1, recording a "value" change.
+        let _ =
+            super::dispatch_event_to_target_tree(&mut tree, target, &Event::Action(Action::Toggle));
+
+        let mut app = test_app_with_tree(tree);
+
+        // Register a dynamic watcher on the probe's `value` field.
+        let observed = Arc::new(AtomicUsize::new(usize::MAX));
+        let observed_cb = Arc::clone(&observed);
+        app.watch_reactive(target, "value", move |_app, value| {
+            if let Some(v) = value.downcast_ref::<i32>() {
+                observed_cb.store(*v as usize, Ordering::SeqCst);
+            }
+        });
+
+        let mut pending = super::PendingInvalidation::default();
+        let mut root = StyleNode::new("Root");
+        app.run_event_loop_reactive_phase(&mut root, &mut pending);
+
+        assert_eq!(
+            observed.load(Ordering::SeqCst),
+            1,
+            "dynamic watcher fired with the new value (1)"
+        );
+        assert_eq!(
+            watch_calls.load(Ordering::SeqCst),
+            1,
+            "widget's own reactive_dispatch still ran after dynamic-watcher notification"
+        );
     }
 
     #[test]

@@ -1,24 +1,22 @@
 /// Port of Python Textual `docs/examples/guide/reactivity/refresh02.py`.
 ///
-/// Demonstrates reactive layout invalidation:
-/// - A custom `Name` widget renders "Hello, {who}!" where `who` defaults to "name".
-/// - `Input` at the top lets the user type a name.
-/// - On every keystroke `on_input_changed` updates the `Name` widget's `who` field,
-///   which in Python triggers a full layout re-computation via `reactive(layout=True)`.
+/// Demonstrates reactive LAYOUT invalidation: a custom `Name` widget renders
+/// `"Hello, {who}!"` inside an auto-sized bordered box. Typing into the `Input`
+/// updates `who`, and because the reactive declares `layout=True`, the box
+/// re-lays-out (resizes) as the greeting's length changes.
 ///
-/// Python's `reactive("name", layout=True)` has no direct Rust-side equivalent
-/// as a struct-field decorator, so the field is stored as a plain `String` and
-/// the `on_message_with_app` hook intercepts `InputChanged` to update the field
-/// and call `ctx.request_layout_invalidation()` — the faithful equivalent of
-/// `layout=True`: it merges `InvalidationFlags::layout()` so the auto-sized
-/// bordered `Name` box resizes when `who` changes length.
+/// Python:
+///   class Name(Widget):
+///       who = reactive("name", layout=True)   # (1)
+///       def render(self) -> str: return f"Hello, {self.who}!"
+///   on_input_changed: self.query_one(Name).who = event.value
 ///
-/// ERGONOMICS GAP (not a layout-invalidation gap): Python's `on_input_changed`
-/// handler can mutate sibling widgets directly because the App owns the DOM. In
-/// textual-rs the typed `on_input_changed` hook does not receive `&mut App`, so
-/// cross-widget mutation must go through `on_message_with_app` +
-/// `app.with_query_one_mut_as`. This is a convenience-API gap only; the
-/// underlying layout invalidation is fully available via `EventCtx`.
+/// Rust port (faithful): `Name` derives `Reactive` with `#[reactive(layout)] who`.
+/// The generated `set_who(value, ctx)` records a layout+repaint change; the
+/// runtime reactive phase invalidates layout for the `Name` node — exactly
+/// Python's `reactive(layout=True)`. The app handler queries the `Name` node,
+/// sets `who`, and enqueues the change for the runtime reactive phase.
+use textual::reactive::{RuntimeReactiveEntry, enqueue_runtime_reactive_entry};
 use textual::prelude::*;
 
 const CSS: &str = r#"
@@ -35,26 +33,24 @@ Name {
 "#;
 
 // ---------------------------------------------------------------------------
-// Name widget
+// Name widget — `who = reactive("name", layout=True)`
 // ---------------------------------------------------------------------------
 
-struct NameWidget {
+#[derive(Reactive)]
+struct Name {
+    #[reactive(layout)]
     who: String,
 }
 
-impl NameWidget {
+impl Name {
     fn new() -> Self {
         Self {
             who: "name".to_string(),
         }
     }
-
-    fn set_who(&mut self, who: impl Into<String>) {
-        self.who = who.into();
-    }
 }
 
-impl Widget for NameWidget {
+impl Widget for Name {
     fn style_type(&self) -> &'static str {
         "Name"
     }
@@ -69,6 +65,10 @@ impl Widget for NameWidget {
         options: &rich_rs::ConsoleOptions,
     ) -> rich_rs::Segments {
         Static::new(format!("Hello, {}!", self.who)).render(console, options)
+    }
+
+    fn reactive_widget(&mut self) -> Option<&mut dyn ReactiveWidget> {
+        Some(self)
     }
 }
 
@@ -87,20 +87,22 @@ impl TextualApp for WatchApp {
     fn compose(&mut self) -> AppRoot {
         AppRoot::new()
             .with_child(Input::new().with_placeholder("Enter your name"))
-            .with_child(NameWidget::new())
+            .with_child(Name::new())
     }
 
-    fn on_message_with_app(
-        &mut self,
-        app: &mut App,
-        message: &MessageEvent,
-        ctx: &mut EventCtx,
-    ) {
+    fn on_message_with_app(&mut self, app: &mut App, message: &MessageEvent, ctx: &mut EventCtx) {
         if let Some(m) = message.downcast_ref::<InputChanged>() {
-            let new_who = m.value.clone();
-            let _ = app.with_query_one_mut_as::<NameWidget, _>("Name", |name| {
-                name.set_who(new_who);
-            });
+            let value = m.value.clone();
+            if let Ok(name_id) = app.query_one("Name") {
+                let mut rctx = ReactiveCtx::new(name_id);
+                app.with_widget_mut_as::<Name, _>(name_id, |name| {
+                    name.set_who(value, &mut rctx);
+                });
+                if rctx.has_changes() {
+                    enqueue_runtime_reactive_entry(RuntimeReactiveEntry::new(name_id, rctx));
+                }
+            }
+            // The reactive's layout flag drives relayout via the reactive phase.
             ctx.request_layout_invalidation();
         }
     }
@@ -121,15 +123,18 @@ mod tests {
     }
 
     #[test]
-    fn name_widget_defaults_to_name() {
-        let w = NameWidget::new();
-        assert_eq!(w.who, "name");
+    fn name_defaults_to_name() {
+        let w = Name::new();
+        assert_eq!(w.who().as_str(), "name");
     }
 
     #[test]
-    fn name_widget_set_who() {
-        let mut w = NameWidget::new();
-        w.set_who("Alice");
-        assert_eq!(w.who, "Alice");
+    fn set_who_records_layout_change() {
+        let mut w = Name::new();
+        let mut ctx = ReactiveCtx::new(textual::node_id::NodeId::default());
+        w.set_who("Alice".to_string(), &mut ctx);
+        assert_eq!(w.who().as_str(), "Alice");
+        assert!(ctx.needs_repaint());
+        assert!(ctx.needs_layout(), "layout reactive must request layout");
     }
 }

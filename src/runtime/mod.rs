@@ -74,6 +74,18 @@ struct DataBinding {
     apply: Arc<DataBindApplyFn>,
 }
 
+/// Callback invoked when a watched reactive field changes. Receives the app
+/// (so the callback can query/mutate widgets) and the new value, type-erased.
+type DynamicWatcherFn = dyn Fn(&mut App, &(dyn Any + Send)) + Send + Sync + 'static;
+
+/// A dynamic reactive watcher registered via [`App::watch_reactive`].
+#[derive(Clone)]
+struct DynamicWatcher {
+    target: NodeId,
+    field: String,
+    callback: Arc<DynamicWatcherFn>,
+}
+
 #[derive(Debug, Clone, Copy)]
 pub(super) struct SelectionClickState {
     pub target: NodeId,
@@ -486,6 +498,12 @@ pub struct App {
     data_values: HashMap<String, Arc<dyn Any + Send + Sync>>,
     /// Declarative data-binding registrations.
     data_bindings: Vec<DataBinding>,
+    /// Dynamic reactive watchers registered via [`App::watch_reactive`].
+    ///
+    /// Mirrors Python `DOMNode.watch(obj, attribute, callback)`: each entry fires
+    /// when the named reactive field on `target` changes. Invoked by the runtime
+    /// reactive phase after a widget's `reactive_dispatch`.
+    dynamic_watchers: Vec<DynamicWatcher>,
     /// Runtime hook used by `action_suspend_process()` (injectable in tests).
     suspend_process_impl: SuspendProcessFn,
     /// Pending highlight clear: (node_id, clear_at_instant).
@@ -621,6 +639,7 @@ impl App {
             pending_force_relayout: false,
             data_values: HashMap::new(),
             data_bindings: Vec::new(),
+            dynamic_watchers: Vec::new(),
             suspend_process_impl: suspend_process_default,
             pending_highlight_clear: None,
             widget_tree: None,
@@ -1786,6 +1805,96 @@ impl App {
 
     pub(super) fn take_pending_recompose_nodes(&mut self) -> Vec<NodeId> {
         std::mem::take(&mut self.pending_recompose_nodes)
+    }
+
+    /// Recompose the application root from a freshly composed [`AppRoot`].
+    ///
+    /// Mirrors Python Textual's `reactive(recompose=True)` at the `App`/`Screen`
+    /// level (e.g. `recompose01.py`, `set_reactive03.py`): when an app-level
+    /// reactive changes, `compose()` is re-invoked and the screen's children are
+    /// rebuilt. The `TextualAppAdapter` produces the fresh `AppRoot` (by calling
+    /// the app's `compose()`), and this method swaps it into the app-content node
+    /// and remounts its subtree.
+    ///
+    /// The app-content node is the first child of the adapter root. Its widget is
+    /// replaced with the new `AppRoot` (children intact), then the standard
+    /// subtree-recompose path runs — which removes the old children (including
+    /// scrollbars) and remounts from the fresh widget, exactly as on first mount.
+    ///
+    /// Returns `true` if the recompose was applied.
+    pub fn recompose_app(&mut self, fresh_root: crate::widgets::AppRoot) -> bool {
+        let app_content_id = match self.app_content_node_id() {
+            Some(id) => id,
+            None => return false,
+        };
+        let Some(tree) = self.active_widget_tree_mut() else {
+            return false;
+        };
+        let Some(node) = tree.get_mut(app_content_id) else {
+            return false;
+        };
+        node.widget = Box::new(fresh_root);
+        crate::runtime::event_loop::recompose_node_subtree(tree, app_content_id);
+        true
+    }
+
+    /// The node id of the app-content root (the `AppRoot` mounted as the first
+    /// child of the runtime adapter root). Returns `None` if the tree is not
+    /// built or has no children.
+    pub(crate) fn app_content_node_id(&self) -> Option<NodeId> {
+        let tree = self.active_widget_tree()?;
+        let root = tree.root()?;
+        tree.children(root).first().copied()
+    }
+
+    /// Register a dynamic watcher on a reactive field of another node.
+    ///
+    /// Mirrors Python `DOMNode.watch(obj, attribute, callback)`: `callback` is
+    /// invoked with the new value each time the `field` reactive on `target`
+    /// changes (during the runtime reactive phase, after the target's
+    /// `reactive_dispatch`). The callback receives `&mut App`, so it can query and
+    /// mutate other widgets — matching Python watchers that call `self.query_one`.
+    ///
+    /// The value passed to `callback` is type-erased; downcast it to the field's
+    /// type with `value.downcast_ref::<T>()`.
+    pub fn watch_reactive<F>(&mut self, target: NodeId, field: impl Into<String>, callback: F)
+    where
+        F: Fn(&mut App, &(dyn Any + Send)) + Send + Sync + 'static,
+    {
+        self.dynamic_watchers.push(DynamicWatcher {
+            target,
+            field: field.into(),
+            callback: Arc::new(callback),
+        });
+    }
+
+    /// Whether any dynamic watcher is registered for `target`+`field`.
+    pub(crate) fn has_dynamic_watcher(&self, target: NodeId, field: &str) -> bool {
+        self.dynamic_watchers
+            .iter()
+            .any(|w| w.target == target && w.field == field)
+    }
+
+    /// Fire all dynamic watchers registered for `target`+`field` with `value`.
+    ///
+    /// Callbacks are cloned out (Arc clone) before invocation so the borrow on
+    /// `self.dynamic_watchers` is released while `&mut self` is handed to each
+    /// callback (same pattern as `data_bind`).
+    pub(crate) fn notify_dynamic_watchers(
+        &mut self,
+        target: NodeId,
+        field: &str,
+        value: &(dyn Any + Send),
+    ) {
+        let callbacks: Vec<Arc<DynamicWatcherFn>> = self
+            .dynamic_watchers
+            .iter()
+            .filter(|w| w.target == target && w.field == field)
+            .map(|w| Arc::clone(&w.callback))
+            .collect();
+        for callback in callbacks {
+            callback(self, value);
+        }
     }
 
     #[cfg(test)]
@@ -3586,6 +3695,153 @@ mod tests {
             .unwrap_or((false, false));
         assert!(focused);
         assert!(hovered);
+    }
+
+    #[test]
+    fn recompose_app_rebuilds_app_content_subtree() {
+        // Simulate the runtime shape: adapter root with the AppRoot mounted as
+        // its first child (children[0]). `recompose_app` swaps in a freshly
+        // composed AppRoot and remounts the subtree, mirroring Python
+        // `reactive(recompose=True)` at the App level.
+        let mut tree = WidgetTree::new();
+        // Adapter-like root wrapper.
+        let adapter_root = tree.set_root(Box::new(AppRoot::new()));
+        // App-content AppRoot mounted as first child, carrying one initial Label.
+        let initial = AppRoot::new().with_child(Label::new("before"));
+        let app_content = App::mount_extracted_recursive(&mut tree, adapter_root, Box::new(initial));
+
+        let mut app = App::new().expect("app should initialize");
+        app.widget_tree = Some(tree);
+
+        // Sanity: app_content_node_id resolves to the first child of the root.
+        assert_eq!(app.app_content_node_id(), Some(app_content));
+
+        // Before: exactly one Label with text "before".
+        let before_labels = app
+            .query("Label")
+            .map(|q| q.into_ids())
+            .unwrap_or_default();
+        assert_eq!(before_labels.len(), 1, "expected one Label before recompose");
+
+        // Recompose with a fresh AppRoot carrying two different Labels.
+        let fresh = AppRoot::new()
+            .with_child(Label::new("after-1"))
+            .with_child(Label::new("after-2"));
+        assert!(app.recompose_app(fresh), "recompose_app should apply");
+
+        // The app-content node is preserved (same id), but its subtree is rebuilt.
+        assert_eq!(
+            app.app_content_node_id(),
+            Some(app_content),
+            "app-content node id is stable across recompose"
+        );
+        let after_labels = app
+            .query("Label")
+            .map(|q| q.into_ids())
+            .unwrap_or_default();
+        assert_eq!(after_labels.len(), 2, "expected two Labels after recompose");
+        assert!(
+            after_labels.iter().all(|id| !before_labels.contains(id)),
+            "old child nodes should be replaced, not reused"
+        );
+    }
+
+    #[test]
+    fn recompose_app_without_tree_is_noop() {
+        let mut app = App::new().expect("app should initialize");
+        // No widget tree built yet.
+        assert!(
+            !app.recompose_app(AppRoot::new()),
+            "recompose_app should return false with no tree"
+        );
+    }
+
+    #[test]
+    fn dynamic_watcher_fires_with_value_and_app() {
+        use std::sync::atomic::{AtomicI64, Ordering};
+        let mut app = App::new().expect("app should initialize");
+        let target = node_id_from_ffi(7);
+
+        // No watcher yet.
+        assert!(!app.has_dynamic_watcher(target, "counter"));
+
+        let seen = Arc::new(AtomicI64::new(-1));
+        let seen_cb = Arc::clone(&seen);
+        app.watch_reactive(target, "counter", move |_app, value| {
+            if let Some(v) = value.downcast_ref::<i64>() {
+                seen_cb.store(*v, Ordering::SeqCst);
+            }
+        });
+        assert!(app.has_dynamic_watcher(target, "counter"));
+        // A different field on the same node has no watcher.
+        assert!(!app.has_dynamic_watcher(target, "other"));
+
+        // Fire it.
+        let value: i64 = 42;
+        app.notify_dynamic_watchers(target, "counter", &value);
+        assert_eq!(seen.load(Ordering::SeqCst), 42, "watcher saw the new value");
+    }
+
+    #[test]
+    fn dynamic_watcher_scoped_to_target_and_field() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let mut app = App::new().expect("app should initialize");
+        let target_a = node_id_from_ffi(1);
+        let target_b = node_id_from_ffi(2);
+
+        let fires = Arc::new(AtomicUsize::new(0));
+        let fires_cb = Arc::clone(&fires);
+        app.watch_reactive(target_a, "counter", move |_app, _value| {
+            fires_cb.fetch_add(1, Ordering::SeqCst);
+        });
+
+        let v: i64 = 1;
+        // Wrong target → no fire.
+        app.notify_dynamic_watchers(target_b, "counter", &v);
+        assert_eq!(fires.load(Ordering::SeqCst), 0);
+        // Wrong field → no fire.
+        app.notify_dynamic_watchers(target_a, "other", &v);
+        assert_eq!(fires.load(Ordering::SeqCst), 0);
+        // Right target + field → fire.
+        app.notify_dynamic_watchers(target_a, "counter", &v);
+        assert_eq!(fires.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn recompose_app_preserves_child_decl_ids() {
+        // `with_compose` children carry CSS-id decl metadata that must survive
+        // the recompose remount (so `#id` selectors keep resolving after a
+        // recompose, as in set_reactive03-style dynamic lists).
+        use crate::compose::ChildDecl;
+
+        let mut tree = WidgetTree::new();
+        let adapter_root = tree.set_root(Box::new(AppRoot::new()));
+        let initial = AppRoot::new().with_compose(vec![
+            ChildDecl::from(Label::new("first")).with_id("row-0"),
+        ]);
+        let app_content =
+            App::mount_extracted_recursive(&mut tree, adapter_root, Box::new(initial));
+
+        let mut app = App::new().expect("app should initialize");
+        app.widget_tree = Some(tree);
+        assert_eq!(app.app_content_node_id(), Some(app_content));
+
+        // Recompose with two id-bearing rows.
+        let fresh = AppRoot::new().with_compose(vec![
+            ChildDecl::from(Label::new("a")).with_id("row-0"),
+            ChildDecl::from(Label::new("b")).with_id("row-1"),
+        ]);
+        assert!(app.recompose_app(fresh));
+
+        // Both id selectors must resolve after recompose.
+        assert!(
+            app.query_one("#row-0").is_ok(),
+            "#row-0 should resolve after recompose"
+        );
+        assert!(
+            app.query_one("#row-1").is_ok(),
+            "#row-1 should resolve after recompose"
+        );
     }
 
     #[test]

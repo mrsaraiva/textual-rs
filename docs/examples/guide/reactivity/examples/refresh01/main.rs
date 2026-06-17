@@ -7,17 +7,14 @@
 ///       who = reactive("name")
 ///       def render(self) -> str:
 ///           return f"Hello, {self.who}!"
+///   on_input_changed: self.query_one(Name).who = event.value
 ///
-///   class WatchApp(App):
-///       def compose(self): yield Input(placeholder="Enter your name"); yield Name()
-///       def on_input_changed(self, event): self.query_one(Name).who = event.value
-///
-/// Rust port:
-///   - `Name` is a custom widget wrapping `Static` with a `set_who()` method.
-///   - `on_message_with_app` catches `InputChanged` and calls
-///     `app.with_query_one_mut_as::<Name, _>` to update the greeting.
-///   - `style_type()` returns `"Name"` so CSS selectors and DOM queries work.
-use textual::message::InputChanged;
+/// Rust port (faithful): `Name` derives `Reactive` with `#[reactive] who`. Its
+/// `render()` reads `who`. The generated `set_who(value, ctx)` records a repaint
+/// change; the runtime reactive phase repaints the `Name` node — exactly Python's
+/// default `reactive` (repaint on change). The app handler queries the `Name`
+/// node, sets `who`, and enqueues the change for the runtime reactive phase.
+use textual::reactive::{RuntimeReactiveEntry, enqueue_runtime_reactive_entry};
 use textual::prelude::*;
 
 const CSS: &str = r#"
@@ -33,28 +30,20 @@ Name {
 "#;
 
 // ---------------------------------------------------------------------------
-// Name widget — mirrors Python's `class Name(Widget)`
+// Name widget — `who = reactive("name")`, render reads `who`
 // ---------------------------------------------------------------------------
 
+#[derive(Reactive)]
 struct Name {
-    inner: Static,
+    #[reactive]
+    who: String,
 }
 
 impl Name {
     fn new() -> Self {
         Self {
-            inner: Static::new("Hello, name!"),
+            who: "name".to_string(),
         }
-    }
-
-    /// Update the greeting (equivalent to setting `self.who` reactive).
-    fn set_who(&mut self, who: &str) {
-        let greeting = if who.is_empty() {
-            "Hello, !".to_string()
-        } else {
-            format!("Hello, {}!", who)
-        };
-        self.inner.update(greeting);
     }
 }
 
@@ -63,28 +52,21 @@ impl Widget for Name {
         "Name"
     }
 
+    fn focusable(&self) -> bool {
+        false
+    }
+
+    // Python `render` returns f"Hello, {self.who}!".
     fn render(
         &self,
         console: &rich_rs::Console,
         options: &rich_rs::ConsoleOptions,
     ) -> rich_rs::Segments {
-        self.inner.render(console, options)
+        Static::new(format!("Hello, {}!", self.who)).render(console, options)
     }
 
-    fn on_layout(&mut self, width: u16, height: u16) {
-        self.inner.on_layout(width, height);
-    }
-
-    fn layout_height(&self) -> Option<usize> {
-        self.inner.layout_height()
-    }
-
-    fn content_width(&self) -> Option<usize> {
-        self.inner.content_width()
-    }
-
-    fn take_node_seed(&mut self) -> NodeSeed {
-        self.inner.take_node_seed()
+    fn reactive_widget(&mut self) -> Option<&mut dyn ReactiveWidget> {
+        Some(self)
     }
 }
 
@@ -106,17 +88,18 @@ impl TextualApp for WatchApp {
             .with_child(Name::new())
     }
 
-    fn on_message_with_app(
-        &mut self,
-        app: &mut App,
-        message: &MessageEvent,
-        ctx: &mut EventCtx,
-    ) {
+    fn on_message_with_app(&mut self, app: &mut App, message: &MessageEvent, ctx: &mut EventCtx) {
         if let Some(changed) = message.downcast_ref::<InputChanged>() {
             let value = changed.value.clone();
-            let _ = app.with_query_one_mut_as::<Name, _>("Name", |name| {
-                name.set_who(&value);
-            });
+            if let Ok(name_id) = app.query_one("Name") {
+                let mut rctx = ReactiveCtx::new(name_id);
+                app.with_widget_mut_as::<Name, _>(name_id, |name| {
+                    name.set_who(value, &mut rctx);
+                });
+                if rctx.has_changes() {
+                    enqueue_runtime_reactive_entry(RuntimeReactiveEntry::new(name_id, rctx));
+                }
+            }
             ctx.request_repaint();
         }
     }
@@ -137,25 +120,19 @@ mod tests {
     }
 
     #[test]
-    fn name_widget_initial_greeting() {
+    fn name_defaults_to_name() {
         let name = Name::new();
-        // Style_type is "Name" so CSS selectors target it correctly.
-        assert_eq!(name.style_type(), "Name");
+        assert_eq!(name.who().as_str(), "name");
     }
 
     #[test]
-    fn name_widget_set_who_updates_greeting() {
+    fn set_who_records_repaint_change() {
         let mut name = Name::new();
-        name.set_who("World");
-        // The inner static should now render "Hello, World!"
-        // We can't directly read the label text without access to internals,
-        // but verifying it doesn't panic is the minimum bar.
-    }
-
-    #[test]
-    fn name_widget_set_who_empty_value() {
-        let mut name = Name::new();
-        name.set_who("");
-        // Empty value produces "Hello, !" — same as Python reference.
+        let mut ctx = ReactiveCtx::new(textual::node_id::NodeId::default());
+        name.set_who("World".to_string(), &mut ctx);
+        assert_eq!(name.who().as_str(), "World");
+        assert!(ctx.has_changes());
+        assert!(ctx.needs_repaint());
+        assert!(!ctx.needs_layout(), "plain reactive does not request layout");
     }
 }

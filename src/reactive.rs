@@ -49,6 +49,13 @@ pub struct ReactiveFlags {
     /// `Tree.cursor_line` where setting the same value should still trigger
     /// side effects (e.g. scroll-into-view, repaint).
     pub always_update: bool,
+    /// Recompose the owning widget/app when the field changes.
+    ///
+    /// Matches Python's `reactive(recompose=True)`: instead of (or in addition
+    /// to) a repaint, the owner's `compose()` is re-invoked and its subtree
+    /// remounted. Recorded changes carrying this flag drive the runtime
+    /// recompose pipeline (`EventCtx::request_recompose_node`).
+    pub recompose: bool,
 }
 
 impl Default for ReactiveFlags {
@@ -58,6 +65,7 @@ impl Default for ReactiveFlags {
             layout: false,
             init: true,
             always_update: false,
+            recompose: false,
         }
     }
 }
@@ -70,6 +78,7 @@ impl ReactiveFlags {
             layout: false,
             init: true,
             always_update: false,
+            recompose: false,
         }
     }
 
@@ -80,6 +89,7 @@ impl ReactiveFlags {
             layout: true,
             init: true,
             always_update: false,
+            recompose: false,
         }
     }
 
@@ -90,6 +100,7 @@ impl ReactiveFlags {
             layout: false,
             init: false,
             always_update: false,
+            recompose: false,
         }
     }
 
@@ -100,6 +111,7 @@ impl ReactiveFlags {
             layout: true,
             init: false,
             always_update: false,
+            recompose: false,
         }
     }
 
@@ -113,6 +125,7 @@ impl ReactiveFlags {
             layout: false,
             init: true,
             always_update: false,
+            recompose: false,
         }
     }
 
@@ -126,6 +139,7 @@ impl ReactiveFlags {
             layout: false,
             init: false,
             always_update: false,
+            recompose: false,
         }
     }
 
@@ -139,6 +153,34 @@ impl ReactiveFlags {
             layout: false,
             init: true,
             always_update: true,
+            recompose: false,
+        }
+    }
+
+    /// Flags for `#[reactive(recompose)]`: recompose the owner's subtree on
+    /// change, and call the watcher on init.
+    ///
+    /// Matches Python's `reactive(default, recompose=True)`. A recompose
+    /// implies repaint + layout (the subtree is rebuilt), so both are set.
+    pub const fn reactive_recompose() -> Self {
+        Self {
+            repaint: true,
+            layout: true,
+            init: true,
+            always_update: false,
+            recompose: true,
+        }
+    }
+
+    /// Flags for `#[reactive(recompose, init = false)]`: recompose on change,
+    /// but do not recompose/fire the watcher at mount.
+    pub const fn reactive_recompose_no_init() -> Self {
+        Self {
+            repaint: true,
+            layout: true,
+            init: false,
+            always_update: false,
+            recompose: true,
         }
     }
 }
@@ -180,6 +222,7 @@ pub struct ReactiveCtx {
     changes: Vec<ReactiveChange>,
     repaint_requested: bool,
     layout_requested: bool,
+    recompose_requested: bool,
     class_ops: Vec<(NodeId, crate::event::ClassOp)>,
     styles_requested: bool,
 }
@@ -192,6 +235,7 @@ impl ReactiveCtx {
             changes: Vec::new(),
             repaint_requested: false,
             layout_requested: false,
+            recompose_requested: false,
             class_ops: Vec::new(),
             styles_requested: false,
         }
@@ -226,12 +270,31 @@ impl ReactiveCtx {
         if flags.layout {
             self.layout_requested = true;
         }
+        if flags.recompose {
+            self.recompose_requested = true;
+        }
         self.changes.push(ReactiveChange {
             field_name,
             flags,
             old_value,
             new_value,
         });
+    }
+
+    /// Record a field change that always fires (ignores value equality).
+    ///
+    /// Mirrors Python's `mutate_reactive` / `_Mutated` path: when a reactive
+    /// value is mutated in place (e.g. `list.append(...)`), there is no new
+    /// distinct value to compare against, so the change must be dispatched
+    /// unconditionally. Callers pass the same value as both old and new.
+    pub fn record_mutation(
+        &mut self,
+        field_name: &'static str,
+        flags: ReactiveFlags,
+        value: Box<dyn Any + Send>,
+        value_clone: Box<dyn Any + Send>,
+    ) {
+        self.record_change(field_name, flags, value, value_clone);
     }
 
     /// Whether any change requested a repaint.
@@ -242,6 +305,16 @@ impl ReactiveCtx {
     /// Whether any change requested a layout invalidation.
     pub fn needs_layout(&self) -> bool {
         self.layout_requested
+    }
+
+    /// Whether any change requested a recompose of the owner's subtree.
+    pub fn needs_recompose(&self) -> bool {
+        self.recompose_requested
+    }
+
+    /// Request a recompose without recording a field change (watcher side effect).
+    pub fn request_recompose(&mut self) {
+        self.recompose_requested = true;
     }
 
     /// Whether any change/watcher requested style recomputation.
@@ -277,6 +350,7 @@ impl ReactiveCtx {
     pub fn reset_flags(&mut self) {
         self.repaint_requested = false;
         self.layout_requested = false;
+        self.recompose_requested = false;
         self.styles_requested = false;
     }
 
@@ -284,6 +358,7 @@ impl ReactiveCtx {
     pub fn clear_flags(&mut self) {
         self.repaint_requested = false;
         self.layout_requested = false;
+        self.recompose_requested = false;
         self.styles_requested = false;
     }
 
@@ -334,6 +409,7 @@ impl std::fmt::Debug for ReactiveCtx {
             .field("changes", &self.changes.len())
             .field("repaint_requested", &self.repaint_requested)
             .field("layout_requested", &self.layout_requested)
+            .field("recompose_requested", &self.recompose_requested)
             .field("styles_requested", &self.styles_requested)
             .finish()
     }
@@ -424,6 +500,8 @@ pub struct ReactivePhaseResult {
     pub needs_repaint: bool,
     /// Whether any change requested a layout invalidation.
     pub needs_layout: bool,
+    /// Whether any change requested a recompose of the owner's subtree.
+    pub needs_recompose: bool,
     /// Number of iterations executed.
     pub iterations: usize,
     /// Whether the iteration limit was hit (potential cycle).
@@ -474,6 +552,9 @@ pub fn run_reactive_phase_with_dispatch(
         if ctx.needs_layout() {
             result.needs_layout = true;
         }
+        if ctx.needs_recompose() {
+            result.needs_recompose = true;
+        }
 
         let changes = ctx.take_changes();
         ctx.clear_flags();
@@ -501,6 +582,9 @@ pub fn run_reactive_phase_with_dispatch(
     if ctx.needs_layout() {
         result.needs_layout = true;
     }
+    if ctx.needs_recompose() {
+        result.needs_recompose = true;
+    }
 
     // Drain any class ops queued by watcher callbacks.
     result.class_ops = ctx.take_class_ops();
@@ -525,6 +609,32 @@ impl RuntimeReactiveEntry {
 
     pub fn node_id(&self) -> NodeId {
         self.node_id
+    }
+
+    /// Read the field names of the changes currently pending in this entry,
+    /// without consuming them. Used by the runtime to decide which dynamic
+    /// watchers must fire (the values are passed during dispatch).
+    pub fn pending_field_names(&self) -> Vec<&'static str> {
+        self.ctx.changes().iter().map(|c| c.field_name).collect()
+    }
+
+    /// Take the changes currently pending in this entry, leaving the entry's
+    /// repaint/layout/recompose flags intact. Used so the runtime can notify
+    /// dynamic watchers (which need owned values + `&mut App`, with no tree
+    /// borrow held) and then re-record the changes for widget dispatch.
+    pub fn take_pending_changes(&mut self) -> Vec<ReactiveChange> {
+        self.ctx.take_changes()
+    }
+
+    /// Re-record a change into this entry's context (after dynamic-watcher
+    /// notification) so widget dispatch still sees it.
+    pub fn record_change(&mut self, change: ReactiveChange) {
+        self.ctx.record_change(
+            change.field_name,
+            change.flags,
+            change.old_value,
+            change.new_value,
+        );
     }
 
     pub fn run_with_dispatch(
@@ -842,5 +952,339 @@ mod tests {
         let mut w = SimpleWidget { dispatch_called: false };
         w.reactive_dispatch(&changes, &mut ctx);
         assert!(w.dispatch_called);
+    }
+
+    // ── Recompose flag (Python `reactive(recompose=True)`) ──────────────
+
+    #[test]
+    fn reactive_flags_recompose() {
+        let flags = ReactiveFlags::reactive_recompose();
+        assert!(flags.recompose);
+        assert!(flags.repaint);
+        assert!(flags.layout);
+        assert!(flags.init);
+        assert!(!flags.always_update);
+    }
+
+    #[test]
+    fn reactive_flags_recompose_no_init() {
+        let flags = ReactiveFlags::reactive_recompose_no_init();
+        assert!(flags.recompose);
+        assert!(flags.repaint);
+        assert!(flags.layout);
+        assert!(!flags.init);
+    }
+
+    #[test]
+    fn non_recompose_flags_are_not_recompose() {
+        assert!(!ReactiveFlags::reactive().recompose);
+        assert!(!ReactiveFlags::reactive_layout().recompose);
+        assert!(!ReactiveFlags::var().recompose);
+        assert!(!ReactiveFlags::reactive_always_update().recompose);
+        assert!(!ReactiveFlags::default().recompose);
+    }
+
+    #[test]
+    fn ctx_record_recompose_change_sets_flag() {
+        let id = make_node_id();
+        let mut ctx = ReactiveCtx::new(id);
+        assert!(!ctx.needs_recompose());
+        ctx.record_change(
+            "time",
+            ReactiveFlags::reactive_recompose(),
+            Box::new(0_u64),
+            Box::new(1_u64),
+        );
+        assert!(ctx.needs_recompose());
+        assert!(ctx.needs_repaint());
+        assert!(ctx.needs_layout());
+    }
+
+    #[test]
+    fn ctx_plain_reactive_change_does_not_request_recompose() {
+        let id = make_node_id();
+        let mut ctx = ReactiveCtx::new(id);
+        ctx.record_change(
+            "label",
+            ReactiveFlags::reactive(),
+            Box::new("a".to_string()),
+            Box::new("b".to_string()),
+        );
+        assert!(!ctx.needs_recompose());
+    }
+
+    #[test]
+    fn ctx_request_recompose_without_change() {
+        let id = make_node_id();
+        let mut ctx = ReactiveCtx::new(id);
+        assert!(!ctx.needs_recompose());
+        ctx.request_recompose();
+        assert!(ctx.needs_recompose());
+        assert!(!ctx.has_changes());
+    }
+
+    #[test]
+    fn ctx_clear_and_reset_clear_recompose() {
+        let id = make_node_id();
+        let mut ctx = ReactiveCtx::new(id);
+        ctx.request_recompose();
+        assert!(ctx.needs_recompose());
+        ctx.clear_flags();
+        assert!(!ctx.needs_recompose());
+
+        ctx.request_recompose();
+        assert!(ctx.needs_recompose());
+        ctx.reset_flags();
+        assert!(!ctx.needs_recompose());
+    }
+
+    #[test]
+    fn run_reactive_phase_propagates_recompose() {
+        // A field with the recompose flag should surface needs_recompose in the
+        // phase result so the runtime can rebuild the owner's subtree.
+        struct RecomposeWidget;
+        impl ReactiveWidget for RecomposeWidget {}
+        let id = make_node_id();
+        let mut ctx = ReactiveCtx::new(id);
+        ctx.record_change(
+            "time",
+            ReactiveFlags::reactive_recompose(),
+            Box::new(0_u64),
+            Box::new(1_u64),
+        );
+        let mut w = RecomposeWidget;
+        let result = run_reactive_phase(&mut w, &mut ctx);
+        assert!(result.had_changes);
+        assert!(result.needs_recompose);
+        assert!(result.needs_repaint);
+        assert!(result.needs_layout);
+    }
+
+    #[test]
+    fn run_reactive_phase_no_recompose_for_plain_field() {
+        struct PlainWidget;
+        impl ReactiveWidget for PlainWidget {}
+        let id = make_node_id();
+        let mut ctx = ReactiveCtx::new(id);
+        ctx.record_change(
+            "label",
+            ReactiveFlags::reactive(),
+            Box::new("a".to_string()),
+            Box::new("b".to_string()),
+        );
+        let mut w = PlainWidget;
+        let result = run_reactive_phase(&mut w, &mut ctx);
+        assert!(result.had_changes);
+        assert!(!result.needs_recompose);
+        assert!(result.needs_repaint);
+    }
+
+    // ── Mutation (Python `mutate_reactive`) ─────────────────────────────
+
+    #[test]
+    fn record_mutation_always_dispatches() {
+        // In-place mutation (e.g. Vec push) has no distinct old/new value, so a
+        // mutation must always be recorded as a change for watcher/recompose.
+        let id = make_node_id();
+        let mut ctx = ReactiveCtx::new(id);
+        let names = vec!["a".to_string(), "b".to_string()];
+        ctx.record_mutation(
+            "names",
+            ReactiveFlags::reactive_recompose(),
+            Box::new(names.clone()),
+            Box::new(names),
+        );
+        assert!(ctx.has_changes());
+        assert!(ctx.needs_recompose());
+        let change = &ctx.changes()[0];
+        let old = change.old_value.downcast_ref::<Vec<String>>().unwrap();
+        let new = change.new_value.downcast_ref::<Vec<String>>().unwrap();
+        assert_eq!(old, new);
+        assert_eq!(new.len(), 2);
+    }
+
+    // ── Macro codegen: #[reactive(recompose)] / (validate) / mutate_<field> ──
+    //
+    // These exercise the `#[derive(Reactive)]` proc-macro end-to-end (the crate
+    // aliases itself as `textual`, so the macro-emitted `textual::reactive::*`
+    // paths resolve in-crate). They lock in the Python-aligned semantics:
+    //   - `recompose` -> setter records a change carrying the recompose flag,
+    //   - `validate`  -> setter passes the value through `validate_<field>`
+    //                    BEFORE the equality check/store,
+    //   - `mutate_<field>(ctx)` -> dispatches unconditionally (in-place mutation).
+
+    #[derive(textual_macros::Reactive)]
+    struct RecomposeApp {
+        #[reactive(recompose)]
+        time: u64,
+    }
+
+    #[test]
+    fn macro_recompose_setter_records_recompose_change() {
+        let id = make_node_id();
+        let mut ctx = ReactiveCtx::new(id);
+        let mut app = RecomposeApp { time: 0 };
+        app.set_time(5, &mut ctx);
+        assert_eq!(*app.time(), 5);
+        assert!(ctx.has_changes());
+        assert!(ctx.needs_recompose(), "recompose field must request recompose");
+        assert!(ctx.needs_repaint());
+        assert!(ctx.needs_layout());
+        // The descriptor must report the recompose flag for init-phase handling.
+        let descriptors = app.reactive_field_descriptors();
+        assert_eq!(descriptors.len(), 1);
+        assert!(descriptors[0].flags.recompose);
+    }
+
+    #[derive(textual_macros::Reactive)]
+    struct ValidateApp {
+        #[reactive(validate)]
+        count: i32,
+    }
+
+    impl ValidateApp {
+        // Python `validate_count`: clamp to [0, 10].
+        fn validate_count(&self, count: i32) -> i32 {
+            count.clamp(0, 10)
+        }
+    }
+
+    #[test]
+    fn macro_validate_setter_clamps_before_store() {
+        let id = make_node_id();
+        let mut ctx = ReactiveCtx::new(id);
+        let mut app = ValidateApp { count: 0 };
+
+        // Over the max: clamped to 10, change recorded.
+        app.set_count(99, &mut ctx);
+        assert_eq!(*app.count(), 10);
+        assert!(ctx.has_changes());
+
+        // Under the min: clamped to 0.
+        let mut ctx2 = ReactiveCtx::new(id);
+        app.set_count(-50, &mut ctx2);
+        assert_eq!(*app.count(), 0);
+
+        // A value that validates to the SAME stored value records no change
+        // (validate runs before the equality check, matching Python `_set`).
+        let mut ctx3 = ReactiveCtx::new(id);
+        app.set_count(10, &mut ctx3); // 0 -> 10: records.
+        assert_eq!(*app.count(), 10);
+        assert!(ctx3.has_changes());
+        let mut ctx4 = ReactiveCtx::new(id);
+        app.set_count(12, &mut ctx4); // 12 validates to 10 == current 10: no change.
+        assert_eq!(*app.count(), 10);
+        assert!(
+            !ctx4.has_changes(),
+            "validated value equal to current should record no change"
+        );
+    }
+
+    #[derive(textual_macros::Reactive)]
+    struct MutateApp {
+        #[reactive(recompose)]
+        names: Vec<String>,
+    }
+
+    #[test]
+    fn macro_generated_mutate_fires_unconditionally() {
+        let id = make_node_id();
+        let mut app = MutateApp { names: Vec::new() };
+
+        // Mutate in place, then notify via the generated mutate_<field>.
+        app.names.push("a".to_string());
+        let mut ctx = ReactiveCtx::new(id);
+        app.mutate_names(&mut ctx);
+        assert!(ctx.has_changes(), "mutate must record a change");
+        assert!(ctx.needs_recompose());
+        let change = &ctx.changes()[0];
+        assert_eq!(change.field_name, "names");
+        let snapshot = change.new_value.downcast_ref::<Vec<String>>().unwrap();
+        assert_eq!(snapshot.len(), 1);
+
+        // Mutating again still fires (no equality gate).
+        app.names.push("b".to_string());
+        let mut ctx2 = ReactiveCtx::new(id);
+        app.mutate_names(&mut ctx2);
+        assert!(ctx2.has_changes());
+        let snapshot2 = ctx2.changes()[0]
+            .new_value
+            .downcast_ref::<Vec<String>>()
+            .unwrap();
+        assert_eq!(snapshot2.len(), 2);
+    }
+
+    // ── Macro codegen: computed field with a watcher (Python compute + watch) ──
+
+    #[derive(textual_macros::Reactive)]
+    struct ComputedWatchApp {
+        #[reactive]
+        red: u8,
+        #[reactive]
+        green: u8,
+        #[reactive]
+        blue: u8,
+        #[computed(depends_on = "red, green, blue", watch)]
+        color: (u8, u8, u8),
+        // Records the colour the watcher last observed.
+        observed: Option<(u8, u8, u8)>,
+    }
+
+    impl ComputedWatchApp {
+        fn compute_color(&self) -> (u8, u8, u8) {
+            (self.red, self.green, self.blue)
+        }
+        fn watch_color(
+            &mut self,
+            _old: &(u8, u8, u8),
+            new: &(u8, u8, u8),
+            _ctx: &mut ReactiveCtx,
+        ) {
+            self.observed = Some(*new);
+        }
+    }
+
+    #[test]
+    fn macro_computed_field_recomputes_and_fires_watcher() {
+        let id = make_node_id();
+        let mut app = ComputedWatchApp {
+            red: 0,
+            green: 0,
+            blue: 0,
+            color: (0, 0, 0),
+            observed: None,
+        };
+
+        // Change a dependency, then run the iterative reactive phase: the
+        // computed `color` recomputes, records a change, and its watcher fires.
+        let mut ctx = ReactiveCtx::new(id);
+        app.set_red(10, &mut ctx);
+        app.set_blue(20, &mut ctx);
+        let result = run_reactive_phase(&mut app, &mut ctx);
+
+        assert!(result.had_changes);
+        assert_eq!(*app.color(), (10, 0, 20), "computed value recomputed");
+        assert_eq!(
+            app.observed,
+            Some((10, 0, 20)),
+            "computed watcher fired with the recomputed value"
+        );
+    }
+
+    #[test]
+    fn macro_computed_watcher_does_not_fire_without_dep_change() {
+        let id = make_node_id();
+        let mut app = ComputedWatchApp {
+            red: 5,
+            green: 5,
+            blue: 5,
+            color: (5, 5, 5),
+            observed: None,
+        };
+        // No dependency change recorded → no recompute, no watcher.
+        let mut ctx = ReactiveCtx::new(id);
+        let result = run_reactive_phase(&mut app, &mut ctx);
+        assert!(!result.had_changes);
+        assert_eq!(app.observed, None);
     }
 }

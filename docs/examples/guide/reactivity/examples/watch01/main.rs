@@ -1,17 +1,22 @@
 /// Port of Python Textual `docs/examples/guide/reactivity/watch01.py`.
 ///
-/// Demonstrates reactive watchers: when `color` changes, `watch_color` is
-/// called with the old and new value, updating background colors on two
-/// `Static` panels.
+/// Demonstrates reactive watchers: when `color` changes, `watch_color(old, new)`
+/// is called with both the old and new value, updating the background colours of
+/// two `Static` panels (`#old`, `#new`).
 ///
-/// Python uses `reactive(Color.parse("transparent"))` and `watch_color(old, new)`
-/// to set `self.query_one("#old").styles.background` and `#new`. In Rust there
-/// is no `reactive` field + automatic watcher dispatch on App-level structs, so
-/// we track `current_color` manually and update both panels on each `InputSubmitted`.
+/// Python:
+///   color = reactive(Color.parse("transparent"))
+///   def watch_color(self, old_color, new_color):
+///       self.query_one("#old").styles.background = old_color
+///       self.query_one("#new").styles.background = new_color
+///   def on_input_submitted(self, event): self.color = Color.parse(event.value)
 ///
-/// Framework gap: Python `reactive` fields with automatic `watch_*` callbacks on
-/// `App` subclasses are not yet expressible in Rust textual-rs. The watcher is
-/// implemented manually inside `on_message_with_app`.
+/// Rust port (faithful): the app derives `Reactive` with
+/// `#[reactive(watch_with_app)] color`. The generated `set_color(value, ctx)`
+/// records the change; the app-level reactive bridge then invokes
+/// `watch_color(&mut self, app, old, new, ctx)` — the both-values watcher —
+/// which queries `#old`/`#new` and sets their inline backgrounds, exactly like
+/// Python's two-argument `watch_color`.
 use textual::prelude::*;
 use textual::style::parse_color_like;
 
@@ -39,16 +44,34 @@ Input {
 }
 "#;
 
+#[derive(Reactive)]
 struct WatchApp {
-    /// Tracks the current color (mirrors Python's `reactive` field `color`).
-    current_color: Option<Color>,
+    /// Mirrors Python `color = reactive(Color.parse("transparent"))`.
+    /// `watch_with_app` so the bridge calls `watch_color` (which queries widgets).
+    /// `init = false`: Python's `transparent` default need not paint the panels at
+    /// mount (the panels start with their CSS border only), matching the example.
+    #[reactive(watch_with_app, init = false)]
+    color: Color,
 }
 
 impl WatchApp {
     fn new() -> Self {
+        // Python default: Color.parse("transparent").
         Self {
-            current_color: None,
+            color: parse_color_like("transparent").unwrap_or(Color::rgba(0, 0, 0, 0)),
         }
+    }
+
+    /// Python `watch_color(self, old_color, new_color)`: set both panels.
+    fn watch_color(&mut self, app: &mut App, old: &Color, new: &Color, _ctx: &mut ReactiveCtx) {
+        let old = *old;
+        let new = *new;
+        let _ = app.with_query_one_mut_as::<Static, _>("#old", |s| {
+            s.set_inline_style(Style::new().bg(old));
+        });
+        let _ = app.with_query_one_mut_as::<Static, _>("#new", |s| {
+            s.set_inline_style(Style::new().bg(new));
+        });
     }
 }
 
@@ -56,6 +79,10 @@ impl TextualApp for WatchApp {
     fn configure(&mut self, app: &mut App) -> textual::Result<()> {
         app.load_stylesheet(CSS);
         Ok(())
+    }
+
+    fn reactive_widget_mut(&mut self) -> Option<&mut dyn ReactiveWidget> {
+        Some(self)
     }
 
     fn compose(&mut self) -> AppRoot {
@@ -69,37 +96,15 @@ impl TextualApp for WatchApp {
             )
     }
 
-    /// Handles `InputSubmitted`: parse the entered color, then invoke the
-    /// watcher logic (mirrors Python's `watch_color(old_color, new_color)`).
-    fn on_message_with_app(
-        &mut self,
-        app: &mut App,
-        message: &MessageEvent,
-        ctx: &mut EventCtx,
-    ) {
+    fn on_message_with_app(&mut self, app: &mut App, message: &MessageEvent, ctx: &mut EventCtx) {
         if let Some(m) = message.downcast_ref::<InputSubmitted>() {
             let value = m.value.trim().to_string();
             if let Some(new_color) = parse_color_like(&value) {
-                let old_color = self.current_color;
-
-                // watch_color(old_color, new_color) — set backgrounds
-                if let Some(old) = old_color {
-                    let style = Style::new().bg(old);
-                    let _ = app.with_query_one_mut_as::<Static, _>("#old", |s| {
-                        s.set_inline_style(style);
-                    });
-                }
-                let new_style = Style::new().bg(new_color);
-                let _ = app.with_query_one_mut_as::<Static, _>("#new", |s| {
-                    s.set_inline_style(new_style);
-                });
-
-                self.current_color = Some(new_color);
-
-                // Clear the input
+                // Python: clear the input, then assign self.color (fires watch_color).
                 let _ = app.with_query_one_mut_as::<Input, _>("Input", |input| {
                     input.set_text(String::new());
                 });
+                self.set_color(new_color, app.reactive_ctx());
                 ctx.request_repaint();
             }
         }
@@ -121,8 +126,12 @@ mod tests {
     }
 
     #[test]
-    fn initial_color_is_none() {
-        let app = WatchApp::new();
-        assert!(app.current_color.is_none());
+    fn set_color_records_change() {
+        let mut app = WatchApp::new();
+        let mut ctx = ReactiveCtx::new(textual::node_id::NodeId::default());
+        let red = parse_color_like("red").expect("red parses");
+        app.set_color(red, &mut ctx);
+        assert_eq!(*app.color(), red);
+        assert!(ctx.has_changes(), "color change must be recorded");
     }
 }

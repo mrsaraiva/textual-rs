@@ -491,6 +491,7 @@ impl<T: TextualApp> TextualAppAdapter<T> {
         let mut needs_repaint = false;
         let mut needs_layout = false;
         let mut needs_styles = false;
+        let mut needs_recompose = false;
 
         for _ in 0..crate::reactive::MAX_REACTIVE_ITERATIONS {
             if !app.reactive_ctx().has_changes() {
@@ -499,6 +500,7 @@ impl<T: TextualApp> TextualAppAdapter<T> {
             needs_repaint |= app.reactive_ctx().needs_repaint();
             needs_layout |= app.reactive_ctx().needs_layout();
             needs_styles |= app.reactive_ctx().needs_styles();
+            needs_recompose |= app.reactive_ctx().needs_recompose();
             let changes = app.reactive_ctx().take_changes();
             app.reactive_ctx().reset_flags();
             let mut rctx = ReactiveCtx::new(NodeId::default());
@@ -513,6 +515,7 @@ impl<T: TextualApp> TextualAppAdapter<T> {
             needs_repaint |= rctx.needs_repaint();
             needs_layout |= rctx.needs_layout();
             needs_styles |= rctx.needs_styles();
+            needs_recompose |= rctx.needs_recompose();
             // Feed chained changes (watchers calling setters on the dispatch ctx)
             // back into the app ctx for the next iteration.
             for change in rctx.take_changes() {
@@ -530,6 +533,20 @@ impl<T: TextualApp> TextualAppAdapter<T> {
             crate::debug::debug_render("[reactive] app-level cycle detected; draining");
             let _ = app.reactive_ctx().take_changes();
             app.reactive_ctx().reset_flags();
+        }
+
+        // App-level recompose (Python `reactive(recompose=True)` on App/Screen):
+        // after all watchers have run (so `compose()` sees the final reactive
+        // state), re-invoke the app's `compose()` and rebuild the app-content
+        // subtree via `App::recompose_app`. A recompose implies layout + repaint.
+        if needs_recompose {
+            let fresh_root = self
+                .app
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .compose();
+            app.recompose_app(fresh_root);
+            ctx.request_layout_invalidation();
         }
 
         if needs_repaint {
@@ -3015,6 +3032,91 @@ mod tests {
         assert_eq!(
             guard.builtin_hook_count, 0,
             "builtin hook suppressed by set_handled"
+        );
+    }
+
+    // =========================================================================
+    // App-level recompose bridge (Python `reactive(recompose=True)` on App)
+    // =========================================================================
+
+    /// App with a recompose reactive `n`: `compose()` yields `n` Labels. Setting
+    /// `n` records a recompose change, which the bridge turns into an
+    /// `App::recompose_app` call that rebuilds the app-content subtree.
+    struct RecomposeBridgeApp {
+        n: u32,
+    }
+
+    impl RecomposeBridgeApp {
+        fn set_n(&mut self, val: u32, ctx: &mut ReactiveCtx) {
+            use crate::reactive::ReactiveFlags;
+            let old = self.n;
+            self.n = val;
+            ctx.record_change(
+                "n",
+                ReactiveFlags::reactive_recompose(),
+                Box::new(old),
+                Box::new(val),
+            );
+        }
+    }
+
+    impl TextualApp for RecomposeBridgeApp {
+        fn compose(&mut self) -> AppRoot {
+            let mut root = AppRoot::new();
+            for i in 0..self.n {
+                root = root.with_child(crate::widgets::Label::new(format!("row {i}")));
+            }
+            root
+        }
+
+        fn reactive_widget_mut(&mut self) -> Option<&mut dyn ReactiveWidget> {
+            Some(self)
+        }
+    }
+
+    impl ReactiveWidget for RecomposeBridgeApp {
+        fn reactive_dispatch(
+            &mut self,
+            _changes: &[crate::reactive::ReactiveChange],
+            _ctx: &mut ReactiveCtx,
+        ) {
+            // No watcher needed; recompose is handled by the bridge.
+        }
+    }
+
+    #[test]
+    fn app_recompose_bridge_rebuilds_app_content() {
+        // Build a real runtime tree from the adapter so the app-content node
+        // exists, then set the recompose reactive and run the bridge.
+        let app_state = Arc::new(Mutex::new(RecomposeBridgeApp { n: 1 }));
+        let composed = app_state.lock().unwrap().compose();
+        let mut root = build_textual_app_runtime_root(app_state.clone(), composed);
+        let adapter_for_state = TextualAppAdapter::new(app_state.clone(), NoopWidget::new());
+
+        let mut runtime = App::new().expect("runtime init");
+        runtime.build_widget_tree(&mut root);
+
+        // Initially one Label.
+        let before = runtime
+            .query("Label")
+            .map(|q| q.into_ids().len())
+            .unwrap_or(0);
+        assert_eq!(before, 1, "one Label before recompose");
+
+        // Set n = 3 (records a recompose change), then run the bridge.
+        app_state.lock().unwrap().set_n(3, runtime.reactive_ctx());
+        let mut ctx = EventCtx::default();
+        adapter_for_state.dispatch_app_reactive(&mut runtime, &mut ctx);
+
+        // The app-content subtree was recomposed: now three Labels.
+        let after = runtime
+            .query("Label")
+            .map(|q| q.into_ids().len())
+            .unwrap_or(0);
+        assert_eq!(after, 3, "three Labels after recompose");
+        assert!(
+            ctx.invalidation().layout,
+            "recompose requests layout invalidation"
         );
     }
 }

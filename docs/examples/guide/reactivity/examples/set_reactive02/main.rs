@@ -1,27 +1,24 @@
 /// Port of Python Textual `docs/examples/guide/reactivity/set_reactive02.py`.
 ///
-/// Demonstrates the equivalent of `set_reactive` — initializing reactive
-/// variables with a value before `compose()` runs, so the watcher is NOT
-/// called during construction.
+/// Demonstrates `set_reactive` — initialising a reactive WITHOUT firing its
+/// watcher, by setting the stored value directly (rather than via the setter).
 ///
-/// Python structure:
-///   - `Greeter(Horizontal)` widget: two `Label`s — greeting and who.
-///     `set_reactive(Greeter.greeting, greeting)` initialises the reactive
-///     before compose so the watcher is skipped on first render.
-///   - `NameApp(App)`: cycles through GREETINGS on Space.
+/// Python:
+///   def __init__(self, greeting="Hello", who="World!"):
+///       super().__init__()
+///       self.set_reactive(Greeter.greeting, greeting)   # (1) no watcher
+///       self.set_reactive(Greeter.who, who)
+///   greeting/who watchers update the child Labels.
+///   The app cycles query_one(Greeter).greeting on Space.
 ///
-/// Rust differences:
-///   - No reactive system for custom widgets; instead `Greeter` stores the
-///     greeting/who strings and uses `Static` children.
-///   - Space key → `on_key_with_app` cycles `greeting_no` and updates the
-///     `#greeting` Static in the arena tree via `with_query_one_mut_as`.
-///   - `set_reactive` semantics (no watcher on init) are naturally satisfied
-///     because the initial text is set in `Greeter::new()` before composition.
+/// Rust port (faithful): `set_reactive(field, value)` maps to TWO things in the
+/// derive system: (a) assign the field DIRECTLY in `new()` (not via `set_<field>`,
+/// so no change is recorded), and (b) declare the reactive `init = false` so the
+/// init-phase watcher does NOT fire at mount. Together these reproduce Python's
+/// `set_reactive`: the initial value is present but the watcher is skipped, while
+/// later `set_greeting(...)` calls DO fire the watcher.
+use textual::reactive::{RuntimeReactiveEntry, enqueue_runtime_reactive_entry};
 use textual::prelude::*;
-
-// ---------------------------------------------------------------------------
-// Greeting list (mirrors Python GREETINGS)
-// ---------------------------------------------------------------------------
 
 const GREETINGS: &[&str] = &[
     "Bonjour",
@@ -31,10 +28,6 @@ const GREETINGS: &[&str] = &[
     "안녕하세요",
     "Hello",
 ];
-
-// ---------------------------------------------------------------------------
-// CSS
-// ---------------------------------------------------------------------------
 
 const CSS: &str = r#"
 Screen {
@@ -46,32 +39,45 @@ Greeter {
     height: 1;
 }
 
-Greeter Static {
+Greeter Label {
     margin: 0 1;
-    width: auto;
 }
 "#;
 
 // ---------------------------------------------------------------------------
-// Greeter widget — mirrors Python's Greeter(Horizontal)
+// Greeter: reactive greeting/who with `init = false` (set_reactive semantics)
 // ---------------------------------------------------------------------------
 
+#[derive(Reactive)]
 struct Greeter {
-    inner: Horizontal,
+    #[reactive(watch_with_app, init = false)]
+    greeting: String,
+    #[reactive(watch_with_app, init = false)]
+    who: String,
 }
 
 impl Greeter {
-    /// Mirrors Python's `__init__` with `set_reactive` calls.
-    ///
-    /// The initial `greeting` and `who` are set directly — no watcher is
-    /// triggered (equivalent to Python's `set_reactive` semantics).
     fn new(greeting: impl Into<String>, who: impl Into<String>) -> Self {
-        let greeting = greeting.into();
-        let who = who.into();
-        let inner = Horizontal::new()
-            .with_child(Static::new(greeting).id("greeting"))
-            .with_child(Static::new(who).id("name"));
-        Self { inner }
+        // `set_reactive`: assign the stored value DIRECTLY (no setter call), so
+        // no change is recorded and the watcher is not fired for the initial value.
+        Self {
+            greeting: greeting.into(),
+            who: who.into(),
+        }
+    }
+
+    fn watch_greeting(&mut self, app: &mut App, _old: &String, new: &String, _ctx: &mut ReactiveCtx) {
+        let new = new.clone();
+        let _ = app.with_query_one_mut_as::<Label, _>("#greeting", |label| {
+            label.set_text(new);
+        });
+    }
+
+    fn watch_who(&mut self, app: &mut App, _old: &String, new: &String, _ctx: &mut ReactiveCtx) {
+        let new = new.clone();
+        let _ = app.with_query_one_mut_as::<Label, _>("#who", |label| {
+            label.set_text(new);
+        });
     }
 }
 
@@ -84,40 +90,24 @@ impl Widget for Greeter {
         false
     }
 
+    fn compose(&self) -> ComposeResult {
+        // Labels carry the INITIAL values directly — no watcher needed at mount.
+        vec![
+            ChildDecl::from(Label::new(self.greeting.clone())).with_id("greeting"),
+            ChildDecl::from(Label::new(self.who.clone())).with_id("name"),
+        ]
+    }
+
     fn render(
         &self,
-        console: &rich_rs::Console,
-        options: &rich_rs::ConsoleOptions,
+        _console: &rich_rs::Console,
+        _options: &rich_rs::ConsoleOptions,
     ) -> rich_rs::Segments {
-        self.inner.render(console, options)
+        rich_rs::Segments::new()
     }
 
-    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
-        self.inner.take_composed_children()
-    }
-
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
-        self.inner.on_event(event, ctx);
-    }
-
-    fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
-        self.inner.on_event_capture(event, ctx);
-    }
-
-    fn on_layout(&mut self, width: u16, height: u16) {
-        self.inner.on_layout(width, height);
-    }
-
-    fn layout_height(&self) -> Option<usize> {
-        self.inner.layout_height()
-    }
-
-    fn content_width(&self) -> Option<usize> {
-        self.inner.content_width()
-    }
-
-    fn take_node_seed(&mut self) -> NodeSeed {
-        self.inner.take_node_seed()
+    fn reactive_widget(&mut self) -> Option<&mut dyn ReactiveWidget> {
+        Some(self)
     }
 }
 
@@ -146,30 +136,26 @@ impl TextualApp for NameApp {
     }
 
     fn compose(&mut self) -> AppRoot {
-        // Python: yield Greeter(who="Textual")
-        // Default greeting in Python's Greeter.__init__ is "Hello"; greeting_no
-        // starts at 0 and only advances on Space.
         AppRoot::new().with_child(Greeter::new("Hello", "Textual"))
     }
 
     fn on_app_action_str(&mut self, app: &mut App, action: &str, ctx: &mut EventCtx) {
-        if action == "greeting" {
-            // Python: self.greeting_no = (self.greeting_no + 1) % len(GREETINGS)
-            //         self.query_one(Greeter).greeting = GREETINGS[self.greeting_no]
-            self.greeting_no = (self.greeting_no + 1) % GREETINGS.len();
-            let new_greeting = GREETINGS[self.greeting_no].to_string();
-            // NOTE: `Static::id("greeting")` wraps the Static in a transparent Node
-            // that carries the css_id; the concrete Static is a child of that Node.
-            // Therefore `#greeting` matches the Node (style_type "Node"), and
-            // downcasting it to `Static` fails.  Use a descendant selector so the
-            // query matches the Static directly.
-            let result = app.with_query_one_mut_as::<Static, _>("#greeting Static", |s| {
-                s.update(new_greeting);
-            });
-            debug_assert!(result.is_ok(), "greeting Static not found: {:?}", result);
-            ctx.request_repaint();
-            ctx.set_handled();
+        if action != "greeting" {
+            return;
         }
+        self.greeting_no = (self.greeting_no + 1) % GREETINGS.len();
+        let new_greeting = GREETINGS[self.greeting_no].to_string();
+        if let Ok(greeter_id) = app.query_one("Greeter") {
+            let mut rctx = ReactiveCtx::new(greeter_id);
+            app.with_widget_mut_as::<Greeter, _>(greeter_id, |greeter| {
+                greeter.set_greeting(new_greeting, &mut rctx);
+            });
+            if rctx.has_changes() {
+                enqueue_runtime_reactive_entry(RuntimeReactiveEntry::new(greeter_id, rctx));
+            }
+        }
+        ctx.request_repaint();
+        ctx.set_handled();
     }
 }
 
@@ -182,59 +168,31 @@ mod tests {
     use super::*;
 
     #[test]
-    fn greeter_composes_without_panic() {
+    fn greeter_initial_values_set_without_watcher() {
+        // `new` assigns directly; the reactives are `init = false`, so no
+        // init-phase change is recorded for the initial value.
         let mut g = Greeter::new("Hello", "World");
-        let _ = g.take_composed_children();
-    }
-
-    #[test]
-    fn greeting_cycles_through_all() {
-        let mut app = NameApp::new();
-        let n = GREETINGS.len();
-        for _ in 0..n {
-            app.greeting_no = (app.greeting_no + 1) % n;
-        }
-        // After a full cycle we're back to 0
-        assert_eq!(app.greeting_no, 0);
-    }
-
-    #[test]
-    fn app_has_space_binding() {
-        let app = NameApp::new();
-        let bindings = app.bindings();
+        assert_eq!(g.greeting().as_str(), "Hello");
+        let mut ctx = ReactiveCtx::new(textual::node_id::NodeId::default());
+        g.reactive_record_init(&mut ctx);
         assert!(
-            bindings.iter().any(|b| b.key == "space"),
-            "space binding must exist"
+            !ctx.has_changes(),
+            "init = false reactives must not record an init-phase change"
         );
     }
 
     #[test]
-    fn initial_greeting_is_hello() {
-        // Python: Greeter(who="Textual") uses default greeting="Hello"
-        let mut app = NameApp::new();
-        let root = app.compose();
-        // The first child is Greeter; its first composed child should carry "Hello"
-        // We can verify by inspecting the greeting_no (starts at 0) and GREETINGS[0].
-        // The initial text rendered is "Hello" (hardcoded in compose, not GREETINGS[0]).
-        assert_eq!(app.greeting_no, 0);
-        // The root must yield at least one child (the Greeter)
-        drop(root);
+    fn set_greeting_records_change() {
+        let mut g = Greeter::new("Hello", "World");
+        let mut ctx = ReactiveCtx::new(textual::node_id::NodeId::default());
+        g.set_greeting("Hola".to_string(), &mut ctx);
+        assert_eq!(g.greeting().as_str(), "Hola");
+        assert!(ctx.has_changes());
     }
 
     #[test]
-    fn action_greeting_updates_greeting_no() {
-        // Verify that cycling via on_app_action_str progresses greeting_no correctly.
-        // This is a unit-level check; PTY/arena integration is covered by the
-        // "initial greeting + Space" regression below.
-        let mut app_state = NameApp::new();
-        assert_eq!(app_state.greeting_no, 0);
-        app_state.greeting_no = (app_state.greeting_no + 1) % GREETINGS.len();
-        assert_eq!(app_state.greeting_no, 1);
-        assert_eq!(GREETINGS[app_state.greeting_no], "Hola");
-        // Cycle all the way around
-        for _ in 1..GREETINGS.len() {
-            app_state.greeting_no = (app_state.greeting_no + 1) % GREETINGS.len();
-        }
-        assert_eq!(app_state.greeting_no, 0);
+    fn greeter_composes_two_labels() {
+        let g = Greeter::new("Hello", "World");
+        assert_eq!(g.compose().len(), 2);
     }
 }

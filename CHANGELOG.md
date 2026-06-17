@@ -7,6 +7,44 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-17 (feat(reactive): watch/recompose/validate/mutate + dynamic watch — Python parity)
+
+- **feat(reactive): close the reactivity gaps on the existing reactive system**
+  - The `#[derive(Reactive)]` system already generated getters/setters/`watch_<f>`/
+    `compute_<f>` + init firing + an app-level dispatch bridge. Added the missing
+    Python-parity pieces: `#[reactive(recompose)]` (rebuild the owner subtree on
+    change), `#[reactive(validate)]`/`#[var(validate)]` (setter calls
+    `validate_<f>` before store), generated `mutate_<f>(ctx)` (in-place mutation,
+    fires unconditionally — Python `mutate_reactive`), `#[computed(…, watch)]`
+    (computed fields fire watchers), a `recompose` flag threaded end-to-end
+    (`ReactiveCtx::request_recompose`, widget- and app-level recompose via
+    `App::recompose_app`), and a dynamic-watcher registry
+    (`App::watch_reactive(node, field, cb)`). Converted **13/15** reactivity docs
+    ports to the real API (dropping their workarounds): validate01, watch01,
+    computed01, refresh01/02/03, recompose01/02, set_reactive01/02/03,
+    dynamic_watch, world_clock01. (Examples are interactive → not static-scoreboard
+    cases; verified via unit + integration tests; PTY 185, 0 regressions across all
+    `#[derive(Reactive)]` widgets.) world_clock02/03 deferred — need a reactive
+    `data_bind(ChildField=AppField)` primitive (documented gap).
+
+### 2026-06-17 (feat(containers): plain Container/Horizontal/Vertical are scroll hosts)
+
+- **feat(widgets/containers): `overflow-x/y: auto|scroll` on plain containers**
+  - Previously only `ScrollView`/`VerticalScroll`/etc. reserved a scrollbar gutter
+    and scrolled; a plain `Container`/`Horizontal`/`Vertical` with `overflow: auto`
+    did neither. `Container` is now a first-class scroll host (scroll offset/viewport/
+    virtual-size, scroll + drag events, content clipping), with scrollbar lanes
+    mounted **lazily by the runtime only when resolved overflow is auto/scroll and
+    content overflows** — so `overflow: hidden` containers get zero injected nodes
+    (no tree perturbation). `ScrollView`'s inner content container suppresses its own
+    lanes to avoid double-hosting. +regression tests. PTY 185, 0 regressions.
+
+### 2026-06-17 (feat(widgets/Placeholder): width:auto shrinks to content)
+
+- **feat(widgets/Placeholder): `auto_content_width` shrink-to-content**
+  - A `width: auto` Placeholder now reports its label's cell width (Python parity),
+    so it shrinks to content instead of flex-filling. (`height: auto` already matched.)
+
 ### 2026-06-17 (test(parity): promote 5 link_* examples — PTY 185)
 
 - **test(parity): promote `docs_link_color`, `docs_link_color_hover`,

@@ -28,6 +28,10 @@ struct ReactiveField {
     is_var: bool,
     /// Whether `init = false` was specified (suppress watcher on mount).
     init_false: bool,
+    /// Whether `recompose` was specified (recompose owner subtree on change).
+    recompose: bool,
+    /// Whether `validate` was specified (call `validate_<field>` before store).
+    validate: bool,
 }
 
 /// Parsed `#[computed(depends_on = "field1, field2")]` annotation.
@@ -39,6 +43,12 @@ struct ComputedField {
     ty: syn::Type,
     /// Names of reactive fields this computed field depends on.
     depends_on: Vec<String>,
+    /// Whether `watch` was specified — call `watch_<field>(old, new, ctx)` when
+    /// the recomputed value changes (no app access).
+    watch: bool,
+    /// Whether `watch_with_app` was specified — call
+    /// `watch_<field>(app, old, new, ctx)` when the recomputed value changes.
+    watch_with_app: bool,
 }
 
 /// Parse reactive/var/computed attributes from a field's attributes.
@@ -63,8 +73,9 @@ fn parse_field_annotation(field: &syn::Field) -> Result<Option<FieldAnnotation>,
             let mut watch = false;
             let mut watch_with_app = false;
             let mut init_false = false;
+            let mut validate = false;
 
-            // Parse optional args: watch, watch_with_app, init = false
+            // Parse optional args: watch, watch_with_app, validate, init = false
             if let Meta::List(meta_list) = &attr.meta {
                 let nested = meta_list.parse_args_with(
                     syn::punctuated::Punctuated::<Meta, syn::Token![,]>::parse_terminated,
@@ -77,11 +88,13 @@ fn parse_field_annotation(field: &syn::Field) -> Result<Option<FieldAnnotation>,
                                 watch = true;
                             } else if path.is_ident("watch_with_app") {
                                 watch_with_app = true;
+                            } else if path.is_ident("validate") {
+                                validate = true;
                             } else {
                                 return Err(syn::Error::new_spanned(
                                     path,
                                     format!(
-                                        "unknown var attribute `{}`; expected `watch`, `watch_with_app`, or `init = false`",
+                                        "unknown var attribute `{}`; expected `watch`, `watch_with_app`, `validate`, or `init = false` (note: `recompose` is only valid on `#[reactive]`, not `#[var]`)",
                                         path.get_ident()
                                             .map(|i| i.to_string())
                                             .unwrap_or_default()
@@ -139,12 +152,16 @@ fn parse_field_annotation(field: &syn::Field) -> Result<Option<FieldAnnotation>,
                 watch_with_app,
                 is_var: true,
                 init_false,
+                recompose: false,
+                validate,
             })));
         }
 
-        // Check for #[computed(depends_on = "field1, field2")]
+        // Check for #[computed(depends_on = "field1, field2"[, watch | watch_with_app])]
         if attr.path().is_ident("computed") {
             let mut depends_on = Vec::new();
+            let mut watch = false;
+            let mut watch_with_app = false;
 
             if let Meta::List(meta_list) = &attr.meta {
                 let nested = meta_list.parse_args_with(
@@ -152,8 +169,8 @@ fn parse_field_annotation(field: &syn::Field) -> Result<Option<FieldAnnotation>,
                 )?;
 
                 for nested_meta in &nested {
-                    if let Meta::NameValue(nv) = nested_meta {
-                        if nv.path.is_ident("depends_on") {
+                    match nested_meta {
+                        Meta::NameValue(nv) if nv.path.is_ident("depends_on") => {
                             if let Expr::Lit(expr_lit) = &nv.value {
                                 if let Lit::Str(lit_str) = &expr_lit.lit {
                                     depends_on = lit_str
@@ -174,23 +191,19 @@ fn parse_field_annotation(field: &syn::Field) -> Result<Option<FieldAnnotation>,
                                     "expected string literal for `depends_on`",
                                 ));
                             }
-                        } else {
+                        }
+                        Meta::Path(path) if path.is_ident("watch") => {
+                            watch = true;
+                        }
+                        Meta::Path(path) if path.is_ident("watch_with_app") => {
+                            watch_with_app = true;
+                        }
+                        _ => {
                             return Err(syn::Error::new_spanned(
-                                &nv.path,
-                                format!(
-                                    "unknown computed attribute `{}`; expected `depends_on`",
-                                    nv.path
-                                        .get_ident()
-                                        .map(|i| i.to_string())
-                                        .unwrap_or_default()
-                                ),
+                                nested_meta,
+                                "expected `depends_on = \"field1, field2\"`, `watch`, or `watch_with_app`",
                             ));
                         }
-                    } else {
-                        return Err(syn::Error::new_spanned(
-                            nested_meta,
-                            "expected `depends_on = \"field1, field2\"`",
-                        ));
                     }
                 }
             } else {
@@ -211,6 +224,8 @@ fn parse_field_annotation(field: &syn::Field) -> Result<Option<FieldAnnotation>,
                 ident,
                 ty,
                 depends_on,
+                watch,
+                watch_with_app,
             })));
         }
 
@@ -220,8 +235,11 @@ fn parse_field_annotation(field: &syn::Field) -> Result<Option<FieldAnnotation>,
             let mut watch = false;
             let mut watch_with_app = false;
             let mut init_false = false;
+            let mut recompose = false;
+            let mut validate = false;
 
-            // Parse arguments if present: #[reactive(layout, watch, watch_with_app, init = false)]
+            // Parse arguments if present:
+            // #[reactive(layout, watch, watch_with_app, recompose, validate, init = false)]
             if let Meta::List(meta_list) = &attr.meta {
                 let nested = meta_list.parse_args_with(
                     syn::punctuated::Punctuated::<Meta, syn::Token![,]>::parse_terminated,
@@ -236,11 +254,15 @@ fn parse_field_annotation(field: &syn::Field) -> Result<Option<FieldAnnotation>,
                                 watch = true;
                             } else if path.is_ident("watch_with_app") {
                                 watch_with_app = true;
+                            } else if path.is_ident("recompose") {
+                                recompose = true;
+                            } else if path.is_ident("validate") {
+                                validate = true;
                             } else {
                                 return Err(syn::Error::new_spanned(
                                     path,
                                     format!(
-                                        "unknown reactive attribute `{}`; expected `layout`, `watch`, `watch_with_app`, or `init = false`",
+                                        "unknown reactive attribute `{}`; expected `layout`, `watch`, `watch_with_app`, `recompose`, `validate`, or `init = false`",
                                         path.get_ident().map(|i| i.to_string()).unwrap_or_default()
                                     ),
                                 ));
@@ -298,6 +320,8 @@ fn parse_field_annotation(field: &syn::Field) -> Result<Option<FieldAnnotation>,
                 watch_with_app,
                 is_var: false,
                 init_false,
+                recompose,
+                validate,
             })));
         }
     }
@@ -306,8 +330,17 @@ fn parse_field_annotation(field: &syn::Field) -> Result<Option<FieldAnnotation>,
 }
 
 /// Compute the `ReactiveFlags` constructor expression for a field.
+///
+/// `recompose` takes precedence over `layout` (recompose implies a layout +
+/// repaint of the rebuilt subtree, mirroring Python's `refresh(recompose=True)`).
+/// `recompose` is rejected on `#[var]` during parsing, so it only applies here
+/// to `#[reactive]` fields.
 fn flags_expr(field: &ReactiveField) -> TokenStream {
-    if field.is_var && field.init_false {
+    if field.recompose && field.init_false {
+        quote! { textual::reactive::ReactiveFlags::reactive_recompose_no_init() }
+    } else if field.recompose {
+        quote! { textual::reactive::ReactiveFlags::reactive_recompose() }
+    } else if field.is_var && field.init_false {
         quote! { textual::reactive::ReactiveFlags::var_no_init() }
     } else if field.is_var {
         quote! { textual::reactive::ReactiveFlags::var() }
@@ -372,8 +405,22 @@ pub fn derive_reactive_impl(input: TokenStream) -> TokenStream {
         let field_ident = &field.ident;
         let field_ty = &field.ty;
         let setter_name = format_ident!("set_{}", field_ident);
+        let mutate_name = format_ident!("mutate_{}", field_ident);
         let field_name_str = field_ident.to_string();
         let f_flags_expr = flags_expr(field);
+
+        // Validation hook (Python `validate_<field>`): when `validate` is set,
+        // the incoming value is passed through `self.validate_<field>(value)`
+        // before the equality check and store, exactly as Python's `_set` does
+        // (reactive.py: public `validate_*` runs before the change is applied).
+        let validate_stmt = if field.validate {
+            let validate_fn = format_ident!("validate_{}", field_ident);
+            quote! {
+                let value = self.#validate_fn(value);
+            }
+        } else {
+            quote! {}
+        };
 
         accessors.push(quote! {
             /// Generated getter for reactive field.
@@ -387,6 +434,7 @@ pub fn derive_reactive_impl(input: TokenStream) -> TokenStream {
             where
                 #field_ty: PartialEq + Clone + Send + 'static,
             {
+                #validate_stmt
                 if self.#field_ident != value {
                     let old = self.#field_ident.clone();
                     self.#field_ident = value;
@@ -398,6 +446,24 @@ pub fn derive_reactive_impl(input: TokenStream) -> TokenStream {
                         Box::new(new),
                     );
                 }
+            }
+
+            /// Generated mutation notifier for a reactive field (Python
+            /// `mutate_reactive`). Call this AFTER mutating the field in place
+            /// (e.g. pushing to a `Vec`), to dispatch watchers / recompose
+            /// unconditionally — the value is its own old and new value.
+            pub fn #mutate_name(&mut self, ctx: &mut textual::reactive::ReactiveCtx)
+            where
+                #field_ty: Clone + Send + 'static,
+            {
+                let snapshot = self.#field_ident.clone();
+                let snapshot_clone = self.#field_ident.clone();
+                ctx.record_mutation(
+                    #field_name_str,
+                    #f_flags_expr,
+                    Box::new(snapshot),
+                    Box::new(snapshot_clone),
+                );
             }
         });
     }
@@ -460,8 +526,20 @@ pub fn derive_reactive_impl(input: TokenStream) -> TokenStream {
         .filter(|f| f.watch_with_app)
         .collect();
 
-    let has_plain_watch = !plain_watch_fields.is_empty();
-    let has_app_watch = !app_watch_fields.is_empty();
+    // Computed fields whose recomputed value should fire a watcher.
+    // The recompute step records a change under the computed field's name, which
+    // re-iterates through dispatch; these arms invoke the matching `watch_*`.
+    let computed_plain_watch: Vec<&ComputedField> = computed_fields
+        .iter()
+        .filter(|c| c.watch && !c.watch_with_app)
+        .collect();
+    let computed_app_watch: Vec<&ComputedField> = computed_fields
+        .iter()
+        .filter(|c| c.watch_with_app)
+        .collect();
+
+    let has_plain_watch = !plain_watch_fields.is_empty() || !computed_plain_watch.is_empty();
+    let has_app_watch = !app_watch_fields.is_empty() || !computed_app_watch.is_empty();
     let has_computed = !computed_fields.is_empty();
 
     // ── reactive_dispatch body (plain-watch + computed; no watch_with_app) ──
@@ -471,7 +549,7 @@ pub fn derive_reactive_impl(input: TokenStream) -> TokenStream {
         }
     } else {
         let watcher_block = if has_plain_watch {
-            let match_arms: Vec<TokenStream> = plain_watch_fields
+            let mut match_arms: Vec<TokenStream> = plain_watch_fields
                 .iter()
                 .map(|field| {
                     let field_name_str = field.ident.to_string();
@@ -490,6 +568,22 @@ pub fn derive_reactive_impl(input: TokenStream) -> TokenStream {
                     }
                 })
                 .collect();
+            // Computed-field plain watchers (fire when the recomputed value changes).
+            for cf in &computed_plain_watch {
+                let field_name_str = cf.ident.to_string();
+                let field_ty = &cf.ty;
+                let watcher_name = format_ident!("watch_{}", cf.ident);
+                match_arms.push(quote! {
+                    #field_name_str => {
+                        if let (Some(old), Some(new)) = (
+                            change.old_value.downcast_ref::<#field_ty>(),
+                            change.new_value.downcast_ref::<#field_ty>(),
+                        ) {
+                            self.#watcher_name(old, new, ctx);
+                        }
+                    }
+                });
+            }
 
             quote! {
                 for change in changes {
@@ -540,7 +634,25 @@ pub fn derive_reactive_impl(input: TokenStream) -> TokenStream {
             })
             .collect();
 
-        let app_arms: Vec<TokenStream> = app_watch_fields
+        let mut plain_arms = plain_arms;
+        // Computed-field plain watchers also fire in the with-app dispatch.
+        for cf in &computed_plain_watch {
+            let field_name_str = cf.ident.to_string();
+            let field_ty = &cf.ty;
+            let watcher_name = format_ident!("watch_{}", cf.ident);
+            plain_arms.push(quote! {
+                #field_name_str => {
+                    if let (Some(old), Some(new)) = (
+                        change.old_value.downcast_ref::<#field_ty>(),
+                        change.new_value.downcast_ref::<#field_ty>(),
+                    ) {
+                        self.#watcher_name(old, new, ctx);
+                    }
+                }
+            });
+        }
+
+        let mut app_arms: Vec<TokenStream> = app_watch_fields
             .iter()
             .map(|field| {
                 let field_name_str = field.ident.to_string();
@@ -558,6 +670,22 @@ pub fn derive_reactive_impl(input: TokenStream) -> TokenStream {
                 }
             })
             .collect();
+        // Computed-field with-app watchers.
+        for cf in &computed_app_watch {
+            let field_name_str = cf.ident.to_string();
+            let field_ty = &cf.ty;
+            let watcher_name = format_ident!("watch_{}", cf.ident);
+            app_arms.push(quote! {
+                #field_name_str => {
+                    if let (Some(old), Some(new)) = (
+                        change.old_value.downcast_ref::<#field_ty>(),
+                        change.new_value.downcast_ref::<#field_ty>(),
+                    ) {
+                        self.#watcher_name(app, old, new, ctx);
+                    }
+                }
+            });
+        }
 
         let computed_block = if has_computed {
             quote! { #(#computed_recompute_stmts)* }

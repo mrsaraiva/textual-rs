@@ -1,21 +1,22 @@
 /// Port of Python Textual `docs/examples/guide/reactivity/refresh03.py`.
 ///
-/// Demonstrates reactive recompose: a custom `Name` widget renders
-/// `"Hello, {who}!"` inside a bordered box. Typing into an `Input`
-/// updates `who`, which causes the greeting to refresh.
+/// Demonstrates WIDGET-LEVEL reactive recompose: a custom `Name` widget renders
+/// `Label("Hello, {who}!")` inside a bordered box. Typing into an `Input` updates
+/// the widget's `who`, which recomposes the `Name` subtree.
 ///
-/// Python uses `reactive(who, recompose=True)` on the `Name` widget so
-/// that changing `who` recomposes its children (`Label(f"Hello, {who}!")`).
-/// Rust does not yet have widget-level reactive recompose, so we implement
-/// `Name` as a thin wrapper around `Static` and expose a `set_who()` method.
-/// The app-level `on_message_with_app` hook intercepts `InputChanged` and
-/// calls `Name::set_who()` via `with_query_one_mut_as`.
+/// Python:
+///   class Name(Widget):
+///       who = reactive("name", recompose=True)   # (1)
+///       def compose(self): yield Label(f"Hello, {self.who}!")   # (2)
+///   on_input_changed: self.query_one(Name).who = event.value
 ///
-/// Layout and CSS are faithful ports of `refresh02.tcss` (which Python
-/// refresh03.py references via `CSS_PATH = "refresh02.tcss"`).
-///
-/// Framework gap: widget-level `reactive(field, recompose=True)` is not
-/// implemented; widget update is done imperatively from the app message handler.
+/// Rust port (faithful): `Name` derives `Reactive` with `#[reactive(recompose)] who`
+/// and composes a `Label`. The generated `set_who(value, ctx)` records a change
+/// carrying the recompose flag; the runtime's reactive phase then recomposes the
+/// `Name` node (re-running `compose()`), exactly like Python's `recompose=True`.
+/// The app handler queries the `Name` node, sets `who`, and enqueues the change
+/// for the runtime reactive phase.
+use textual::reactive::{RuntimeReactiveEntry, enqueue_runtime_reactive_entry};
 use textual::prelude::*;
 
 const CSS: &str = r#"
@@ -32,58 +33,46 @@ Name {
 "#;
 
 // ---------------------------------------------------------------------------
-// Name: custom widget that displays "Hello, {who}!"
+// Name: custom widget with a recompose reactive `who`
 // ---------------------------------------------------------------------------
 
+#[derive(Reactive)]
 struct Name {
-    inner: Static,
+    #[reactive(recompose)]
+    who: String,
 }
 
 impl Name {
-    fn new(who: &str) -> Self {
-        Self {
-            inner: Static::new(format!("Hello, {who}!")),
-        }
-    }
-
-    /// Update the displayed name. Mirrors Python's `self.who = value` which
-    /// triggers recompose via `reactive(who, recompose=True)`.
-    fn set_who(&mut self, who: &str) {
-        self.inner.update(format!("Hello, {who}!"));
+    fn new(who: impl Into<String>) -> Self {
+        Self { who: who.into() }
     }
 }
 
 impl Widget for Name {
-    fn render(
-        &self,
-        console: &rich_rs::Console,
-        options: &rich_rs::ConsoleOptions,
-    ) -> rich_rs::Segments {
-        self.inner.render(console, options)
-    }
-
     fn style_type(&self) -> &'static str {
         "Name"
-    }
-
-    fn style_type_aliases(&self) -> &[&'static str] {
-        &["Static"]
-    }
-
-    fn take_node_seed(&mut self) -> NodeSeed {
-        self.inner.take_node_seed()
     }
 
     fn focusable(&self) -> bool {
         false
     }
 
-    fn content_width(&self) -> Option<usize> {
-        self.inner.content_width()
+    // Compose-only widget: the composed Label renders itself in the arena tree.
+    fn render(
+        &self,
+        _console: &rich_rs::Console,
+        _options: &rich_rs::ConsoleOptions,
+    ) -> rich_rs::Segments {
+        rich_rs::Segments::new()
     }
 
-    fn layout_height(&self) -> Option<usize> {
-        self.inner.layout_height()
+    // Python `compose`: yield Label(f"Hello, {self.who}!"). Recompose re-runs this.
+    fn compose(&self) -> ComposeResult {
+        vec![ChildDecl::from(Label::new(format!("Hello, {}!", self.who)))]
+    }
+
+    fn reactive_widget(&mut self) -> Option<&mut dyn ReactiveWidget> {
+        Some(self)
     }
 }
 
@@ -105,17 +94,21 @@ impl TextualApp for WatchApp {
             .with_child(Name::new("name"))
     }
 
-    fn on_message_with_app(
-        &mut self,
-        app: &mut App,
-        message: &MessageEvent,
-        ctx: &mut EventCtx,
-    ) {
+    fn on_message_with_app(&mut self, app: &mut App, message: &MessageEvent, ctx: &mut EventCtx) {
         if let Some(m) = message.downcast_ref::<InputChanged>() {
             let value = m.value.clone();
-            let _ = app.with_query_one_mut_as::<Name, _>("Name", |name| {
-                name.set_who(&value);
-            });
+            // Python: self.query_one(Name).who = value. Setting the recompose
+            // reactive records a change; enqueue it for the runtime reactive
+            // phase, which recomposes the Name subtree.
+            if let Ok(name_id) = app.query_one("Name") {
+                let mut rctx = ReactiveCtx::new(name_id);
+                app.with_widget_mut_as::<Name, _>(name_id, |name| {
+                    name.set_who(value, &mut rctx);
+                });
+                if rctx.has_changes() {
+                    enqueue_runtime_reactive_entry(RuntimeReactiveEntry::new(name_id, rctx));
+                }
+            }
             ctx.request_repaint();
         }
     }
@@ -136,17 +129,19 @@ mod tests {
     }
 
     #[test]
-    fn name_widget_initial_greeting() {
+    fn name_composes_greeting_label() {
         let name = Name::new("world");
-        // Verify the inner Static holds the expected greeting.
-        // We check via compose rather than render to avoid a console dependency.
-        let _ = name;
+        let decls = name.compose();
+        assert_eq!(decls.len(), 1, "Name composes a single Label");
     }
 
     #[test]
-    fn name_set_who_updates_text() {
+    fn set_who_records_recompose_change() {
         let mut name = Name::new("name");
-        name.set_who("Alice");
-        // The set_who call must not panic — correctness verified via PTY run.
+        let mut ctx = ReactiveCtx::new(textual::node_id::NodeId::default());
+        name.set_who("Alice".to_string(), &mut ctx);
+        assert_eq!(name.who().as_str(), "Alice");
+        assert!(ctx.has_changes());
+        assert!(ctx.needs_recompose(), "recompose reactive must request recompose");
     }
 }
