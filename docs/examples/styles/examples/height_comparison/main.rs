@@ -81,15 +81,15 @@ impl TextualApp for HeightComparisonApp {
         AppRoot::new()
             .with_child(
                 VerticalScroll::new().with_compose(compose![
-                    Node::new(Placeholder::new("")).id("cells"),
-                    Node::new(Placeholder::new("")).id("percent"),
-                    Node::new(Placeholder::new("")).id("w"),
-                    Node::new(Placeholder::new("")).id("h"),
-                    Node::new(Placeholder::new("")).id("vw"),
-                    Node::new(Placeholder::new("")).id("vh"),
-                    Node::new(Placeholder::new("")).id("auto"),
-                    Node::new(Placeholder::new("")).id("fr1"),
-                    Node::new(Placeholder::new("")).id("fr2"),
+                    Placeholder::new("").id("cells"),
+                    Placeholder::new("").id("percent"),
+                    Placeholder::new("").id("w"),
+                    Placeholder::new("").id("h"),
+                    Placeholder::new("").id("vw"),
+                    Placeholder::new("").id("vh"),
+                    Placeholder::new("").id("auto"),
+                    Placeholder::new("").id("fr1"),
+                    Placeholder::new("").id("fr2"),
                 ]),
             )
             .with_child(Ruler)

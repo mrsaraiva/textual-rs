@@ -1529,6 +1529,24 @@ const CASES: &[Case] = &[
         golden_replacements: &[],
         status: Status::Pass,
     },
+    Case {
+        name: "docs_column_span",
+        example: "column_span",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
+    Case {
+        name: "docs_row_span",
+        example: "row_span",
+        args: &[],
+        cwd: None,
+        keys: "",
+        golden_replacements: &[],
+        status: Status::Pass,
+    },
 ];
 
 fn repo_root() -> PathBuf {
@@ -1959,6 +1977,8 @@ pty_case!(docs_widget, "docs_widget");
 pty_case!(docs_grid_rows, "docs_grid_rows");
 pty_case!(docs_grid_layout4_row_col_adjust, "docs_grid_layout4_row_col_adjust");
 pty_case!(docs_grid_layout_auto, "docs_grid_layout_auto");
+pty_case!(docs_column_span, "docs_column_span");
+pty_case!(docs_row_span, "docs_row_span");
 
 /// Every golden file must have a manifest entry and vice versa, so cases can't
 /// silently rot.

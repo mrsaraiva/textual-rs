@@ -7,6 +7,18 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-16 (fix(Placeholder): default label derives from id)
+
+- **fix(widgets/Placeholder): unlabelled Placeholder renders `#<id>`**
+  - Python `Placeholder` defaults its label to `#{id}` when no label is given and
+    an id is set (else `"Placeholder"`). Rust always rendered `"Placeholder"`.
+    Added a custom `Placeholder::id()` that derives the default label from the id
+    at build time (the id seed is consumed at mount, so it can't be recovered at
+    render). Combined with the now-available direct `.id()` builder, the grid-span
+    example placeholders attach their id directly (no `Node` wrapper) and render
+    `#p1`…`#p7` like Python. Promotes `docs_column_span`, `docs_row_span`.
+
+
 ### 2026-06-16 (fix(layout/grid): faithful Python track resolution + spans + auto)
 
 - **fix(layout/grid): port Python's exact-rational grid track resolution**

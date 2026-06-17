@@ -72,7 +72,28 @@ pub struct Placeholder {
 }
 
 impl Placeholder {
-    crate::seed_ident_methods!();
+    /// Set the CSS id. Unlike the generic builder, Placeholder also derives its
+    /// default label from the id when no explicit label was given — matching
+    /// Python `_placeholder.py`, where `label = label or (f"#{id}" if id else
+    /// "Placeholder")`. The label is fixed at build time (the id seed is consumed
+    /// at mount, so it can't be recovered at render).
+    pub fn id(mut self, value: impl Into<String>) -> Self {
+        let id = value.into();
+        if self.label.is_empty() {
+            self.label = format!("#{id}");
+        }
+        self.seed.css_id = Some(id);
+        self
+    }
+
+    /// Add a CSS class (Python `classes=`). Idempotent.
+    pub fn class(mut self, value: impl Into<String>) -> Self {
+        let v = value.into();
+        if !self.seed.classes.iter().any(|c| c == &v) {
+            self.seed.classes.push(v);
+        }
+        self
+    }
 
     pub fn new(label: impl Into<String>) -> Self {
         let color_index = COLOR_COUNTER.fetch_add(1, Ordering::Relaxed) % PLACEHOLDER_COLORS.len();

@@ -51,13 +51,13 @@ impl TextualApp for MyApp {
     fn compose(&mut self) -> AppRoot {
         AppRoot::new().with_child(
             Grid::new(4, 4)
-                .with_child(Node::new(Placeholder::new("")).id("p1"))
-                .with_child(Node::new(Placeholder::new("")).id("p2"))
-                .with_child(Node::new(Placeholder::new("")).id("p3"))
-                .with_child(Node::new(Placeholder::new("")).id("p4"))
-                .with_child(Node::new(Placeholder::new("")).id("p5"))
-                .with_child(Node::new(Placeholder::new("")).id("p6"))
-                .with_child(Node::new(Placeholder::new("")).id("p7")),
+                .with_child(Placeholder::new("").id("p1"))
+                .with_child(Placeholder::new("").id("p2"))
+                .with_child(Placeholder::new("").id("p3"))
+                .with_child(Placeholder::new("").id("p4"))
+                .with_child(Placeholder::new("").id("p5"))
+                .with_child(Placeholder::new("").id("p6"))
+                .with_child(Placeholder::new("").id("p7")),
         )
     }
 }
