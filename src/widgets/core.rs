@@ -943,7 +943,15 @@ pub(crate) fn render_widget_with_meta<W: Widget + ?Sized>(
         s
     };
 
-    if let Some(content_align) = resolved.content_align {
+    // Only run the alignment fill for a NON-default content-align. Python's
+    // `_visual_to_strips` guards `Strip.align` with `if content_align !=
+    // ("left", "top")`: for the default the content stays top-left and the
+    // trailing space comes from the background-only `adjust_cell_length` /
+    // `inner.rich_style` extend (fg = default), NOT the fg-bearing align pad.
+    if let Some(content_align) = resolved
+        .content_align
+        .filter(|ca| !(ca.horizontal == HorizontalAlign::Left && ca.vertical == VerticalAlign::Top))
+    {
         // Content-align padding carries the resolved fg (Strip.align semantics).
         let align_pad = fill_fg_style;
         lines = apply_content_alignment(

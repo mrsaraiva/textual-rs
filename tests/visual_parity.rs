@@ -46,6 +46,10 @@ const PASSING: &[&str] = &[
     // Promoted after float-faithful auto/contrast compositing (blend_over_float):
     // avoids u8 alpha-quantization drift on $text/auto-color text:
     "max_height", "max_width", "min_width",
+    // Promoted after skipping the fg-bearing align fill for the default
+    // content-align (left, top) — matches Python's `!= ("left","top")` guard,
+    // so the trailing pad of the content row stays background-only:
+    "content_align",
 ];
 
 struct StyledCase {

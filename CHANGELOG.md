@@ -7,6 +7,18 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-17 (fix(render): default content-align skips the fg-bearing fill)
+
+- **fix(render): only run the alignment fill for a non-default content-align**
+  - Python `_visual_to_strips` guards `Strip.align` with `if content_align !=
+    ("left", "top")`. The Rust port ran the fg-bearing align pad for ALL
+    content-align values including the default `(left, top)`, so the trailing
+    horizontal pad of a content row was colored with `$foreground` instead of the
+    background-only `adjust_cell_length`/`inner.rich_style` extend (fg=default).
+    Added the `!= (left, top)` guard. Styled parity 30→31 PASS (promoted
+    `content_align`), 0 regressions (`content_align_all` still exact); pty_parity
+    186; full suite green.
+
 ### 2026-06-17 (fix(color): float-faithful auto/contrast compositing)
 
 - **fix(color): composite auto/contrast text with the fractional alpha directly**
