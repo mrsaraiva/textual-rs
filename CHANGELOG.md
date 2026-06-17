@@ -7,6 +7,19 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-17 (fix(widgets/Label): default to markup=true — Python parity)
+
+- **fix(widgets/Label): interpret console markup by default**
+  - Python Textual's `Label`/`Static` parse console markup by default
+    (`markup=True`); Rust `Label` defaulted to `false`, so `[link=…]`,
+    `[@click=…]` and `[b]…[/]` rendered as literal tags. Flipped the default to
+    `true` (use `.with_markup(false)` for literal text). rich-rs's markup parser
+    already handled link/`@click`/style tags correctly — the gap was purely the
+    Rust `Label` default. No regressions across the 180 PTY cases (no existing
+    Label relies on literal-bracket text). Promotes the `link_*` examples
+    (`link_color`, `link_color_hover`, `link_background`, `link_background_hover`,
+    `link_style`). (`links` has a separate `Static` trailing-newline residual.)
+
 ### 2026-06-17 (test(parity): promote 10 port-wave docs examples — PTY 180)
 
 - **test(parity): promote 10 newly-ported docs examples to PTY cases**

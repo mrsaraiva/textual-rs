@@ -58,7 +58,10 @@ impl Label {
         Self {
             text: text.into(),
             wrap: true,
-            markup: false,
+            // Python Textual's Label/Static interpret console markup by default
+            // (`markup=True`); `[link=…]`, `[@click=…]` and `[b]…[/]` are parsed.
+            // Use `.with_markup(false)` to render tags literally.
+            markup: true,
             expand: false,
             // Match Textual Label defaults: labels don't shrink to intrinsic width
             // unless explicitly requested.
