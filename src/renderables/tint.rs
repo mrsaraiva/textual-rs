@@ -47,11 +47,15 @@ impl<R> Tint<R> {
     }
 
     pub fn blend_color_with_percent(base: Color, tint: Color, percent: u8) -> Color {
-        crate::style::blend_colors(base, tint, percent)
+        // Python `Color.tint`: `int(c1 + (c2 - c1) * a2)` per channel, where the
+        // factor is the tint color's alpha and the result is TRUNCATED. Fold the
+        // CSS percent in as the blend factor (the tint's alpha), matching the
+        // float-faithful composite used everywhere else.
+        tint.blend_over_float(base, percent as f32 / 100.0)
     }
 
     pub fn percent_from_alpha(color: Color) -> u8 {
-        ((color.a as f32 / 255.0) * 100.0).round() as u8
+        (color.a * 100.0).round() as u8
     }
 }
 

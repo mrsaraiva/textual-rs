@@ -50,6 +50,10 @@ const PASSING: &[&str] = &[
     // content-align (left, top) — matches Python's `!= ("left","top")` guard,
     // so the trailing pad of the content row stays background-only:
     "content_align",
+    // Promoted after the Color.a u8->f32 float-alpha keystone: parsed-alpha bg/fg
+    // blends (`red 10%`) now composite with the exact float factor (Python),
+    // not the u8-quantized one — removes the ±1 RGB drift:
+    "align", "background_transparency", "colors02",
 ];
 
 struct StyledCase {

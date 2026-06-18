@@ -14,11 +14,11 @@ use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget
 fn lerp_color(a: Color, b: Color, t: f64) -> Color {
     let t = t.clamp(0.0, 1.0) as f32;
     let inv = 1.0 - t;
-    Color::rgba(
+    Color::rgba_f(
         (a.r as f32 * inv + b.r as f32 * t).round() as u8,
         (a.g as f32 * inv + b.g as f32 * t).round() as u8,
         (a.b as f32 * inv + b.b as f32 * t).round() as u8,
-        (a.a as f32 * inv + b.a as f32 * t).round() as u8,
+        a.a * inv + b.a * t,
     )
 }
 

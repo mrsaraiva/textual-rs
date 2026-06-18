@@ -1,25 +1,72 @@
 use std::time::Duration;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// An RGBA color. `r`/`g`/`b` are 8-bit channels; `a` (alpha) is a float in
+/// `[0.0, 1.0]`, mirroring Python Textual's `Color` where alpha is a float.
+///
+/// Keeping alpha as a float (rather than a u8) is load-bearing for color parity:
+/// `background: red 10%` must blend with factor exactly `0.1`, not the quantized
+/// `round(0.1*255)/255 = 0.10196`, which drifts a composited channel by one.
+///
+/// `Eq`/`Hash` are implemented manually over the alpha bit pattern so `Color`
+/// (and the structs that embed it, e.g. `Tint`) keep deriving `Eq`/`Hash`. Alpha
+/// values here are always finite (clamped on construction), so bitwise hashing
+/// is well-defined.
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Color {
     pub r: u8,
     pub g: u8,
     pub b: u8,
-    pub a: u8,
+    pub a: f32,
+}
+
+impl Eq for Color {}
+
+impl std::hash::Hash for Color {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.r.hash(state);
+        self.g.hash(state);
+        self.b.hash(state);
+        self.a.to_bits().hash(state);
+    }
 }
 
 impl Color {
     pub const fn rgb(r: u8, g: u8, b: u8) -> Self {
-        Self { r, g, b, a: 255 }
+        Self { r, g, b, a: 1.0 }
     }
 
+    /// Construct from 8-bit RGBA, where `a` is the legacy 0..=255 alpha. Prefer
+    /// `rgba_f` / `with_alpha` for fractional alpha precision.
     pub const fn rgba(r: u8, g: u8, b: u8, a: u8) -> Self {
-        Self { r, g, b, a }
+        Self {
+            r,
+            g,
+            b,
+            a: a as f32 / 255.0,
+        }
+    }
+
+    /// Construct with a fractional alpha in `[0.0, 1.0]` (Python-faithful).
+    pub fn rgba_f(r: u8, g: u8, b: u8, a: f32) -> Self {
+        Self {
+            r,
+            g,
+            b,
+            a: a.clamp(0.0, 1.0),
+        }
+    }
+
+    /// Alpha as a legacy 0..=255 byte (rounded). Use only at the ANSI/render
+    /// boundary; internal blends should consume the float `a` directly.
+    pub fn alpha_u8(self) -> u8 {
+        (self.a.clamp(0.0, 1.0) * 255.0).round() as u8
     }
 
     pub fn with_alpha(self, alpha: f32) -> Self {
-        let a = (alpha.clamp(0.0, 1.0) * 255.0).round() as u8;
-        Self { a, ..self }
+        Self {
+            a: alpha.clamp(0.0, 1.0),
+            ..self
+        }
     }
 
     pub fn parse(value: &str) -> Option<Self> {
@@ -39,12 +86,7 @@ impl Color {
                 let g: u8 = parts[1].parse().ok()?;
                 let b: u8 = parts[2].parse().ok()?;
                 let a_f: f32 = parts[3].parse().ok()?;
-                return Some(Color::rgba(
-                    r,
-                    g,
-                    b,
-                    (a_f.clamp(0.0, 1.0) * 255.0).round() as u8,
-                ));
+                return Some(Color::rgba_f(r, g, b, a_f));
             }
         }
 
@@ -57,12 +99,12 @@ impl Color {
                     let s: f32 = parts[1].trim_end_matches('%').trim().parse::<f32>().ok()? / 100.0;
                     let l: f32 = parts[2].trim_end_matches('%').trim().parse::<f32>().ok()? / 100.0;
                     let a = if has_alpha {
-                        (parts[3].parse::<f32>().ok()?.clamp(0.0, 1.0) * 255.0).round() as u8
+                        parts[3].parse::<f32>().ok()?.clamp(0.0, 1.0)
                     } else {
-                        255
+                        1.0
                     };
                     let (r, g, b) = hsl_to_rgb(h, s, l);
-                    return Some(Color::rgba(r, g, b, a));
+                    return Some(Color::rgba_f(r, g, b, a));
                 }
             }
         }
@@ -117,21 +159,17 @@ impl Color {
     }
 
     pub fn flatten_over(self, under: Color) -> Color {
-        if self.a == 255 {
+        if self.a >= 1.0 {
             return Color::rgb(self.r, self.g, self.b);
         }
-        if self.a == 0 {
+        if self.a <= 0.0 {
             return Color::rgb(under.r, under.g, under.b);
         }
-        let oa = self.a as u32;
-        let inv = 255u32 - oa;
-        let mix =
-            |o: u8, u: u8| -> u8 { (((o as u32) * oa + (u as u32) * inv) / 255u32).min(255) as u8 };
-        Color::rgb(
-            mix(self.r, under.r),
-            mix(self.g, under.g),
-            mix(self.b, under.b),
-        )
+        // Python `under + self` == `under.blend(self, factor=self.a)`:
+        // `int(u + (o - u) * a)` per channel, computed in float and TRUNCATED.
+        // Using the fractional alpha directly (not a u8 round-trip) is what makes
+        // `red 10%` composite to Python's exact hex.
+        self.blend_over_float(under, self.a)
     }
 }
 
@@ -683,7 +721,8 @@ fn blend(a: Color, b: Color, t: f32) -> Color {
         let yf = y as f32;
         (xf + (yf - xf) * t).round().clamp(0.0, 255.0) as u8
     };
-    Color::rgba(mix(ar, br), mix(ag, bg), mix(ab, bb), mix(aa, ba))
+    let alpha = (aa + (ba - aa) * t).clamp(0.0, 1.0);
+    Color::rgba_f(mix(ar, br), mix(ag, bg), mix(ab, bb), alpha)
 }
 
 fn lighten_lab(color: Color, amount: f32) -> Color {
@@ -2493,19 +2532,19 @@ impl Style {
         let mut style = rich_rs::Style::new();
         let mut effective_bg = default_bg;
         if let Some(bg) = self.bg {
-            if bg.a == 255 {
+            if bg.a >= 1.0 {
                 effective_bg = bg;
                 style = style.with_bgcolor(bg.to_simple_opaque());
-            } else if bg.a > 0 {
+            } else if bg.a > 0.0 {
                 let flat = bg.flatten_over(default_bg);
                 effective_bg = flat;
                 style = style.with_bgcolor(flat.to_simple_opaque());
             }
         }
         if let Some(fg) = self.fg {
-            if fg.a == 255 {
+            if fg.a >= 1.0 {
                 style = style.with_color(fg.to_simple_opaque());
-            } else if fg.a > 0 {
+            } else if fg.a > 0.0 {
                 style = style.with_color(fg.flatten_over(effective_bg).to_simple_opaque());
             }
         }
@@ -2676,10 +2715,10 @@ impl Style {
         let mut out = Vec::new();
 
         fn fmt_color(c: &Color) -> String {
-            if c.a == 255 {
+            if c.a >= 1.0 {
                 format!("#{:02x}{:02x}{:02x}", c.r, c.g, c.b)
             } else {
-                format!("rgba({},{},{},{:.2})", c.r, c.g, c.b, c.a as f32 / 255.0)
+                format!("rgba({},{},{},{:.2})", c.r, c.g, c.b, c.a)
             }
         }
         fn fmt_border_edge(e: &BorderEdge) -> Option<String> {
@@ -3193,8 +3232,25 @@ mod tests {
         assert_eq!(parse_color_like("hsl(120, 100%, 50%)"), Some(Color::rgb(0, 255, 0)));
         // s=0 => grey at lightness.
         assert_eq!(parse_color_like("hsl(0, 0%, 50%)"), Some(Color::rgb(128, 128, 128)));
-        // hsla carries alpha.
-        assert_eq!(parse_color_like("hsla(240, 100%, 50%, 0.5)"), Some(Color::rgba(0, 0, 255, 128)));
+        // hsla carries alpha (kept as a float, not u8-quantized).
+        assert_eq!(
+            parse_color_like("hsla(240, 100%, 50%, 0.5)"),
+            Some(Color::rgba_f(0, 0, 255, 0.5))
+        );
+    }
+
+    #[test]
+    fn float_alpha_composites_like_python() {
+        // `red 10%` over the dark background must use the exact float factor 0.1,
+        // not the u8-quantized round(0.1*255)/255 = 0.10196. Python:
+        // Color(18,18,18) + Color(255,0,0,a=0.1) == Color(41,16,16).
+        let base = Color::rgb(18, 18, 18);
+        let red10 = Color::rgb(255, 0, 0).with_alpha(0.1);
+        assert!((red10.a - 0.1).abs() < 1e-6, "alpha stays the exact float 0.1");
+        let composited = red10.flatten_over(base);
+        assert_eq!(composited, Color::rgb(41, 16, 16));
+        // The old u8 path would have produced 42 in the red channel.
+        assert_ne!(composited.r, 42);
     }
 
     // ---- Existing foreground combine tests (kept) ----

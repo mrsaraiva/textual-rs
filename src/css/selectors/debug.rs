@@ -266,6 +266,9 @@ pub(super) fn style_debug_summary(style: &Style) -> String {
 fn style_debug_color(color: crate::style::Color) -> String {
     format!(
         "#{:02X}{:02X}{:02X}{:02X}",
-        color.r, color.g, color.b, color.a
+        color.r,
+        color.g,
+        color.b,
+        color.alpha_u8()
     )
 }

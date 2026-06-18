@@ -1878,9 +1878,8 @@ fn parse_hatch_value(value: &str) -> Option<Hatch> {
     }
     let mut color = parse_color_like(&color_tokens.join(" "))?;
     if let Some(op) = opacity {
-        // multiply existing alpha by opacity
-        let new_a = (color.a as f32 / 255.0) * op;
-        color = color.with_alpha(new_a);
+        // multiply existing alpha by opacity (both fractions in [0,1])
+        color = color.with_alpha(color.a * op);
     }
 
     Some(Hatch { character, color })

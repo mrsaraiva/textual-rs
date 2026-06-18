@@ -465,11 +465,12 @@ pub fn interpolate_color(from: Color, to: Color, t: f32) -> Color {
         let v = a as f32 + (b as f32 - a as f32) * t;
         v.round().clamp(0.0, 255.0) as u8
     };
-    Color::rgba(
+    let alpha = (from.a + (to.a - from.a) * t).clamp(0.0, 1.0);
+    Color::rgba_f(
         lerp(from.r, to.r),
         lerp(from.g, to.g),
         lerp(from.b, to.b),
-        lerp(from.a, to.a),
+        alpha,
     )
 }
 

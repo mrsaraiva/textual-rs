@@ -991,7 +991,7 @@ impl Widget for Input {
         let base_style = crate::css::resolve_style(self, &base_meta);
         let fallback_bg = parse_color_like("$background").unwrap_or(Color::rgb(0, 0, 0));
         let base_bg = match base_style.bg {
-            Some(bg) if bg.a == 0 => fallback_bg,
+            Some(bg) if bg.a <= 0.0 => fallback_bg,
             Some(bg) => bg,
             None => fallback_bg,
         };
@@ -1004,7 +1004,7 @@ impl Widget for Input {
             let mut under_bg = base_bg;
 
             if let Some(bg) = style.bg {
-                if bg.a == 0 {
+                if bg.a <= 0.0 {
                     return rich;
                 }
                 let flat = bg.flatten_over(under_bg);

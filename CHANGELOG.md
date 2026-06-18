@@ -7,6 +7,22 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-17 (fix(color): Color alpha is a float — exact composite parity)
+
+- **fix(color): `Color.a` is now `f32` (Python-faithful), not `u8`**
+  - The keystone for the styled-parity rounding cluster. `background: red 10%`
+    parsed to alpha `round(0.1*255)=26` and blended with factor `26/255=0.10196`,
+    while Python keeps the alpha as the float `0.1`; the factor difference drifts
+    a composited channel by ±1 (e.g. bg `#291010` py vs `#2a1010` rust). Changed
+    `Color.a` to a fractional `f32` in `[0,1]`, added `rgba_f`/`alpha_u8`, made
+    `flatten_over` use the truncated float composite (`under + over.with_alpha(a)`
+    == `int(u+(o-u)*a)`), and threaded float alpha through parse (rgba/hsla),
+    opacity multiply, tint, gradient/bar/progress lerps, and the link/input alpha
+    guards. `Eq`/`Hash` are hand-implemented over the alpha bits so embedding
+    structs keep deriving them. Styled parity 31→34 PASS (promoted `align`,
+    `background_transparency`, `colors02`), 0 regressions; pty_parity 186; full
+    suite green with no snapshot deltas.
+
 ### 2026-06-17 (fix(button): focus reverse band covers line-pad spaces)
 
 - **fix(button): apply `line-pad` as styled label spaces so the `:focus` reverse band matches Python**

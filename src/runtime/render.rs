@@ -414,7 +414,7 @@ impl App {
         begin_style_render_pass();
         let meta = node_selector_meta(&entry.widget_tree, root_id);
         let resolved = resolve_node_style(&entry.widget_tree, root_id, &meta);
-        resolved.bg.is_some_and(|bg| bg.a == u8::MAX)
+        resolved.bg.is_some_and(|bg| bg.a >= 1.0)
     }
 
     fn collect_visible_render_layers(&self) -> Vec<CompositedLayer> {
@@ -798,9 +798,9 @@ fn render_tree_node(
                     y1: dest_y + h as i32,
                 };
                 if let Some(paint_clip) = ctx.clip.intersect(widget_clip) {
-                    if bg.a == u8::MAX {
+                    if bg.a >= 1.0 {
                         fill_rect_with_background(frame, paint_clip, bg);
-                    } else if bg.a > 0 {
+                    } else if bg.a > 0.0 {
                         tint_rect_with_background(frame, paint_clip, bg);
                     }
                 }
@@ -1223,7 +1223,7 @@ fn render_screen_tree_layer(
 
     if let Some(clip) = clip_rect_from_tree_rect(root_rect, frame) {
         if let Some(bg) = root_resolved.bg {
-            if bg.a == u8::MAX {
+            if bg.a >= 1.0 {
                 fill_rect_with_background(frame, clip, bg);
             } else if has_underlay {
                 tint_rect_with_background(frame, clip, bg);
@@ -1321,7 +1321,7 @@ fn fill_rect_with_background(frame: &mut FrameBuffer, clip: ClipRect, bg: Color)
 }
 
 fn tint_rect_with_background(frame: &mut FrameBuffer, clip: ClipRect, tint: Color) {
-    if tint.a == 0 {
+    if tint.a <= 0.0 {
         return;
     }
     for y in clip.y0.max(0) as usize..clip.y1.max(0) as usize {
@@ -1909,7 +1909,7 @@ fn screen_blend(base: crate::style::Color, over: crate::style::Color) -> crate::
         let bf = b as f32 / 255.0;
         ((1.0 - (1.0 - af) * (1.0 - bf)) * 255.0).round() as u8
     }
-    crate::style::Color::rgba(
+    crate::style::Color::rgba_f(
         chan(base.r, over.r),
         chan(base.g, over.g),
         chan(base.b, over.b),
@@ -3472,7 +3472,7 @@ mod tests {
         };
         let bg = resolved_bg.expect("CommandPalette must resolve a background color");
         assert!(
-            bg.a > 0 && bg.a < u8::MAX,
+            bg.a > 0.0 && bg.a < 1.0,
             "CommandPalette background should be translucent for shared dim path (alpha={})",
             bg.a
         );

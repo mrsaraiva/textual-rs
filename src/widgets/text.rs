@@ -483,7 +483,7 @@ impl InlineTextDoc {
                         has_style = true;
                     }
                     if let Some(bg) = resolved.link_background_hover.or(resolved.link_background) {
-                        if bg.a > 0 {
+                        if bg.a > 0.0 {
                             style = style.with_bgcolor(bg.to_simple_opaque());
                             has_style = true;
                         }
@@ -498,7 +498,7 @@ impl InlineTextDoc {
                         has_style = true;
                     }
                     if let Some(bg) = resolved.link_background {
-                        if bg.a > 0 {
+                        if bg.a > 0.0 {
                             style = style.with_bgcolor(bg.to_simple_opaque());
                             has_style = true;
                         }

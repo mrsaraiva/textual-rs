@@ -61,11 +61,8 @@ impl<R> TextOpacity<R> {
     }
 
     pub fn apply_alpha(color: crate::style::Color, opacity: f32) -> crate::style::Color {
-        let mut color = color;
-        color.a = ((color.a as f32) * opacity.clamp(0.0, 1.0))
-            .round()
-            .clamp(0.0, 255.0) as u8;
-        color
+        // Python `Color.multiply_alpha`: `a * opacity`, kept as a float.
+        color.with_alpha(color.a * opacity.clamp(0.0, 1.0))
     }
 
     pub fn blend_foreground_over_background(
