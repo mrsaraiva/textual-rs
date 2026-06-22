@@ -915,7 +915,7 @@ mod tests {
         assert_eq!(mid.g, 100);
         assert_eq!(mid.b, 25);
         // lerp(255, 128, 0.5) = 255 + (128 - 255) * 0.5 = 191.5 → 192
-        assert_eq!(mid.a, 192);
+        assert_eq!(mid.alpha_u8(), 192);
     }
 
     #[test]

@@ -219,7 +219,7 @@ fn visual_parity_batch() {
         let bin = repo().join("docs/examples/target/debug/examples").join(&case.name);
         let actual = capture(CommandBuilder::new(bin.to_str().unwrap()), repo());
         let matches = actual.trim() == golden.trim();
-        if !matches && std::env::var("DEBUG_CASE").map_or(false, |d| d == case.name) {
+        if !matches && std::env::var("DEBUG_CASE").map_or(false, |d| d == case.name || d == "ALL") {
             let (gl, al): (Vec<&str>, Vec<&str>) = (golden.lines().collect(), actual.lines().collect());
             eprintln!("--- DEBUG {} (py vs rust), first 12 diffs ---", case.name);
             let mut shown = 0;

@@ -124,7 +124,7 @@ fn dc_04_widget_link_style_underline() {
 fn dc_04_widget_transparent_bg() {
     let s = parse_single("Widget { background: transparent; }");
     let bg = s.bg.expect("Widget should have bg");
-    assert_eq!(bg.a, 0, "Widget bg should be transparent (alpha=0)");
+    assert_eq!(bg.alpha_u8(), 0, "Widget bg should be transparent (alpha=0)");
 }
 
 // =====================================================================

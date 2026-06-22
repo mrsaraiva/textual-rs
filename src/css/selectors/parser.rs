@@ -3408,7 +3408,7 @@ mod tests {
         assert!(s.fg.is_some());
         assert!(s.bg.is_some());
         // black 10% → alpha = 26 (0.10 * 255 = 25.5, rounded)
-        assert_eq!(s.bg.unwrap().a, 26);
+        assert_eq!(s.bg.unwrap().alpha_u8(), 26);
     }
 
     #[test]
@@ -3426,7 +3426,7 @@ mod tests {
         assert_eq!(sheet.rules.len(), 1);
         let bg = sheet.rules[0].style.bg.expect("bg should be Some");
         // white 30% → alpha = 77 (0.30 * 255 = 76.5, rounded)
-        assert_eq!(bg.a, 77);
+        assert_eq!(bg.alpha_u8(), 77);
     }
 
     // ---- PL-1: bg/fg alpha parsing tests ----
@@ -3436,7 +3436,7 @@ mod tests {
         let style = parse_style_body("bg: $background 60%;");
         let bg = style.bg.expect("bg should be Some");
         // Alpha = 60% → 0.6 * 255 ≈ 153
-        assert_eq!(bg.a, 153);
+        assert_eq!(bg.alpha_u8(), 153);
     }
 
     #[test]
@@ -3444,7 +3444,7 @@ mod tests {
         let style = parse_style_body("color: $primary 50%;");
         let fg = style.fg.expect("fg should be Some");
         // Alpha = 50% → 0.5 * 255 ≈ 128
-        assert_eq!(fg.a, 128);
+        assert_eq!(fg.alpha_u8(), 128);
     }
 
     // ---- PL-2: constrain shorthand two-value tests ----
@@ -3494,7 +3494,7 @@ mod tests {
         let c = crate::style::parse_color_like("$link-background");
         assert!(c.is_some(), "$link-background should resolve");
         // Should be transparent
-        assert_eq!(c.unwrap().a, 0);
+        assert_eq!(c.unwrap().alpha_u8(), 0);
     }
 
     #[test]
@@ -3628,7 +3628,7 @@ mod tests {
         let h = style.hatch.expect("hatch should parse");
         assert_eq!(h.character, '╱', "`right` maps to forward slash glyph");
         assert_eq!(h.color.r, 255);
-        assert_eq!(h.color.a, 255, "no opacity => full alpha");
+        assert_eq!(h.color.alpha_u8(), 255, "no opacity => full alpha");
     }
 
     #[test]
@@ -3654,7 +3654,7 @@ mod tests {
         let h = style.hatch.expect("hatch should parse");
         assert_eq!(h.character, '╱');
         // 255 * 0.10 ~= 26 (rounded)
-        assert_eq!(h.color.a, 26, "opacity 10% scales alpha");
+        assert_eq!(h.color.alpha_u8(), 26, "opacity 10% scales alpha");
     }
 
     #[test]
@@ -3662,7 +3662,7 @@ mod tests {
         let style = parse_style_body("hatch: \"T\" green 50%;");
         let h = style.hatch.expect("hatch should parse");
         assert_eq!(h.character, 'T');
-        assert_eq!(h.color.a, 128, "50% => ~128 alpha");
+        assert_eq!(h.color.alpha_u8(), 128, "50% => ~128 alpha");
     }
 
     #[test]
