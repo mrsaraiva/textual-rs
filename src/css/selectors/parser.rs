@@ -1569,7 +1569,17 @@ pub(super) fn parse_style_body(body: &str) -> Style {
                 };
             }
             "scrollbar-size" => {
-                if let Ok(n) = value.trim().parse::<u16>() {
+                // Python: `scrollbar-size: H V` — two-value shorthand sets
+                // scrollbar_size_horizontal (H) and scrollbar_size_vertical (V).
+                // Mirror _styles_builder.py:997-1017.
+                let parts: Vec<&str> = value.split_whitespace().collect();
+                if parts.len() == 2 {
+                    if let (Ok(h), Ok(v)) = (parts[0].parse::<u16>(), parts[1].parse::<u16>()) {
+                        style.scrollbar_size_horizontal = Some(h);
+                        style.scrollbar_size_vertical = Some(v);
+                    }
+                } else if let Ok(n) = value.trim().parse::<u16>() {
+                    // Single-value fallback (keeps the single-value path working).
                     style.scrollbar_size = Some(n);
                 }
             }
@@ -3696,5 +3706,36 @@ mod tests {
             "expected unsupported at-rule issue"
         );
         assert_eq!(sheet.rules.len(), 1, "only regular rules should be parsed");
+    }
+
+    #[test]
+    fn scrollbar_size_two_value_shorthand() {
+        // `scrollbar-size: H V` must set scrollbar_size_horizontal = H and
+        // scrollbar_size_vertical = V (mirrors Python _styles_builder.py:997-1017).
+        let style = parse_style_body("scrollbar-size: 5 1");
+        assert_eq!(
+            style.scrollbar_size_horizontal,
+            Some(5),
+            "H should be 5"
+        );
+        assert_eq!(
+            style.scrollbar_size_vertical,
+            Some(1),
+            "V should be 1"
+        );
+        assert_eq!(
+            style.scrollbar_size,
+            None,
+            "shorthand field must stay None for two-value form"
+        );
+    }
+
+    #[test]
+    fn scrollbar_size_single_value_fallback() {
+        // Single-value path keeps working (backward compat).
+        let style = parse_style_body("scrollbar-size: 3");
+        assert_eq!(style.scrollbar_size, Some(3), "single value -> scrollbar_size");
+        assert_eq!(style.scrollbar_size_horizontal, None, "H must be None");
+        assert_eq!(style.scrollbar_size_vertical, None, "V must be None");
     }
 }
