@@ -54,6 +54,10 @@ const PASSING: &[&str] = &[
     // blends (`red 10%`) now composite with the exact float factor (Python),
     // not the u8-quantized one — removes the ±1 RGB drift:
     "align", "background_transparency", "colors02",
+    // Promoted after apply_parent_align now runs for Grid layout (was skipped by
+    // an early-return guard) — border_all/outline_all grid cells are now centred
+    // vertically/horizontally just like every other layout strategy:
+    "border_all", "outline_all",
 ];
 
 struct StyledCase {

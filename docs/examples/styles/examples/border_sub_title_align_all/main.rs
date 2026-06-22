@@ -88,40 +88,75 @@ impl TextualApp for BorderSubTitleAlignAll {
         AppRoot::new().with_child(
             Grid::new(3, 3)
                 .with_child(
-                    Container::new()
-                        .with_child(Label::new("This is the story of").id("lbl1")),
+                    Container::new().with_child(
+                        Label::new("This is the story of")
+                            .id("lbl1")
+                            .with_border_title("Border title")
+                            .with_border_subtitle("Border subtitle"),
+                    ),
                 )
                 .with_child(
-                    Container::new()
-                        .with_child(Label::new("a Python").id("lbl2")),
+                    Container::new().with_child(
+                        Label::new("a Python")
+                            .id("lbl2")
+                            .with_border_title("Left, but it's loooooooooooong")
+                            .with_border_subtitle("Center, but it's loooooooooooong"),
+                    ),
                 )
                 .with_child(
-                    Container::new()
-                        .with_child(Label::new("developer that").id("lbl3")),
+                    Container::new().with_child(
+                        Label::new("developer that")
+                            .id("lbl3")
+                            .with_border_title("Left")
+                            .with_border_subtitle("@@@"),
+                    ),
                 )
                 .with_child(
-                    Container::new()
-                        .with_child(Label::new("had to fill up").id("lbl4")),
+                    Container::new().with_child(
+                        Label::new("had to fill up")
+                            .id("lbl4")
+                            .with_border_subtitle("Left"),
+                    ),
                 )
                 .with_child(
-                    Container::new()
-                        .with_child(Label::new("nine labels").id("lbl5")),
+                    Container::new().with_child(
+                        Label::new("nine labels")
+                            .id("lbl5")
+                            .with_border_title("Title")
+                            .with_border_subtitle("Subtitle"),
+                    ),
                 )
                 .with_child(
-                    Container::new()
-                        .with_child(Label::new("and ended up redoing it").id("lbl6")),
+                    Container::new().with_child(
+                        Label::new("and ended up redoing it")
+                            .id("lbl6")
+                            .with_border_title("Title")
+                            .with_border_subtitle("Subtitle"),
+                    ),
                 )
                 .with_child(
-                    Container::new()
-                        .with_child(Label::new("because the first try").id("lbl7")),
+                    Container::new().with_child(
+                        Label::new("because the first try")
+                            .id("lbl7")
+                            .with_border_title("Title, but really loooooooooong!")
+                            .with_border_subtitle("Subtitle, but really loooooooooong!"),
+                    ),
                 )
                 .with_child(
-                    Container::new()
-                        .with_child(Label::new("had some labels").id("lbl8")),
+                    Container::new().with_child(
+                        Label::new("had some labels")
+                            .id("lbl8")
+                            .with_border_title("Title, but really loooooooooong!")
+                            .with_border_subtitle("Subtitle, but really loooooooooong!"),
+                    ),
                 )
                 .with_child(
-                    Container::new()
-                        .with_child(Label::new("that were too long.").id("lbl9")),
+                    Container::new().with_child(
+                        Label::new("that were too long.")
+                            .id("lbl9")
+                            .with_border_title("Title, but really loooooooooong!")
+                            .with_border_subtitle("Subtitle, but really loooooooooong!"),
+                    ),
                 ),
         )
     }

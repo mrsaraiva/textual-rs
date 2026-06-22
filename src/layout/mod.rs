@@ -62,16 +62,13 @@ fn apply_parent_align(
     tree: &mut WidgetTree,
     children: &[NodeId],
     available: Region,
-    strategy: Layout,
+    _strategy: Layout,
     align: Option<Align>,
 ) {
     let Some(align) = align else {
         return;
     };
     if children.is_empty() {
-        return;
-    }
-    if strategy == Layout::Grid {
         return;
     }
 
@@ -356,6 +353,7 @@ pub fn resolve_layout(
                 }
                 Layout::Grid => {
                     layout_grid(tree, &flow, inner, viewport, &style);
+                    apply_parent_align(tree, &flow, inner, Layout::Grid, effective_align);
                 }
                 Layout::Horizontal => {
                     layout_horizontal(tree, &flow, inner, viewport, allow_v_overflow);

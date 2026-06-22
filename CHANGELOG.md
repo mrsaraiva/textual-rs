@@ -7,6 +7,23 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-22 (fix(layout): apply_parent_align runs for Grid — border_all/outline_all promoted)
+
+- **fix(layout): remove early-return guard that skipped `apply_parent_align` for `Layout::Grid`**
+  - `apply_parent_align` had an unconditional `if strategy == Layout::Grid { return; }` guard
+    that prevented children placed by `layout_grid` from being aligned within the available
+    region. Python's `_arrange.py` applies `_align_size` for ALL layout strategies including
+    Grid; the Rust guard was a divergence. Fix: remove the guard and add the
+    `apply_parent_align` call after `layout_grid` in the Grid match arm, mirroring the
+    vertical/horizontal branches. Also fixes the `_strategy` unused-variable warning introduced
+    by removing the guard (parameter renamed to `_strategy`). Styled parity 34→36 PASS
+    (`border_all`, `outline_all` promoted); 0 regressions; pty_parity 186; full suite green.
+- **example(border_sub_title_align_all): add `.with_border_title()` / `.with_border_subtitle()`
+  to all 9 labels** — the example previously had none, so border title/subtitle slots were
+  blank. Now populated with the Python-equivalent plain-text strings (rich markup stripped).
+  The example remains PENDING due to rich-markup color rendering differences (red/purple title
+  colors) which are a known workstream gap, not a layout gap.
+
 ### 2026-06-17 (fix(color): Color alpha is a float — exact composite parity)
 
 - **fix(color): `Color.a` is now `f32` (Python-faithful), not `u8`**
