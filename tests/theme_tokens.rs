@@ -57,7 +57,7 @@ fn textual_dark_auto_like_tokens_use_alpha() {
     // Python textual-dark: text=auto 87%, button-color-foreground=auto 87%.
     // In textual-rs this is represented as white with alpha 0.87, then flattened
     // against the current background during style application.
-    let expected_auto = Color::rgba(255, 255, 255, 222);
+    let expected_auto = Color::rgba_f(255, 255, 255, 0.87);
     expect_token("text", expected_auto);
     expect_token("button-color-foreground", expected_auto);
 }

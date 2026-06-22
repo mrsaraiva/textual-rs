@@ -64,7 +64,7 @@ Label { bg: rgba(255,0,0,0.5); }
     let cell = buf.get(0, 0);
     let style = cell.style.expect("style should be present");
     let base = parse_color_like("$background").expect("parse $background");
-    let expected = Color::rgba(255, 0, 0, 128).flatten_over(base);
+    let expected = Color::rgba_f(255, 0, 0, 0.5).flatten_over(base);
     assert_eq!(style.bgcolor, Some(expected.to_simple_opaque()));
 }
 
