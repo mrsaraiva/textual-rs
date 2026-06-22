@@ -7,6 +7,16 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-22 (fix(css): scrollbar-size two-value shorthand now parsed correctly)
+
+- **fix(css): `scrollbar-size: H V` two-value shorthand sets H/V axes independently**
+  - The `scrollbar-size: H V` shorthand was parsed with `parse::<u16>()` on the whole
+    string, which fails silently on `"H V"` (multiple tokens), leaving both axes at
+    the default. Now splits on whitespace: two-token form sets
+    `scrollbar_size_horizontal = H` and `scrollbar_size_vertical = V` per Python
+    `_styles_builder.py:997-1017`; the single-token fallback is preserved for backward
+    compatibility. Unit tests added in `parser.rs`.
+
 ### 2026-06-17 (fix(color): Color alpha is a float — exact composite parity)
 
 - **fix(color): `Color.a` is now `f32` (Python-faithful), not `u8`**
