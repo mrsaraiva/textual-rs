@@ -1,13 +1,32 @@
 use crossterm::event::KeyCode;
-use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
+use rich_rs::{Console, ConsoleOptions, MetaValue, Renderable, Segment, Segments, StyleMeta};
 
 use crate::compose::ComposeResult;
+use crate::content::Content;
 use crate::css;
 use crate::event::{Event, EventCtx};
 use crate::message::*;
 
 use super::{NodeSeed, Widget};
 use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
+
+/// Tag a segment with `textual:no_text_style = true` so `apply_style_to_segments`
+/// skips re-applying CSS text attributes that have already been baked in by
+/// `Content::render_strips`.
+fn tag_segment_no_text_style(seg: &mut Segment) {
+    let mut meta = seg.meta.take().unwrap_or_else(StyleMeta::new);
+    let mut map: std::collections::BTreeMap<String, MetaValue> = meta
+        .meta
+        .as_ref()
+        .map(|m| (**m).clone())
+        .unwrap_or_default();
+    map.insert(
+        "textual:no_text_style".to_string(),
+        MetaValue::Bool(true),
+    );
+    meta.meta = Some(std::sync::Arc::new(map));
+    seg.meta = Some(meta);
+}
 
 // ── CollapsibleTitle ────────────────────────────────────────────────────
 
@@ -114,11 +133,56 @@ impl Widget for CollapsibleTitle {
         Some(1)
     }
 
-    /// Render the symbol + label as plain content. The arena renderer applies
-    /// the node's resolved style (color / text-style / padding / background).
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        let text = rich_rs::Text::plain(self.label_text());
-        text.render(console, options)
+    /// Render the symbol + label via Content::render_strips.
+    /// The arena renderer applies the node's resolved style (color / text-style
+    /// / padding / background) on top.
+    fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
+        let width = options.size.0.max(1);
+
+        // Get the resolved visual style (pushed by render_widget_with_meta).
+        let visual_style = crate::css::current_self_style().unwrap_or_default();
+
+        // Flatten the widget's own bg over the composited ancestor background.
+        let parent_bg = crate::css::current_ancestor_composited_background().unwrap_or_else(|| {
+            crate::style::parse_color_like("$background")
+                .unwrap_or(crate::style::Color::rgb(0, 0, 0))
+        });
+        let effective_bg = visual_style
+            .bg
+            .map(|c| c.flatten_over(parent_bg))
+            .unwrap_or(parent_bg);
+        let mut render_style = visual_style.clone();
+        render_style.bg = Some(effective_bg);
+
+        // Build Content from the symbol + label text (plain — no rich markup).
+        let content = Content::from_text(self.label_text());
+
+        let resolve_fn = |raw: &str| {
+            crate::content::markup::parse_tag_style(raw)
+                .map(|t| t.style)
+                .unwrap_or_default()
+        };
+
+        // CollapsibleTitle is always single-line, left-aligned, no word-wrap.
+        let strips = content.render_strips(
+            width,
+            Some(1),
+            &render_style,
+            crate::style::TextAlign::Left,
+            "fold",
+            true,
+            0,
+            resolve_fn,
+        );
+
+        let mut out = Segments::new();
+        for strip in strips {
+            for mut seg in strip {
+                tag_segment_no_text_style(&mut seg);
+                out.push(seg);
+            }
+        }
+        out
     }
 
     fn set_inline_style(&mut self, style: crate::style::Style) {

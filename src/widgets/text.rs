@@ -798,8 +798,56 @@ impl MarkdownHeadingBlock {
 }
 
 impl Widget for MarkdownHeadingBlock {
-    fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
-        Text::plain(self.text.clone()).render(_console, _options)
+    fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
+        let width = options.size.0.max(1);
+
+        // Get the resolved visual style (pushed by render_widget_with_meta).
+        let visual_style = crate::css::current_self_style().unwrap_or_default();
+
+        // Flatten the widget's own bg over the composited ancestor background.
+        let parent_bg = crate::css::current_ancestor_composited_background().unwrap_or_else(|| {
+            crate::style::parse_color_like("$background")
+                .unwrap_or(crate::style::Color::rgb(0, 0, 0))
+        });
+        let effective_bg = visual_style
+            .bg
+            .map(|c| c.flatten_over(parent_bg))
+            .unwrap_or(parent_bg);
+        let mut render_style = visual_style.clone();
+        render_style.bg = Some(effective_bg);
+
+        let content = crate::content::Content::from_text(&self.text);
+
+        let resolve_fn = |raw: &str| {
+            crate::content::markup::parse_tag_style(raw)
+                .map(|t| t.style)
+                .unwrap_or_default()
+        };
+
+        // Heading blocks wrap to width and may have multiple output lines.
+        let strips = content.render_strips(
+            width,
+            None,
+            &render_style,
+            crate::style::TextAlign::Left,
+            "fold",
+            false,
+            0,
+            resolve_fn,
+        );
+
+        let mut segments = Segments::new();
+        let n_strips = strips.len();
+        for (i, strip) in strips.into_iter().enumerate() {
+            for mut seg in strip {
+                tag_segment_no_text_style(&mut seg);
+                segments.push(seg);
+            }
+            if i + 1 < n_strips {
+                segments.push(Segment::line());
+            }
+        }
+        segments
     }
 
     fn style_type(&self) -> &'static str {

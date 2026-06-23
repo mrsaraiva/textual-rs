@@ -1,5 +1,5 @@
 use crossterm::event::KeyCode;
-use rich_rs::{Console, ConsoleOptions, Renderable, Segments, Text};
+use rich_rs::{Console, ConsoleOptions, MetaValue, Renderable, Segment, Segments, StyleMeta};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -16,8 +16,27 @@ use crate::message::{
 use crate::style::{Dock, TransitionTiming};
 
 use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
+use crate::content::Content;
 
 use super::{BindingDecl, Container, Horizontal, NodeSeed, Vertical, Widget};
+
+/// Tag a segment with `textual:no_text_style = true` so `apply_style_to_segments`
+/// skips re-applying CSS text attributes that have already been baked in by
+/// `Content::render_strips`.
+fn tag_segment_no_text_style(seg: &mut Segment) {
+    let mut meta = seg.meta.take().unwrap_or_else(StyleMeta::new);
+    let mut map: std::collections::BTreeMap<String, MetaValue> = meta
+        .meta
+        .as_ref()
+        .map(|m| (**m).clone())
+        .unwrap_or_default();
+    map.insert(
+        "textual:no_text_style".to_string(),
+        MetaValue::Bool(true),
+    );
+    meta.meta = Some(Arc::new(map));
+    seg.meta = Some(meta);
+}
 
 #[derive(Debug, Clone)]
 pub struct Tab {
@@ -127,8 +146,53 @@ impl Widget for Tab {
         }
     }
 
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        Text::plain(self.label.clone()).render(console, options)
+    fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
+        let width = options.size.0.max(1);
+
+        // Get the resolved visual style (pushed by render_widget_with_meta).
+        let visual_style = crate::css::current_self_style().unwrap_or_default();
+
+        // Flatten the widget's own bg over the composited ancestor background.
+        let parent_bg = crate::css::current_ancestor_composited_background().unwrap_or_else(|| {
+            crate::style::parse_color_like("$background")
+                .unwrap_or(crate::style::Color::rgb(0, 0, 0))
+        });
+        let effective_bg = visual_style
+            .bg
+            .map(|c| c.flatten_over(parent_bg))
+            .unwrap_or(parent_bg);
+        let mut render_style = visual_style.clone();
+        render_style.bg = Some(effective_bg);
+
+        // Build Content from the label text (plain — tabs do not use rich markup).
+        let content = Content::from_text(&self.label);
+
+        let resolve_fn = |raw: &str| {
+            crate::content::markup::parse_tag_style(raw)
+                .map(|t| t.style)
+                .unwrap_or_default()
+        };
+
+        // Tabs are single-line, left-aligned, no word-wrap.
+        let strips = content.render_strips(
+            width,
+            Some(1),
+            &render_style,
+            crate::style::TextAlign::Left,
+            "fold",
+            true,
+            0,
+            resolve_fn,
+        );
+
+        let mut out = Segments::new();
+        for strip in strips {
+            for mut seg in strip {
+                tag_segment_no_text_style(&mut seg);
+                out.push(seg);
+            }
+        }
+        out
     }
 }
 

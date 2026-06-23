@@ -1,6 +1,5 @@
 ---
 source: tests/markdown.rs
-assertion_line: 22
 expression: buf.debug_dump()
 ---
 lines:
@@ -14,3 +13,8 @@ lines:
 7: "code                      "
 8: "                          "
 meta:
+(10,2): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true), "textual:widget_id": Int(4294967298)}) }
+(11,2): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true), "textual:widget_id": Int(4294967298)}) }
+(12,2): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true), "textual:widget_id": Int(4294967298)}) }
+(13,2): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true), "textual:widget_id": Int(4294967298)}) }
+(14,2): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true), "textual:widget_id": Int(4294967298)}) }

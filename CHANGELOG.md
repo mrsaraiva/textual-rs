@@ -7,6 +7,25 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-23 (feat(widgets): migrate Tab, CollapsibleTitle, MarkdownHeadingBlock to Content::render_strips)
+
+- **feat(tabs/Tab): render via Content::render_strips** —
+  `Tab::render()` now uses `Content::from_text` + `Content::render_strips` with
+  `current_self_style()` / `current_ancestor_composited_background()`.
+  Segments are tagged `no_text_style` so `apply_style_to_segments` skips
+  redundant re-application of text attributes already baked in by render_strips.
+
+- **feat(collapsible/CollapsibleTitle): render via Content::render_strips** —
+  `CollapsibleTitle::render()` migrated from `Text::plain(...).render()` to
+  `Content::render_strips` with the same visual-style + bg-composition pattern.
+
+- **feat(text/MarkdownHeadingBlock): render via Content::render_strips** —
+  `MarkdownHeadingBlock::render()` migrated from `Text::plain(...).render()` to
+  `Content::render_strips`.  Snapshot updated: heading cells now carry
+  `textual:no_text_style=true` metadata (meta-only change, visual output
+  unchanged).  All CSS text attributes (bold, color) remain correctly baked
+  via `current_self_style()`.
+
 ### 2026-06-23 (feat(button): migrate render to Content::render_strips — focus band covers line-pad)
 
 - **feat(button): retire custom line-pad render code; use Content::render_strips** —
