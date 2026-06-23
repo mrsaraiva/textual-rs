@@ -1,7 +1,24 @@
 ---
 source: tests/checkbox_widget.rs
+assertion_line: 36
 expression: buf.debug_dump()
 ---
 lines:
 0: "▐X▌ remember me "
 meta:
+(0,0): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true)}) }
+(1,0): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true)}) }
+(2,0): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true)}) }
+(3,0): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true)}) }
+(4,0): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true)}) }
+(5,0): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true)}) }
+(6,0): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true)}) }
+(7,0): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true)}) }
+(8,0): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true)}) }
+(9,0): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true)}) }
+(10,0): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true)}) }
+(11,0): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true)}) }
+(12,0): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true)}) }
+(13,0): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true)}) }
+(14,0): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true)}) }
+(15,0): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true)}) }
