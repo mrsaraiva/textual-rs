@@ -7,6 +7,38 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-22 (fix(content): C1 seam fixes — correct whitespace-span style + vertical-fill surface)
+
+- **fix(content/seam1): remove `has_glyph` guard from content runs** —
+  `emit_rendered_segments` previously dropped fg and all text attributes
+  (underline, reverse, strike, italic, bold, dim) from whitespace-only content
+  runs.  Python's `_FormattedLine.to_strip` applies `(style + text_style).rich_style`
+  to **every** `Content.render()` run without discrimination: a span covering
+  only spaces but styled with `reverse=True` or `underline=True` must preserve
+  those attributes.  Fixed by removing the `has_glyph` parameter from
+  `make_segment` and unconditionally applying all style attributes.
+  Alignment-pad segments (`pad_left`/`pad_right` from `make_bg_segment`)
+  remain bg-only — matching Python's `style.background_style.rich_style`.
+
+- **fix(content/seam2): vertical fill rows carry full style, reverse=false** —
+  Fill rows (added to reach the requested `height`) previously used
+  `make_bg_segment` (bg-only).  Python `Visual.to_strips` uses
+  `(style + Style(reverse=False)).rich_style` for fill rows — fg + bg, with
+  reverse forced to false.  Fixed by computing `fill_style = visual_style` with
+  `reverse = Some(false)` inside `render_strips` and emitting fill rows via
+  `make_full_segment`.
+
+- **tests added:** `test_seam1_whitespace_span_reverse_preserved`,
+  `test_seam1_whitespace_span_underline_preserved`,
+  `test_seam2_vertical_fill_full_style_reverse_false`,
+  `test_render_strips_vertical_fill_full_style`,
+  `test_render_strips_line_pad_carries_fg`.  Old bg-only fill test and
+  line-pad-no-fg test updated to reflect correct Python semantics.
+
+- Full gate: lib compiles, docs/examples build, pty_parity 186/0, full suite
+  0 FAILED, visual_parity 52 PASS / 0 REGRESSION.  Documented in
+  `docs/devel/CONTENT_LAYER_KEYSTONE.md` § 11.
+
 ### 2026-06-22 (refactor(content): audit dead-code post Phase D migration)
 
 - **refactor(content): retire stale doc comments** — the `# ADDITIVE — not yet

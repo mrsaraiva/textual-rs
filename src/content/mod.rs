@@ -951,17 +951,35 @@ impl Content {
     ///   `"$primary"`) to a concrete [`Style`].  At app render time this is
     ///   `app.parse_style`; in unit tests a closure suffices.
     ///
-    /// # Surface semantics (mirrors Python `_FormattedLine.to_strip`)
+    /// # Surface semantics (mirrors Python `_FormattedLine.to_strip` / `Visual.to_strips`)
     ///
     /// Each output row is made up of three logical surfaces:
-    /// 1. **Glyph runs**: segments containing non-whitespace characters carry
-    ///    full colour (`fg` from `visual_style + span_style`, `bg` from
-    ///    `visual_style`).
-    /// 2. **Content-pad / alignment-pad segments**: spaces added by `line_pad`
-    ///    or alignment carry only the background (`visual_style.background_style`)
-    ///    and NO foreground — matching Python `style.background_style`.
-    /// 3. **Vertical fill rows**: rows added to reach `height` are blank rows
-    ///    carrying only `visual_style.bg` (no fg).
+    ///
+    /// 1. **Content runs** (all characters produced by `Content.render()`): carry
+    ///    the **full** style (`visual_style + span_style`) — fg, bg, bold,
+    ///    italic, underline, reverse, strike.  This applies even to
+    ///    whitespace-only content runs (e.g. a span covering `" "` or padding
+    ///    added inside the text itself).  Python's `_FormattedLine.to_strip`
+    ///    passes every run through `(style + text_style).rich_style` regardless
+    ///    of whether it contains glyphs.
+    ///
+    ///    **C1 seam 1 fix**: the previous `has_glyph` guard that dropped fg on
+    ///    whitespace content runs was incorrect; it is removed.
+    ///
+    /// 2. **Alignment-pad segments** (`pad_left` / `pad_right` from centering or
+    ///    right-alignment): carry only the background
+    ///    (`visual_style.background_style`, no fg) — matching Python's
+    ///    `style.background_style.rich_style` on those padding spaces.
+    ///
+    /// 3. **Vertical fill rows**: rows added to reach `height` carry the full
+    ///    style with `reverse` forced to `false` — matching Python
+    ///    `(style + Style(reverse=False)).rich_style` in `Visual.to_strips`.
+    ///
+    ///    **C1 seam 2 fix**: the previous bg-only fill surface is replaced with
+    ///    a full-style (minus reverse) surface, matching Python's fill contract.
+    ///    Chosen approach: compute the fill style inside `render_strips` (full
+    ///    style, reverse=false) and pass it to a dedicated `make_full_segment`
+    ///    helper — no structural change to widget wiring required.
     ///
     /// # Phase D — wired into Label/Static render path
     ///
@@ -1007,11 +1025,21 @@ impl Content {
             .map(|line| render_content_line_to_segments(&line, width, visual_style, align))
             .collect();
 
-        // Step 5: vertical fill — pad to height with bg-only blank rows.
+        // Step 5: vertical fill — pad to height.
+        //
+        // Python `Visual.to_strips` fills missing rows via `strip.extend_cell_length`
+        // and `Strip.align` using `rich_style = (style + Style(reverse=False)).rich_style`
+        // — i.e. the full style but with `reverse` forced to `false`.
+        //
+        // C1 seam 2: use full style (fg, bg, bold, etc.) with reverse=false for fill
+        // rows rather than bg-only.
         if let Some(h) = height {
             let fill_count = h.saturating_sub(n_content_lines);
             if fill_count > 0 {
-                let blank = make_bg_segment(" ".repeat(width), visual_style);
+                // Build a fill style: full visual_style, reverse forced to false.
+                let mut fill_style = visual_style.clone();
+                fill_style.reverse = Some(false);
+                let blank = make_full_segment(" ".repeat(width), &fill_style);
                 for _ in 0..fill_count {
                     strips.push(vec![blank.clone()]);
                 }
@@ -1077,15 +1105,17 @@ fn render_content_line_to_segments(
 /// Walk the span coverage map of `content` and emit `rich_rs::Segment`s into
 /// `out`, applying `visual_style` as the base and span styles layered on top.
 ///
-/// Key surface rule (mirrors Python `_FormattedLine.to_strip` + `apply_style_to_segments`
-/// `has_glyph` guard in `segments.rs`):
-/// - **Glyph cells** (any non-whitespace character in the run): emit with full
-///   `rich_rs::Style` built from `visual_style.fg + span_style.fg` + `visual_style.bg`.
-/// - **Whitespace-only runs**: emit with bg only (no fg) — mirrors Python
-///   `style.background_style.rich_style` on pad segments.
+/// Surface rule (mirrors Python `_FormattedLine.to_strip` / `Content.render()`):
+/// - **ALL content runs** (glyph and whitespace alike) receive the **full** merged
+///   style: `(visual_style + span_style)` — fg, bg, text attributes.
+/// - Python's `_FormattedLine.to_strip` passes every run produced by
+///   `Content.render()` through `(style + text_style).rich_style` without any
+///   has-glyph discrimination.  A whitespace span styled with `reverse=True` or
+///   `underline=True` must show those attributes on the spaces.
 ///
-/// This keeps the App/Screen default `color: $foreground` reaching text glyphs
-/// but not fill spaces.
+/// The `has_glyph` guard is **not** applied here (C1 seam 1 fix).
+/// Bg-only treatment is restricted to alignment pad segments built by
+/// `make_bg_segment` (pad_left / pad_right in `render_content_line_to_segments`).
 fn emit_rendered_segments(
     content: &Content,
     visual_style: &Style,
@@ -1165,8 +1195,11 @@ fn emit_rendered_segments(
                     effective = effective.combine(&span_style);
                 }
 
-                let has_glyph = run.chars().any(|c| !c.is_whitespace());
-                let seg = make_segment(run, &effective, visual_style, has_glyph);
+                // Apply full style to ALL content runs — including whitespace.
+                // Python's Content.render() + _FormattedLine.to_strip uses
+                // (style + text_style).rich_style for every run without any
+                // has_glyph discrimination.  C1 seam 1 fix.
+                let seg = make_segment(run, &effective, visual_style);
                 out.push(seg);
             }
         }
@@ -1176,19 +1209,41 @@ fn emit_rendered_segments(
     }
 }
 
-/// Build a `rich_rs::Segment` for a text run.
+/// Build a `rich_rs::Segment` for a **content** text run applying the **full**
+/// effective style (fg + bg + all text attributes).
+///
+/// C1 seam 1: the previous `has_glyph` parameter that dropped fg/attributes on
+/// whitespace-only runs is **removed**.  Every content run — including spaces
+/// covered by a span with `reverse`, `underline`, etc. — must carry the full
+/// style, matching Python's `(style + text_style).rich_style`.
 ///
 /// - `effective_style` — the merged style (visual_style + span styles) for this run.
-/// - `visual_style` — the base visual style (for bg fallback).
-/// - `has_glyph` — if true, apply fg; if false (whitespace-only) apply bg only.
+/// - `visual_style`    — the base visual style (bg fallback when effective has none).
 fn make_segment(
     text: &str,
     effective_style: &Style,
     visual_style: &Style,
-    has_glyph: bool,
+) -> rich_rs::Segment {
+    make_full_segment_with_bg_fallback(text, effective_style, visual_style)
+}
+
+/// Build a `rich_rs::Segment` applying the **full** style (fg, bg, text attrs).
+///
+/// Used by the vertical-fill path (seam 2) where the style is already
+/// pre-computed (full style, reverse forced off).
+fn make_full_segment(text: impl Into<String>, style: &Style) -> rich_rs::Segment {
+    make_full_segment_with_bg_fallback(&text.into(), style, style)
+}
+
+/// Core helper: build a segment with all style attributes from `effective_style`,
+/// using `visual_style.bg` as the fallback background if `effective_style.bg`
+/// is absent.
+fn make_full_segment_with_bg_fallback(
+    text: &str,
+    effective_style: &Style,
+    visual_style: &Style,
 ) -> rich_rs::Segment {
     // Determine the resolved background color for this cell.
-    // bg comes from the effective style (or visual_style as fallback).
     let bg = effective_style.bg.or(visual_style.bg);
     let default_bg = bg.unwrap_or(crate::style::Color::rgb(0, 0, 0));
 
@@ -1203,37 +1258,35 @@ fn make_segment(
         }
     }
 
-    // Foreground: only on glyph cells, mirroring `has_glyph` guard in segments.rs.
-    if has_glyph {
-        if let Some(fg_color) = effective_style.fg {
-            let flat = if fg_color.a >= 1.0 {
-                fg_color
-            } else {
-                fg_color.flatten_over(default_bg)
-            };
-            if flat.a > 0.0 {
-                rich = rich.with_color(flat.to_simple_opaque());
-            }
+    // Foreground — applied to ALL runs (seam 1: no has_glyph guard).
+    if let Some(fg_color) = effective_style.fg {
+        let flat = if fg_color.a >= 1.0 {
+            fg_color
+        } else {
+            fg_color.flatten_over(default_bg)
+        };
+        if flat.a > 0.0 {
+            rich = rich.with_color(flat.to_simple_opaque());
         }
-        // Text attributes (bold, italic, etc.).
-        if let Some(bold) = effective_style.bold {
-            rich = rich.with_bold(bold);
-        }
-        if let Some(dim) = effective_style.dim {
-            rich = rich.with_dim(dim);
-        }
-        if let Some(italic) = effective_style.italic {
-            rich = rich.with_italic(italic);
-        }
-        if let Some(underline) = effective_style.underline {
-            rich = rich.with_underline(underline);
-        }
-        if let Some(reverse) = effective_style.reverse {
-            rich.reverse = Some(reverse);
-        }
-        if let Some(strike) = effective_style.strike {
-            rich = rich.with_strike(strike);
-        }
+    }
+    // Text attributes — applied to ALL runs.
+    if let Some(bold) = effective_style.bold {
+        rich = rich.with_bold(bold);
+    }
+    if let Some(dim) = effective_style.dim {
+        rich = rich.with_dim(dim);
+    }
+    if let Some(italic) = effective_style.italic {
+        rich = rich.with_italic(italic);
+    }
+    if let Some(underline) = effective_style.underline {
+        rich = rich.with_underline(underline);
+    }
+    if let Some(reverse) = effective_style.reverse {
+        rich.reverse = Some(reverse);
+    }
+    if let Some(strike) = effective_style.strike {
+        rich = rich.with_strike(strike);
     }
 
     rich_rs::Segment::styled(text.to_string(), rich)
@@ -2374,12 +2427,18 @@ mod tests {
         }
     }
 
-    /// Vertical fill: height > content rows → extra blank bg-only rows.
+    /// C1 seam 2: vertical fill rows carry the full style (fg + bg, reverse=false).
+    ///
+    /// Python `Visual.to_strips` uses `(style + Style(reverse=False)).rich_style`
+    /// for fill rows — NOT bg-only.  This test ensures the Rust implementation
+    /// matches: fill rows carry fg and bg from visual_style, with reverse=false.
     #[test]
-    fn test_render_strips_vertical_fill_bg_only() {
+    fn test_render_strips_vertical_fill_full_style() {
         let red = crate::style::Color::rgb(200, 0, 0);
         let blue = crate::style::Color::rgb(0, 0, 200);
-        let visual = Style::new().fg(blue).bg(red);
+        // Build visual_style with both fg and bg, plus reverse=true (which fill rows
+        // must override to false per Python semantics).
+        let visual = Style::new().fg(blue).bg(red).reverse(true);
         let c = Content::from_text("hi");
         let strips = c.render_strips(
             5,
@@ -2392,17 +2451,29 @@ mod tests {
             null_resolver,
         );
         assert_eq!(strips.len(), 3, "should produce 3 rows (1 content + 2 fill)");
-        // Fill rows (index 1 and 2) must have bg, no fg.
+        // Fill rows (index 1 and 2) must carry fg AND bg (full style, not bg-only).
         for fill_row in &strips[1..] {
             for seg in fill_row {
                 let fg = seg.style.as_ref().and_then(|s| s.color);
                 assert!(
-                    fg.is_none(),
-                    "vertical fill row must not carry fg; got {:?}",
-                    fg
+                    fg.is_some(),
+                    "vertical fill row must carry fg (C1 seam 2); got None"
+                );
+                assert_eq!(
+                    fg.unwrap(),
+                    rich_rs::SimpleColor::Rgb { r: 0, g: 0, b: 200 },
+                    "fill row fg must match visual_style fg"
                 );
                 let bg = seg.style.as_ref().and_then(|s| s.bgcolor);
                 assert!(bg.is_some(), "vertical fill row must carry bg");
+                // reverse must be forced to false (Python: Style(reverse=False) wins).
+                let rev = seg.style.as_ref().and_then(|s| s.reverse);
+                assert_eq!(
+                    rev,
+                    Some(false),
+                    "fill row reverse must be false (not inherited true); got {:?}",
+                    rev
+                );
             }
         }
     }
@@ -2515,15 +2586,28 @@ mod tests {
         );
     }
 
-    /// line_pad: content-pad spaces (from wrap_and_format) appear in the output
-    /// and must not carry fg.
+    /// C1 seam 1: `line_pad` spaces are content runs (part of the Content text
+    /// produced by `wrap_and_format`), not alignment-pad segments.  Python's
+    /// `Content.render()` yields them with `base_style` applied, and
+    /// `_FormattedLine.to_strip` wraps them in `(style + text_style).rich_style` —
+    /// so they DO carry fg from the visual_style.
+    ///
+    /// This test verifies via a span-boundary approach: a span covering only the
+    /// word ("hi") forces the leading/trailing spaces to be separate segments.
+    /// Those space-only segments must carry fg.
+    ///
+    /// This is distinct from alignment-pad segments (`pad_left` / `pad_right`
+    /// produced by `make_bg_segment`) which are bg-only.
     #[test]
-    fn test_render_strips_line_pad_no_fg() {
+    fn test_render_strips_line_pad_carries_fg() {
         let blue = crate::style::Color::rgb(0, 0, 200);
+        // Use a span on "hi" — this forces the pad spaces to be emitted as
+        // separate segments (before/after the span boundary).
+        let bold = Style::new().bold(true);
+        let c = Content::styled("hi", bold);
+        // width=6, line_pad=1 → wrap_and_format produces " hi " (1+2+1 = 4 cells),
+        // with a span covering "hi" at byte 1..3 (after pad_left(1)).
         let visual = Style::new().fg(blue);
-        let c = Content::from_text("hi");
-        // width=6, line_pad=1 → wrap_and_format produces " hi " (1+2+1 = 4 cells).
-        // With left-align, render_strips emits those 4 cells as segments.
         let strips = c.render_strips(
             6,
             Some(1),
@@ -2539,14 +2623,172 @@ mod tests {
         // The wrapped line is " hi " (4 cells, padded), left-aligned in width=6.
         assert!(full_text.starts_with(' '), "line_pad left space should be present");
         assert!(full_text.ends_with(' '), "line_pad right space should be present");
-        // The leading/trailing space segments must NOT carry fg.
-        for seg in &strips[0] {
-            if seg.text.chars().all(|c| c == ' ') {
+        // Content-run spaces (line_pad) carry fg from visual_style (C1 seam 1 fix).
+        // The span boundary forces separate segments; look for space-only segments
+        // with fg set.
+        let has_fg_space = strips[0].iter().any(|seg| {
+            seg.text.chars().all(|c| c == ' ')
+                && !seg.text.is_empty()
+                && seg.style.as_ref().and_then(|s| s.color).is_some()
+        });
+        assert!(
+            has_fg_space,
+            "line_pad content spaces must carry fg (C1 seam 1); no fg-bearing space found. \
+             Segments: {:?}",
+            strips[0].iter().map(|s| (&s.text, s.style.as_ref().and_then(|st| st.color))).collect::<Vec<_>>()
+        );
+    }
+
+    // =========================================================================
+    // C1 seam regression tests (SEAM 1 + SEAM 2)
+    // =========================================================================
+
+    /// SEAM 1 regression: `reverse` on a whitespace-only content span is PRESERVED.
+    ///
+    /// Python `_FormattedLine.to_strip` applies `(style + text_style).rich_style`
+    /// to ALL content runs — including whitespace.  A span covering only spaces
+    /// but styled with `reverse=true` must have that attribute in the output segment.
+    ///
+    /// Prior (incorrect) behavior: the `has_glyph` guard dropped fg/attributes on
+    /// whitespace-only runs.  This test pins the fix.
+    #[test]
+    fn test_seam1_whitespace_span_reverse_preserved() {
+        // Construct content where a span covers only a space and sets reverse=true.
+        // "a b" with span covering byte 1 (the " ") with reverse=true.
+        let reverse_style = Style::new().reverse(true);
+        let c = Content::assemble(vec![
+            ContentPart::from("a"),
+            ContentPart::from((" ", reverse_style.clone())),
+            ContentPart::from("b"),
+        ]);
+        assert_eq!(c.plain(), "a b");
+
+        let strips = c.render_strips(
+            3,
+            Some(1),
+            &Style::new(),
+            crate::style::TextAlign::Left,
+            "fold",
+            false,
+            0,
+            null_resolver,
+        );
+        assert_eq!(strips.len(), 1);
+
+        // Find the segment for the space character.
+        let space_seg = strips[0].iter().find(|seg| seg.text == " ");
+        assert!(
+            space_seg.is_some(),
+            "expected a separate segment for the space"
+        );
+        let space_seg = space_seg.unwrap();
+        let rev = space_seg.style.as_ref().and_then(|s| s.reverse);
+        assert_eq!(
+            rev,
+            Some(true),
+            "reverse on whitespace-only span must be preserved (C1 seam 1 fix); got {:?}",
+            rev
+        );
+    }
+
+    /// SEAM 1 regression: `underline` on a whitespace-only content span is PRESERVED.
+    ///
+    /// Same invariant as the reverse test above — text attributes on whitespace
+    /// content runs must be present in the output.
+    #[test]
+    fn test_seam1_whitespace_span_underline_preserved() {
+        let underline_style = Style::new().underline(true);
+        let c = Content::assemble(vec![
+            ContentPart::from("x"),
+            ContentPart::from(("   ", underline_style.clone())),
+            ContentPart::from("y"),
+        ]);
+        assert_eq!(c.plain(), "x   y");
+
+        let strips = c.render_strips(
+            5,
+            Some(1),
+            &Style::new(),
+            crate::style::TextAlign::Left,
+            "fold",
+            false,
+            0,
+            null_resolver,
+        );
+        assert_eq!(strips.len(), 1);
+
+        // Find a segment that is entirely spaces (from the span).
+        let space_seg = strips[0]
+            .iter()
+            .find(|seg| seg.text.chars().all(|c| c == ' ') && !seg.text.is_empty());
+        assert!(
+            space_seg.is_some(),
+            "expected a segment for the underlined spaces"
+        );
+        let space_seg = space_seg.unwrap();
+        let underline = space_seg.style.as_ref().and_then(|s| s.underline);
+        assert_eq!(
+            underline,
+            Some(true),
+            "underline on whitespace-only span must be preserved (C1 seam 1 fix); got {:?}",
+            underline
+        );
+    }
+
+    /// SEAM 2 regression: vertical fill surface matches Python — full style with
+    /// reverse forced to false.
+    ///
+    /// Python `Visual.to_strips` computes:
+    ///   `rich_style = (style + Style(reverse=False)).rich_style`
+    /// for fill rows.  This means fg + bg ARE present; reverse is forced off.
+    ///
+    /// Prior (incorrect) behavior: fill rows were bg-only.
+    #[test]
+    fn test_seam2_vertical_fill_full_style_reverse_false() {
+        let red = crate::style::Color::rgb(200, 0, 0);
+        let blue = crate::style::Color::rgb(0, 0, 200);
+        // visual_style has fg=blue, bg=red, reverse=true.
+        let visual = Style::new().fg(blue).bg(red).reverse(true);
+        let c = Content::from_text("hi");
+        let strips = c.render_strips(
+            5,
+            Some(3), // 1 content row + 2 fill rows
+            &visual,
+            crate::style::TextAlign::Left,
+            "fold",
+            false,
+            0,
+            null_resolver,
+        );
+        assert_eq!(strips.len(), 3);
+
+        // Fill rows at index 1 and 2.
+        for (row_i, fill_row) in strips[1..].iter().enumerate() {
+            assert!(!fill_row.is_empty(), "fill row {} must not be empty", row_i + 1);
+            for seg in fill_row {
+                // fg must be present (full style, not bg-only).
                 let fg = seg.style.as_ref().and_then(|s| s.color);
                 assert!(
-                    fg.is_none(),
-                    "line_pad space must not carry fg; got {:?}",
-                    fg
+                    fg.is_some(),
+                    "fill row {} must carry fg (C1 seam 2); got None",
+                    row_i + 1
+                );
+                assert_eq!(
+                    fg.unwrap(),
+                    rich_rs::SimpleColor::Rgb { r: 0, g: 0, b: 200 },
+                    "fill row fg must equal visual_style fg"
+                );
+                // bg must be present.
+                let bg = seg.style.as_ref().and_then(|s| s.bgcolor);
+                assert!(bg.is_some(), "fill row must carry bg");
+                // reverse must be forced to false (not inherited from visual_style).
+                let rev = seg.style.as_ref().and_then(|s| s.reverse);
+                assert_eq!(
+                    rev,
+                    Some(false),
+                    "fill row reverse must be false even when visual_style has reverse=true \
+                     (C1 seam 2); got {:?}",
+                    rev
                 );
             }
         }
