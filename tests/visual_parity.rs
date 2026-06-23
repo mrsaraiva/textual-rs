@@ -107,6 +107,13 @@ const PASSING: &[&str] = &[
     // pre-existing missed promotion; box_sizing now matches after the Static
     // off-tree id() resolution stopped inserting a spurious Node wrapper level.
     "box_sizing", "min_height",
+    // Promoted after replacing Placeholder (cycling bg, centered label) with
+    // Label::new("Widget") in the width/height example mains — matches Python's
+    // bare Widget(): literal "Widget" text top-left (no content-align), green bg,
+    // white fg. CSS adds the unset dimension (height:1fr / width:1fr) to mirror
+    // Python's fill-the-screen default for a bare Widget. (Example-only fix;
+    // Placeholder bg cycling must stay for max_width/min_width.)
+    "width", "height",
 ];
 
 struct StyledCase {
