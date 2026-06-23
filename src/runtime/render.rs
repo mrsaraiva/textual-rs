@@ -1614,21 +1614,6 @@ fn paint_keylines(
     if keyline.keyline_type == KeylineType::None {
         return;
     }
-    let ch = match keyline.keyline_type {
-        KeylineType::None => return,
-        KeylineType::Thin => match layout {
-            Layout::Horizontal => '│',
-            _ => '─',
-        },
-        KeylineType::Heavy => match layout {
-            Layout::Horizontal => '┃',
-            _ => '━',
-        },
-        KeylineType::Double => match layout {
-            Layout::Horizontal => '║',
-            _ => '═',
-        },
-    };
     let line_style = rich_rs::Style::new().with_color(keyline.color.to_simple_opaque());
 
     let Some(parent) = tree.get(parent_id) else {
@@ -1657,55 +1642,86 @@ fn paint_keylines(
             keyline.keyline_type,
             h_char,
             v_char,
+            None, // Grid: derive positions from child rects
         );
         return;
     }
 
-    for pair in child_ids.windows(2) {
-        let Some(a) = tree.get(pair[0]) else {
-            continue;
-        };
-        let Some(_b) = tree.get(pair[1]) else {
-            continue;
-        };
-        let ar = a.layout_rect;
-        match layout {
-            Layout::Horizontal => {
-                let x = i32::from(ar.x1) + ctx.origin_x;
-                let y0 = i32::from(parent_rect.y0) + ctx.origin_y;
-                let y1 = i32::from(parent_rect.y1) + ctx.origin_y;
-                if x < ctx.clip.x0 || x >= ctx.clip.x1 {
+    // Build the set of horizontal and vertical line positions for
+    // Horizontal / Vertical layouts.  Python draws a Rectangle around every
+    // child, which naturally produces outer-boundary lines and proper corner /
+    // T-junction characters.  We replicate that by collecting:
+    //   Horizontal layout: outer top/bottom + vertical dividers at each
+    //     child's right edge (except the last).
+    //   Vertical layout:   outer left/right + horizontal dividers at each
+    //     child's bottom edge (except the last).
+    // We then delegate to the same junction-aware rasteriser used for Grid.
+
+    let (h_char, v_char) = match keyline.keyline_type {
+        KeylineType::None => return,
+        KeylineType::Thin => ('─', '│'),
+        KeylineType::Heavy => ('━', '┃'),
+        KeylineType::Double => ('═', '║'),
+    };
+
+    let x_start = i32::from(parent_rect.x0) + ctx.origin_x;
+    let y_start = i32::from(parent_rect.y0) + ctx.origin_y;
+    // x_end / y_end are inclusive pixel positions of the last column/row.
+    let x_end = (i32::from(parent_rect.x1) + ctx.origin_x).saturating_sub(1);
+    let y_end = (i32::from(parent_rect.y1) + ctx.origin_y).saturating_sub(1);
+    if x_start > x_end || y_start > y_end {
+        return;
+    }
+
+    let mut verticals: BTreeSet<i32> = BTreeSet::new();
+    let mut horizontals: BTreeSet<i32> = BTreeSet::new();
+    // Always include the outer boundary.
+    verticals.insert(x_start);
+    verticals.insert(x_end);
+    horizontals.insert(y_start);
+    horizontals.insert(y_end);
+
+    match layout {
+        Layout::Horizontal => {
+            // Add a vertical divider at the right edge of every child.
+            // `layout_rect.x1` is exclusive (first column AFTER the child),
+            // which is exactly where the divider line sits — same convention
+            // as the grid code.  The last child's x1 equals the parent's x1,
+            // which maps to x_end after the saturating_sub(1) above, so it
+            // gets clamped to x_end and merges with the outer boundary.
+            for child_id in &child_ids {
+                let Some(child) = tree.get(*child_id) else {
                     continue;
-                }
-                for y in y0.max(ctx.clip.y0)..y1.min(ctx.clip.y1) {
-                    if y < 0 || y >= frame.height as i32 || x < 0 || x >= frame.width as i32 {
-                        continue;
-                    }
-                    let cell = frame.get_mut(x as usize, y as usize);
-                    cell.text = ch.to_string();
-                    cell.style = Some(line_style);
-                    cell.continuation = false;
-                }
+                };
+                let x = i32::from(child.layout_rect.x1) + ctx.origin_x;
+                verticals.insert(x.clamp(x_start, x_end));
             }
-            _ => {
-                let y = i32::from(ar.y1) + ctx.origin_y;
-                let x0 = i32::from(parent_rect.x0) + ctx.origin_x;
-                let x1 = i32::from(parent_rect.x1) + ctx.origin_x;
-                if y < ctx.clip.y0 || y >= ctx.clip.y1 {
+        }
+        _ => {
+            // Vertical layout: add a horizontal divider at the bottom edge
+            // of every child.
+            for child_id in &child_ids {
+                let Some(child) = tree.get(*child_id) else {
                     continue;
-                }
-                for x in x0.max(ctx.clip.x0)..x1.min(ctx.clip.x1) {
-                    if x < 0 || x >= frame.width as i32 || y < 0 || y >= frame.height as i32 {
-                        continue;
-                    }
-                    let cell = frame.get_mut(x as usize, y as usize);
-                    cell.text = ch.to_string();
-                    cell.style = Some(line_style);
-                    cell.continuation = false;
-                }
+                };
+                let y = i32::from(child.layout_rect.y1) + ctx.origin_y;
+                horizontals.insert(y.clamp(y_start, y_end));
             }
         }
     }
+
+    paint_grid_keylines(
+        tree,
+        &child_ids,
+        parent_rect,
+        ctx,
+        frame,
+        line_style,
+        keyline.keyline_type,
+        h_char,
+        v_char,
+        Some((&verticals, &horizontals)),
+    );
 }
 
 fn keyline_junction_char(
@@ -1782,6 +1798,12 @@ fn keyline_junction_char(
     }
 }
 
+/// Rasterise keyline box-drawing for both Grid layouts (where `precomputed`
+/// is `None`) and for Horizontal/Vertical layouts (where the caller passes
+/// pre-computed `verticals` and `horizontals` sets).
+///
+/// When `precomputed` is `None` the function derives the divider positions
+/// from every child's right/bottom edge (the original Grid behaviour).
 fn paint_grid_keylines(
     tree: &WidgetTree,
     child_ids: &[NodeId],
@@ -1792,6 +1814,7 @@ fn paint_grid_keylines(
     keyline_type: KeylineType,
     h_char: char,
     v_char: char,
+    precomputed: Option<(&BTreeSet<i32>, &BTreeSet<i32>)>,
 ) {
     let frame_w = frame.width as i32;
     let frame_h = frame.height as i32;
@@ -1807,23 +1830,33 @@ fn paint_grid_keylines(
         return;
     }
 
-    let mut verticals: BTreeSet<i32> = BTreeSet::new();
-    let mut horizontals: BTreeSet<i32> = BTreeSet::new();
-    verticals.insert(x_start);
-    verticals.insert(x_end);
-    horizontals.insert(y_start);
-    horizontals.insert(y_end);
+    // Either use caller-supplied line positions, or derive them from child rects.
+    let (verticals, horizontals);
+    let (v_ref, h_ref): (&BTreeSet<i32>, &BTreeSet<i32>) = if let Some((pv, ph)) = precomputed {
+        (pv, ph)
+    } else {
+        let mut v: BTreeSet<i32> = BTreeSet::new();
+        let mut h: BTreeSet<i32> = BTreeSet::new();
+        v.insert(x_start);
+        v.insert(x_end);
+        h.insert(y_start);
+        h.insert(y_end);
 
-    for child_id in child_ids {
-        let Some(child) = tree.get(*child_id) else {
-            continue;
-        };
-        let rect = child.layout_rect;
-        let x = i32::from(rect.x1) + ctx.origin_x;
-        let y = i32::from(rect.y1) + ctx.origin_y;
-        verticals.insert(x.clamp(x_start, x_end));
-        horizontals.insert(y.clamp(y_start, y_end));
-    }
+        for child_id in child_ids {
+            let Some(child) = tree.get(*child_id) else {
+                continue;
+            };
+            let rect = child.layout_rect;
+            let x = i32::from(rect.x1) + ctx.origin_x;
+            let y = i32::from(rect.y1) + ctx.origin_y;
+            v.insert(x.clamp(x_start, x_end));
+            h.insert(y.clamp(y_start, y_end));
+        }
+
+        verticals = v;
+        horizontals = h;
+        (&verticals, &horizontals)
+    };
 
     let x0 = x_start.max(ctx.clip.x0).max(0);
     let x1 = x_end.min(ctx.clip.x1 - 1).min(frame_w - 1);
@@ -1834,17 +1867,17 @@ fn paint_grid_keylines(
     }
 
     for y in y0..=y1 {
-        let on_h = horizontals.contains(&y);
+        let on_h = h_ref.contains(&y);
         for x in x0..=x1 {
-            let on_v = verticals.contains(&x);
+            let on_v = v_ref.contains(&x);
             if !on_h && !on_v {
                 continue;
             }
             let ch = if on_h && on_v {
-                let up = verticals.contains(&x) && y > y_start;
-                let down = verticals.contains(&x) && y < y_end;
-                let left = horizontals.contains(&y) && x > x_start;
-                let right = horizontals.contains(&y) && x < x_end;
+                let up = v_ref.contains(&x) && y > y_start;
+                let down = v_ref.contains(&x) && y < y_end;
+                let left = h_ref.contains(&y) && x > x_start;
+                let right = h_ref.contains(&y) && x < x_end;
                 keyline_junction_char(keyline_type, up, down, left, right, h_char, v_char)
             } else if on_h {
                 h_char
@@ -1853,7 +1886,17 @@ fn paint_grid_keylines(
             };
             let cell = frame.get_mut(x as usize, y as usize);
             cell.text = ch.to_string();
-            cell.style = Some(line_style);
+            // Preserve the existing cell background and overlay only the
+            // keyline foreground colour.  Python renders keylines as a canvas
+            // overlay whose style carries only a foreground; the background
+            // stays whatever the surface beneath already painted.
+            let existing_bg = cell.style.and_then(|s| s.bgcolor);
+            let merged = if let Some(bg) = existing_bg {
+                line_style.with_bgcolor(bg)
+            } else {
+                line_style
+            };
+            cell.style = Some(merged);
             cell.continuation = false;
         }
     }

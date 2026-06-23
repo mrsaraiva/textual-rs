@@ -58,6 +58,11 @@ const PASSING: &[&str] = &[
     // an early-return guard) — border_all/outline_all grid cells are now centred
     // vertically/horizontally just like every other layout strategy:
     "border_all", "outline_all",
+    // Promoted after paint_keylines was extended to draw the full outer boundary
+    // (top/bottom horizontal lines + corner/T junctions) for Horizontal/Vertical
+    // layouts — previously only drew interior vertical dividers.  Background of
+    // keyline characters now preserves the surface beneath (bg-overlay fix):
+    "keyline_horizontal",
 ];
 
 struct StyledCase {

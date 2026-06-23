@@ -7,6 +7,24 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-22 (fix(render): paint_keylines draws full outer boundary + corner junctions)
+
+- **fix(render): `paint_keylines` now draws complete keyline box for Horizontal/Vertical layouts**
+  - Previously only drew interior vertical dividers between adjacent children and omitted the
+    top/bottom horizontal lines, left/right outer boundary verticals, and corner/T-junction
+    characters — producing bare dividers instead of a full box.
+  - Fix: for Horizontal layouts, collect outer boundary (x_start, x_end) plus each child's
+    right edge as vertical line positions; for Vertical layouts collect outer boundary
+    (y_start, y_end) plus each child's bottom edge as horizontal line positions.  Delegate to
+    the same junction-aware rasteriser used by the Grid path so corners and T-junctions are
+    computed correctly via `keyline_junction_char`.
+  - Background-preservation fix: keyline characters now preserve the existing cell background
+    from the surface beneath instead of resetting it to "default" — matching Python's canvas
+    overlay behaviour which carries only a foreground colour.
+  - Styled parity 36→37 PASS (`keyline_horizontal` promoted); 0 regressions; pty_parity 186;
+    full suite green.  (`keyline` grid example remains PENDING due to missing column-span/
+    row-span layout support — a separate workstream gap.)
+
 ### 2026-06-22 (fix(layout): apply_parent_align runs for Grid — border_all/outline_all promoted)
 
 - **fix(layout): remove early-return guard that skipped `apply_parent_align` for `Layout::Grid`**
