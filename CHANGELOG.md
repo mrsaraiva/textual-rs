@@ -7,6 +7,24 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-23 (feat(links): `links` example parity — id-selector CSS on Static, @click link styling, trailing-newline row count)
+
+- **`Static::id()`** now sets `seed.css_id` directly on the Static node (instead of
+  wrapping in a transparent `Node`), so CSS id-selectors (`#custom { link-color: ... }`)
+  target the Static widget itself. `css_id_cache` preserves the id across `take_node_seed()`
+  for off-tree CSS resolution.
+- **`Static::class()`** continues to return a `Node` wrapper, preserving the existing layout
+  tree structure that nesting01/02 and other examples depend on.
+- **`Static::render()`** now overlays `link-color` / `link-background` CSS tokens onto spans
+  carrying `@click` markup (mirrors Python `widget.link_style` applied per-span). Plain
+  content spans are never affected.
+- **`intrinsic_height()`** counts a trailing `\n` in the text as an extra blank line
+  (Python Rich counts it; Rust `str::lines()` previously ignored it).
+- **Trailing empty strip fix**: extra `Segment::line()` tokens are emitted for trailing empty
+  strips so `split_and_crop_lines` produces the correct blank row count without running the
+  vertical-fill path with `fg=#e0e0e0` on those rows.
+- Promotes `"links"` to the styled PASSING set. (styled 56→57)
+
 ### 2026-06-23 (fix(color): exact-0.5 placeholder alpha + Python opacity double-application)
 
 - **Placeholder bg** uses exact float `0.5` alpha (`rgba_f`) instead of `128/255`=0.50196,
