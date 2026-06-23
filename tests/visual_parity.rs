@@ -135,6 +135,14 @@ const PASSING: &[&str] = &[
     //    `link-background: $accent` yields dark link text instead of the screen
     //    contrast. Added `link_color_auto` marker to Style.
     "text_align", "link_background",
+    // Promoted after fixing CSS `hatch` compositing: the fill is now DEFERRED
+    // until after children render (so the inner content child of a `.class()`
+    // Node wrapper can no longer un-hatch the first inner row) and SCOPED to the
+    // node content box (inside border/padding) so it never bleeds into the
+    // border row — matching Python `line_post`/`apply_hatch`. The `Node` wrapper
+    // also gained `border_title`/`border_subtitle` support so the per-panel
+    // titles render on the border (Python `static.border_title = hatch`).
+    "hatch",
 ];
 
 struct StyledCase {

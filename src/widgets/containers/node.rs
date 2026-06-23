@@ -10,6 +10,12 @@ pub struct Node {
     child: Box<dyn Widget>,
     seed: NodeSeed,
     child_extracted: bool,
+    /// Optional text drawn on the top border (Python `widget.border_title`).
+    /// The `Node` wrapper carries the border (via its CSS class/id), so the
+    /// title must live here rather than on the inner content child.
+    border_title: Option<String>,
+    /// Optional text drawn on the bottom border (Python `widget.border_subtitle`).
+    border_subtitle: Option<String>,
 }
 
 impl Node {
@@ -18,7 +24,21 @@ impl Node {
             child: Box::new(child),
             seed: NodeSeed::default(),
             child_extracted: false,
+            border_title: None,
+            border_subtitle: None,
         }
+    }
+
+    /// Set the text rendered on the top border (Python `widget.border_title`).
+    pub fn with_border_title(mut self, title: impl Into<String>) -> Self {
+        self.border_title = Some(title.into());
+        self
+    }
+
+    /// Set the text rendered on the bottom border (Python `widget.border_subtitle`).
+    pub fn with_border_subtitle(mut self, subtitle: impl Into<String>) -> Self {
+        self.border_subtitle = Some(subtitle.into());
+        self
     }
 
     pub fn id(mut self, value: impl Into<String>) -> Self {
@@ -142,6 +162,14 @@ impl Widget for Node {
 
     fn style_id(&self) -> Option<&str> {
         self.seed.css_id.as_deref()
+    }
+
+    fn border_title(&self) -> Option<&str> {
+        self.border_title.as_deref()
+    }
+
+    fn border_subtitle(&self) -> Option<&str> {
+        self.border_subtitle.as_deref()
     }
 }
 
