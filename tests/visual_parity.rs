@@ -73,6 +73,11 @@ const PASSING: &[&str] = &[
     // a hardcoded cyan/underline (OSC8 meta only, matching Python Rich+Textual), so
     // link styling now comes from the CSS link-* tokens as Python does:
     "link_background_hover", "link_color_hover", "link_style", "link_style_hover",
+    // Promoted after applying link-* CSS tokens to [@click=...] markup spans in
+    // Label/Static render (mirrors Python's `widget.link_style` applied to @click
+    // segments), and fixing CSS parser to handle `link-color: <color> <N>%` alpha
+    // shorthand (same as `background`/`color` already supported):
+    "link_color",
     // Promoted after migrating Label/Static render() to Content::render_strips:
     // text-style flags (bold/italic/underline/reverse), border, border_title,
     // box-sizing, padding, and dimension examples now use the Content pipeline

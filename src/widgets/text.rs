@@ -256,11 +256,39 @@ impl Widget for Label {
         render_style.bg = Some(effective_bg);
 
         // Build Content from the label text.
-        let content = if self.markup {
+        let mut content = if self.markup {
             crate::content::Content::from_markup(&self.text)
         } else {
             crate::content::Content::from_text(&self.text)
         };
+
+        // Apply link-* CSS styling to `[@click=...]` spans.
+        //
+        // Python's `widget.link_style` is applied to any segment whose meta
+        // carries `@click` (see `widget.py` `_StyledRenderable.__rich_console__`).
+        // We mirror this: detect spans whose raw_tag starts with `@click=` and
+        // overlay the link style computed from the widget's link-* CSS properties.
+        //
+        // `[link=url]` spans do NOT get link styling — only `@click` spans do.
+        if self.markup {
+            if let Some(link_span_style) =
+                compute_link_span_style(&visual_style, effective_bg)
+            {
+                // Collect @click span ranges first to avoid borrow conflicts.
+                let link_ranges: Vec<(usize, usize)> = content
+                    .spans()
+                    .iter()
+                    .filter(|span| {
+                        matches!(&span.span_style, crate::content::SpanStyle::Raw(raw)
+                            if raw.starts_with("@click=") || raw == "@click")
+                    })
+                    .map(|span| (span.start, span.end))
+                    .collect();
+                for (start, end) in link_ranges {
+                    content = content.stylize(link_span_style.clone(), start, end);
+                }
+            }
+        }
 
         // Resolve theme tokens in span styles using parse_tag_style, which calls
         // parse_color_like internally and handles $primary/$surface etc.
@@ -748,6 +776,74 @@ fn collapse_inline_whitespace(text: &str) -> String {
         }
     }
     out
+}
+
+/// Compute the link span style from a widget's resolved CSS properties.
+///
+/// Mirrors Python `Widget.link_style`:
+/// ```python
+/// link_background = background + styles.link_background
+/// link_color = link_background + styles.link_color  # (when auto_link_color=False)
+/// style = styles.link_style + Style.from_color(link_color.rich_color,
+///     link_background.rich_color if styles.link_background.a else None)
+/// ```
+///
+/// Returns `None` if no link_color is set (no visible link styling to apply).
+/// This matches Python: `link-color` defaults to the contrast text, which
+/// has alpha 0.87 — always Some in practice.
+fn compute_link_span_style(
+    visual_style: &crate::style::Style,
+    effective_bg: crate::style::Color,
+) -> Option<crate::style::Style> {
+    let link_color = visual_style.link_color?;
+
+    // Compose link_background over the effective background.
+    let link_bg = if let Some(lb) = visual_style.link_background {
+        if lb.a > 0.0 {
+            lb.flatten_over(effective_bg)
+        } else {
+            effective_bg
+        }
+    } else {
+        effective_bg
+    };
+
+    // Compose link_color over link_bg.
+    let computed_fg = link_color.flatten_over(link_bg);
+
+    let mut style = crate::style::Style::new();
+    style.fg = Some(computed_fg);
+
+    // Only set link background in the span style when link_background has alpha.
+    if let Some(lb) = visual_style.link_background {
+        if lb.a > 0.0 {
+            style.bg = Some(lb.flatten_over(effective_bg));
+        }
+    }
+
+    // Apply text style flags (bold, italic, underline, etc.).
+    if let Some(flags) = visual_style.link_style {
+        if flags.bold {
+            style.bold = Some(true);
+        }
+        if flags.dim {
+            style.dim = Some(true);
+        }
+        if flags.italic {
+            style.italic = Some(true);
+        }
+        if flags.underline {
+            style.underline = Some(true);
+        }
+        if flags.reverse {
+            style.reverse = Some(true);
+        }
+        if flags.strike {
+            style.strike = Some(true);
+        }
+    }
+
+    Some(style)
 }
 
 fn apply_text_style_flags(style: &mut rich_rs::Style, flags: &crate::style::TextStyleFlags) {

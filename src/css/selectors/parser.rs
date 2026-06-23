@@ -1618,13 +1618,23 @@ pub(super) fn parse_style_body(body: &str) -> Style {
                 };
             }
             // P2-32: link styling
+            // Use parse_color_like_with_alpha so that `link-color: hsl(...) 50%`
+            // and `link-color: red 80%` work (optional trailing alpha %).
             "link-color" => {
-                if let Some(color) = parse_color_like(value) {
+                if let Some((color, alpha)) = parse_color_like_with_alpha(value) {
+                    let color = match alpha {
+                        Some(p) => color.with_alpha(p as f32 / 100.0),
+                        None => color,
+                    };
                     style.link_color = Some(color);
                 }
             }
             "link-background" => {
-                if let Some(color) = parse_color_like(value) {
+                if let Some((color, alpha)) = parse_color_like_with_alpha(value) {
+                    let color = match alpha {
+                        Some(p) => color.with_alpha(p as f32 / 100.0),
+                        None => color,
+                    };
                     style.link_background = Some(color);
                 }
             }
@@ -1632,12 +1642,20 @@ pub(super) fn parse_style_body(body: &str) -> Style {
                 style.link_style = parse_link_style_value(value);
             }
             "link-color-hover" => {
-                if let Some(color) = parse_color_like(value) {
+                if let Some((color, alpha)) = parse_color_like_with_alpha(value) {
+                    let color = match alpha {
+                        Some(p) => color.with_alpha(p as f32 / 100.0),
+                        None => color,
+                    };
                     style.link_color_hover = Some(color);
                 }
             }
             "link-background-hover" => {
-                if let Some(color) = parse_color_like(value) {
+                if let Some((color, alpha)) = parse_color_like_with_alpha(value) {
+                    let color = match alpha {
+                        Some(p) => color.with_alpha(p as f32 / 100.0),
+                        None => color,
+                    };
                     style.link_background_hover = Some(color);
                 }
             }
