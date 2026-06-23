@@ -7,6 +7,29 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-22 (fix(layout): apply CSS `offset` in vertical/horizontal flow layout)
+
+- **fix(layout): flow-positioned widgets now honour `offset` CSS property**
+  - `layout_vertical` and `layout_horizontal` previously ignored `offset` entirely;
+    only `layout_absolute` applied it. Python's `layouts/vertical.py` and
+    `layouts/horizontal.py` store a per-placement offset in `WidgetPlacement` for
+    EVERY child, then apply it as a visual shift at render time. The Rust side now
+    mirrors this: after computing each child's normal-flow `(layout_x, layout_y)`,
+    `style.offset` is read and applied to produce `(visual_x, visual_y)` which is
+    stored in `layout_rect`/`content_rect`. The flow cursor (`y` in vertical, `x`
+    in horizontal) continues to advance from the unshifted flow position, so offset
+    is purely visual and does not perturb sibling layout — matching Python semantics.
+  - Percentage offsets resolve against the widget's own layout-box dimensions,
+    matching the `layout_absolute` precedent and Python's `ScalarOffset.resolve(size, viewport)`.
+  - **Known limitation**: `Rect` coordinates are `u16`; negative offsets that would
+    place a widget above/left of the screen origin saturate to 0 instead of going
+    off-screen (which would require `i16`/`i32` coordinates in `WidgetNode`). The
+    `offset.py` example (`Chani` with offset `0 -3`) therefore remains PENDING; full
+    negative-offset clipping needs `widget_tree.rs`/`render.rs` changes (out of scope
+    for this cluster). Positive offsets (`Paul` offset `8 2`, `Duncan` offset `4 10`)
+    render correctly.
+  - 0 regressions; pty_parity 186/0; full suite green.
+
 ### 2026-06-22 (fix(layout): apply_parent_align runs for Grid — border_all/outline_all promoted)
 
 - **fix(layout): remove early-return guard that skipped `apply_parent_align` for `Layout::Grid`**

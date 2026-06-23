@@ -1,5 +1,5 @@
 use crate::node_id::NodeId;
-use crate::style::BoxSizing;
+use crate::style::{BoxSizing, Offset, OffsetValue};
 use crate::widget_tree::WidgetTree;
 
 use super::common::{
@@ -8,6 +8,33 @@ use super::common::{
 };
 use super::region::Region;
 use super::resolve_1d::{Edge, layout_resolve_1d};
+
+/// Apply a CSS `offset` displacement to a (x, y) coordinate pair.
+///
+/// Mirrors Python `_arrange.py`: offset is a visual shift applied after the
+/// normal-flow position is established. Percentage offsets resolve against the
+/// widget's own layout box dimensions (matching `layout_absolute`).
+fn apply_offset(x: u16, y: u16, offset: &Offset, layout_w: u16, layout_h: u16) -> (u16, u16) {
+    let dx = match offset.x {
+        OffsetValue::Cells(c) => c as i32,
+        OffsetValue::Percent(p) => (layout_w as f32 * p / 100.0).round() as i32,
+    };
+    let dy = match offset.y {
+        OffsetValue::Cells(c) => c as i32,
+        OffsetValue::Percent(p) => (layout_h as f32 * p / 100.0).round() as i32,
+    };
+    let new_x = if dx >= 0 {
+        x.saturating_add(dx as u16)
+    } else {
+        x.saturating_sub(dx.unsigned_abs() as u16)
+    };
+    let new_y = if dy >= 0 {
+        y.saturating_add(dy as u16)
+    } else {
+        y.saturating_sub(dy.unsigned_abs() as u16)
+    };
+    (new_x, new_y)
+}
 pub fn layout_vertical(
     tree: &mut WidgetTree,
     children: &[NodeId],
@@ -21,6 +48,9 @@ pub fn layout_vertical(
 
     // Phase 1: collect style specs (immutable borrow of tree).
     let mut specs: Vec<ChildSpec> = Vec::with_capacity(children.len());
+    // Collect per-child CSS `offset` displacements (visual shift applied after
+    // flow position, mirroring Python `layouts/vertical.py` WidgetPlacement).
+    let mut offsets: Vec<Option<Offset>> = Vec::with_capacity(children.len());
     for &child in children {
         let mut style = get_node_style(tree, child);
 
@@ -215,6 +245,7 @@ pub fn layout_vertical(
         }
 
         specs.push(spec);
+        offsets.push(style.offset);
     }
 
     // Phase 2: build edges for height distribution.
@@ -316,9 +347,18 @@ pub fn layout_vertical(
             layout_h
         };
 
+        // Apply CSS `offset` displacement (visual shift; does NOT alter flow).
+        // Mirrors Python `layouts/vertical.py`: offset is stored per WidgetPlacement
+        // and applied when computing the widget's rendered position.
+        let (visual_x, visual_y) = if let Some(ref off) = offsets[i] {
+            apply_offset(layout_x, layout_y, off, layout_w, layout_h)
+        } else {
+            (layout_x, layout_y)
+        };
+
         // Content rect: inner area after border + padding.
-        let content_x = layout_x.saturating_add(spec.border_left + spec.padding.left);
-        let content_y = layout_y.saturating_add(spec.border_top + spec.padding.top);
+        let content_x = visual_x.saturating_add(spec.border_left + spec.padding.left);
+        let content_y = visual_y.saturating_add(spec.border_top + spec.padding.top);
         let content_w = layout_w.saturating_sub(
             spec.border_left + spec.border_right + spec.padding.left + spec.padding.right,
         );
@@ -327,12 +367,13 @@ pub fn layout_vertical(
         );
 
         if let Some(node) = tree.get_mut(child) {
-            node.layout_rect = Region::new(layout_x, layout_y, layout_w, layout_h).to_rect();
+            node.layout_rect = Region::new(visual_x, visual_y, layout_w, layout_h).to_rect();
             node.content_rect = Region::new(content_x, content_y, content_w, content_h).to_rect();
         }
 
         // Advance past this child's full outer box: top margin + box height +
         // bottom margin. `layout_h` is the resolved (max-clamped) box height.
+        // Flow position uses layout_y (not visual_y) — offset is visual-only.
         y = layout_y.saturating_add(layout_h).saturating_add(spec.margin.bottom);
         prev_margin_bottom = spec.margin.bottom;
     }
