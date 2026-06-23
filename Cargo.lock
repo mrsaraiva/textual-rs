@@ -732,9 +732,9 @@ checksum = "a96887878f22d7bad8a3b6dc5b7440e0ada9a245242924394987b21cf2210a4c"
 
 [[package]]
 name = "rich-rs"
-version = "1.1.1"
+version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ae86df8f193058252d4f898c267141e311bd5e1ab6bffb651d6c42d302da0d1c"
+checksum = "048b0c834001b296884eb111e6991448e1ba7bf3c6f9a76b137ba80e3e4c92fc"
 dependencies = [
  "atty",
  "crossterm",

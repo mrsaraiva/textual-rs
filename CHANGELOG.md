@@ -7,6 +7,14 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-22 (deps: bump rich-rs to 1.2.1 — link markup fix flips link examples)
+
+- **deps: rich-rs 1.1.1 → 1.2.1.** Picks up the `[link=url]` markup fix (OSC8 meta
+  only, no hardcoded cyan/underline), so link styling now comes from the CSS `link-*`
+  tokens as Python does. Flips styled examples `link_background_hover`,
+  `link_color_hover`, `link_style`, `link_style_hover` (styled 38→42). No regressions;
+  full suite green.
+
 ### 2026-06-22 (feat(content): Phase B — wrap_and_format, truncate, pad/align, divide/split)
 
 - **feat(content/Phase B): `Content::wrap_and_format` + manipulation API**

@@ -69,6 +69,10 @@ const PASSING: &[&str] = &[
     // layouts — previously only drew interior vertical dividers.  Background of
     // keyline characters now preserves the surface beneath (bg-overlay fix):
     "keyline_horizontal",
+    // Promoted after bumping rich-rs to 1.2.1: [link=url] markup no longer applies
+    // a hardcoded cyan/underline (OSC8 meta only, matching Python Rich+Textual), so
+    // link styling now comes from the CSS link-* tokens as Python does:
+    "link_background_hover", "link_color_hover", "link_style", "link_style_hover",
 ];
 
 struct StyledCase {
