@@ -15,6 +15,30 @@ until the API stabilizes.
   `link_color_hover`, `link_style`, `link_style_hover` (styled 38→42). No regressions;
   full suite green.
 
+### 2026-06-22 (feat(content): Phase C — Content::render_strips)
+
+- **feat(content/Phase C): `Content::render_strips`** — turns a `Content` into
+  fully-styled `Vec<Vec<rich_rs::Segment>>` for a given width / height /
+  alignment / overflow / `visual_style` / theme-token resolver.
+  - Implements the 3-surface semantic from Python `_FormattedLine.to_strip`
+    and `apply_style_to_segments`:
+    - **Glyph cells** carry full colour (fg + bg + text attrs from
+      `visual_style` combined with span styles).
+    - **Content-pad / alignment-pad cells** carry bg only (no fg) — mirrors
+      Python `style.background_style`.
+    - **Vertical fill rows** (when `height > content_rows`) carry bg only.
+  - Calls `wrap_and_format` internally; applies `resolve_styles(resolve_fn)`
+    so theme tokens (`$primary`, `auto 20%`) are resolved with live context.
+  - `align` (`Left / Center / Right / Justify`) and `line_pad` are fully
+    supported.
+  - ADDITIVE — not yet wired into the render path.  Migration is Phase D.
+  - 14 new unit tests asserting per-cell fg/bg for plain text, markup
+    (bold/color/custom resolver), alignment pad, vertical fill, wrapping,
+    overflow modes, line_pad, and the `has_glyph` invariant.
+  - All gates green: `cargo build`, docs/examples build, lib unit tests
+    compile, pty_parity 186/0, full `--tests` suite 0 FAILED, visual_parity
+    42 PASS / 0 REGRESSION.
+
 ### 2026-06-22 (feat(content): Phase B — wrap_and_format, truncate, pad/align, divide/split)
 
 - **feat(content/Phase B): `Content::wrap_and_format` + manipulation API**

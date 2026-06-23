@@ -1,5 +1,5 @@
-//! Textual `Content` subsystem — Phase A + B (data type, markup parser,
-//! wrap/format, truncate, pad/align).
+//! Textual `Content` subsystem — Phase A + B + C (data type, markup parser,
+//! wrap/format, truncate, pad/align, render_strips).
 //!
 //! `Content` is the styled-text model that replaces rich-rs `Text` for all
 //! Textual-level rendering.  It mirrors `textual/content.py`'s `Content` +
@@ -26,8 +26,14 @@
 //!   `rich_rs::divide_line` for break positions; does rstrip/truncate/pad here
 //!   per Textual semantics, never in rich-rs).
 //!
-//! ## NOT yet in Phase B
-//! - Render (`render_strips`, `render_segments`).
+//! ## Phase C scope
+//! - [`Content::render_strips`] — turn `Content` into fully-styled
+//!   `Vec<Vec<rich_rs::Segment>>` for a given width/height/align/overflow +
+//!   a visual [`Style`] + a theme-token resolver.  Subsumes the styled-render
+//!   semantics that are currently scattered across `core.rs`, `segments.rs`,
+//!   and `text.rs`; ADDITIVE — not yet wired into the render path.
+//!
+//! ## NOT yet in Phase C
 //! - Integration with the render path (`core.rs`, `segments.rs`, `text.rs`).
 //!
 //! See `docs/devel/CONTENT_LAYER_KEYSTONE.md` for the full phasing plan.
@@ -915,6 +921,338 @@ impl Content {
 
         output
     }
+
+    // -----------------------------------------------------------------------
+    // Phase C — render_strips
+    // -----------------------------------------------------------------------
+
+    /// Render the `Content` into fully-styled output lines.
+    ///
+    /// This is the core of Phase C: turn a `Content` into
+    /// `Vec<Vec<rich_rs::Segment>>` — one inner `Vec<Segment>` per output row —
+    /// for a given `width`, optional `height`, alignment, overflow mode, and a
+    /// **visual style** (the widget's own resolved style, e.g. `color: $primary;
+    /// background: $surface`).
+    ///
+    /// # Arguments
+    /// - `width` — target width in display cells.  Returns empty vec when 0.
+    /// - `height` — optional maximum number of output rows.  `None` = no cap.
+    /// - `visual_style` — the widget's visual style (carries `fg`, `bg`,
+    ///   text-attribute bits).  Applied as the *base* style under span styles,
+    ///   mirroring Python `visual.py` `to_strips`.
+    /// - `align` — horizontal alignment (`TextAlign::Left/Center/Right`).
+    ///   `Justify` is treated as `Left`.
+    /// - `overflow` — `"fold"` / `"ellipsis"` / other (=truncate).
+    /// - `no_wrap` — if true, skip word-wrap.
+    /// - `line_pad` — content-pad cells on each side (background-only, matching
+    ///   Python `Content.pad(line_pad, line_pad)`).
+    /// - `resolve_fn` — converts a raw span tag string (e.g. `"bold"`,
+    ///   `"$primary"`) to a concrete [`Style`].  At app render time this is
+    ///   `app.parse_style`; in unit tests a closure suffices.
+    ///
+    /// # Surface semantics (mirrors Python `_FormattedLine.to_strip`)
+    ///
+    /// Each output row is made up of three logical surfaces:
+    /// 1. **Glyph runs**: segments containing non-whitespace characters carry
+    ///    full colour (`fg` from `visual_style + span_style`, `bg` from
+    ///    `visual_style`).
+    /// 2. **Content-pad / alignment-pad segments**: spaces added by `line_pad`
+    ///    or alignment carry only the background (`visual_style.background_style`)
+    ///    and NO foreground — matching Python `style.background_style`.
+    /// 3. **Vertical fill rows**: rows added to reach `height` are blank rows
+    ///    carrying only `visual_style.bg` (no fg).
+    ///
+    /// # ADDITIVE — not yet wired into the render path
+    ///
+    /// `render_strips` is built and unit-tested here but is NOT yet called from
+    /// `core.rs` / `segments.rs` / `text.rs`.  Migration happens in a later
+    /// phase (see `CONTENT_LAYER_KEYSTONE.md §7 Phase D`).
+    pub fn render_strips<F>(
+        &self,
+        width: usize,
+        height: Option<usize>,
+        visual_style: &Style,
+        align: crate::style::TextAlign,
+        overflow: &str,
+        no_wrap: bool,
+        line_pad: usize,
+        resolve_fn: F,
+    ) -> Vec<Vec<rich_rs::Segment>>
+    where
+        F: Fn(&str) -> Style,
+    {
+        if width == 0 {
+            return Vec::new();
+        }
+
+        // Step 1: resolve all Raw span styles using the provided resolver so
+        // theme tokens ($primary, auto …) are concrete before rendering.
+        let resolved = self.resolve_styles(&resolve_fn);
+
+        // Step 2: wrap into output lines.
+        let lines = resolved.wrap_and_format(width, overflow, no_wrap, line_pad);
+
+        // Step 3: clip to height if requested.
+        let lines: Vec<Content> = match height {
+            Some(h) => lines.into_iter().take(h).collect(),
+            None => lines,
+        };
+
+        let n_content_lines = lines.len();
+
+        // Step 4: render each content line into segments.
+        let mut strips: Vec<Vec<rich_rs::Segment>> = lines
+            .into_iter()
+            .map(|line| render_content_line_to_segments(&line, width, visual_style, align))
+            .collect();
+
+        // Step 5: vertical fill — pad to height with bg-only blank rows.
+        if let Some(h) = height {
+            let fill_count = h.saturating_sub(n_content_lines);
+            if fill_count > 0 {
+                let blank = make_bg_segment(" ".repeat(width), visual_style);
+                for _ in 0..fill_count {
+                    strips.push(vec![blank.clone()]);
+                }
+            }
+        }
+
+        strips
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Phase C internals
+// ---------------------------------------------------------------------------
+
+/// Render a single post-wrap `Content` line into `rich_rs::Segment`s.
+///
+/// Mirrors `_FormattedLine.to_strip` from Python `content.py:1751`.
+///
+/// The `line` has already been word-wrapped, rstripped, and padded with
+/// `line_pad` spaces on each side by `wrap_and_format`.  We still need to
+/// apply horizontal alignment padding (bg-only) and then walk the span map
+/// to produce glyph+bg segments.
+fn render_content_line_to_segments(
+    line: &Content,
+    width: usize,
+    visual_style: &Style,
+    align: crate::style::TextAlign,
+) -> Vec<rich_rs::Segment> {
+    use crate::style::TextAlign;
+    // Compute pad cells for alignment.
+    let cell_len = line.cell_length();
+    let (pad_left, pad_right) = match align {
+        TextAlign::Center => {
+            let excess = width.saturating_sub(cell_len);
+            let left = excess / 2;
+            let right = excess - left;
+            (left, right)
+        }
+        TextAlign::Right => (width.saturating_sub(cell_len), 0),
+        // Left and Justify both start from the left edge.
+        TextAlign::Left | TextAlign::Justify => (0, 0),
+    };
+
+    let mut segs: Vec<rich_rs::Segment> = Vec::new();
+
+    // Left alignment pad — bg only.
+    if pad_left > 0 {
+        segs.push(make_bg_segment(" ".repeat(pad_left), visual_style));
+    }
+
+    // Walk the span map and emit per-text-run segments.
+    // This is a direct Rust adaptation of Python `Content.render(base_style, end="")`.
+    emit_rendered_segments(line, visual_style, &mut segs);
+
+    // Right alignment pad — bg only.
+    if pad_right > 0 {
+        segs.push(make_bg_segment(" ".repeat(pad_right), visual_style));
+    }
+
+    segs
+}
+
+/// Walk the span coverage map of `content` and emit `rich_rs::Segment`s into
+/// `out`, applying `visual_style` as the base and span styles layered on top.
+///
+/// Key surface rule (mirrors Python `_FormattedLine.to_strip` + `apply_style_to_segments`
+/// `has_glyph` guard in `segments.rs`):
+/// - **Glyph cells** (any non-whitespace character in the run): emit with full
+///   `rich_rs::Style` built from `visual_style.fg + span_style.fg` + `visual_style.bg`.
+/// - **Whitespace-only runs**: emit with bg only (no fg) — mirrors Python
+///   `style.background_style.rich_style` on pad segments.
+///
+/// This keeps the App/Screen default `color: $foreground` reaching text glyphs
+/// but not fill spaces.
+fn emit_rendered_segments(
+    content: &Content,
+    visual_style: &Style,
+    out: &mut Vec<rich_rs::Segment>,
+) {
+    let text = content.plain();
+    if text.is_empty() {
+        return;
+    }
+
+    // Build an event list: (byte_offset, is_closing, span_index)
+    // span index 0 = base (visual_style); 1..N = span styles.
+    let spans = content.spans();
+    let n_spans = spans.len();
+
+    // Collect all (offset, is_end, idx) events.  idx==0 is the sentinel for
+    // the entire range [0, text.len()).
+    let mut events: Vec<(usize, bool, usize)> = Vec::with_capacity(2 + n_spans * 2);
+    events.push((0, false, 0));
+    for (i, span) in spans.iter().enumerate() {
+        let idx = i + 1;
+        events.push((span.start, false, idx));
+        events.push((span.end, true, idx));
+    }
+    events.push((text.len(), true, 0));
+
+    // Sort: primary by offset, secondary so opens (false) come before closes (true).
+    events.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)));
+
+    // Walk events, maintaining a stack of active span indices.
+    let mut active: Vec<usize> = Vec::new();
+    let mut pos = 0usize;
+
+    let mut i = 0;
+    while i < events.len() {
+        let (offset, _is_end, _idx) = events[i];
+
+        // Process all events at this offset.
+        let mut j = i;
+        while j < events.len() && events[j].0 == offset {
+            let (_, is_end, idx) = events[j];
+            if is_end {
+                active.retain(|&x| x != idx);
+            } else {
+                active.push(idx);
+            }
+            j += 1;
+        }
+
+        // The text run is [offset, next_offset).
+        let next_offset = events.get(j).map(|e| e.0).unwrap_or(text.len());
+        if next_offset > pos {
+            let run = &text[pos..next_offset];
+            if !run.is_empty() {
+                // Compute the effective style for this run.
+                // Base = visual_style.  Overlay span styles in order (lowest idx first
+                // for determinism; Python uses a stack so last-opened wins).
+                let mut effective = visual_style.clone();
+                // Add span styles in order of their span index.
+                let mut active_sorted = active.clone();
+                active_sorted.sort_unstable();
+                for &idx in &active_sorted {
+                    if idx == 0 {
+                        continue; // base already applied
+                    }
+                    let span = &spans[idx - 1];
+                    let span_style = match &span.span_style {
+                        SpanStyle::Parsed(s) => s.clone(),
+                        SpanStyle::Raw(raw) => {
+                            // Should already be resolved by resolve_styles — this is a
+                            // fallback for spans added after resolve_styles was called.
+                            crate::content::markup::parse_tag_style(raw)
+                                .map(|t| t.style)
+                                .unwrap_or_default()
+                        }
+                    };
+                    effective = effective.combine(&span_style);
+                }
+
+                let has_glyph = run.chars().any(|c| !c.is_whitespace());
+                let seg = make_segment(run, &effective, visual_style, has_glyph);
+                out.push(seg);
+            }
+        }
+
+        pos = next_offset;
+        i = j;
+    }
+}
+
+/// Build a `rich_rs::Segment` for a text run.
+///
+/// - `effective_style` — the merged style (visual_style + span styles) for this run.
+/// - `visual_style` — the base visual style (for bg fallback).
+/// - `has_glyph` — if true, apply fg; if false (whitespace-only) apply bg only.
+fn make_segment(
+    text: &str,
+    effective_style: &Style,
+    visual_style: &Style,
+    has_glyph: bool,
+) -> rich_rs::Segment {
+    // Determine the resolved background color for this cell.
+    // bg comes from the effective style (or visual_style as fallback).
+    let bg = effective_style.bg.or(visual_style.bg);
+    let default_bg = bg.unwrap_or(crate::style::Color::rgb(0, 0, 0));
+
+    let mut rich = rich_rs::Style::new();
+
+    // Apply background if present.
+    if let Some(bg_color) = bg {
+        if bg_color.a >= 1.0 {
+            rich = rich.with_bgcolor(bg_color.to_simple_opaque());
+        } else if bg_color.a > 0.0 {
+            rich = rich.with_bgcolor(bg_color.flatten_over(default_bg).to_simple_opaque());
+        }
+    }
+
+    // Foreground: only on glyph cells, mirroring `has_glyph` guard in segments.rs.
+    if has_glyph {
+        if let Some(fg_color) = effective_style.fg {
+            let flat = if fg_color.a >= 1.0 {
+                fg_color
+            } else {
+                fg_color.flatten_over(default_bg)
+            };
+            if flat.a > 0.0 {
+                rich = rich.with_color(flat.to_simple_opaque());
+            }
+        }
+        // Text attributes (bold, italic, etc.).
+        if let Some(bold) = effective_style.bold {
+            rich = rich.with_bold(bold);
+        }
+        if let Some(dim) = effective_style.dim {
+            rich = rich.with_dim(dim);
+        }
+        if let Some(italic) = effective_style.italic {
+            rich = rich.with_italic(italic);
+        }
+        if let Some(underline) = effective_style.underline {
+            rich = rich.with_underline(underline);
+        }
+        if let Some(reverse) = effective_style.reverse {
+            rich.reverse = Some(reverse);
+        }
+        if let Some(strike) = effective_style.strike {
+            rich = rich.with_strike(strike);
+        }
+    }
+
+    rich_rs::Segment::styled(text.to_string(), rich)
+}
+
+/// Build a bg-only `rich_rs::Segment` (for padding / fill).
+///
+/// Mirrors Python `style.background_style.rich_style` — only background color,
+/// no foreground, no text attributes.
+fn make_bg_segment(text: impl Into<String>, visual_style: &Style) -> rich_rs::Segment {
+    let mut rich = rich_rs::Style::new();
+    if let Some(bg) = visual_style.bg {
+        let default_bg = crate::style::Color::rgb(0, 0, 0);
+        if bg.a >= 1.0 {
+            rich = rich.with_bgcolor(bg.to_simple_opaque());
+        } else if bg.a > 0.0 {
+            rich = rich.with_bgcolor(bg.flatten_over(default_bg).to_simple_opaque());
+        }
+    }
+    rich_rs::Segment::styled(text.into(), rich)
 }
 
 // ---------------------------------------------------------------------------
@@ -1810,5 +2148,429 @@ mod tests {
                 span.start
             );
         }
+    }
+
+    // =========================================================================
+    // Phase C tests — render_strips
+    // =========================================================================
+
+    // Helper: null resolver (no theme tokens supported).
+    fn null_resolver(raw: &str) -> Style {
+        crate::content::markup::parse_tag_style(raw)
+            .map(|t| t.style)
+            .unwrap_or_default()
+    }
+
+    // Extract text from all segments in a strip.
+    fn strip_text(strip: &[rich_rs::Segment]) -> String {
+        strip.iter().map(|s| s.text.as_ref()).collect()
+    }
+
+    // Get the fg SimpleColor from the first segment that has one.
+    fn first_fg(strip: &[rich_rs::Segment]) -> Option<rich_rs::SimpleColor> {
+        strip
+            .iter()
+            .find_map(|s| s.style.as_ref().and_then(|st| st.color))
+    }
+
+    // Get the bg SimpleColor from the first segment that has one.
+    fn first_bg(strip: &[rich_rs::Segment]) -> Option<rich_rs::SimpleColor> {
+        strip
+            .iter()
+            .find_map(|s| s.style.as_ref().and_then(|st| st.bgcolor))
+    }
+
+    /// Python baseline: plain content, left-align, width=10, height=1.
+    /// Segments should contain the text and no explicit fg (visual_style has no fg).
+    #[test]
+    fn test_render_strips_plain_no_visual_style() {
+        let c = Content::from_text("hello");
+        let strips = c.render_strips(
+            10,
+            Some(1),
+            &Style::new(),
+            crate::style::TextAlign::Left,
+            "fold",
+            false,
+            0,
+            null_resolver,
+        );
+        assert_eq!(strips.len(), 1, "should produce 1 row");
+        let text = strip_text(&strips[0]);
+        // wrap_and_format with width=10 produces "hello" (5 chars, no padding from
+        // wrap_and_format itself — line_pad=0), and render_strips left-align adds no pad.
+        assert_eq!(text, "hello", "text should be 'hello'");
+        // No fg since visual_style has no fg.
+        assert!(
+            first_fg(&strips[0]).is_none(),
+            "no explicit fg when visual_style has no fg"
+        );
+    }
+
+    /// Visual style with explicit bg: glyph segment should carry the bg.
+    #[test]
+    fn test_render_strips_visual_bg_applied() {
+        let c = Content::from_text("hi");
+        let red = crate::style::Color::rgb(200, 0, 0);
+        let visual = Style::new().bg(red);
+        let strips = c.render_strips(
+            5,
+            Some(1),
+            &visual,
+            crate::style::TextAlign::Left,
+            "fold",
+            false,
+            0,
+            null_resolver,
+        );
+        assert_eq!(strips.len(), 1);
+        // The bg should be present on some segment.
+        let bg = first_bg(&strips[0]);
+        assert!(bg.is_some(), "bg should be set when visual_style has bg");
+        assert_eq!(
+            bg.unwrap(),
+            rich_rs::SimpleColor::Rgb { r: 200, g: 0, b: 0 },
+            "bg should match the visual_style bg"
+        );
+    }
+
+    /// Visual style with fg: glyph cells should carry the fg.
+    #[test]
+    fn test_render_strips_visual_fg_on_glyph() {
+        let c = Content::from_text("hi");
+        let blue = crate::style::Color::rgb(0, 0, 200);
+        let visual = Style::new().fg(blue);
+        let strips = c.render_strips(
+            5,
+            Some(1),
+            &visual,
+            crate::style::TextAlign::Left,
+            "fold",
+            false,
+            0,
+            null_resolver,
+        );
+        assert_eq!(strips.len(), 1);
+        // Glyph cells ("hi") should have fg = blue.
+        // fg.flatten_over(default_bg=black) = blue (alpha=1.0, opaque).
+        let fg = first_fg(&strips[0]);
+        assert!(fg.is_some(), "fg should be set on glyph cells");
+        assert_eq!(
+            fg.unwrap(),
+            rich_rs::SimpleColor::Rgb { r: 0, g: 0, b: 200 },
+            "fg should match the visual_style fg"
+        );
+    }
+
+    /// Whitespace-only pad segment (from line_pad or alignment) must NOT carry fg.
+    ///
+    /// Python: pad segments are emitted with `style.background_style.rich_style`,
+    /// which has bg but NO fg.  This is the `has_glyph` invariant.
+    #[test]
+    fn test_render_strips_pad_segment_no_fg() {
+        // "hi" in width=6, right-align → 4 spaces pad-left + "hi"
+        let blue = crate::style::Color::rgb(0, 0, 200);
+        let red = crate::style::Color::rgb(200, 0, 0);
+        let visual = Style::new().fg(blue).bg(red);
+        let c = Content::from_text("hi");
+        let strips = c.render_strips(
+            6,
+            Some(1),
+            &visual,
+            crate::style::TextAlign::Right,
+            "fold",
+            false,
+            0,
+            null_resolver,
+        );
+        assert_eq!(strips.len(), 1);
+        // First segment should be "    " (4 spaces) — no fg.
+        let pad_seg = &strips[0][0];
+        assert!(
+            pad_seg.text.chars().all(|c| c == ' '),
+            "first segment should be spaces, got {:?}",
+            pad_seg.text
+        );
+        let pad_fg = pad_seg.style.as_ref().and_then(|s| s.color);
+        assert!(
+            pad_fg.is_none(),
+            "pad segment must not carry fg, got {:?}",
+            pad_fg
+        );
+        // But the pad segment should have the bg.
+        let pad_bg = pad_seg.style.as_ref().and_then(|s| s.bgcolor);
+        assert!(pad_bg.is_some(), "pad segment should carry bg");
+    }
+
+    /// Span style (fg from markup) overrides visual_style fg on glyph cells.
+    /// Python: `style + text_style` (text_style from span wins over visual_style fg).
+    #[test]
+    fn test_render_strips_span_fg_overrides_visual() {
+        // Content "[red]hi[/red]" with visual_style having blue fg.
+        // The span sets fg=red, which should win on the "hi" glyph.
+        let c = Content::from_markup("[red]hi[/red]");
+        let blue = crate::style::Color::rgb(0, 0, 200);
+        let visual = Style::new().fg(blue);
+        let strips = c.render_strips(
+            5,
+            Some(1),
+            &visual,
+            crate::style::TextAlign::Left,
+            "fold",
+            false,
+            0,
+            null_resolver,
+        );
+        assert_eq!(strips.len(), 1);
+        let fg = first_fg(&strips[0]);
+        // The red color from "[red]" is #800000 in the terminal palette.
+        // parse_color_like("red") → Color::rgb(128, 0, 0) (ANSI-ish) — or some red.
+        // Just check it is NOT blue.
+        assert!(fg.is_some(), "fg must be set");
+        assert_ne!(
+            fg.unwrap(),
+            rich_rs::SimpleColor::Rgb { r: 0, g: 0, b: 200 },
+            "span fg should override visual_style fg"
+        );
+    }
+
+    /// Center alignment: left pad and right pad should both appear; neither should carry fg.
+    #[test]
+    fn test_render_strips_center_align_pad_no_fg() {
+        // "hi" (2 cells) in width=8, center → 3 left pad + "hi" + 3 right pad.
+        let blue = crate::style::Color::rgb(0, 0, 255);
+        let green = crate::style::Color::rgb(0, 200, 0);
+        let visual = Style::new().fg(blue).bg(green);
+        let c = Content::from_text("hi");
+        let strips = c.render_strips(
+            8,
+            Some(1),
+            &visual,
+            crate::style::TextAlign::Center,
+            "fold",
+            false,
+            0,
+            null_resolver,
+        );
+        assert_eq!(strips.len(), 1);
+        let full_text = strip_text(&strips[0]);
+        // "   hi   " or "   hi   " — 3 left + 2 glyph + 3 right = 8
+        assert_eq!(full_text.len(), 8, "total width should be 8");
+        assert!(full_text.starts_with("   "), "3 left pad spaces expected");
+        assert!(full_text.ends_with("   "), "3 right pad spaces expected");
+
+        // Neither pad segment should have fg.
+        for seg in &strips[0] {
+            if seg.text.chars().all(|c| c == ' ') {
+                let fg = seg.style.as_ref().and_then(|s| s.color);
+                assert!(
+                    fg.is_none(),
+                    "pad segment must not carry fg; got {:?} for {:?}",
+                    fg,
+                    seg.text
+                );
+            }
+        }
+    }
+
+    /// Vertical fill: height > content rows → extra blank bg-only rows.
+    #[test]
+    fn test_render_strips_vertical_fill_bg_only() {
+        let red = crate::style::Color::rgb(200, 0, 0);
+        let blue = crate::style::Color::rgb(0, 0, 200);
+        let visual = Style::new().fg(blue).bg(red);
+        let c = Content::from_text("hi");
+        let strips = c.render_strips(
+            5,
+            Some(3),
+            &visual,
+            crate::style::TextAlign::Left,
+            "fold",
+            false,
+            0,
+            null_resolver,
+        );
+        assert_eq!(strips.len(), 3, "should produce 3 rows (1 content + 2 fill)");
+        // Fill rows (index 1 and 2) must have bg, no fg.
+        for fill_row in &strips[1..] {
+            for seg in fill_row {
+                let fg = seg.style.as_ref().and_then(|s| s.color);
+                assert!(
+                    fg.is_none(),
+                    "vertical fill row must not carry fg; got {:?}",
+                    fg
+                );
+                let bg = seg.style.as_ref().and_then(|s| s.bgcolor);
+                assert!(bg.is_some(), "vertical fill row must carry bg");
+            }
+        }
+    }
+
+    /// wrap_and_format integration: long text wraps into multiple rows.
+    #[test]
+    fn test_render_strips_wraps_text() {
+        let c = Content::from_text("hello world");
+        let strips = c.render_strips(
+            5,
+            None,
+            &Style::new(),
+            crate::style::TextAlign::Left,
+            "fold",
+            false,
+            0,
+            null_resolver,
+        );
+        assert_eq!(strips.len(), 2, "should produce 2 wrapped rows");
+        assert_eq!(strip_text(&strips[0]), "hello");
+        assert_eq!(strip_text(&strips[1]), "world");
+    }
+
+    /// Height=0: return empty.
+    #[test]
+    fn test_render_strips_height_zero() {
+        let c = Content::from_text("hello");
+        let strips = c.render_strips(
+            10,
+            Some(0),
+            &Style::new(),
+            crate::style::TextAlign::Left,
+            "fold",
+            false,
+            0,
+            null_resolver,
+        );
+        assert!(strips.is_empty(), "height=0 should produce no rows");
+    }
+
+    /// Width=0: return empty.
+    #[test]
+    fn test_render_strips_width_zero() {
+        let c = Content::from_text("hello");
+        let strips = c.render_strips(
+            0,
+            Some(1),
+            &Style::new(),
+            crate::style::TextAlign::Left,
+            "fold",
+            false,
+            0,
+            null_resolver,
+        );
+        assert!(strips.is_empty(), "width=0 should produce no rows");
+    }
+
+    /// Bold from markup: glyph segment should carry bold=true.
+    #[test]
+    fn test_render_strips_bold_span() {
+        let c = Content::from_markup("[bold]hi[/bold]");
+        let strips = c.render_strips(
+            5,
+            Some(1),
+            &Style::new(),
+            crate::style::TextAlign::Left,
+            "fold",
+            false,
+            0,
+            null_resolver,
+        );
+        assert_eq!(strips.len(), 1);
+        // Find the segment containing "hi".
+        let hi_seg = strips[0]
+            .iter()
+            .find(|s| s.text.contains('h'))
+            .expect("no segment containing 'hi'");
+        let bold = hi_seg.style.as_ref().and_then(|s| s.bold);
+        assert_eq!(bold, Some(true), "bold span must produce bold=true in segment");
+    }
+
+    /// Theme token resolution: a custom resolver maps "$mytoken" to red fg.
+    #[test]
+    fn test_render_strips_custom_resolver() {
+        let c = Content::from_markup("[$mytoken]hi[/]");
+        let red = crate::style::Color::rgb(255, 0, 0);
+        let my_resolver = |raw: &str| -> Style {
+            if raw == "$mytoken" {
+                Style::new().fg(red)
+            } else {
+                null_resolver(raw)
+            }
+        };
+        let strips = c.render_strips(
+            5,
+            Some(1),
+            &Style::new(),
+            crate::style::TextAlign::Left,
+            "fold",
+            false,
+            0,
+            my_resolver,
+        );
+        assert_eq!(strips.len(), 1);
+        let fg = first_fg(&strips[0]);
+        assert_eq!(
+            fg,
+            Some(rich_rs::SimpleColor::Rgb { r: 255, g: 0, b: 0 }),
+            "custom resolver should apply $mytoken as red fg"
+        );
+    }
+
+    /// line_pad: content-pad spaces (from wrap_and_format) appear in the output
+    /// and must not carry fg.
+    #[test]
+    fn test_render_strips_line_pad_no_fg() {
+        let blue = crate::style::Color::rgb(0, 0, 200);
+        let visual = Style::new().fg(blue);
+        let c = Content::from_text("hi");
+        // width=6, line_pad=1 → wrap_and_format produces " hi " (1+2+1 = 4 cells).
+        // With left-align, render_strips emits those 4 cells as segments.
+        let strips = c.render_strips(
+            6,
+            Some(1),
+            &visual,
+            crate::style::TextAlign::Left,
+            "fold",
+            false,
+            1,
+            null_resolver,
+        );
+        assert_eq!(strips.len(), 1);
+        let full_text = strip_text(&strips[0]);
+        // The wrapped line is " hi " (4 cells, padded), left-aligned in width=6.
+        assert!(full_text.starts_with(' '), "line_pad left space should be present");
+        assert!(full_text.ends_with(' '), "line_pad right space should be present");
+        // The leading/trailing space segments must NOT carry fg.
+        for seg in &strips[0] {
+            if seg.text.chars().all(|c| c == ' ') {
+                let fg = seg.style.as_ref().and_then(|s| s.color);
+                assert!(
+                    fg.is_none(),
+                    "line_pad space must not carry fg; got {:?}",
+                    fg
+                );
+            }
+        }
+    }
+
+    /// Ellipsis overflow: long text gets truncated with '…'.
+    #[test]
+    fn test_render_strips_ellipsis_overflow() {
+        let c = Content::from_text("hello world");
+        let strips = c.render_strips(
+            6,
+            Some(1),
+            &Style::new(),
+            crate::style::TextAlign::Left,
+            "ellipsis",
+            true, // no_wrap
+            0,
+            null_resolver,
+        );
+        assert_eq!(strips.len(), 1);
+        let text = strip_text(&strips[0]);
+        assert!(
+            text.contains('…'),
+            "ellipsis overflow should produce '…'; got {:?}",
+            text
+        );
     }
 }
