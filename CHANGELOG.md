@@ -43,6 +43,24 @@ until the API stabilizes.
   border (Python `static.border_title = ...`). The `docs/examples/styles/hatch` example sets
   per-panel titles accordingly.
 - Promotes `"hatch"` to the styled PASSING set. (styled 65→66)
+### 2026-06-23 (fix(scrollbar): scrollbar thickness honors CSS `scrollbar-size`)
+
+- **Host scrollbar widgets now paint at the CSS-resolved thickness.** `apply_host_scrollbar_layout`
+  reserved the correct lane width from `scrollbar-size` (e.g. `scrollbar-size: 10 4` → a 4-wide
+  vertical lane) but the `ScrollBar` widget still painted glyphs at its hardcoded creation default
+  (vertical 2 / horizontal 1), so a 4-wide lane showed only a 2-wide bar. Added `ScrollBar::set_thickness`
+  and drive it from `geometry.vertical_lane_width` / `geometry.horizontal_lane_height` during host
+  scrollbar layout. Matches Python `ScrollBar.thickness` flowing from `styles.scrollbar_size_*`.
+- **Fixed a latent horizontal-scrollbar row-break bug**: the inter-row `Segment::line()` separator was
+  bounded by `length` (the track width) instead of the rendered row count, so a horizontal bar emitted
+  a spurious trailing line break (and would have dropped breaks if `thickness > length`). Now bounded by
+  `lines.len()`. Vertical bars were unaffected (rows == track length there).
+- Example fix (`styles/scrollbar_size2`): moved `id()` from a `Node` wrapper onto the
+  `ScrollableContainer` host directly, so `#v1 { scrollbar-size: ... }` matches the scrollbar host
+  instead of an intermediate wrapper (which fell back to the `Widget` default). Mirrors Python
+  `ScrollableContainer(Label(...), id="v1")`.
+- Regression tests: `scrollbar_thickness_drives_vertical_glyph_width`,
+  `scrollbar_thickness_drives_horizontal_row_count`.
 
 ### 2026-06-23 (fix(render): chrome-only container vertical-extend fill is bg-only)
 

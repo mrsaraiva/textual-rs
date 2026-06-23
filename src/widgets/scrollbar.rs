@@ -653,6 +653,16 @@ impl ScrollBar {
         }
     }
 
+    /// Set the scrollbar thickness (cells across the minor axis).
+    ///
+    /// For a vertical bar this is its width; for a horizontal bar its height.
+    /// The runtime drives this from the CSS-resolved `scrollbar-size` lane so a
+    /// `scrollbar-size: H V` host paints a V-wide vertical / H-tall horizontal
+    /// bar instead of the hardcoded creation default.
+    pub fn set_thickness(&mut self, thickness: usize) {
+        self.thickness = thickness.max(1);
+    }
+
     pub fn set_window_virtual_size(&mut self, size: usize) {
         self.window_virtual_size = size.max(1);
     }
@@ -764,10 +774,16 @@ impl Widget for ScrollBar {
         // sees s.color.is_some() and does not overwrite it.
         let track_fg = resolved.fg;
         let lines = renderer.render_bar(length, bg, thumb, track_fg);
+        // NOTE: line-break between ROWS, so the bound is the number of rendered
+        // rows — NOT `length`. For a vertical bar rows == `length` (track_len),
+        // but for a horizontal bar rows == `thickness` while `length` is the
+        // track width, so using `length` here emitted a spurious trailing line
+        // break (and would skip breaks if thickness > length).
+        let row_count = lines.len();
         let mut out = Segments::new();
         for (idx, line) in lines.into_iter().enumerate() {
             out.extend(line);
-            if idx + 1 < length {
+            if idx + 1 < row_count {
                 out.push(Segment::line());
             }
         }
@@ -1312,6 +1328,68 @@ mod tests {
                 .iter()
                 .any(|s| s.style.and_then(|st| st.bgcolor) == Some(blue)),
             "track should use host scrollbar-background (blue)"
+        );
+    }
+
+    /// Regression: a vertical ScrollBar must paint glyphs `thickness` cells wide.
+    /// The runtime drives `set_thickness` from the CSS-resolved `scrollbar-size`
+    /// lane (e.g. `scrollbar-size: 10 4` → vertical lane width 4); previously the
+    /// thickness stayed at the creation default (2) regardless of CSS, so a 4-wide
+    /// lane was painted only 2 cells wide (styles/scrollbar_size parity gap).
+    #[test]
+    fn scrollbar_thickness_drives_vertical_glyph_width() {
+        let mut bar = ScrollBar::new(true, 2);
+        // Simulate the runtime applying the CSS-resolved vertical lane width.
+        bar.set_thickness(4);
+        bar.set_window_virtual_size(100);
+        bar.set_window_size(20);
+        bar.on_layout(4, 20);
+
+        let console = rich_rs::Console::new();
+        let mut options = console.options().clone();
+        options.size = (4, 20);
+        options.max_width = 4;
+        options.max_height = 20;
+
+        let segments = Widget::render(&bar, &console, &options);
+        // Every painted glyph segment (track blank or thumb glyph) on a vertical
+        // bar repeats `thickness` graphemes; with thickness 4 each cell-run is 4
+        // columns wide. Assert no rendered segment is narrower than 4 columns.
+        let widest = segments
+            .iter()
+            .filter(|s| !s.text.is_empty() && s.text != "\n")
+            .map(|s| s.text.chars().count())
+            .max()
+            .expect("scrollbar should emit at least one glyph segment");
+        assert_eq!(
+            widest, 4,
+            "vertical scrollbar glyphs must be `thickness` (4) cells wide"
+        );
+    }
+
+    /// Mirror of the above for a horizontal bar: thickness governs the number of
+    /// stacked rows (`scrollbar-size` horizontal lane height).
+    #[test]
+    fn scrollbar_thickness_drives_horizontal_row_count() {
+        let mut bar = ScrollBar::new(false, 1);
+        bar.set_thickness(3);
+        bar.set_window_virtual_size(100);
+        bar.set_window_size(20);
+        bar.on_layout(20, 3);
+
+        let console = rich_rs::Console::new();
+        let mut options = console.options().clone();
+        options.size = (20, 3);
+        options.max_width = 20;
+        options.max_height = 3;
+
+        let segments = Widget::render(&bar, &console, &options);
+        // A horizontal bar duplicates its row `thickness` times, separated by
+        // `Segment::line()`. Count the line separators: thickness rows => 2 lines.
+        let line_breaks = segments.iter().filter(|s| s.text == "\n").count();
+        assert_eq!(
+            line_breaks, 2,
+            "horizontal scrollbar must stack `thickness` (3) rows (2 line breaks)"
         );
     }
 }
