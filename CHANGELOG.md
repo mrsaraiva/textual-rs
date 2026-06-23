@@ -7,6 +7,22 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-22 (refactor(content): audit dead-code post Phase D migration)
+
+- **refactor(content): retire stale doc comments** — the `# ADDITIVE — not yet
+  wired into the render path` comment in `Content::render_strips` and the
+  module-level Phase C/D integration comment in `src/content/mod.rs` are updated
+  to reflect that `Content::render_strips` IS now wired into `Label::render()`
+  (Phase D, 94eda62). The remaining `Text::plain` usages in `text.rs` are all
+  inside Markdown-internal widgets (heading, paragraph, blockquote, etc.),
+  which are not yet migrated; they are explicitly documented as pending.
+- **audit (core.rs, segments.rs):** All branches in `render_widget_with_meta`
+  fill surfaces and `apply_style_to_segments` `has_glyph` fg-stamp remain
+  active and are still exercised by non-migrated widgets (Button, DataTable,
+  Input, Tree, etc.). No dead code found; nothing else retired in this pass.
+  Full gate: lib compiles, docs/examples build, pty_parity 186/0, full suite
+  0 FAILED, visual_parity 52 PASS / 0 REGRESSION.
+
 ### 2026-06-22 (feat(content): Label/Static render via Content::render_strips — styled 42→52)
 
 - **feat(Label/Static render pipeline):** `Label::render()` now uses

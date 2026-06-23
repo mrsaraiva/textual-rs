@@ -30,11 +30,12 @@
 //! - [`Content::render_strips`] — turn `Content` into fully-styled
 //!   `Vec<Vec<rich_rs::Segment>>` for a given width/height/align/overflow +
 //!   a visual [`Style`] + a theme-token resolver.  Subsumes the styled-render
-//!   semantics that are currently scattered across `core.rs`, `segments.rs`,
-//!   and `text.rs`; ADDITIVE — not yet wired into the render path.
+//!   semantics previously scattered across `core.rs`, `segments.rs`, and `text.rs`.
 //!
-//! ## NOT yet in Phase C
-//! - Integration with the render path (`core.rs`, `segments.rs`, `text.rs`).
+//! ## Phase D — wired for Label/Static
+//! - [`Content::render_strips`] is now called from `Label::render()` in `text.rs`.
+//! - Remaining widgets (Button, DataTable, Input, Tree, etc.) still use the
+//!   rich-rs `Text` / `render_str` path; migration is a future phase.
 //!
 //! See `docs/devel/CONTENT_LAYER_KEYSTONE.md` for the full phasing plan.
 
@@ -962,11 +963,11 @@ impl Content {
     /// 3. **Vertical fill rows**: rows added to reach `height` are blank rows
     ///    carrying only `visual_style.bg` (no fg).
     ///
-    /// # ADDITIVE — not yet wired into the render path
+    /// # Phase D — wired into Label/Static render path
     ///
-    /// `render_strips` is built and unit-tested here but is NOT yet called from
-    /// `core.rs` / `segments.rs` / `text.rs`.  Migration happens in a later
-    /// phase (see `CONTENT_LAYER_KEYSTONE.md §7 Phase D`).
+    /// `render_strips` is called from `Label::render()` in `text.rs` (Phase D).
+    /// Migration of remaining widgets (Button, DataTable, Input, Tree, etc.)
+    /// to this path is a future phase.
     pub fn render_strips<F>(
         &self,
         width: usize,
