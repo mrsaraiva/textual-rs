@@ -791,7 +791,7 @@ fn collapse_inline_whitespace(text: &str) -> String {
 /// Returns `None` if no link_color is set (no visible link styling to apply).
 /// This matches Python: `link-color` defaults to the contrast text, which
 /// has alpha 0.87 — always Some in practice.
-fn compute_link_span_style(
+pub(crate) fn compute_link_span_style(
     visual_style: &crate::style::Style,
     effective_bg: crate::style::Color,
 ) -> Option<crate::style::Style> {

@@ -45,6 +45,16 @@ pub struct Static {
     border_title: Option<String>,
     border_subtitle: Option<String>,
     seed: NodeSeed,
+    /// CSS id cache preserved across `take_node_seed()`.
+    ///
+    /// `take_node_seed()` moves the seed out of the widget (clearing `seed.css_id`).
+    /// Off-tree CSS resolution (`layout_height()` → `resolved_vertical_chrome()`)
+    /// runs AFTER mounting, so `seed.css_id` would be `None` at that point.
+    /// We preserve the id here before the seed is taken so `style_id()` keeps
+    /// returning the correct value for off-tree resolution.
+    css_id_cache: Option<String>,
+    /// CSS classes cache preserved across `take_node_seed()` (same rationale).
+    classes_cache: Vec<String>,
 }
 
 impl Static {
@@ -61,6 +71,8 @@ impl Static {
             border_title: None,
             border_subtitle: None,
             seed: NodeSeed::default(),
+            css_id_cache: None,
+            classes_cache: Vec::new(),
         }
     }
 
@@ -82,12 +94,23 @@ impl Static {
         self
     }
 
-    pub fn class(self, value: impl Into<String>) -> Node {
-        Node::new(self).class(value)
+    /// Set this widget's CSS id (sets `seed.css_id` directly so the id is on
+    /// the Static node itself, not a transparent Node wrapper).
+    ///
+    /// This allows CSS rules like `#custom { link-color: ... }` to target the
+    /// Static widget directly with id-selector specificity.
+    pub fn id(mut self, value: impl Into<String>) -> Self {
+        self.seed.css_id = Some(value.into());
+        self
     }
 
-    pub fn id(self, value: impl Into<String>) -> Node {
-        Node::new(self).id(value)
+    /// Add a CSS class via a transparent `Node` wrapper.
+    ///
+    /// Returns a `Node` (same as before) so that class-based CSS descendant
+    /// rules (`#questions .button { ... }`) continue to apply to the wrapper
+    /// and the Rust layout tree structure stays compatible with nesting01/02.
+    pub fn class(self, value: impl Into<String>) -> Node {
+        Node::new(self).class(value)
     }
 
     /// Replace content with a plain text string.
@@ -155,6 +178,11 @@ impl Static {
             } else {
                 lines += 1;
             }
+        }
+        // `str::lines()` omits a trailing newline. Python Rich counts a trailing
+        // `\n` as an additional (blank) line — match that behavior.
+        if self.text.ends_with('\n') {
+            lines += 1;
         }
         lines.max(1)
     }
@@ -258,11 +286,39 @@ impl Widget for Static {
                 render_style.bg = Some(effective_bg);
 
                 // Build Content from the static text.
-                let content = if self.markup {
+                let mut content = if self.markup {
                     crate::content::Content::from_markup(&self.text)
                 } else {
                     crate::content::Content::from_text(&self.text)
                 };
+
+                // Apply link-* CSS styling to `[@click=...]` markup spans.
+                //
+                // Python's `widget.link_style` is applied to any segment whose meta
+                // carries `@click` (see `widget.py` `_StyledRenderable.__rich_console__`).
+                // We mirror this: detect spans whose raw_tag starts with `@click=` or
+                // equals `@click`, and overlay the link style computed from the widget's
+                // link-* CSS properties.
+                //
+                // `[link=url]` spans do NOT get link styling — only `@click` spans do.
+                if self.markup {
+                    if let Some(link_span_style) =
+                        crate::widgets::text::compute_link_span_style(&render_style, effective_bg)
+                    {
+                        let link_ranges: Vec<(usize, usize)> = content
+                            .spans()
+                            .iter()
+                            .filter(|span| {
+                                matches!(&span.span_style, crate::content::SpanStyle::Raw(raw)
+                                    if raw.starts_with("@click=") || raw == "@click")
+                            })
+                            .map(|span| (span.start, span.end))
+                            .collect();
+                        for (start, end) in link_ranges {
+                            content = content.stylize(link_span_style.clone(), start, end);
+                        }
+                    }
+                }
 
                 // Resolve theme tokens in span styles using parse_tag_style, which calls
                 // parse_color_like internally and handles $primary/$surface etc.
@@ -292,8 +348,17 @@ impl Widget for Static {
                 // Tag each data segment with textual:no_text_style so apply_style_to_segments
                 // skips re-applying widget CSS text attrs (bold/italic/etc.), which have
                 // already been baked in by render_strips (visual_style + span_style combined).
+                //
+                // `split_and_crop_lines` (used by render_widget_with_meta) treats a
+                // trailing "\n" as ending the CURRENT row without starting a new one, so
+                // a trailing blank line from content (e.g. "text\n") would not produce a
+                // second row in the final lines list. To produce the correct number of
+                // rows we add an extra Segment::line() for every trailing empty strip so
+                // that split_and_crop_lines sees a proper row boundary.
                 let mut segments = Segments::new();
                 let n_strips = strips.len();
+                // Count how many trailing strips are empty (from trailing '\n' in content).
+                let n_trailing_empty = strips.iter().rev().take_while(|s| s.is_empty()).count();
                 for (i, strip) in strips.into_iter().enumerate() {
                     for mut seg in strip {
                         tag_segment_no_text_style(&mut seg);
@@ -302,6 +367,11 @@ impl Widget for Static {
                     if i + 1 < n_strips {
                         segments.push(Segment::line());
                     }
+                }
+                // Extra newline tokens for each trailing empty strip: each extra "\n" causes
+                // split_and_crop_lines to emit one blank row, matching Python's line count.
+                for _ in 0..n_trailing_empty {
+                    segments.push(Segment::line());
                 }
                 segments
             }
@@ -367,6 +437,30 @@ impl Widget for Static {
     }
 
     fn take_node_seed(&mut self) -> NodeSeed {
-        std::mem::take(&mut self.seed)
+        let seed = std::mem::take(&mut self.seed);
+        // Preserve id/classes in the cache so `style_id()` / `style_classes()`
+        // keep working after the seed has been taken (off-tree CSS resolution
+        // in `layout_height()` runs post-mount when `seed.css_id` would be gone).
+        self.css_id_cache = seed.css_id.clone();
+        self.classes_cache = seed.classes.clone();
+        seed
+    }
+
+    fn style_id(&self) -> Option<&str> {
+        // Pre-mount: seed has the id. Post-mount: seed is empty, use the cache.
+        if self.seed.css_id.is_some() {
+            self.seed.css_id.as_deref()
+        } else {
+            self.css_id_cache.as_deref()
+        }
+    }
+
+    fn style_classes(&self) -> &[String] {
+        // Pre-mount: seed has the classes. Post-mount: use the cache.
+        if !self.seed.classes.is_empty() {
+            &self.seed.classes
+        } else {
+            &self.classes_cache
+        }
     }
 }

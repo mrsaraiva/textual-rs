@@ -89,6 +89,13 @@ const PASSING: &[&str] = &[
     // (was 128/255=0.50196) → column_span/row_span; border-fg + bg opacity now match
     // Python's double-application (background_colors blend + _apply_opacity) → opacity.
     "column_span", "row_span", "opacity",
+    // Promoted after links-parity workstream: (1) css_id preserved post-mount via
+    // css_id_cache so id-selector link-* rules apply to Static correctly; (2)
+    // @click spans get link-color/link-background CSS overlay in Static::render();
+    // (3) intrinsic_height counts trailing '\n' as a blank row; (4) trailing empty
+    // strips emit an extra Segment::line() so split_and_crop_lines produces the right
+    // row count (no spurious fill_fg_style bleed on blank trailing rows):
+    "links",
 ];
 
 struct StyledCase {
@@ -265,6 +272,12 @@ fn visual_parity_batch() {
                     shown += 1;
                     if shown >= 12 { break; }
                 }
+            }
+        }
+        if std::env::var("DUMP_CASE").map_or(false, |d| d == case.name) {
+            eprintln!("--- DUMP {} actual (rust) ---", case.name);
+            for line in actual.lines().take(50) {
+                eprintln!("  {line}");
             }
         }
         let passing = PASSING.contains(&case.name.as_str());
