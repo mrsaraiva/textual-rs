@@ -7,6 +7,7 @@ extern crate self as textual;
 pub mod action;
 pub mod animation;
 pub mod compose;
+pub mod content;
 pub mod css;
 pub mod debug;
 pub mod demo_snapshot;
