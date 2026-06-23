@@ -36,6 +36,74 @@ pub mod markup;
 
 use crate::style::Style;
 use markup::parse_markup;
+use std::cell::OnceCell;
+
+// ---------------------------------------------------------------------------
+// SpanStyle — deferred vs pre-resolved style
+// ---------------------------------------------------------------------------
+
+/// The style carried by a [`Span`].
+///
+/// Mirrors Python `Span.style: Style | str`:
+/// - `Raw(String)` stores the tag body exactly as parsed from markup (e.g.
+///   `"bold"`, `"red on blue"`, `"foobar"`, `"link=url"`).  Resolution to a
+///   concrete [`Style`] is deferred to render time so that theme tokens
+///   (`$primary`, `auto 20%`, etc.) are resolved with live app context.
+/// - `Parsed(Style)` is a pre-resolved style used when the caller provides a
+///   concrete [`Style`] directly (e.g. [`Content::styled`], padding helpers).
+///
+/// Unknown raw tags resolve to a null / transparent style at render time,
+/// exactly as Python's `Style.parse("foobar")` does.
+#[derive(Debug, Clone, PartialEq)]
+pub enum SpanStyle {
+    /// Raw tag body string, deferred for render-time resolution.
+    Raw(String),
+    /// Pre-resolved concrete style (skips parse at render time).
+    Parsed(Style),
+}
+
+impl SpanStyle {
+    /// Resolve to a concrete [`Style`], using a fallback parse function for
+    /// `Raw` variants.
+    ///
+    /// At render time call `resolve_with(|raw| theme_context.parse(raw))`.
+    /// Outside of render context, the default fallback tries `Style::from_str`
+    /// which handles simple keywords but silently returns `Style::new()` for
+    /// unrecognised tokens — matching Python's behaviour of null-styling unknown
+    /// tags.
+    pub fn resolve_with<F>(&self, parse_fn: F) -> Style
+    where
+        F: Fn(&str) -> Style,
+    {
+        match self {
+            SpanStyle::Parsed(s) => s.clone(),
+            SpanStyle::Raw(raw) => parse_fn(raw),
+        }
+    }
+
+    /// Convenience: resolve without theme context.  Unknown tokens → `Style::new()`.
+    pub fn resolve_default(&self) -> Style {
+        self.resolve_with(|raw| {
+            markup::parse_tag_style(raw)
+                .map(|t| t.style)
+                .unwrap_or_default()
+        })
+    }
+
+    /// Return the raw tag body if this is a `Raw` variant.
+    pub fn raw(&self) -> Option<&str> {
+        match self {
+            SpanStyle::Raw(s) => Some(s.as_str()),
+            SpanStyle::Parsed(_) => None,
+        }
+    }
+}
+
+impl Default for SpanStyle {
+    fn default() -> Self {
+        SpanStyle::Parsed(Style::new())
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Span
@@ -43,7 +111,9 @@ use markup::parse_markup;
 
 /// A styled range of character (byte) offsets within a [`Content`]'s text.
 ///
-/// Mirrors Python `textual.content.Span(start, end, style)`.
+/// Mirrors Python `textual.content.Span(start, end, style)` where
+/// `style: Style | str`.  The Rust type uses [`SpanStyle`] to carry either a
+/// deferred raw tag string (markup-parsed) or a pre-resolved [`Style`].
 ///
 /// # Byte vs char offsets
 /// Offsets are **byte** offsets into the UTF-8 string, consistent with how
@@ -57,14 +127,33 @@ pub struct Span {
     pub start: usize,
     /// Byte offset past the last character in this span (exclusive).
     pub end: usize,
-    /// Visual style applied over `text[start..end]`.
-    pub style: Style,
+    /// Style for this span — either a deferred raw tag string or a concrete Style.
+    pub span_style: SpanStyle,
 }
 
 impl Span {
-    /// Create a new `Span`.
+    /// Create a new `Span` with a pre-resolved style.
     pub fn new(start: usize, end: usize, style: Style) -> Self {
-        Self { start, end, style }
+        Self {
+            start,
+            end,
+            span_style: SpanStyle::Parsed(style),
+        }
+    }
+
+    /// Create a new `Span` with a raw (deferred) tag body.
+    pub fn new_raw(start: usize, end: usize, raw: impl Into<String>) -> Self {
+        Self {
+            start,
+            end,
+            span_style: SpanStyle::Raw(raw.into()),
+        }
+    }
+
+    /// Return the concrete `Style` for this span using the default (no-context)
+    /// resolver.  For render paths, prefer `span_style.resolve_with(parse_fn)`.
+    pub fn style(&self) -> Style {
+        self.span_style.resolve_default()
     }
 
     /// Return true if this span covers a non-empty range.
@@ -77,12 +166,28 @@ impl Span {
     pub fn shift(&self, distance: isize) -> Self {
         let start = (self.start as isize + distance).max(0) as usize;
         let end = (self.end as isize + distance).max(0) as usize;
-        Span::new(start, end, self.style.clone())
+        Span {
+            start,
+            end,
+            span_style: self.span_style.clone(),
+        }
     }
 
     /// Extend the span's end by `cells` bytes.
     pub fn extend(&self, cells: usize) -> Self {
-        Span::new(self.start, self.end + cells, self.style.clone())
+        Span {
+            start: self.start,
+            end: self.end + cells,
+            span_style: self.span_style.clone(),
+        }
+    }
+
+    fn with_range(&self, start: usize, end: usize) -> Self {
+        Span {
+            start,
+            end,
+            span_style: self.span_style.clone(),
+        }
     }
 }
 
@@ -98,12 +203,22 @@ impl Span {
 ///
 /// `Content` is `Clone` but intended to be treated as logically immutable:
 /// most methods return new `Content` instances rather than mutating in-place.
-#[derive(Debug, Clone, PartialEq)]
+///
+/// `cell_length` is computed lazily via interior mutability (`OnceCell`) so
+/// that `&self` accessors work without requiring `&mut self` — mirroring
+/// Python's `@cached_property`.
+#[derive(Debug, Clone)]
 pub struct Content {
     text: String,
     spans: Vec<Span>,
-    /// Cached cell length (computed lazily from `text`).
-    cell_length_cache: Option<usize>,
+    /// Cached cell length (lazily computed; interior mutability via OnceCell).
+    cell_length_cache: OnceCell<usize>,
+}
+
+impl PartialEq for Content {
+    fn eq(&self, other: &Self) -> bool {
+        self.text == other.text && self.spans == other.spans
+    }
 }
 
 impl Content {
@@ -111,19 +226,23 @@ impl Content {
     // Internal constructor
     // -----------------------------------------------------------------------
 
-    fn new_raw(text: String, spans: Vec<Span>) -> Self {
+    fn new_uncached(text: String, spans: Vec<Span>) -> Self {
         Self {
             text,
             spans,
-            cell_length_cache: None,
+            cell_length_cache: OnceCell::new(),
         }
     }
 
     fn new_with_cell_len(text: String, spans: Vec<Span>, cell_length: Option<usize>) -> Self {
+        let cell_length_cache = OnceCell::new();
+        if let Some(len) = cell_length {
+            let _ = cell_length_cache.set(len);
+        }
         Self {
             text,
             spans,
-            cell_length_cache: cell_length,
+            cell_length_cache,
         }
     }
 
@@ -135,7 +254,7 @@ impl Content {
     ///
     /// Mirrors Python `Content.empty()`.
     pub fn empty() -> Self {
-        Self::new_raw(String::new(), Vec::new())
+        Self::new_uncached(String::new(), Vec::new())
     }
 
     /// Create `Content` from a plain string (no markup parsing).
@@ -146,7 +265,7 @@ impl Content {
         if text.is_empty() {
             return Self::empty();
         }
-        Self::new_raw(text, Vec::new())
+        Self::new_uncached(text, Vec::new())
     }
 
     /// Create `Content` by parsing Textual markup.
@@ -156,8 +275,14 @@ impl Content {
     /// If the string contains no `[` characters it is treated as plain text
     /// (fast path, no allocation).
     ///
-    /// `[link=url]` produces a span with link metadata but **no** visual
-    /// fg/underline — visual link styling is applied at Theme level, not here.
+    /// Tag bodies are stored as raw strings in `Span.span_style = SpanStyle::Raw(...)`,
+    /// exactly as Python stores `Span.style: str`.  Resolution to a concrete
+    /// [`Style`] is deferred to render time so theme tokens (`$primary`,
+    /// `auto 20%`) can be resolved with live app context.
+    ///
+    /// Unknown tag bodies (e.g. `"foobar"`) are **consumed** (not emitted as
+    /// literal text) and stored raw; they resolve to a null/transparent style
+    /// at render time — matching Python's behaviour.
     pub fn from_markup(markup: impl AsRef<str>) -> Self {
         let markup = markup.as_ref();
         let markup = strip_control_codes(markup.to_string());
@@ -174,10 +299,10 @@ impl Content {
 
         let spans: Vec<Span> = raw_spans
             .into_iter()
-            .map(|rs| Span::new(rs.start, rs.end, rs.style))
+            .map(|rs| Span::new_raw(rs.start, rs.end, rs.raw_tag))
             .collect();
 
-        Self::new_raw(text, spans)
+        Self::new_uncached(text, spans)
     }
 
     /// Create `Content` from plain text with a single style covering the whole
@@ -191,7 +316,7 @@ impl Content {
         }
         let len = text.len();
         let spans = vec![Span::new(0, len, style)];
-        Self::new_raw(text, spans)
+        Self::new_uncached(text, spans)
     }
 
     /// Create `Content` from plain text with a single style, providing a
@@ -260,11 +385,11 @@ impl Content {
                 ContentPart::Content(c) => {
                     let offset = position;
                     for span in &c.spans {
-                        spans.push(Span::new(
-                            span.start + offset,
-                            span.end + offset,
-                            span.style.clone(),
-                        ));
+                        spans.push(Span {
+                            start: span.start + offset,
+                            end: span.end + offset,
+                            span_style: span.span_style.clone(),
+                        });
                     }
                     position += c.text.len();
                     text.push_str(&c.text);
@@ -276,7 +401,7 @@ impl Content {
             return Self::empty();
         }
 
-        Self::new_raw(text, spans)
+        Self::new_uncached(text, spans)
     }
 
     // -----------------------------------------------------------------------
@@ -293,25 +418,15 @@ impl Content {
     /// Return the cell display width of the plain text.
     ///
     /// Uses `rich_rs::cell_len` which accounts for double-wide Unicode
-    /// characters (CJK, emoji).
+    /// characters (CJK, emoji).  The result is cached via interior mutability
+    /// (`OnceCell`) — this method takes `&self` (not `&mut self`), mirroring
+    /// Python's `@cached_property` on `Content.cell_length`.
     ///
     /// Mirrors Python `Content.cell_length`.
-    pub fn cell_length(&mut self) -> usize {
-        if let Some(cached) = self.cell_length_cache {
-            return cached;
-        }
-        let len = rich_rs::cell_len(&self.text);
-        self.cell_length_cache = Some(len);
-        len
-    }
-
-    /// Return the cell display width of the plain text (read-only version,
-    /// not cached).
-    pub fn cell_length_ref(&self) -> usize {
-        if let Some(cached) = self.cell_length_cache {
-            return cached;
-        }
-        rich_rs::cell_len(&self.text)
+    pub fn cell_length(&self) -> usize {
+        *self
+            .cell_length_cache
+            .get_or_init(|| rich_rs::cell_len(&self.text))
     }
 
     /// Return a reference to the list of styled spans.
@@ -337,16 +452,46 @@ impl Content {
     ///
     /// Returns the merged style from all spans that cover the given offset.
     /// Spans are applied in order so later spans overlay earlier ones.
+    /// Raw span styles are resolved via the default resolver (no theme context).
     ///
     /// Mirrors Python `Content.get_style_at_offset(offset)`.
     pub fn get_style_at_offset(&self, offset: usize) -> Style {
         let mut result = Style::new();
         for span in &self.spans {
             if span.start <= offset && offset < span.end {
-                result = result.combine(&span.style);
+                result = result.combine(&span.style());
             }
         }
         result
+    }
+
+    /// Resolve all `Raw` spans to `Parsed` spans using the provided parse function.
+    ///
+    /// Mirrors the render-time `get_style(span.style)` call in Python's
+    /// `Content.render()`.  Call this before rendering to apply theme context
+    /// (e.g. `app.parse_style`) so that `$primary`, `auto 20%`, etc. resolve
+    /// correctly.
+    ///
+    /// Returns a new `Content` with all spans resolved to `SpanStyle::Parsed`.
+    pub fn resolve_styles<F>(&self, parse_fn: F) -> Self
+    where
+        F: Fn(&str) -> Style,
+    {
+        let resolved: Vec<Span> = self
+            .spans
+            .iter()
+            .map(|span| Span {
+                start: span.start,
+                end: span.end,
+                span_style: SpanStyle::Parsed(span.span_style.resolve_with(&parse_fn)),
+            })
+            .collect();
+        let out = Self::new_uncached(self.text.clone(), resolved);
+        // Propagate cached cell length if available
+        if let Some(&len) = self.cell_length_cache.get() {
+            let _ = out.cell_length_cache.set(len);
+        }
+        out
     }
 
     // -----------------------------------------------------------------------
@@ -358,11 +503,15 @@ impl Content {
         let offset = self.text.len();
         let mut spans = self.spans.clone();
         for span in &other.spans {
-            spans.push(Span::new(span.start + offset, span.end + offset, span.style.clone()));
+            spans.push(Span {
+                start: span.start + offset,
+                end: span.end + offset,
+                span_style: span.span_style.clone(),
+            });
         }
         let mut text = self.text.clone();
         text.push_str(&other.text);
-        Content::new_raw(text, spans)
+        Content::new_uncached(text, spans)
     }
 
     /// Apply an additional style over a range `[start, end)` (byte offsets),
@@ -377,7 +526,7 @@ impl Content {
         let mut spans = self.spans.clone();
         spans.push(Span::new(start, end, style));
         spans.sort_by_key(|s| s.start);
-        Content::new_raw(self.text.clone(), spans)
+        Content::new_uncached(self.text.clone(), spans)
     }
 
     // -----------------------------------------------------------------------
@@ -396,7 +545,7 @@ impl Content {
                 if s.end <= max_offset {
                     s.clone()
                 } else {
-                    Span::new(s.start, max_offset, s.style.clone())
+                    s.with_range(s.start, max_offset)
                 }
             })
             .collect()
@@ -414,7 +563,7 @@ impl Content {
     ///
     /// Mirrors Python `Content.truncate(max_width, ellipsis=False)`.
     pub fn truncate(&self, max_width: usize, ellipsis: bool) -> Content {
-        let length = self.cell_length_ref();
+        let length = self.cell_length();
         if length <= max_width {
             return self.clone();
         }
@@ -454,11 +603,11 @@ impl Content {
                 if s.end <= max_offset {
                     s.clone()
                 } else {
-                    Span::new(s.start, max_offset, s.style.clone())
+                    s.with_range(s.start, max_offset)
                 }
             })
             .collect();
-        Content::new_raw(text.to_string(), spans)
+        Content::new_uncached(text.to_string(), spans)
     }
 
     // -----------------------------------------------------------------------
@@ -474,7 +623,7 @@ impl Content {
             return self.clone();
         }
         let spans = Self::trim_spans(stripped, &self.spans);
-        Content::new_raw(stripped.to_string(), spans)
+        Content::new_uncached(stripped.to_string(), spans)
     }
 
     /// Remove trailing whitespace that extends beyond `size` bytes.
@@ -517,9 +666,9 @@ impl Content {
         let spans: Vec<Span> = self
             .spans
             .iter()
-            .map(|s| Span::new(s.start + count, s.end + count, s.style.clone()))
+            .map(|s| s.with_range(s.start + count, s.end + count))
             .collect();
-        let cell_len = self.cell_length_cache.map(|l| l + count);
+        let cell_len = self.cell_length_cache.get().map(|l| l + count);
         Content::new_with_cell_len(text, spans, cell_len)
     }
 
@@ -532,7 +681,7 @@ impl Content {
         }
         let padding = " ".repeat(count);
         let text = format!("{}{}", self.text, padding);
-        let cell_len = self.cell_length_cache.map(|l| l + count);
+        let cell_len = self.cell_length_cache.get().map(|l| l + count);
         // Right-padding keeps existing spans unchanged (they don't extend into the pad).
         Content::new_with_cell_len(text, self.spans.clone(), cell_len)
     }
@@ -555,7 +704,7 @@ impl Content {
     /// Mirrors Python `Content.center(width, ellipsis=False)`.
     pub fn center(&self, width: usize, ellipsis: bool) -> Content {
         let content = self.rstrip().truncate(width, ellipsis);
-        let len = content.cell_length_ref();
+        let len = content.cell_length();
         let left = (width.saturating_sub(len)) / 2;
         let right = width.saturating_sub(left).saturating_sub(len);
         content.pad(left, right)
@@ -567,7 +716,7 @@ impl Content {
     /// Mirrors Python `Content.right(width, ellipsis=False)`.
     pub fn right_align(&self, width: usize, ellipsis: bool) -> Content {
         let content = self.rstrip().truncate(width, ellipsis);
-        let len = content.cell_length_ref();
+        let len = content.cell_length();
         let pad = width.saturating_sub(len);
         content.pad_left(pad)
     }
@@ -611,7 +760,7 @@ impl Content {
         // Allocate one Content per range.
         let mut pieces: Vec<Content> = ranges
             .iter()
-            .map(|&(start, end)| Content::new_raw(text[start..end].to_string(), Vec::new()))
+            .map(|&(start, end)| Content::new_uncached(text[start..end].to_string(), Vec::new()))
             .collect();
 
         if self.spans.is_empty() {
@@ -633,9 +782,7 @@ impl Content {
                 let new_start = span.start.saturating_sub(range_start);
                 let new_end = (span_end - range_start).min(range_end - range_start);
                 if new_end > new_start {
-                    pieces[piece_idx]
-                        .spans
-                        .push(Span::new(new_start, new_end, span.style.clone()));
+                    pieces[piece_idx].spans.push(span.with_range(new_start, new_end));
                 }
             }
         }
@@ -889,7 +1036,7 @@ mod tests {
         assert_eq!(c.spans().len(), 1);
         assert_eq!(c.spans()[0].start, 0);
         assert_eq!(c.spans()[0].end, 5);
-        assert_eq!(c.spans()[0].style.bold, Some(true));
+        assert_eq!(c.spans()[0].style().bold, Some(true));
     }
 
     #[test]
@@ -902,7 +1049,7 @@ mod tests {
 
     #[test]
     fn test_blank_no_style() {
-        let mut c = Content::blank(5, None);
+        let c = Content::blank(5, None);
         assert_eq!(c.plain(), "     ");
         assert!(c.spans().is_empty());
         assert_eq!(c.cell_length(), 5);
@@ -937,7 +1084,9 @@ mod tests {
         let c = Content::from_markup("[bold]hello[/bold]");
         assert_eq!(c.plain(), "hello");
         assert_eq!(c.spans().len(), 1);
-        assert_eq!(c.spans()[0].style.bold, Some(true));
+        // Span carries raw "bold" — resolved style has bold=true
+        assert_eq!(c.spans()[0].span_style, SpanStyle::Raw("bold".to_string()));
+        assert_eq!(c.spans()[0].style().bold, Some(true));
     }
 
     #[test]
@@ -946,7 +1095,13 @@ mod tests {
         let c = Content::from_markup("[link=https://example.com]click[/link]");
         assert_eq!(c.plain(), "click");
         assert_eq!(c.spans().len(), 1);
-        let style = &c.spans()[0].style;
+        // Raw tag preserved
+        assert_eq!(
+            c.spans()[0].span_style,
+            SpanStyle::Raw("link=https://example.com".to_string())
+        );
+        // Default resolution of "link=url" produces no visual style
+        let style = c.spans()[0].style();
         assert!(style.fg.is_none(), "link must not set fg");
         assert!(style.underline.is_none(), "link must not set underline");
         assert!(style.bold.is_none(), "link must not set bold");
@@ -965,6 +1120,86 @@ mod tests {
     fn test_from_markup_empty() {
         let c = Content::from_markup("");
         assert!(c.is_empty());
+    }
+
+    // --- unknown tag: Python-faithful consume-and-null-style behavior ---
+
+    /// Python: `from_markup('[foobar]test[/foobar]')` → plain='test', span with
+    /// raw='foobar', resolves to null style.  The `[foobar]` text must NOT appear
+    /// in the plain output.
+    #[test]
+    fn test_unknown_tag_consumed_not_literal() {
+        let c = Content::from_markup("[foobar]test[/foobar]");
+        // Tag is consumed — plain text is just "test"
+        assert_eq!(c.plain(), "test", "unknown tag must be consumed, not emitted as literal");
+        // One span is produced with the raw tag body
+        assert_eq!(c.spans().len(), 1);
+        assert_eq!(c.spans()[0].start, 0);
+        assert_eq!(c.spans()[0].end, 4);
+        assert_eq!(
+            c.spans()[0].span_style,
+            SpanStyle::Raw("foobar".to_string()),
+            "unknown tag body must be stored as raw string"
+        );
+        // Resolve to null style
+        let style = c.spans()[0].style();
+        assert!(style.bold.is_none());
+        assert!(style.fg.is_none());
+        assert!(style.bg.is_none());
+    }
+
+    /// Python: `from_markup('[bad on red]y[/]')` → plain='y', span with raw='bad on red'.
+    /// Multi-token unrecognised tags are also consumed.
+    #[test]
+    fn test_unknown_multi_token_tag_consumed() {
+        let c = Content::from_markup("[bad on red]y[/]");
+        assert_eq!(c.plain(), "y", "multi-token unknown tag must be consumed");
+        assert_eq!(c.spans().len(), 1);
+        assert_eq!(
+            c.spans()[0].span_style,
+            SpanStyle::Raw("bad on red".to_string()),
+        );
+        // "bad" is unrecognised but "on red" would be a valid bg — raw stored, not partially resolved
+        // At render time parse_style("bad on red") would fail → null style
+    }
+
+    /// Deferred resolution: a theme token like "$primary" stored raw resolves
+    /// differently at render time vs. parse time.  At parse time (no context) it
+    /// returns `Style::new()`.  At render time the `resolve_styles` hook can
+    /// substitute the real theme color.
+    #[test]
+    fn test_deferred_theme_token_stored_raw() {
+        let c = Content::from_markup("[$primary]hello[/]");
+        // The tag body "$primary" (or "$ primary"?) is kept raw — test the raw storage
+        assert_eq!(c.plain(), "hello");
+        assert_eq!(c.spans().len(), 1);
+        // Raw variant, not pre-resolved
+        assert!(
+            matches!(c.spans()[0].span_style, SpanStyle::Raw(_)),
+            "theme token must be stored as raw, not eagerly resolved"
+        );
+    }
+
+    /// `resolve_styles` with a mock parse function applies the theme context.
+    #[test]
+    fn test_resolve_styles_applies_context() {
+        let c = Content::from_markup("[mytoken]hello[/]");
+        // Simulate render-time resolution that maps "mytoken" → bold style
+        let bold_style = Style::new().bold(true);
+        let resolved = c.resolve_styles(|raw| {
+            if raw == "mytoken" {
+                bold_style.clone()
+            } else {
+                Style::new()
+            }
+        });
+        assert_eq!(resolved.plain(), "hello");
+        assert_eq!(resolved.spans().len(), 1);
+        // After resolution, span_style must be Parsed
+        match &resolved.spans()[0].span_style {
+            SpanStyle::Parsed(s) => assert_eq!(s.bold, Some(true)),
+            SpanStyle::Raw(r) => panic!("expected Parsed after resolve_styles, got Raw({r:?})"),
+        }
     }
 
     // --- assemble ---
@@ -1008,21 +1243,29 @@ mod tests {
         assert_eq!(c.spans()[0].end, 7);
     }
 
-    // --- cell_length ---
+    // --- cell_length (now &self via OnceCell) ---
 
     #[test]
     fn test_cell_length_ascii() {
-        let mut c = Content::from_text("hello");
+        let c = Content::from_text("hello");
         assert_eq!(c.cell_length(), 5);
     }
 
     #[test]
     fn test_cell_length_cached() {
-        let mut c = Content::from_text("abc");
+        let c = Content::from_text("abc");
         let first = c.cell_length();
         let second = c.cell_length();
         assert_eq!(first, second);
         assert_eq!(first, 3);
+    }
+
+    #[test]
+    fn test_cell_length_immutable_ref() {
+        // cell_length must work on &Content (not &mut Content)
+        let c = Content::from_text("hello");
+        let r: &Content = &c;
+        assert_eq!(r.cell_length(), 5);
     }
 
     // --- get_style_at_offset ---
@@ -1074,7 +1317,7 @@ mod tests {
         assert_eq!(c2.spans().len(), 1);
         assert_eq!(c2.spans()[0].start, 6);
         assert_eq!(c2.spans()[0].end, 11);
-        assert_eq!(c2.spans()[0].style.bold, Some(true));
+        assert_eq!(c2.spans()[0].style().bold, Some(true));
     }
 
     // --- display ---
@@ -1143,7 +1386,7 @@ mod tests {
         let c = Content::from_text("hello world");
         let t = c.truncate(5, false);
         assert_eq!(t.plain(), "hello");
-        assert_eq!(t.cell_length_ref(), 5);
+        assert_eq!(t.cell_length(), 5);
     }
 
     #[test]
@@ -1152,7 +1395,7 @@ mod tests {
         let t = c.truncate(6, true);
         // "hello" (5 cells) + "…" (1 cell) = 6 cells
         assert_eq!(t.plain(), "hello…");
-        assert_eq!(t.cell_length_ref(), 6);
+        assert_eq!(t.cell_length(), 6);
     }
 
     #[test]
@@ -1332,7 +1575,7 @@ mod tests {
         let c = Content::from_text("hi");
         let ct = c.center(6, false);
         assert_eq!(ct.plain(), "  hi  ");
-        assert_eq!(ct.cell_length_ref(), 6);
+        assert_eq!(ct.cell_length(), 6);
     }
 
     #[test]
@@ -1342,7 +1585,7 @@ mod tests {
         let ct = c.center(5, false);
         // left = (5-2)/2 = 1, right = 5 - 1 - 2 = 2
         assert_eq!(ct.plain(), " hi  ");
-        assert_eq!(ct.cell_length_ref(), 5);
+        assert_eq!(ct.cell_length(), 5);
     }
 
     #[test]
@@ -1350,7 +1593,7 @@ mod tests {
         // With an unstyled content, padding produces no spans.
         let c = Content::from_text("hello");
         let ct = c.center(10, false);
-        assert_eq!(ct.cell_length_ref(), 10);
+        assert_eq!(ct.cell_length(), 10);
         assert!(ct.spans().is_empty());
     }
 
@@ -1359,7 +1602,7 @@ mod tests {
         let c = Content::from_text("hello world");
         let ct = c.center(5, false);
         // truncated to 5, no room for padding
-        assert_eq!(ct.cell_length_ref(), 5);
+        assert_eq!(ct.cell_length(), 5);
     }
 
     // --- right_align ---
@@ -1369,7 +1612,7 @@ mod tests {
         let c = Content::from_text("hi");
         let r = c.right_align(6, false);
         assert_eq!(r.plain(), "    hi");
-        assert_eq!(r.cell_length_ref(), 6);
+        assert_eq!(r.cell_length(), 6);
     }
 
     // --- divide ---

@@ -1,18 +1,44 @@
 //! Textual markup parser: converts `[bold]text[/bold]`, `[link=url]`, `[@click=...]`
-//! into a list of [`super::Span`] values on top of plain text.
+//! into a list of raw spans (with deferred style resolution) on top of plain text.
 //!
 //! This mirrors `textual/markup.py`'s `_to_content` function semantics, but is a
 //! clean Rust implementation — **not** a wrapper around rich-rs markup.
 //!
-//! ## Design rules (from CONTENT_LAYER_KEYSTONE.md)
+//! ## Design rules (from CONTENT_LAYER_KEYSTONE.md and Python fidelity review)
+//!
+//! ### Deferred resolution (Python-faithful)
+//! Python's `Span.style` is `Style | str` — the raw tag body (e.g. `"bold"`,
+//! `"red on blue"`, `"foobar"`, `"link=url"`) is stored as a string and resolved
+//! at **render time** with app/theme context.  `RawSpan.raw_tag` mirrors this.
+//!
+//! ### Unknown/partial-invalid tags are CONSUMED, not emitted as literal text
+//! Python's `_to_content` pushes **every** non-empty, bracket-enclosed tag to the
+//! style stack regardless of whether the tag body is a recognised style keyword.
+//! The raw body is stored; at render time `Style.parse("foobar")` fails silently
+//! and returns a null/transparent style.  Only genuinely unparsable bracket content
+//! (e.g. `[foo bar baz]` where the tokenizer sees *text* tokens inside, meaning the
+//! content cannot even be tokenised as a style expression) is emitted as literal
+//! text.  In our simplified tokeniser (no full CSS tokeniser) we classify any
+//! bracket-enclosed run of non-newline characters as a valid tag candidate, so ALL
+//! `[tag_body]` forms with a matching `]` are consumed.
+//!
+//! ### `not` modifier
+//! `[not bold]` sets `style_state = false` then applies it to `bold`, producing
+//! `bold: false` in the resolved style.  The Rust parser mirrors this.
+//!
+//! ### `blink` keyword
+//! `blink` is a valid Python style keyword stored raw like any other.  Our
+//! `Style` struct does not have a `blink` field; if/when it does, `blink` will
+//! apply automatically through the resolved parse path.
+//!
 //! - `[link=url]` carries link META only — **no** visual cyan/underline.
 //!   (That was the bug we just removed from rich-rs; Textual applies link visuals
 //!   via Theme, not the parser.)
 //! - Visual style tokens (`bold`, `italic`, `b`, `i`, colors, `on <bg>`, …) are
-//!   parsed into a `crate::style::Style` and stored in the span's style field.
+//!   parsed into a `crate::style::Style` and stored in the span's style field at
+//!   resolve time.
 //! - `[@click=...]` / `[key=value]` key-value pairs are stored as meta on
-//!   [`SpanMeta`] so they are not lost, but do not contribute visual style.
-//! - Unrecognised / unparsable tags are emitted as literal text (same as Python).
+//!   [`RawSpan`] so they are not lost during span manipulation.
 
 use crate::style::{Color, Style, parse_color_like};
 
@@ -49,16 +75,26 @@ fn resolve_style_keyword(token: &str) -> Option<&'static str> {
 }
 
 // ---------------------------------------------------------------------------
-// Tag-body → Style
+// Tag-body → Style (used at resolve time, not at parse time)
 // ---------------------------------------------------------------------------
 
 /// Parse the body of a markup tag (the part between `[` and `]`) into a
-/// `Style`.  Key-value attributes like `link=url` or `@click=action` are
-/// returned separately via `meta` so callers can attach them without mixing
-/// with visual style.
+/// `Style` + optional meta.
 ///
-/// Returns `None` if the tag body cannot be meaningfully parsed (which means
-/// the surrounding `[ ]` should be treated as literal text).
+/// This function is called at **render / resolve time** (not at parse time).
+/// It handles the same token grammar as Python's `parse_style`:
+/// - `bold`, `italic`, etc. → set the respective style flag.
+/// - `not bold` → set bold=false (style_state toggle).
+/// - `on <color>` → background color.
+/// - `link=url`, `@click=action` → key-value meta (no visual style).
+/// - `auto` → leave color as None (resolved at Theme level).
+/// - Unrecognised tokens → whole tag is null-style (no style set), consistent
+///   with Python's `Style.parse("foobar")` returning a null style.
+///
+/// Returns `None` for genuinely empty tag bodies (which should have been
+/// emitted as literal text at parse time).  Returns `Some(ParsedTag)` even
+/// for fully unrecognised tags — the caller should use the null `style` in
+/// that case.
 pub(crate) fn parse_tag_style(tag_body: &str) -> Option<ParsedTag> {
     let tag = tag_body.trim();
     if tag.is_empty() {
@@ -70,6 +106,7 @@ pub(crate) fn parse_tag_style(tag_body: &str) -> Option<ParsedTag> {
     let mut is_background = false;
     let mut pending_color: Option<Color> = None;
     let mut had_style = false; // did we consume at least one token?
+    let mut style_state = true; // false after "not" modifier; reset after applying
 
     // Tokenise: split on whitespace, but keep `key=value` pairs intact
     let tokens: Vec<&str> = tag.split_whitespace().collect();
@@ -85,17 +122,14 @@ pub(crate) fn parse_tag_style(tag_body: &str) -> Option<ParsedTag> {
             let value = token[eq + 1..].trim_matches('"').trim_matches('\'');
             meta.push((key.to_string(), value.to_string()));
             had_style = true;
+            style_state = true; // reset after consuming the token
             continue;
         }
 
         // --- "not" modifier → next token is negated ---
         if token == "not" {
-            // Python toggles style_state to false; we apply it to next token.
-            // Simplified: we skip the next token's effect by consuming it without
-            // applying to style. In practice Textual markup rarely uses "not".
-            if i < tokens.len() {
-                i += 1; // skip next token (disabled style)
-            }
+            // Python: style_state = False; next recognised token sets style[x]=False
+            style_state = false;
             had_style = true;
             continue;
         }
@@ -114,6 +148,7 @@ pub(crate) fn parse_tag_style(tag_body: &str) -> Option<ParsedTag> {
             // at the span level (it's resolved at render time).
             had_style = true;
             is_background = false;
+            style_state = true;
             continue;
         }
 
@@ -121,13 +156,15 @@ pub(crate) fn parse_tag_style(tag_body: &str) -> Option<ParsedTag> {
         if token == "link" {
             meta.push(("link".to_string(), String::new()));
             had_style = true;
+            style_state = true;
             continue;
         }
 
         // --- visual style keyword ---
-        if let Some(_canonical) = resolve_style_keyword(token) {
-            apply_style_keyword(&mut style, _canonical);
+        if let Some(canonical) = resolve_style_keyword(token) {
+            apply_style_keyword(&mut style, canonical, style_state);
             had_style = true;
+            style_state = true; // reset after applying
             continue;
         }
 
@@ -146,6 +183,7 @@ pub(crate) fn parse_tag_style(tag_body: &str) -> Option<ParsedTag> {
                         style = style.fg(c);
                     }
                     had_style = true;
+                    style_state = true;
                     continue;
                 }
             }
@@ -163,11 +201,19 @@ pub(crate) fn parse_tag_style(tag_body: &str) -> Option<ParsedTag> {
             }
             pending_color = Some(color);
             had_style = true;
+            style_state = true;
             continue;
         }
 
-        // --- unrecognised token → the whole tag is literal text ---
-        return None;
+        // --- unrecognised token ---
+        // Unlike the old behaviour (returning None here to emit literal text),
+        // we now just note that we had an unrecognised token.  The tag is still
+        // consumed; the resulting style will be null/transparent for this span.
+        // This matches Python: Style.parse("foobar") returns a null Style.
+        had_style = true;
+        style_state = true;
+        // NOTE: we do NOT break/return None here.  We continue parsing the rest
+        // of the token list.  All tokens are consumed; unknown ones are no-ops.
     }
 
     // Flush any pending color
@@ -186,16 +232,17 @@ pub(crate) fn parse_tag_style(tag_body: &str) -> Option<ParsedTag> {
     Some(ParsedTag { style, meta })
 }
 
-/// Apply a canonical style keyword string to the style builder.
-fn apply_style_keyword(style: &mut Style, keyword: &str) {
+/// Apply a canonical style keyword string to the style builder, respecting `state`.
+/// When `state` is false (from a `not` modifier), the attribute is set to false.
+fn apply_style_keyword(style: &mut Style, keyword: &str, state: bool) {
     match keyword {
-        "bold" => *style = std::mem::take(style).bold(true),
-        "dim" => *style = std::mem::take(style).dim(true),
-        "italic" => *style = std::mem::take(style).italic(true),
-        "underline" | "underline2" => *style = std::mem::take(style).underline(true),
-        "reverse" => *style = std::mem::take(style).reverse(true),
-        "strike" => *style = std::mem::take(style).strike(true),
-        // blink is not modelled in our Style struct — ignore silently
+        "bold" => *style = std::mem::take(style).bold(state),
+        "dim" => *style = std::mem::take(style).dim(state),
+        "italic" => *style = std::mem::take(style).italic(state),
+        "underline" | "underline2" => *style = std::mem::take(style).underline(state),
+        "reverse" => *style = std::mem::take(style).reverse(state),
+        "strike" => *style = std::mem::take(style).strike(state),
+        // blink is not modelled in our Style struct — ignore silently for now
         _ => {}
     }
 }
@@ -243,12 +290,18 @@ pub(crate) fn normalize_tag(tag: &str) -> String {
 // Main markup → (text, spans) parser
 // ---------------------------------------------------------------------------
 
-/// Span with style AND optional meta key-value pairs.
+/// Span with raw tag body AND optional meta key-value pairs.
+///
+/// The `raw_tag` field stores the exact tag body string (e.g. `"bold"`,
+/// `"red on blue"`, `"foobar"`, `"link=url"`) — mirroring Python's
+/// `Span.style: str`.  Resolution to a concrete `Style` happens at render
+/// time via `parse_tag_style` (or the app's `parse_style` for theme context).
 #[derive(Debug, Clone)]
 pub(crate) struct RawSpan {
     pub start: usize,
     pub end: usize,
-    pub style: Style,
+    /// Raw tag body, deferred for render-time resolution.
+    pub raw_tag: String,
     /// Non-visual metadata (link=url, @click=action, ...).
     /// Populated by the parser; consumed in Phase B/C when link-click handling is wired.
     #[allow(dead_code)]
@@ -258,12 +311,18 @@ pub(crate) struct RawSpan {
 /// Parse Textual markup into `(plain_text, spans)`.
 ///
 /// Behaviour mirrors `_to_content` in `textual/markup.py`:
-/// - `[bold]text[/bold]` → Span covering "text" with bold style.
-/// - `[link=url]text[/link]` → Span with link in meta, no visual style change.
-/// - `[@click=action]text[/]` → Span with @click in meta.
-/// - Unrecognisable or unparsable tags are emitted as literal text.
+/// - `[bold]text[/bold]` → RawSpan covering "text" with raw_tag="bold".
+/// - `[foobar]text[/foobar]` → RawSpan with raw_tag="foobar" (null style at render).
+/// - `[link=url]text[/link]` → RawSpan with link in meta, raw_tag="link=url".
+/// - `[@click=action]text[/]` → RawSpan with @click in meta.
+/// - Tags with genuine *text* content inside the brackets (unparsable by the
+///   style tokeniser because they contain non-token characters) are emitted as
+///   literal text, matching Python's "contains_text" branch.
 /// - `\[` → literal `[` (escape).
 /// - Auto-closing unclosed opening tags at end of input.
+///
+/// **Key Python-faithful change vs Phase A**: unknown tag bodies (e.g. "foobar")
+/// are consumed and stored as raw spans — NOT emitted as literal `[foobar]` text.
 pub(crate) fn parse_markup(markup: &str) -> (String, Vec<RawSpan>) {
     if !markup.contains('[') {
         // Fast path: no markup at all
@@ -276,8 +335,9 @@ pub(crate) fn parse_markup(markup: &str) -> (String, Vec<RawSpan>) {
     let mut text = String::with_capacity(markup.len());
     let mut spans: Vec<RawSpan> = Vec::new();
 
-    // Stack of (byte_position_in_text, original_tag_body, normalized_tag_body, parsed_tag)
-    let mut style_stack: Vec<(usize, String, String, ParsedTag)> = Vec::new();
+    // Stack of (byte_position_in_text, raw_tag_body, normalized_tag_body)
+    // We store the raw tag body — NOT a parsed Style — mirroring Python exactly.
+    let mut style_stack: Vec<(usize, String, String)> = Vec::new();
 
     let mut i = 0;
     while i < len {
@@ -304,14 +364,16 @@ pub(crate) fn parse_markup(markup: &str) -> (String, Vec<RawSpan>) {
                     let closing = tag_body.trim();
                     if closing.is_empty() {
                         // `[/]` → auto-close the most recent open tag
-                        if let Some((tag_pos, _orig_body, _norm, parsed)) = style_stack.pop() {
+                        if let Some((tag_pos, raw_tag, _norm)) = style_stack.pop() {
                             let current_pos = text.len();
                             if tag_pos != current_pos {
+                                // Extract meta from raw_tag for metadata-only tags
+                                let meta = extract_meta_only(&raw_tag);
                                 spans.push(RawSpan {
                                     start: tag_pos,
                                     end: current_pos,
-                                    style: parsed.style,
-                                    meta: parsed.meta,
+                                    raw_tag,
+                                    meta,
                                 });
                             }
                         }
@@ -324,15 +386,16 @@ pub(crate) fn parse_markup(markup: &str) -> (String, Vec<RawSpan>) {
                         for rev_idx in 0..stack_len {
                             let stack_idx = stack_len - 1 - rev_idx;
                             if style_stack[stack_idx].2 == norm_closing {
-                                let (tag_pos, _orig, _norm, parsed) =
+                                let (tag_pos, raw_tag, _norm) =
                                     style_stack.remove(stack_idx);
                                 let current_pos = text.len();
                                 if tag_pos != current_pos {
+                                    let meta = extract_meta_only(&raw_tag);
                                     spans.push(RawSpan {
                                         start: tag_pos,
                                         end: current_pos,
-                                        style: parsed.style,
-                                        meta: parsed.meta,
+                                        raw_tag,
+                                        meta,
                                     });
                                 }
                                 found = true;
@@ -349,22 +412,21 @@ pub(crate) fn parse_markup(markup: &str) -> (String, Vec<RawSpan>) {
                     // Opening tag
                     let tag_trimmed = tag_body.trim();
                     if tag_trimmed.is_empty() {
-                        // Empty tag `[ ]` or `[]` → literal
+                        // Empty tag `[ ]` or `[]` → literal (matches Python "blank tag")
+                        let literal = format!("[{tag_body}]");
+                        text.push_str(&literal);
+                    } else if contains_literal_text(tag_trimmed) {
+                        // Tag body contains characters that the style tokeniser would
+                        // see as text tokens (e.g. embedded `[` or control chars) —
+                        // emit as literal text, matching Python's "contains_text" branch.
                         let literal = format!("[{tag_body}]");
                         text.push_str(&literal);
                     } else {
-                        match parse_tag_style(tag_trimmed) {
-                            Some(parsed) => {
-                                let norm = normalize_tag(tag_trimmed);
-                                let pos = text.len();
-                                style_stack.push((pos, tag_trimmed.to_string(), norm, parsed));
-                            }
-                            None => {
-                                // Unrecognised tag → literal text
-                                let literal = format!("[{tag_body}]");
-                                text.push_str(&literal);
-                            }
-                        }
+                        // Valid tag candidate: push to stack with raw body.
+                        // We do NOT pre-parse the style here — defer to render time.
+                        let norm = normalize_tag(tag_trimmed);
+                        let pos = text.len();
+                        style_stack.push((pos, tag_trimmed.to_string(), norm));
                     }
                 }
             } else {
@@ -376,7 +438,6 @@ pub(crate) fn parse_markup(markup: &str) -> (String, Vec<RawSpan>) {
         }
 
         // Regular character
-        // SAFETY: we've checked ASCII `[` and `\`, but push char by char via str indexing
         let ch = &markup[i..i + char_len_at(markup, i)];
         text.push_str(ch);
         i += ch.len();
@@ -385,15 +446,14 @@ pub(crate) fn parse_markup(markup: &str) -> (String, Vec<RawSpan>) {
     // Auto-close any unclosed opening tags (Python does this at end-of-input)
     let text_len = text.len();
     if text_len > 0 {
-        // Process in reverse (innermost first), but Python reverses then appends
-        // and then sort-by-start. We replicate: collect unclosed spans, then sort.
-        for (tag_pos, _orig, _norm, parsed) in style_stack.into_iter().rev() {
+        for (tag_pos, raw_tag, _norm) in style_stack.into_iter().rev() {
             if tag_pos != text_len {
+                let meta = extract_meta_only(&raw_tag);
                 spans.push(RawSpan {
                     start: tag_pos,
                     end: text_len,
-                    style: parsed.style,
-                    meta: parsed.meta,
+                    raw_tag,
+                    meta,
                 });
             }
         }
@@ -403,6 +463,36 @@ pub(crate) fn parse_markup(markup: &str) -> (String, Vec<RawSpan>) {
     spans.sort_by_key(|s| s.start);
 
     (text, spans)
+}
+
+/// Check whether a tag body contains characters that would cause Python's
+/// markup tokeniser to emit a "text" token (making the tag unparsable as a
+/// style expression).  We use a heuristic: a tag body is "literal" if it
+/// contains an inner `[` or `]` that would confuse bracket matching.  Normal
+/// alphanumeric, `-`, `_`, `=`, `@`, `#`, `$`, `%`, `.`, `(`, `)`, spaces,
+/// and `/` are all valid style-token characters.
+///
+/// This keeps the "fast-literal" gate narrow so that even exotic tokens like
+/// `"$primary"`, `"not bold"`, `"auto 20%"`, `"bad on red"`, `"foobar"` all
+/// get pushed to the stack (and stored raw), matching Python.
+fn contains_literal_text(tag_body: &str) -> bool {
+    // Inner unescaped brackets inside the body indicate a genuinely unparsable tag
+    tag_body.contains('[') || tag_body.contains(']')
+}
+
+/// Extract meta key-value pairs from a raw tag body string for metadata-only tags
+/// (e.g. `link=url`, `@click=action`).  This is used when building `RawSpan.meta`
+/// so that metadata survives span manipulation even before render-time resolution.
+fn extract_meta_only(raw_tag: &str) -> Vec<(String, String)> {
+    let mut meta = Vec::new();
+    for token in raw_tag.split_whitespace() {
+        if let Some(eq) = token.find('=') {
+            let key = &token[..eq];
+            let value = token[eq + 1..].trim_matches('"').trim_matches('\'');
+            meta.push((key.to_string(), value.to_string()));
+        }
+    }
+    meta
 }
 
 /// Find the matching `]` for a tag starting at `start` (after the `[` or `[/`).
@@ -451,7 +541,7 @@ mod tests {
         assert_eq!(spans.len(), 1);
         assert_eq!(spans[0].start, 0);
         assert_eq!(spans[0].end, 5);
-        assert_eq!(spans[0].style.bold, Some(true));
+        assert_eq!(spans[0].raw_tag, "bold");
     }
 
     #[test]
@@ -459,7 +549,10 @@ mod tests {
         let (text, spans) = parse_markup("[b]hello[/b]");
         assert_eq!(text, "hello");
         assert_eq!(spans.len(), 1);
-        assert_eq!(spans[0].style.bold, Some(true));
+        assert_eq!(spans[0].raw_tag, "b");
+        // Resolved style should have bold=true
+        let resolved = parse_tag_style(&spans[0].raw_tag).unwrap();
+        assert_eq!(resolved.style.bold, Some(true));
     }
 
     #[test]
@@ -467,7 +560,8 @@ mod tests {
         let (text, spans) = parse_markup("[italic]world[/italic]");
         assert_eq!(text, "world");
         assert_eq!(spans.len(), 1);
-        assert_eq!(spans[0].style.italic, Some(true));
+        let resolved = parse_tag_style(&spans[0].raw_tag).unwrap();
+        assert_eq!(resolved.style.italic, Some(true));
     }
 
     #[test]
@@ -476,14 +570,16 @@ mod tests {
         let (text, spans) = parse_markup("[link=https://example.com]click me[/link]");
         assert_eq!(text, "click me");
         assert_eq!(spans.len(), 1);
-        // Visual style should be default (no fg/bold/underline from the link tag)
-        let s = &spans[0].style;
-        assert!(s.fg.is_none(), "link tag must not set fg color");
-        assert!(s.underline.is_none(), "link tag must not set underline");
+        // Raw tag preserved
+        assert_eq!(spans[0].raw_tag, "link=https://example.com");
         // Meta should contain the link url
         let link_meta = spans[0].meta.iter().find(|(k, _)| k == "link");
         assert!(link_meta.is_some(), "link meta must be present");
         assert_eq!(link_meta.unwrap().1, "https://example.com");
+        // Resolved visual style should have no fg/underline
+        let resolved = parse_tag_style(&spans[0].raw_tag).unwrap();
+        assert!(resolved.style.fg.is_none(), "link tag must not set fg color");
+        assert!(resolved.style.underline.is_none(), "link tag must not set underline");
     }
 
     #[test]
@@ -491,12 +587,10 @@ mod tests {
         let (text, spans) = parse_markup("[@click=my_action]click[/]");
         assert_eq!(text, "click");
         assert_eq!(spans.len(), 1);
+        assert_eq!(spans[0].raw_tag, "@click=my_action");
         let click_meta = spans[0].meta.iter().find(|(k, _)| k == "@click");
         assert!(click_meta.is_some());
         assert_eq!(click_meta.unwrap().1, "my_action");
-        // No visual style from @click
-        assert!(spans[0].style.fg.is_none());
-        assert!(spans[0].style.bold.is_none());
     }
 
     #[test]
@@ -507,7 +601,7 @@ mod tests {
         assert_eq!(spans.len(), 1);
         assert_eq!(spans[0].start, 0);
         assert_eq!(spans[0].end, 8);
-        assert_eq!(spans[0].style.bold, Some(true));
+        assert_eq!(spans[0].raw_tag, "bold");
     }
 
     #[test]
@@ -521,9 +615,8 @@ mod tests {
     fn test_nested_spans() {
         let (text, spans) = parse_markup("[bold]hel[italic]lo[/italic][/bold]");
         assert_eq!(text, "hello");
-        // bold span covers 0..5, italic span covers 3..5
-        let bold_span = spans.iter().find(|s| s.style.bold == Some(true));
-        let italic_span = spans.iter().find(|s| s.style.italic == Some(true));
+        let bold_span = spans.iter().find(|s| s.raw_tag == "bold");
+        let italic_span = spans.iter().find(|s| s.raw_tag == "italic");
         assert!(bold_span.is_some(), "bold span missing");
         assert!(italic_span.is_some(), "italic span missing");
         assert_eq!(bold_span.unwrap().start, 0);
@@ -537,22 +630,43 @@ mod tests {
         let (text, spans) = parse_markup("[red]error[/red]");
         assert_eq!(text, "error");
         assert_eq!(spans.len(), 1);
-        assert!(spans[0].style.fg.is_some(), "red tag should set fg color");
-        // Red = #800000 or similar from named colors
+        assert_eq!(spans[0].raw_tag, "red");
+        let resolved = parse_tag_style("red").unwrap();
+        assert!(resolved.style.fg.is_some(), "red tag should set fg color after resolve");
     }
 
+    /// Python-faithful: unrecognised tag like [foobar] is CONSUMED (not literal text).
+    /// The tag body is stored as raw_tag; it resolves to null style at render time.
     #[test]
-    fn test_unrecognised_tag_is_literal() {
-        // An unrecognised tag like [foobar] should appear as literal text
-        // (Python emits the bracket content as text when it can't parse the tag)
-        // Note: parse_markup only returns None for unrecognisable single-token names,
-        // so this depends on parse_tag_style returning None for "foobar"
-        // In our implementation, unknown non-color tokens return None from parse_tag_style
-        // which means the tag is emitted as literal text.
-        let (text, spans) = parse_markup("[foobar]test");
-        // "foobar" is not a color or style keyword, so it becomes literal
-        assert_eq!(text, "[foobar]test");
-        assert!(spans.is_empty());
+    fn test_unrecognised_tag_is_consumed_not_literal() {
+        let (text, spans) = parse_markup("[foobar]test[/foobar]");
+        // Tag is consumed — plain text is just "test"
+        assert_eq!(
+            text, "test",
+            "unknown tag must be consumed, not emitted as literal [foobar]test"
+        );
+        // One span produced, raw_tag = "foobar"
+        assert_eq!(spans.len(), 1);
+        assert_eq!(spans[0].raw_tag, "foobar");
+        assert_eq!(spans[0].start, 0);
+        assert_eq!(spans[0].end, 4);
+        // parse_tag_style("foobar") should return Some with null style (unknown token → no-op)
+        let resolved = parse_tag_style("foobar");
+        assert!(resolved.is_some(), "parse_tag_style should return Some (had_style=true from consuming foobar)");
+        let style = resolved.unwrap().style;
+        assert!(style.bold.is_none());
+        assert!(style.fg.is_none());
+        assert!(style.bg.is_none());
+    }
+
+    /// Python-faithful: `[bad on red]y[/]` — mixed unknown+valid tokens.
+    /// "bad" is unrecognised but "on red" is valid bg.  Python stores whole tag raw.
+    #[test]
+    fn test_mixed_unknown_valid_tag_consumed() {
+        let (text, spans) = parse_markup("[bad on red]y[/]");
+        assert_eq!(text, "y", "tag must be consumed");
+        assert_eq!(spans.len(), 1);
+        assert_eq!(spans[0].raw_tag, "bad on red");
     }
 
     #[test]
@@ -570,7 +684,7 @@ mod tests {
         let (text, spans) = parse_markup("[bold]hello[/]");
         assert_eq!(text, "hello");
         assert_eq!(spans.len(), 1);
-        assert_eq!(spans[0].style.bold, Some(true));
+        assert_eq!(spans[0].raw_tag, "bold");
     }
 
     #[test]
@@ -578,9 +692,11 @@ mod tests {
         let (text, spans) = parse_markup("[on red]text[/]");
         assert_eq!(text, "text");
         assert_eq!(spans.len(), 1);
-        // "on red" should set bg, not fg
-        assert!(spans[0].style.bg.is_some(), "on <color> should set bg");
-        assert!(spans[0].style.fg.is_none(), "on <color> must not set fg");
+        assert_eq!(spans[0].raw_tag, "on red");
+        // Resolved: "on red" should set bg, not fg
+        let resolved = parse_tag_style("on red").unwrap();
+        assert!(resolved.style.bg.is_some(), "on <color> should set bg");
+        assert!(resolved.style.fg.is_none(), "on <color> must not set fg");
     }
 
     #[test]
@@ -589,5 +705,46 @@ mod tests {
         assert_eq!(normalize_tag("bold"), "bold");
         assert_eq!(normalize_tag("link=url"), "link");
         assert_eq!(normalize_tag("  italic  "), "italic");
+    }
+
+    // --- not modifier tests ---
+
+    #[test]
+    fn test_not_modifier_bold() {
+        // "[not bold]text[/]" → parse_tag_style("not bold") → bold=false
+        let parsed = parse_tag_style("not bold").unwrap();
+        assert_eq!(
+            parsed.style.bold,
+            Some(false),
+            "not bold should set bold=false"
+        );
+    }
+
+    #[test]
+    fn test_not_modifier_italic() {
+        let parsed = parse_tag_style("not italic").unwrap();
+        assert_eq!(parsed.style.italic, Some(false));
+    }
+
+    // --- deferred resolution tests ---
+
+    #[test]
+    fn test_raw_tag_stored_for_bold() {
+        // Even a known keyword like "bold" is stored raw (deferred)
+        let (_, spans) = parse_markup("[bold]x[/bold]");
+        assert_eq!(spans[0].raw_tag, "bold");
+        // Resolution happens separately
+        let resolved = parse_tag_style(&spans[0].raw_tag).unwrap();
+        assert_eq!(resolved.style.bold, Some(true));
+    }
+
+    #[test]
+    fn test_raw_tag_stored_for_unknown() {
+        let (_, spans) = parse_markup("[mytheme-primary]x[/]");
+        assert_eq!(spans[0].raw_tag, "mytheme-primary");
+        // No parse-time error; null style at default resolve
+        let resolved = parse_tag_style(&spans[0].raw_tag).unwrap();
+        assert!(resolved.style.bold.is_none());
+        assert!(resolved.style.fg.is_none());
     }
 }
