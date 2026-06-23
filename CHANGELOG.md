@@ -45,6 +45,20 @@ until the API stabilizes.
   skips redundant re-application of CSS text attributes already baked in.
   Snapshot updated: cells now carry `textual:no_text_style=true` metadata
   (meta-only change, visual output unchanged).
+### 2026-06-23 (feat(toast): migrate render to Content::render_strips — Phase D retirement)
+
+- **feat(toast/Toast): render via Content::render_strips** —
+  `Toast::render()` now uses `Content::from_markup` + `Content::assemble` +
+  `Content::render_strips` following the established Button/Label pattern.
+  `current_self_style()` / `current_ancestor_composited_background()` supply
+  the visual style; the `toast--title` component style is resolved via
+  `resolve_component_style` and assembled into a styled span at the front of
+  the content. Segments are tagged `textual:no_text_style=true` so
+  `apply_style_to_segments` skips redundant re-application of text attributes.
+  The old `render_markup_line` private method (which used `Text::plain` +
+  `adjust_line_length_no_bg`) is retired. Layout helpers (`wrapped_line_count`,
+  `content_box_width`, `markup_cell_len`) are unchanged; they are used only for
+  `layout_height` / `content_width` computation, not the render path.
 
 ### 2026-06-23 (feat(widgets): migrate Tab, CollapsibleTitle, MarkdownHeadingBlock to Content::render_strips)
 

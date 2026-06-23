@@ -1,9 +1,28 @@
-use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments, Text};
+use rich_rs::{Console, ConsoleOptions, MetaValue, Renderable, Segment, Segments, StyleMeta, Text};
 
+use crate::content::{Content, ContentPart};
 use crate::event::{Event, EventCtx};
 use crate::message::*;
 
-use super::{NodeSeed, Widget, helpers::adjust_line_length_no_bg};
+use super::{NodeSeed, Widget};
+
+/// Tag a segment with `textual:no_text_style = true` so `apply_style_to_segments`
+/// skips re-applying widget CSS text attributes that have already been baked in
+/// by `Content::render_strips`.
+fn tag_segment_no_text_style(seg: &mut Segment) {
+    let mut meta = seg.meta.take().unwrap_or_else(StyleMeta::new);
+    let mut map: std::collections::BTreeMap<String, MetaValue> = meta
+        .meta
+        .as_ref()
+        .map(|m| (**m).clone())
+        .unwrap_or_default();
+    map.insert(
+        "textual:no_text_style".to_string(),
+        MetaValue::Bool(true),
+    );
+    meta.meta = Some(std::sync::Arc::new(map));
+    seg.meta = Some(meta);
+}
 
 /// Severity level for toast notifications.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -92,35 +111,6 @@ impl Toast {
         ctx.post_message(ToastDismissed);
         ctx.request_repaint();
         ctx.set_handled();
-    }
-
-    /// Parse a markup line and word-wrap it to `width`, returning one
-    /// rendered segment-line per wrapped visual line.
-    ///
-    /// Mirrors Python `Toast`, which is a `Static` returning `Content` that
-    /// wraps at the content width. Uses `rich_rs::markup::render()` for full
-    /// markup support (bold, italic, underline, colors, nesting); falls back to
-    /// plain text on parse error.
-    fn render_markup_line(line: &str, width: usize, console: &Console) -> Vec<Vec<Segment>> {
-        let width = width.max(1);
-        let text = match rich_rs::markup::render(line, false) {
-            Ok(t) => t,
-            Err(_) => Text::plain(line),
-        };
-        let options = ConsoleOptions {
-            size: (width, 1),
-            max_width: width,
-            no_wrap: true,
-            ..console.options().clone()
-        };
-        text.wrap(width, None, None, 8, false)
-            .into_iter()
-            .map(|wrapped| {
-                let segments: Vec<Segment> =
-                    wrapped.render(console, &options).into_iter().collect();
-                adjust_line_length_no_bg(&segments, width)
-            })
-            .collect()
     }
 
     /// Number of visual lines a markup source produces once word-wrapped to
@@ -217,45 +207,82 @@ impl Widget for Toast {
         }
     }
 
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+    fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
-        let mut out = Segments::new();
-        let title_style = crate::css::resolve_component_style(self, &["toast--title"])
-            .to_rich()
-            .unwrap_or_else(rich_rs::Style::new);
 
-        // Render title line if present.
-        if let Some(title) = &self.title {
-            out.push(Segment::styled(
-                rich_rs::set_cell_size(title, width),
-                title_style,
-            ));
-            if !self.message.is_empty() {
+        // Resolve the widget's visual style (pushed by render_widget_with_meta
+        // before calling render()).
+        let visual_style = crate::css::current_self_style().unwrap_or_default();
+
+        // Flatten widget's own bg over the composited ancestor background so
+        // transparent-bg toasts still get the correct surface color baked in.
+        let parent_bg =
+            crate::css::current_ancestor_composited_background().unwrap_or_else(|| {
+                crate::style::parse_color_like("$background")
+                    .unwrap_or(crate::style::Color::rgb(0, 0, 0))
+            });
+        let effective_bg = visual_style
+            .bg
+            .map(|c| c.flatten_over(parent_bg))
+            .unwrap_or(parent_bg);
+        let mut render_style = visual_style.clone();
+        render_style.bg = Some(effective_bg);
+
+        // Build the Content object — mirroring Python's Toast.render() which
+        // uses Content.assemble((title, header_style), "\n", message_content).
+        let message_content = Content::from_markup(&self.message);
+
+        let content = if let Some(title) = &self.title {
+            // Resolve the `toast--title` component style for the title text.
+            let title_style = crate::css::resolve_component_style(self, &["toast--title"]);
+            Content::assemble([
+                ContentPart::from((title.as_str(), title_style)),
+                ContentPart::from("\n"),
+                ContentPart::from(message_content),
+            ])
+        } else {
+            message_content
+        };
+
+        // Resolve theme tokens in span styles.
+        let resolve_fn = |raw: &str| {
+            crate::content::markup::parse_tag_style(raw)
+                .map(|t| t.style)
+                .unwrap_or_default()
+        };
+
+        // Render via Content::render_strips.
+        // - width: content width as received (border + padding subtracted by caller).
+        // - height=None: let wrap_and_format determine row count (height is
+        //   set correctly by layout_height()).
+        // - no_wrap=false: word-wrap the message body (Python Static wraps).
+        // - line_pad=0: render_widget_with_meta handles outer padding.
+        // - align=Left: toast message is left-aligned (Python default).
+        let strips = content.render_strips(
+            width,
+            None,
+            &render_style,
+            crate::style::TextAlign::Left,
+            "fold",
+            false,
+            0,
+            resolve_fn,
+        );
+
+        // Flatten strips into Segments joined by newlines, tagging each segment
+        // with no_text_style so apply_style_to_segments does not re-apply CSS
+        // text attrs (bold, italic, etc.) that render_strips already baked in.
+        let mut out = Segments::new();
+        let n_strips = strips.len();
+        for (i, strip) in strips.into_iter().enumerate() {
+            for mut seg in strip {
+                tag_segment_no_text_style(&mut seg);
+                out.push(seg);
+            }
+            if i + 1 < n_strips {
                 out.push(Segment::line());
             }
         }
-
-        // Render message lines with full Rich markup support.
-        if self.message.is_empty() {
-            if self.title.is_none() {
-                out.push(Segment::new(" ".repeat(width)));
-            }
-        } else {
-            // Word-wrap each source line at the content width, mirroring
-            // Python's `Static`/`Content` behavior.
-            let mut wrapped: Vec<Vec<Segment>> = Vec::new();
-            for line in self.message.lines() {
-                wrapped.extend(Self::render_markup_line(line, width, console));
-            }
-            let line_count = wrapped.len();
-            for (index, segs) in wrapped.into_iter().enumerate() {
-                out.extend(segs);
-                if index + 1 < line_count {
-                    out.push(Segment::line());
-                }
-            }
-        }
-
         out
     }
 
