@@ -7,6 +7,34 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-22 (feat(content): Phase B — wrap_and_format, truncate, pad/align, divide/split)
+
+- **feat(content/Phase B): `Content::wrap_and_format` + manipulation API**
+  - `wrap_and_format(width, overflow, no_wrap, line_pad)` — word-wraps a
+    `Content` into `Vec<Content>` lines.  Reuses `rich_rs::divide_line` for
+    word-boundary break positions; does **Textual-specific** `rstrip()` /
+    `truncate(width)` / `pad(line_pad, line_pad)` in `Content` itself, never
+    in rich-rs (which remains a faithful Rich port).
+    - Non-last wrapped lines are rstripped (the key Textual semantic that was
+      previously pushed into rich-rs as a band-aid).
+    - `overflow="fold"` → hard-fold long words across lines.
+    - `overflow="ellipsis"` → truncate with `…`.
+    - `no_wrap=true` → per-logical-line fold or truncate (no word-wrap).
+    - `line_pad` → spaces prepended+appended to every output line.
+  - `Content::truncate(max_width, ellipsis)` — cell-width truncation with
+    optional `…` ellipsis; adjusts spans via `trim_spans`.
+  - `Content::pad_left(n)`, `pad_right(n)`, `pad(left, right)` — unstyled
+    space padding; left-pad shifts spans (no fg style on pad bytes).
+  - `Content::center(width, ellipsis)`, `right_align(width, ellipsis)` —
+    alignment helpers that rstrip+truncate before padding.
+  - `Content::divide(offsets)` — split at byte offsets, distributing spans.
+  - `Content::split_on(sep, allow_blank)` — split on separator string,
+    optionally retaining trailing blank piece.
+  - `Content::rstrip()`, `rstrip_end(size)`, `right_crop(n)` — trailing
+    whitespace removal.
+  - 42 new unit tests covering all of the above; all 2049 suite tests green.
+  - Phase B is still additive — not wired into the render path.
+
 ### 2026-06-22 (fix(layout): apply_parent_align runs for Grid — border_all/outline_all promoted)
 
 - **fix(layout): remove early-return guard that skipped `apply_parent_align` for `Layout::Grid`**
