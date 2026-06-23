@@ -18,6 +18,21 @@ until the API stabilizes.
   truncating `as u8` cast, matching Python's `int(r * 255)` in `lab_to_rgb`.  Fixes
   off-by-one for dynamic darken/lighten calls on any color not covered by the hard-coded
   token map (e.g. `primary-darken-1`, `primary-lighten-1`).
+### 2026-06-23 (feat(widgets): @click link visual — apply link-* CSS to markup spans; fix link-color alpha shorthand)
+
+- **feat(text/Label): apply CSS link-* tokens to `[@click=...]` markup spans** —
+  `Label::render()` now detects spans whose `raw_tag` starts with `@click=` and
+  overlays a link-style derived from `visual_style.link_color`, `link_background`,
+  and `link_style`.  Mirrors Python `widget.link_style` applied to segments whose
+  meta carries `@click`.  `[link=url]` spans are intentionally excluded (matching
+  Python behavior where only action links get link-color styling).
+
+- **fix(css): parse `link-color`/`link-background`/`link-color-hover`/`link-background-hover` with optional `N%` alpha** —
+  CSS parser now uses `parse_color_like_with_alpha` for all link-color and
+  link-background properties, matching the existing `color`/`background` handling.
+  Fixes `link-color: hsl(60,100%,50%) 50%` and similar alpha-qualified colors.
+
+- **parity**: `link_color` promoted to PASSING (53 → 53 styled examples, was 52).
 
 ### 2026-06-23 (feat(widgets): migrate Tab, CollapsibleTitle, MarkdownHeadingBlock to Content::render_strips)
 
