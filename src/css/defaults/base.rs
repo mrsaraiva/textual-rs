@@ -5,6 +5,36 @@
 // DC-05: Label aligned with Python Textual _label.py DEFAULT_CSS
 
 pub(super) const DEFAULT_CSS: &str = r#"
+Widget {
+    scrollbar-background: $scrollbar-background;
+    scrollbar-background-hover: $scrollbar-background-hover;
+    scrollbar-background-active: $scrollbar-background-active;
+    scrollbar-color: $scrollbar;
+    scrollbar-color-active: $scrollbar-active;
+    scrollbar-color-hover: $scrollbar-hover;
+    scrollbar-corner-color: $scrollbar-corner-color;
+    scrollbar-size-vertical: 2;
+    scrollbar-size-horizontal: 1;
+    link-color: $link-color;
+    link-background: $link-background;
+    link-background-hover: $link-background-hover;
+    link-color-hover: $link-color-hover;
+    link-style: $link-style;
+    link-style-hover: $link-style-hover;
+    /* NOTE: Python Textual Widget DEFAULT_CSS includes `background: transparent` here.
+       In Rust, `bg: None` and `bg: Some(transparent)` have different rendering behavior:
+       None skips background fill entirely, while Some(transparent) goes through the
+       flatten_over path. Intermediate widgets (Grid, Container, etc.) with bg: None
+       correctly inherit parent backgrounds via the composited-background stack;
+       with bg: Some(transparent), `apply_border_edges` receives parent_bg=transparent
+       from the nearest ancestor's resolved style (which is also transparent), losing
+       the actual screen background. Until `apply_border_edges` is updated to use
+       `current_composited_background()` instead of parent_style.bg directly, we omit
+       this property from defaults so bg stays None for widgets without explicit bg.
+       DEFERRED(render-transparent-bg): fix apply_border_edges + apply_style_to_segments
+       to use current_composited_background() so bg: transparent composites correctly. */
+}
+
 Screen {
     layout: vertical;
     overflow-y: auto;
@@ -45,25 +75,6 @@ ModalScreen {
     &:ansi {
         background: transparent;
     }
-}
-
-Widget {
-    scrollbar-background: $scrollbar-background;
-    scrollbar-background-hover: $scrollbar-background-hover;
-    scrollbar-background-active: $scrollbar-background-active;
-    scrollbar-color: $scrollbar;
-    scrollbar-color-active: $scrollbar-active;
-    scrollbar-color-hover: $scrollbar-hover;
-    scrollbar-corner-color: $scrollbar-corner-color;
-    scrollbar-size-vertical: 2;
-    scrollbar-size-horizontal: 1;
-    link-color: $link-color;
-    link-background: $link-background;
-    link-background-hover: $link-background-hover;
-    link-color-hover: $link-color-hover;
-    link-style: $link-style;
-    link-style-hover: $link-style-hover;
-    background: transparent;
 }
 
 ScrollView {

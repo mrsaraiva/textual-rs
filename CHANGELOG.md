@@ -7,6 +7,37 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-22 (fix(css): Widget type selector now matches all widgets — Python base-class parity)
+
+- **fix(css/matching): `Widget` CSS type selector matches all widgets (Python MRO parity)**
+  - In Python Textual every widget's `_css_type_names` frozenset includes `"Widget"` (via MRO),
+    so `Widget { ... }` default/user CSS rules apply to all widgets. In Rust, concrete widgets
+    have type names like `"Button"`, `"Label"`, etc. — never `"Widget"` — so the `Widget {}`
+    selector matched nothing; all `Widget { scrollbar-*, link-*, ... }` default rules were
+    silently dropped, and user CSS like `Screen > Widget { background: green; width: 50% }`
+    never matched.
+  - Fix: in `StyleSelector::matches`, the literal type name `"Widget"` now skips the type
+    check entirely, matching any widget. This mirrors Python's `name in node._css_type_names`
+    semantics where Widget is always present.
+  - Two regression-test cases added: `widget_selector_matches_any_concrete_type` and
+    `widget_selector_with_pseudo_still_filters_by_pseudo`.
+- **fix(css/defaults): `Widget {}` rule reordered to appear before `Screen {}` in base.rs**
+  - Widget-specific rules (Screen, ModalScreen, etc.) must appear AFTER the Widget base rule
+    in source order so they override it at equal specificity (both are type selectors with
+    specificity 1). Previously Widget appeared after Screen, so `Widget { background: transparent }`
+    would override `Screen { bg: $background }` for Screen itself.
+  - `background: transparent` omitted from Widget defaults for now: the Rust rendering code
+    uses `parent_style.bg` directly in `apply_border_edges` rather than
+    `current_composited_background()`, so injecting `bg: Some(transparent)` on intermediate
+    widgets (Grid, Container, etc.) causes border backgrounds to flatten against black instead
+    of Screen's `$background`. DEFERRED(render-transparent-bg): fix `apply_border_edges` and
+    `apply_style_to_segments` to use `current_composited_background()`.
+  - Styled tally unchanged at 36 PASS / 0 regressions; pty_parity 186/0; full suite green.
+  - Target examples `width` and `height` remain PENDING: the Rust examples use `Placeholder`
+    (which sets an inline background via `Placeholder::apply_bg_color()`) that overrides the
+    user CSS `Screen > Widget { background: green }` rule. Width/height would promote once
+    the examples are updated to use a plain widget without inline bg.
+
 ### 2026-06-22 (fix(layout): apply_parent_align runs for Grid — border_all/outline_all promoted)
 
 - **fix(layout): remove early-return guard that skipped `apply_parent_align` for `Layout::Grid`**

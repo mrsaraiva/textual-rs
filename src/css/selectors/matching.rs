@@ -4,7 +4,13 @@ use super::context::SELECTOR_STACK;
 impl StyleSelector {
     pub(crate) fn matches(&self, meta: &SelectorMeta) -> bool {
         if let Some(type_name) = &self.type_name {
-            if meta.type_name != *type_name
+            // "Widget" is the universal base type in Python Textual: every widget's
+            // MRO includes `Widget`, so `Widget { ... }` CSS rules apply to all
+            // widgets.  Rust widgets have concrete type names (never "Widget"),
+            // so we special-case the literal selector "Widget" to match any widget,
+            // preserving Python's `_css_type_names` semantics.
+            if type_name != "Widget"
+                && meta.type_name != *type_name
                 && !meta.type_aliases.iter().any(|alias| alias == type_name)
             {
                 return false;
@@ -198,6 +204,40 @@ mod tests {
             inline: true,
             ..Default::default()
         })));
+    }
+
+    // -- Widget universal base selector ------------------------------------
+
+    #[test]
+    fn widget_selector_matches_any_concrete_type() {
+        // Python: "Widget" is in every widget's _css_type_names (MRO includes Widget).
+        // In Rust, concrete widgets never have type_name=="Widget"; the selector
+        // "Widget" must match ALL widgets regardless of their type name.
+        let selector = StyleSelector::new("Widget");
+        for type_name in ["Button", "Input", "Screen", "Label", "DataTable", "MyCustomWidget"] {
+            let meta = SelectorMeta {
+                type_name: type_name.to_string(),
+                type_aliases: Vec::new(),
+                id: None,
+                classes: Vec::new(),
+                states: SelectorStates::default(),
+            };
+            assert!(
+                selector.matches(&meta),
+                "Widget selector should match type_name='{type_name}'"
+            );
+        }
+    }
+
+    #[test]
+    fn widget_selector_with_pseudo_still_filters_by_pseudo() {
+        // The "Widget" universal match only bypasses the type check; other checks
+        // (id, class, pseudo) still apply.
+        let selector = StyleSelector::new("Widget").pseudo(PseudoClass::Focus);
+        let unfocused = meta_with_states(SelectorStates::default());
+        let focused = meta_with_states(SelectorStates { focused: true, ..Default::default() });
+        assert!(!selector.matches(&unfocused));
+        assert!(selector.matches(&focused));
     }
 
     #[test]
