@@ -10,7 +10,8 @@ pub use selectors::{
 pub(crate) use selectors::{
     Combinator, SelectorChain, SelectorMeta, apply_display_visibility_to_tree,
     apply_style_to_segments, apply_widget_opacity_to_segments, begin_style_render_pass,
-    current_composited_background, current_host_style, current_parent_style, current_self_style,
+    current_ancestor_composited_background, current_composited_background, current_host_style,
+    current_parent_style, current_self_style,
     node_selector_meta, node_selector_meta_from_node, parse_selector_list, pop_style_context,
     push_style_context,
     resolve_component_style, resolve_node_style, resolve_style, resolve_style_for_meta,

@@ -73,6 +73,13 @@ const PASSING: &[&str] = &[
     // a hardcoded cyan/underline (OSC8 meta only, matching Python Rich+Textual), so
     // link styling now comes from the CSS link-* tokens as Python does:
     "link_background_hover", "link_color_hover", "link_style", "link_style_hover",
+    // Promoted after migrating Label/Static render() to Content::render_strips:
+    // text-style flags (bold/italic/underline/reverse), border, border_title,
+    // box-sizing, padding, and dimension examples now use the Content pipeline
+    // which correctly bakes visual_style + span_style into segments:
+    "text_style_all", "border01", "border_title", "box_sizing01",
+    "dimensions01", "dimensions02", "dimensions03", "outline01", "padding01",
+    "text_opacity",
 ];
 
 struct StyledCase {

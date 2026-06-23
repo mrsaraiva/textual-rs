@@ -318,6 +318,39 @@ pub(crate) fn current_composited_background() -> Option<crate::style::Color> {
     })
 }
 
+/// Returns the composited background of ALL ANCESTORS of the widget currently
+/// being rendered, i.e. the composited background from all style stack entries
+/// EXCEPT the top (which is the current widget's own style).
+///
+/// Call this from inside `render()` to get the same parent-bg that
+/// `apply_style_to_segments` would compute when it runs AFTER `render()` returns
+/// (at which point the current widget's style has been popped from the stack).
+///
+/// Returns `None` if the ancestor chain has no explicit background.
+pub(crate) fn current_ancestor_composited_background() -> Option<crate::style::Color> {
+    let fallback =
+        crate::style::parse_color_like("$background").unwrap_or(crate::style::Color::rgb(0, 0, 0));
+    STYLE_STACK.with(|stack| {
+        let stack = stack.borrow();
+        // All entries except the last (= current widget's own style).
+        let len = stack.len();
+        let ancestor_slice = if len >= 2 { &stack[..len - 1] } else { &stack[..0] };
+        let mut saw_background = false;
+        let mut composited = fallback;
+        for style in ancestor_slice.iter() {
+            if let Some(bg) = style.bg {
+                composited = bg.flatten_over(composited);
+                saw_background = true;
+            }
+        }
+        if saw_background {
+            Some(composited)
+        } else {
+            None
+        }
+    })
+}
+
 /// Resolve a style for off-tree/type-only paths (no arena node, no cache).
 ///
 /// Tree-mode rendering uses `resolve_node_style` (cached by real `NodeId`).

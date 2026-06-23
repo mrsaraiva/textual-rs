@@ -20,7 +20,8 @@ pub(crate) use parser::parse_selector_list;
 
 // Crate-internal re-exports
 pub(crate) use resolver::{
-    apply_display_visibility_to_tree, begin_style_render_pass, current_composited_background,
+    apply_display_visibility_to_tree, begin_style_render_pass,
+    current_ancestor_composited_background, current_composited_background,
     current_host_style, current_parent_style, current_self_style, node_selector_meta,
     node_selector_meta_from_node, pop_style_context, push_style_context, resolve_component_style,
     resolve_node_style, resolve_style, resolve_style_for_meta, selector_meta_component,

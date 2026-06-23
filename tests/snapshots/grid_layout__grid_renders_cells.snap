@@ -1,6 +1,5 @@
 ---
 source: tests/grid_layout.rs
-assertion_line: 20
 expression: buf.debug_dump()
 ---
 lines:
@@ -9,3 +8,7 @@ lines:
 2: "c   d   "
 3: "        "
 meta:
+(0,0): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true), "textual:widget_id": Int(8589934591)}) }
+(4,0): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true), "textual:widget_id": Int(8589934591)}) }
+(0,2): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true), "textual:widget_id": Int(8589934591)}) }
+(4,2): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true), "textual:widget_id": Int(8589934591)}) }

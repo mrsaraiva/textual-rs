@@ -1,6 +1,5 @@
 ---
 source: tests/command_palette_snapshot.rs
-assertion_line: 35
 expression: buf.debug_dump()
 ---
 lines:
@@ -19,3 +18,15 @@ lines:
 12: "  Quit the application as soon as possible                              "
 13: "▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁"
 meta:
+(0,0): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true), "textual:widget_id": Int(8589934591)}) }
+(1,0): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true), "textual:widget_id": Int(8589934591)}) }
+(2,0): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true), "textual:widget_id": Int(8589934591)}) }
+(3,0): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true), "textual:widget_id": Int(8589934591)}) }
+(4,0): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true), "textual:widget_id": Int(8589934591)}) }
+(5,0): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true), "textual:widget_id": Int(8589934591)}) }
+(6,0): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true), "textual:widget_id": Int(8589934591)}) }
+(7,0): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true), "textual:widget_id": Int(8589934591)}) }
+(8,0): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true), "textual:widget_id": Int(8589934591)}) }
+(9,0): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true), "textual:widget_id": Int(8589934591)}) }
+(10,0): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true), "textual:widget_id": Int(8589934591)}) }
+(11,0): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true), "textual:widget_id": Int(8589934591)}) }

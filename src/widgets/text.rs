@@ -1,7 +1,7 @@
 use pulldown_cmark::{
     Event as MdEvent, Options as MdOptions, Parser as MdParser, Tag as MdTag, TagEnd as MdTagEnd,
 };
-use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments, Text};
+use rich_rs::{Console, ConsoleOptions, MetaValue, Renderable, Segment, Segments, StyleMeta, Text};
 use std::sync::{Arc, RwLock};
 use unicode_width::UnicodeWidthChar;
 
@@ -12,6 +12,24 @@ use crate::widgets::markdown_model::{
 };
 
 use super::{NodeSeed, Vertical, Widget, helpers::border_spacing_from_style};
+
+/// Tag a segment with `textual:no_text_style = true` so `apply_style_to_segments`
+/// skips re-applying widget CSS text attributes (bold, italic, etc.) that have
+/// already been baked into the segment by `Content::render_strips`.
+fn tag_segment_no_text_style(seg: &mut Segment) {
+    let mut meta = seg.meta.take().unwrap_or_else(StyleMeta::new);
+    let mut map: std::collections::BTreeMap<String, MetaValue> = meta
+        .meta
+        .as_ref()
+        .map(|m| (**m).clone())
+        .unwrap_or_default();
+    map.insert(
+        "textual:no_text_style".to_string(),
+        MetaValue::Bool(true),
+    );
+    meta.meta = Some(Arc::new(map));
+    seg.meta = Some(meta);
+}
 
 /// Visual variant for a [`Label`], which adds a CSS class like `label--success`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -202,14 +220,92 @@ impl Widget for Label {
         self.border_subtitle.as_deref()
     }
 
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        if self.markup {
-            let rendered = console.render_str(&self.text, Some(true), None, None, None);
-            rendered.render(console, options)
+    fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
+        let width = options.size.0.max(1);
+
+        // Get the widget's resolved visual style (pushed by render_widget_with_meta
+        // onto the style stack before calling render()).
+        let visual_style = crate::css::current_self_style().unwrap_or_default();
+
+        // Determine text alignment from resolved CSS.
+        let text_align = visual_style
+            .text_align
+            .unwrap_or(crate::style::TextAlign::Left);
+
+        // Build the effective background: flatten the widget's own bg over the
+        // composited ancestor background so transparent-bg labels still get the
+        // correct surface color baked into every segment.
+        //
+        // Use current_ancestor_composited_background() which excludes the current
+        // widget's own style from the composite. This matches what
+        // apply_style_to_segments sees when it runs AFTER render() returns (at
+        // which point the current widget's style has been popped from the stack).
+        let parent_bg = crate::css::current_ancestor_composited_background().unwrap_or_else(|| {
+            crate::style::parse_color_like("$background")
+                .unwrap_or(crate::style::Color::rgb(0, 0, 0))
+        });
+        let effective_bg = visual_style
+            .bg
+            .map(|c| c.flatten_over(parent_bg))
+            .unwrap_or(parent_bg);
+
+        // Construct the render-time visual style: always has an explicit bg so
+        // make_segment never falls back to black. fg/attrs come from the resolved
+        // style (same source as apply_style_to_segments would use).
+        let mut render_style = visual_style.clone();
+        render_style.bg = Some(effective_bg);
+
+        // Build Content from the label text.
+        let content = if self.markup {
+            crate::content::Content::from_markup(&self.text)
         } else {
-            let text = Text::plain(self.text.clone());
-            text.render(console, options)
+            crate::content::Content::from_text(&self.text)
+        };
+
+        // Resolve theme tokens in span styles using parse_tag_style, which calls
+        // parse_color_like internally and handles $primary/$surface etc.
+        let resolve_fn = |raw: &str| {
+            crate::content::markup::parse_tag_style(raw)
+                .map(|t| t.style)
+                .unwrap_or_default()
+        };
+
+        // Render via Content::render_strips.
+        // - No height cap: let wrap_and_format determine row count.
+        // - overflow="fold": word-wrap (render.rs handles ellipsis/clip for no_wrap).
+        // - no_wrap=false: always word-wrap here; render.rs applies overflow later.
+        // - line_pad=0: handled by render_widget_with_meta.
+        let strips = content.render_strips(
+            width,
+            None,
+            &render_style,
+            text_align,
+            "fold",
+            false,
+            0,
+            resolve_fn,
+        );
+
+        // Flatten strips into Segments joined by newlines.
+        // Tag each data segment with textual:no_text_style so apply_style_to_segments
+        // skips re-applying widget CSS text attrs (bold/italic/etc.), which have
+        // already been baked in by render_strips (visual_style + span_style combined).
+        // bg and fg are also already baked in; apply_style_to_segments will skip them
+        // because: explicit_bg.is_some() → no bg override; s.color.is_some() → no fg
+        // override (for concrete fg); fg_auto is handled when color is None.
+        // tint and text_opacity are still applied by apply_style_to_segments on top.
+        let mut segments = Segments::new();
+        let n_strips = strips.len();
+        for (i, strip) in strips.into_iter().enumerate() {
+            for mut seg in strip {
+                tag_segment_no_text_style(&mut seg);
+                segments.push(seg);
+            }
+            if i + 1 < n_strips {
+                segments.push(Segment::line());
+            }
         }
+        segments
     }
 
     fn on_layout(&mut self, width: u16, _height: u16) {

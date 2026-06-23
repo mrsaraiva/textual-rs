@@ -7,6 +7,29 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-22 (feat(content): Label/Static render via Content::render_strips — styled 42→52)
+
+- **feat(Label/Static render pipeline):** `Label::render()` now uses
+  `Content::render_strips` instead of `rich-rs render_str` / `Text::plain`.
+  - Builds a `Content` (via `from_markup` or `from_text`) and calls
+    `render_strips(width, None, &render_style, text_align, "fold", false, 0, resolve_fn)`.
+  - Correctly computes the effective background by flattening the widget's own
+    `bg` over the **ancestor** composited background
+    (`current_ancestor_composited_background()`, which excludes the current
+    widget's own style from the composite — matching `apply_style_to_segments`
+    post-render behavior).
+  - Tags each Content-produced segment with `textual:no_text_style` so
+    `apply_style_to_segments` skips re-applying CSS text attributes (bold,
+    italic, etc.) that are already baked in by `render_strips`. The background
+    and foreground are also already explicit in the segments so they survive the
+    pass unchanged; `fg_auto`, tint, and `text_opacity` are still applied.
+  - Adds `current_ancestor_composited_background()` CSS helper.
+- **parity (styled 42→52):** Flips `text_style_all`, `border01`, `border_title`,
+  `box_sizing01`, `dimensions01`, `dimensions02`, `dimensions03`, `outline01`,
+  `padding01`, `text_opacity` to PASSING. No regressions in the previous 42.
+  Snapshot churn is meta-only (`textual:no_text_style` now appears on Label
+  cells); visual content is unchanged.
+
 ### 2026-06-22 (deps: bump rich-rs to 1.2.1 — link markup fix flips link examples)
 
 - **deps: rich-rs 1.1.1 → 1.2.1.** Picks up the `[link=url]` markup fix (OSC8 meta
