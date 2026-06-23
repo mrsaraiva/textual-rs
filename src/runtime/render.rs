@@ -2434,6 +2434,28 @@ fn host_content_extent(
     let mut bottom_dock = 0u16;
     let mut left_dock = 0u16;
     let mut right_dock = 0u16;
+    // Layers occupied by FLOW (non-docked) content children. A docked child on a
+    // DISTINCT layer is an overlay (Python `_arrange.py` arranges each layer
+    // independently): it does NOT carve flow space and therefore does NOT
+    // contribute its thickness to the scrollable virtual extent. Mirrors the
+    // per-layer dock isolation in `layout::resolve_layout`. Without this a
+    // bottom/right-docked `layer: ruler` overlay (the width/height_comparison
+    // demos) inflates virtual_h/virtual_w by its own size and triggers a phantom
+    // scrollbar lane that shrinks the flow region by the lane width.
+    let flow_layers: std::collections::HashSet<Option<String>> = tree
+        .children(node_id)
+        .iter()
+        .filter(|&&c| {
+            Some(c) != scrollbar_children.vertical
+                && Some(c) != scrollbar_children.horizontal
+                && Some(c) != scrollbar_children.corner
+                && !node_is_docked(tree, c)
+                && tree.get(c).map(|n| n.display).unwrap_or(false)
+        })
+        .map(|&c| {
+            super::helpers::resolve_style_in_tree(tree, c).and_then(|style| style.layer)
+        })
+        .collect();
     for &child_id in tree.children(node_id) {
         if Some(child_id) == scrollbar_children.vertical
             || Some(child_id) == scrollbar_children.horizontal
@@ -2450,6 +2472,13 @@ fn host_content_extent(
         }
         let child_rect = child.layout_rect;
         if docked {
+            // Overlay-layer dock (distinct from every flow child's layer): do not
+            // count it toward the scrollable extent (it does not carve flow space).
+            let dock_layer =
+                super::helpers::resolve_style_in_tree(tree, child_id).and_then(|s| s.layer);
+            if !flow_layers.is_empty() && !flow_layers.contains(&dock_layer) {
+                continue;
+            }
             let w = child_rect.x1.saturating_sub(child_rect.x0);
             let h = child_rect.y1.saturating_sub(child_rect.y0);
             match super::helpers::resolve_style_in_tree(tree, child_id).and_then(|style| style.dock)

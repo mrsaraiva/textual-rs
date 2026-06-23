@@ -7,6 +7,33 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-23 (fix(layout): exact cumulative-floor fr distribution + per-layer dock isolation)
+
+- **Exact cumulative-floor flow sizing** (`layout_resolve_1d_exact`): the vertical/horizontal
+  layouts now size every child — fixed scalars AND `fr` — to exact `f64` cells and floor the
+  RUNNING position (`floor(cum + exact) - floor(cum)`), mirroring Python `_resolve.resolve` +
+  `layouts/{vertical,horizontal}.py` (`accumulate(...).__floor__()`). Previously each child's
+  size was floored independently, losing the fractional remainder: a stack of non-integer
+  relative units (`12.5%`/`5w`/`12.5h`/`6.25vw`/`12.5vh`) under-sized, and — worse — the `fr`
+  children reserved space against the un-carried INTEGER fixed sizes while the fixed children
+  DISPLAYED their carried (often +1) sizes, overflowing the row/column by the accumulated carry.
+  New `style::resolve_scalar_exact` returns the exact pre-floor cell count for simple fixed
+  scalars; the resolver computes the `fr` unit from the exact remaining space (with the same
+  iterative `min_size` clamp as the integer resolver). Integer layouts are a no-op.
+- **Per-layer dock isolation**: a `dock`ed widget on a SEPARATE layer (e.g. a `layer: ruler`
+  overlay) now OVERLAYS the flow region instead of carving it, matching Python `_arrange.py`
+  (layers arranged independently). Applied in BOTH `layout::resolve_layout` (the flow region)
+  and `runtime::render::host_content_extent` (the scrollable virtual size) — without the latter
+  the overlay dock inflated the virtual extent and triggered a phantom scrollbar lane that
+  shifted every relative-unit child by the lane width.
+- **Width-aware height remeasure in horizontal layout**: a content-height child (unset OR `auto`
+  height) in an `fr`-width row now re-measures its wrapped height at the RESOLVED width (it
+  previously used the stale `layout_height()` from whatever width it was last laid out at), so a
+  wrapping `Label` in a `width: 1fr` row sizes its box to the correct line count. The Phase 1
+  remeasure only covered explicit `auto`; this adds the unset-height + fr-width case.
+- Promotes `"width_comparison"`, `"height_comparison"`, and `"text_style"` to the styled
+  PASSING set. (styled 54→57)
+
 ### 2026-06-23 (fix(text): text-align auto-fg extend, justify spacing, link-color auto contrast)
 
 - **Vertical-extend fill for `color: auto` content widgets**: the BOX vfill discriminator in

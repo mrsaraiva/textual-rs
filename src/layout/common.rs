@@ -1,5 +1,5 @@
 use crate::node_id::NodeId;
-use crate::style::{BoxSizing, Scalar, Spacing, Style, resolve_scalar};
+use crate::style::{BoxSizing, Scalar, Spacing, Style, resolve_scalar, resolve_scalar_exact};
 use crate::widget_tree::WidgetTree;
 
 use super::region::border_spacing;
@@ -232,6 +232,14 @@ pub(crate) struct ChildSpec {
     /// horizontally-scrollable parents to let auto-width children keep their intrinsic
     /// width (exceeding the viewport) instead of being clamped/wrapped to it.
     pub(crate) width_is_auto: bool,
+    /// EXACT (pre-floor) box height in cells for a simple fixed-scalar height
+    /// (`%`/`w`/`h`/`vw`/`vh`/cells, border-box, no border/padding, not min/max
+    /// clamped), margin-excluded — same units as the resolver's integer result.
+    /// `Some` only when cumulative flooring (Python parity) can be applied safely;
+    /// `None` falls back to the integer result. See `resolve_scalar_exact`.
+    pub(crate) frac_height: Option<f64>,
+    /// EXACT (pre-floor) box width, analogous to `frac_height`.
+    pub(crate) frac_width: Option<f64>,
 }
 
 /// Vertical chrome = margin.top + border_top + padding.top + padding.bottom + border_bottom + margin.bottom.
@@ -561,6 +569,64 @@ pub(crate) fn extract_child_spec(
         *size = (*size).max(width_min);
     }
 
+    // Exact (pre-floor) box sizes for cumulative flooring (Python parity, see
+    // `resolve_scalar_exact`). Only emitted for a SIMPLE fixed scalar: border-box
+    // with no border/padding (so the box equals the resolved scalar with no chrome
+    // offset), and only when the resolver-fed integer edge equals `floor(exact)`
+    // (i.e. min/max/box-sizing clamps did NOT override it). Otherwise `None` keeps
+    // the existing integer behaviour for that axis.
+    let no_v_chrome =
+        border_top == 0 && border_bottom == 0 && padding.top == 0 && padding.bottom == 0;
+    let no_h_chrome =
+        border_left == 0 && border_right == 0 && padding.left == 0 && padding.right == 0;
+    let frac_height = if box_sizing == BoxSizing::BorderBox && no_v_chrome {
+        style.height.as_ref().and_then(|s| {
+            resolve_scalar_exact(
+                s,
+                parent_height_adj,
+                parent_width_adj,
+                parent_height_adj,
+                viewport.0,
+                viewport.1,
+            )
+        })
+    } else {
+        None
+    }
+    .filter(|exact| {
+        // Box edge (margin-excluded) the resolver will receive equals floor(exact)
+        // only when no min/max clamp moved it.
+        height_edge
+            .size
+            .map(|sz| sz.saturating_sub(margin.top + margin.bottom) == exact.floor() as u16)
+            .unwrap_or(false)
+    });
+    let frac_width = if box_sizing == BoxSizing::BorderBox && no_h_chrome {
+        style.width.as_ref().and_then(|s| {
+            // NOTE: the integer width resolver (`scalar_to_edge` explicit arm)
+            // resolves a `%` width against the UNADJUSTED `parent_width` (the
+            // height path uses the margin-adjusted base). Mirror that here so a
+            // simple `width: 12.5%` produces an exact value whose floor equals the
+            // integer edge (the `.filter()` below would otherwise reject it).
+            resolve_scalar_exact(
+                s,
+                parent_width,
+                parent_width_adj,
+                parent_height_adj,
+                viewport.0,
+                viewport.1,
+            )
+        })
+    } else {
+        None
+    }
+    .filter(|exact| {
+        width_edge
+            .size
+            .map(|sz| sz.saturating_sub(margin.left + margin.right) == exact.floor() as u16)
+            .unwrap_or(false)
+    });
+
     ChildSpec {
         height_edge,
         width_edge,
@@ -574,6 +640,8 @@ pub(crate) fn extract_child_spec(
         max_height_cells: max_h_cells,
         box_sizing,
         width_is_auto,
+        frac_height,
+        frac_width,
     }
 }
 

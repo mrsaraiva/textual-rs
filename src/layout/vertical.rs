@@ -7,7 +7,7 @@ use super::common::{
     measure_intrinsic_content_width,
 };
 use super::region::Region;
-use super::resolve_1d::{Edge, layout_resolve_1d};
+use super::resolve_1d::{Edge, layout_resolve_1d_exact};
 
 /// Apply a CSS `offset` displacement to a (x, y) coordinate pair.
 ///
@@ -280,7 +280,14 @@ pub fn layout_vertical(
         })
         .collect();
     let resolve_total = available.height.saturating_sub(collapsed_margin_total);
-    let heights = layout_resolve_1d(resolve_total, &edges);
+    // EXACT cumulative-floor resolution (Python `_resolve.resolve` +
+    // `layouts/vertical.py`): fixed and `fr` children alike are sized to exact
+    // `f64` cells, then floored on the RUNNING position so a stack of non-integer
+    // heights (e.g. 12.5h = 3.75) fence-posts like Python instead of each child
+    // truncating independently AND the `fr` children reserving space against the
+    // un-carried integer fixed sizes (which overflowed the row by the carry).
+    let fixed_exact: Vec<Option<f64>> = specs.iter().map(|s| s.frac_height).collect();
+    let heights = layout_resolve_1d_exact(resolve_total, &edges, &fixed_exact);
 
     // Phase 3: compute rects and write to tree (mutable borrow).
     // Track previous child's bottom margin for CSS-style margin collapsing:
@@ -289,7 +296,7 @@ pub fn layout_vertical(
     let mut prev_margin_bottom: u16 = 0;
     for (i, &child) in children.iter().enumerate() {
         let spec = &specs[i];
-        // Resolved heights are already box (margin-excluded) heights.
+        // Resolved heights are already box (margin-excluded), cumulative-floored.
         let layout_h = heights[i];
 
         // Margins are positioned explicitly below (top margin added to `y`, the

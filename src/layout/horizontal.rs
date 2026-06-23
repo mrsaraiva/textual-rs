@@ -7,7 +7,7 @@ use super::common::{
     measure_intrinsic_content_width,
 };
 use super::region::Region;
-use super::resolve_1d::{Edge, layout_resolve_1d};
+use super::resolve_1d::{Edge, layout_resolve_1d_exact};
 
 /// Apply a CSS `offset` displacement to a (x, y) coordinate pair.
 ///
@@ -51,6 +51,11 @@ pub fn layout_horizontal(
     // Collect per-child CSS `offset` displacements (visual shift applied after
     // flow position, mirroring Python `layouts/horizontal.py` WidgetPlacement).
     let mut offsets: Vec<Option<Offset>> = Vec::with_capacity(children.len());
+    // Retain the (normalized) per-child style + intrinsic-width hint so the
+    // width-aware height remeasure (Phase 2.5) can rebuild the height edge for
+    // content-sized-height children once the resolved fr/fixed width is known.
+    let mut styles: Vec<crate::style::Style> = Vec::with_capacity(children.len());
+    let mut intrinsic_widths: Vec<Option<u16>> = Vec::with_capacity(children.len());
     for &child in children {
         let mut style = get_node_style(tree, child);
             // Transparent wrappers (`Node`): adopt the wrapped child's auto-sizing
@@ -143,6 +148,8 @@ pub fn layout_horizontal(
 
         specs.push(spec);
         offsets.push(style.offset);
+        intrinsic_widths.push(intrinsic_width);
+        styles.push(style);
     }
 
     // Phase 2: build edges for width distribution.
@@ -185,7 +192,84 @@ pub fn layout_horizontal(
         })
         .collect();
     let resolve_total = available.width.saturating_sub(collapsed_margin_total);
-    let widths = layout_resolve_1d(resolve_total, &edges);
+    // EXACT cumulative-floor resolution (Python `_resolve.resolve` +
+    // `layouts/horizontal.py`): fixed and `fr` children alike are sized to exact
+    // `f64` cells, then floored on the running position so non-integer widths
+    // (e.g. 25vh = 7.5) fence-post like Python and the `fr` children reserve space
+    // against the EXACT fixed sizes (not the un-carried integer ones). See
+    // `layout_resolve_1d_exact`.
+    let fixed_exact: Vec<Option<f64>> = specs.iter().map(|s| s.frac_width).collect();
+    let widths = layout_resolve_1d_exact(resolve_total, &edges, &fixed_exact);
+
+    // Phase 2.5: width-aware height remeasure for content-sized-height children.
+    //
+    // Python parity (`_resolve.resolve_box_models`): a child's auto/unset height
+    // is measured by `_get_box_model` at the child's RESOLVED width — for an
+    // `fr`/fixed-width child that width is only known after the fraction pass.
+    // Phase 1 here measured intrinsic height from the widget's STALE
+    // `layout_height()` (whatever width it was last laid out at), so a wrapping
+    // Label in a `width: 1fr` horizontal row (e.g. `text_style`) reported the
+    // wrong wrapped-line count and under/over-sized its box. Re-seed each
+    // content-height child's measurement width to its resolved content width and
+    // rebuild the height edge. Fires for BOTH `height: auto` and an UNSET height
+    // (a content leaf that reports an intrinsic height) — Phase 1's remeasure
+    // only covered explicit `auto`, never the unset-height + fr-width case.
+    for (i, &child) in children.iter().enumerate() {
+        let style = &styles[i];
+        // Only content-sized-height children depend on the wrap width. Explicit
+        // (non-auto) heights and pure fr/flex fills do not.
+        let height_is_content = matches!(
+            style.height.as_ref(),
+            None | Some(crate::style::Scalar::Auto)
+        );
+        if !height_is_content {
+            continue;
+        }
+        let spec = &specs[i];
+        // Box (margin-excluded) width resolved for this child, minus its own
+        // horizontal chrome → the content width the widget wraps at.
+        let resolved_box_w = widths[i];
+        let resolved_content_w = resolved_box_w
+            .saturating_sub(
+                spec.border_left + spec.border_right + spec.padding.left + spec.padding.right,
+            )
+            .max(1);
+        let avail_content_h = available
+            .height
+            .saturating_sub(style.effective_margin().top + style.effective_margin().bottom);
+        // Re-seed the widget (and any wrapped subtree) at the resolved width so
+        // `layout_height()` reflects the final wrap, then re-read it.
+        if let Some(node) = tree.get_mut(child) {
+            node.widget.on_layout(resolved_content_w, avail_content_h.max(1));
+        }
+        super::common::seed_wrapper_subtree_widths(
+            tree,
+            child,
+            resolved_content_w,
+            avail_content_h.max(1),
+        );
+        let remeasured_height = tree
+            .get(child)
+            .and_then(|node| node.widget.layout_height())
+            .and_then(|h| u16::try_from(h).ok());
+        if remeasured_height.is_none() {
+            // No intrinsic content height at this width (e.g. a fill leaf or an
+            // explicit-auto container drained into the arena): keep Phase 1's
+            // spec, which already handled the fallback (full-fill or measured).
+            continue;
+        }
+        // Rebuild the height edge at the remeasured intrinsic height, preserving
+        // the resolved width edge / max / box-sizing of the Phase 1 spec.
+        let rebuilt = extract_child_spec(
+            style,
+            available.width,
+            available.height,
+            viewport,
+            remeasured_height,
+            intrinsic_widths[i],
+        );
+        specs[i].height_edge = rebuilt.height_edge;
+    }
 
     // Phase 3: compute rects and write to tree.
     //
@@ -198,7 +282,7 @@ pub fn layout_horizontal(
     let mut layout_left = available.x.saturating_add(specs[0].margin.left);
     for (i, &child) in children.iter().enumerate() {
         let spec = &specs[i];
-        // Resolved widths are already box (margin-excluded) widths.
+        // Resolved widths are already box (margin-excluded), cumulative-floored.
         let layout_w = widths[i];
 
         // Layout rect excludes margin.

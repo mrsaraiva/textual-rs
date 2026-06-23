@@ -885,6 +885,39 @@ pub enum Scalar {
 /// `_resolve_view_width`/`_resolve_view_height` (which take `viewport.width` /
 /// `viewport.height`). Passing a single axis here was the bug that made
 /// `width: 25vh` resolve against the viewport WIDTH.
+/// Resolve a fixed-cell scalar (`Cells`/`Percent`/`Width`/`Height`/`ViewWidth`/
+/// `ViewHeight`) to its EXACT pre-floor cell count as `f64`.
+///
+/// Python resolves each scalar to an exact `Fraction` (`css/scalar.py`) and only
+/// truncates to integer cells at PLACEMENT time, via CUMULATIVE flooring of the
+/// running position (`layouts/vertical.py`/`horizontal.py`:
+/// `next_y.__floor__() - y.__floor__()`). Independently flooring every child's
+/// size loses the fractional remainder and under-sizes the stack (e.g. two
+/// adjacent `12.5h` boxes of 3.75 each render 3+3 instead of 3+4). Returning the
+/// exact `f64` here lets the flow layouts reproduce Python's fence-post rounding.
+///
+/// Returns `None` for `Auto`/`Fraction` (those are resolved by the 1D resolver,
+/// not by a direct percentage of a known base).
+#[allow(clippy::too_many_arguments)]
+pub fn resolve_scalar_exact(
+    scalar: &Scalar,
+    parent_size: u16,
+    parent_width: u16,
+    parent_height: u16,
+    viewport_width: u16,
+    viewport_height: u16,
+) -> Option<f64> {
+    match scalar {
+        Scalar::Auto | Scalar::Fraction(_) => None,
+        Scalar::Cells(n) => Some(*n as f64),
+        Scalar::Percent(p) => Some(parent_size as f64 * *p as f64 / 100.0),
+        Scalar::Width(p) => Some(parent_width as f64 * *p as f64 / 100.0),
+        Scalar::Height(p) => Some(parent_height as f64 * *p as f64 / 100.0),
+        Scalar::ViewWidth(p) => Some(viewport_width as f64 * *p as f64 / 100.0),
+        Scalar::ViewHeight(p) => Some(viewport_height as f64 * *p as f64 / 100.0),
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn resolve_scalar(
     scalar: &Scalar,
@@ -3243,6 +3276,50 @@ impl Default for Theme {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn resolve_scalar_exact_keeps_fraction() {
+        // `12.5h` of height 30 = 3.75 — the exact pre-floor value used for
+        // Python-style CUMULATIVE flooring (two adjacent 3.75 boxes render 3+4,
+        // not the 3+3 that independent truncation would produce).
+        let h = Scalar::Height(12.5);
+        assert_eq!(resolve_scalar_exact(&h, 30, 120, 30, 120, 30), Some(3.75));
+        // Integer-valued scalar (`5w` of width 120 = 6.0) stays exact and is a
+        // no-op under cumulative flooring.
+        let w = Scalar::Width(5.0);
+        assert_eq!(resolve_scalar_exact(&w, 30, 120, 30, 120, 30), Some(6.0));
+        // `25vh` always resolves against the VIEWPORT height (30), regardless of
+        // the property axis: 25% of 30 = 7.5.
+        let vh = Scalar::ViewHeight(25.0);
+        assert_eq!(resolve_scalar_exact(&vh, 120, 120, 30, 120, 30), Some(7.5));
+        // `auto`/`fr` have no direct percentage base → resolved by the 1D solver.
+        assert_eq!(resolve_scalar_exact(&Scalar::Auto, 30, 30, 30, 30, 30), None);
+        assert_eq!(
+            resolve_scalar_exact(&Scalar::Fraction(2.0), 30, 30, 30, 30, 30),
+            None
+        );
+    }
+
+    #[test]
+    fn cumulative_floor_recovers_fractional_carry() {
+        // The fence-post identity the flow layouts rely on: a stack of equal
+        // 3.75-cell boxes renders so the cumulative position is floored at each
+        // step (3,4,4,4 here), summing to floor(N*3.75)=15, instead of every box
+        // independently flooring to 3 (sum 12 — losing 25% of the total). This is
+        // Python `layouts/vertical.py` (`next_y.__floor__() - y.__floor__()`).
+        let exact = [3.75_f64; 4];
+        let mut cum = 0.0_f64;
+        let mut sizes = Vec::new();
+        for e in exact {
+            let disp = ((cum + e).floor() - cum.floor()) as u16;
+            sizes.push(disp);
+            cum += e;
+        }
+        assert_eq!(sizes, vec![3, 4, 4, 4]);
+        assert_eq!(sizes.iter().sum::<u16>(), (4.0 * 3.75_f64).floor() as u16);
+        // Independent truncation would have summed to only 4*3 = 12.
+        assert!(sizes.iter().sum::<u16>() > 4 * 3);
+    }
 
     #[test]
     fn css_named_colors_use_w3c_values_not_ansi_palette() {

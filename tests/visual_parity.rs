@@ -145,6 +145,25 @@ const PASSING: &[&str] = &[
     "hatch",
     // Free win (matched Python after the text-align/auto-fg pass moved it to READY):
     "grid",
+    // Promoted after the fr-distribution / cumulative-floor layout pass:
+    //  - `layout_resolve_1d_exact` sizes fixed AND fr children to exact f64 cells
+    //    and floors the RUNNING position (Python `_resolve.resolve` +
+    //    `layouts/{vertical,horizontal}.py`), so a stack of non-integer relative
+    //    units (`12.5%`/`5w`/`12.5h`/`6.25vw`/`12.5vh` + `fr`) fence-posts like
+    //    Python instead of each box truncating independently AND the fr children
+    //    over-reserving against the un-carried integer fixed sizes.
+    //    → width_comparison, height_comparison.
+    //  - per-layer dock isolation: a `dock`ed widget on a SEPARATE layer
+    //    (`layer: ruler`) overlays the flow region instead of carving it, in BOTH
+    //    `resolve_layout` (flow region) and `host_content_extent` (scrollable
+    //    virtual size) — without the latter the overlay Ruler inflated virtual_h
+    //    and triggered a phantom scrollbar lane that shifted every relative-unit
+    //    child. → width_comparison, height_comparison.
+    //  - horizontal.rs width-aware height remeasure: a content-height child
+    //    (unset OR `auto` height) in an `fr`-width row now re-measures its wrapped
+    //    height at the RESOLVED width (was using the stale `layout_height()`), so a
+    //    wrapping Label sized its box to the right line count. → text_style.
+    "width_comparison", "height_comparison", "text_style",
 ];
 
 struct StyledCase {

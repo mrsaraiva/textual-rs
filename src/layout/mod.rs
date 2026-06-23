@@ -264,10 +264,44 @@ pub fn resolve_layout(
     };
 
     // Arrange docked children → further reduced available region.
+    //
+    // Python parity (`_arrange.py::arrange`): widgets are grouped into LAYERS and
+    // each layer is arranged independently, starting from the full region. Dock
+    // carving (`dock_region.shrink(dock_spacing)`) happens WITHIN a layer, so a
+    // docked widget on a SEPARATE layer (e.g. a `layer: ruler` overlay) does NOT
+    // consume space from the flow children on the default layer — it overlays
+    // them. Without per-layer isolation a bottom/right-docked Ruler (the
+    // width/height_comparison demos) shrinks the flow region and shifts every
+    // relative-unit (`%`/`w`/`h`/`vw`/`vh`/`fr`) child, diverging from Python.
+    //
+    // We split docks into those sharing the flow children's layer (carve, as
+    // before) and those on a distinct layer (position only, no carve). Layers are
+    // compared by name with `None` == the default layer.
     let inner = if docked.is_empty() {
         after_split
     } else {
-        arrange_dock(tree, &docked, after_split, viewport)
+        let flow_layers: std::collections::HashSet<Option<String>> = flow
+            .iter()
+            .map(|&c| get_node_style(tree, c).layer)
+            .collect();
+        let (docked_carve, docked_overlay): (Vec<NodeId>, Vec<NodeId>) =
+            docked.iter().copied().partition(|&c| {
+                let layer = get_node_style(tree, c).layer;
+                // Carve when this dock shares a layer with a flow child (or there
+                // are no flow children to compare against — preserve prior carve
+                // behaviour).
+                flow_layers.is_empty() || flow_layers.contains(&layer)
+            });
+        // Overlay docks (distinct layer) are positioned against the full region
+        // but do not reduce the flow region.
+        if !docked_overlay.is_empty() {
+            arrange_dock(tree, &docked_overlay, after_split, viewport);
+        }
+        if docked_carve.is_empty() {
+            after_split
+        } else {
+            arrange_dock(tree, &docked_carve, after_split, viewport)
+        }
     };
 
     // Dispatch flow children to the appropriate layout.
