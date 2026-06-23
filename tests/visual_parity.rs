@@ -115,6 +115,13 @@ const PASSING: &[&str] = &[
     // the fg-bearing `visual_style` extend (Python `render_line` IndexError).
     // This fixes the docked/bordered container blank-row fg bleed.
     "dock_all", "margin_all",
+    // Promoted after replacing Placeholder (cycling bg, centered label) with
+    // Label::new("Widget") in the width/height example mains — matches Python's
+    // bare Widget(): literal "Widget" text top-left (no content-align), green bg,
+    // white fg. CSS adds the unset dimension (height:1fr / width:1fr) to mirror
+    // Python's fill-the-screen default for a bare Widget. (Example-only fix;
+    // Placeholder bg cycling must stay for max_width/min_width.)
+    "width", "height",
 ];
 
 struct StyledCase {
