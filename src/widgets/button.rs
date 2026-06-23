@@ -9,6 +9,7 @@ use crate::node_id::NodeId;
 use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
 
 use crate::action::ParsedAction;
+use crate::content::Content;
 
 #[cfg(test)]
 use super::NodeState;
@@ -72,17 +73,25 @@ impl std::fmt::Debug for Button {
     }
 }
 
-impl Button {
-    fn no_style_space_segment(width: usize) -> Segment {
-        let mut segment = Segment::new(" ".repeat(width));
-        let mut map = std::collections::BTreeMap::new();
-        map.insert("textual:no_text_style".to_string(), MetaValue::Bool(true));
-        let mut meta = StyleMeta::new();
-        meta.meta = Some(std::sync::Arc::new(map));
-        segment.meta = Some(meta);
-        segment
-    }
+/// Tag a segment with `textual:no_text_style = true` so `apply_style_to_segments`
+/// skips re-applying widget CSS text attributes that have already been baked in
+/// by `Content::render_strips`.
+fn tag_segment_no_text_style(seg: &mut Segment) {
+    let mut meta = seg.meta.take().unwrap_or_else(StyleMeta::new);
+    let mut map: std::collections::BTreeMap<String, MetaValue> = meta
+        .meta
+        .as_ref()
+        .map(|m| (**m).clone())
+        .unwrap_or_default();
+    map.insert(
+        "textual:no_text_style".to_string(),
+        MetaValue::Bool(true),
+    );
+    meta.meta = Some(std::sync::Arc::new(map));
+    seg.meta = Some(meta);
+}
 
+impl Button {
     pub fn new(label: impl Into<String>) -> Self {
         Self {
             label: label.into(),
@@ -593,66 +602,128 @@ impl Widget for Button {
         }
     }
 
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+    fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
         let state = self.node_state();
+
+        // `options.size.0` is the CONTENT width after render_widget_with_meta has
+        // subtracted borders, padding, AND line_pad×2.  The framework's
+        // `apply_line_pad` will add line_pad spaces (tagged no_text_style) around
+        // the output we return here.
+        let width = options.size.0.max(1);
+
+        // Resolve the widget's visual style from the style stack (pushed by
+        // render_widget_with_meta before calling render()). This is the
+        // focus-aware resolved style — contains reverse=true when :focus matches.
+        let visual_style = crate::css::current_self_style().unwrap_or_default();
+
         if state.hovered || state.focused || self.is_active() {
-            let meta = crate::css::selector_meta_generic(self);
-            let resolved = crate::css::resolve_style(self, &meta);
             debug_input(&format!(
                 "[hover][button-style] label=\"{}\" hovered={} focused={} active={} bg={:?} fg={:?} border_top={:?} border_bottom={:?} tint={:?}",
                 self.label,
                 state.hovered,
                 state.focused,
                 self.is_active(),
-                resolved.bg,
-                resolved.fg,
-                resolved.border_top,
-                resolved.border_bottom,
-                resolved.background_tint
+                visual_style.bg,
+                visual_style.fg,
+                visual_style.border_top,
+                visual_style.border_bottom,
+                visual_style.background_tint
             ));
         }
 
-        let width = options.size.0.max(1);
+        // Resolve background: flatten widget's own bg over ancestor composited bg
+        // so transparent-bg buttons still get the correct surface color baked in.
+        let parent_bg =
+            crate::css::current_ancestor_composited_background().unwrap_or_else(|| {
+                crate::style::parse_color_like("$background")
+                    .unwrap_or(crate::style::Color::rgb(0, 0, 0))
+            });
+        let effective_bg = visual_style
+            .bg
+            .map(|c| c.flatten_over(parent_bg))
+            .unwrap_or(parent_bg);
+        let mut render_style = visual_style.clone();
+        render_style.bg = Some(effective_bg);
 
-        // Rich text content takes precedence over plain label.
-        if let Some(ref content) = self.content {
-            let mut content_options = options.clone();
-            content_options.size = (width, options.size.1);
-            content_options.max_width = width;
-            content_options.justify = Some(rich_rs::JustifyMethod::Center);
-            return content.render(console, &content_options);
-        }
+        // Determine line_pad from the resolved CSS.  `options.size.0` is already
+        // the inner width (line_pad*2 removed by render_widget_with_meta); the
+        // framework's apply_line_pad will re-add the outer spaces after we return.
+        // We include the line_pad spaces INSIDE our Content so they sit in the
+        // styled band (getting the focus-reverse from visual_style) rather than
+        // being added as plain no_text_style spaces by apply_line_pad.
+        //
+        // The outer apply_line_pad spaces will also be tagged no_text_style and
+        // therefore won't receive the reverse — but the inner line_pad spaces
+        // baked into the Content DO receive it (they are content runs, not
+        // alignment padding).
+        //
+        // When the label is too wide to fit with line_pad included (label_cells +
+        // line_pad*2 > width), we cannot pre-pad because the Content would then
+        // word-wrap into multiple lines.  In that case we skip pre-padding and
+        // let apply_line_pad supply the outer spaces without reverse — matching
+        // the old code's "narrow-button" fallback.
+        let line_pad = visual_style.line_pad.unwrap_or(0) as usize;
 
-        // `line-pad`: when the label fits, pad it with styled spaces that SHARE the
-        // label's text-style, so the `:focus` reverse band covers them (matching
-        // Python — content.py pads the styled content; only the content-align fill
-        // is background-only). Plain text is unchanged: the line-pad spaces replace
-        // centering spaces 1:1 (left shrinks by line_pad, the styled pad adds it
-        // back), so glyph positions are identical. For buttons too narrow to fit
-        // label + line-pad we keep the prior truncation — narrow-button line-pad is
-        // a tracked edge case we can't yet verify against Python.
-        let label = self.label.as_str();
-        let line_pad = {
-            let meta = crate::css::selector_meta_generic(self);
-            crate::css::resolve_style(self, &meta).line_pad.unwrap_or(0) as usize
-        };
-        let label_cells = rich_rs::cell_len(label);
-        let (content, content_width) = if line_pad > 0 && label_cells + line_pad * 2 <= width {
-            let pad = " ".repeat(line_pad);
-            (format!("{pad}{label}{pad}"), label_cells + line_pad * 2)
+        // Get plain label text (rich Text markup spans not yet migrated to Content
+        // span model; use plain text for now).
+        let label_text = if let Some(ref rich_content) = self.content {
+            rich_content.plain_text().to_string()
         } else {
-            let w = label_cells.min(width);
-            (rich_rs::set_cell_size(label, w), w)
+            self.label.clone()
         };
-        let left = width.saturating_sub(content_width) / 2;
-        let right = width.saturating_sub(content_width) - left;
+        let label_cells = rich_rs::cell_len(&label_text);
+
+        // Pre-pad the label with line_pad spaces when it fits.  These spaces are
+        // CONTENT runs (not alignment padding) so they receive the full visual_style
+        // including focus reverse (S1 seam fix bakes style into content runs).
+        let content_text = if line_pad > 0 && label_cells + line_pad * 2 <= width {
+            format!(
+                "{}{}{}",
+                " ".repeat(line_pad),
+                label_text,
+                " ".repeat(line_pad)
+            )
+        } else {
+            label_text
+        };
+        let content = Content::from_text(content_text);
+
+        // Resolve theme tokens in span styles (no-op for plain-text Content but
+        // correct when Content carries markup spans in future).
+        let resolve_fn = |raw: &str| {
+            crate::content::markup::parse_tag_style(raw)
+                .map(|t| t.style)
+                .unwrap_or_default()
+        };
+
+        // Render via Content::render_strips.
+        // - width: content_width as received (line_pad already excluded by caller).
+        // - height=Some(1): button is always single-line content.
+        // - line_pad=0: the framework's apply_line_pad handles the outer spaces;
+        //   the inner line_pad spaces are already baked into content_text above.
+        // - no_wrap=true: button is single-line — never word-wrap.
+        // - overflow="fold": truncate fallback (no ellipsis).
+        // - center align: Python `text-align: center` in DEFAULT_CSS.
+        let strips = content.render_strips(
+            width,
+            Some(1),
+            &render_style,
+            crate::style::TextAlign::Center,
+            "fold",
+            true,
+            0,
+            resolve_fn,
+        );
+
+        // Flatten strips into Segments and tag each with no_text_style so
+        // apply_style_to_segments does not re-apply CSS text attrs (bold, reverse,
+        // etc.) that have already been baked in by render_strips.
         let mut out = Segments::new();
-        if left > 0 {
-            out.push(Self::no_style_space_segment(left));
-        }
-        out.push(Segment::new(rich_rs::set_cell_size(&content, content_width)));
-        if right > 0 {
-            out.push(Self::no_style_space_segment(right));
+        for strip in strips {
+            for mut seg in strip {
+                tag_segment_no_text_style(&mut seg);
+                out.push(seg);
+            }
         }
         out
     }

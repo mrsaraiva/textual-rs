@@ -7,6 +7,30 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-23 (feat(button): migrate render to Content::render_strips — focus band covers line-pad)
+
+- **feat(button): retire custom line-pad render code; use Content::render_strips** —
+  `Button::render()` now builds a `Content` from the label (with line-pad spaces
+  pre-baked into the content text when the label fits) and renders via
+  `Content::render_strips` with the focus-aware `visual_style` (from
+  `current_self_style()`), center alignment, and `line_pad=0` (the outer
+  line-pad spaces are still applied by `render_widget_with_meta`'s
+  `apply_line_pad`).  The pre-baked line-pad spaces are content runs, not
+  alignment padding, so the S1 seam fix in `render_strips` bakes the full
+  `visual_style` (including `reverse=true` for `:focus`) into them.  Result:
+  the focused-button reverse band now covers `" Label "` (label + 1 space on
+  each side) matching Python, not just `"Label"` (old behaviour when label
+  was narrow enough to fit with line-pad).  The old `no_style_space_segment`
+  helper is retired; all segments from `render_strips` are tagged
+  `no_text_style` (style baked by render_strips; `apply_style_to_segments`
+  skips redundant re-application).
+
+- **chore(snapshots): update frame_layout + keys_preview snapshots** —
+  Two snapshot tests updated for the new segment-metadata layout: glyph cells
+  from the button now carry `textual:no_text_style=true` (style baked in by
+  render_strips instead of applied later by apply_style_to_segments).  Visual
+  output is identical; metadata reflects the new render path.
+
 ### 2026-06-22 (fix(content): C1 seam fixes — correct whitespace-span style + vertical-fill surface)
 
 - **fix(content/seam1): remove `has_glyph` guard from content runs** —

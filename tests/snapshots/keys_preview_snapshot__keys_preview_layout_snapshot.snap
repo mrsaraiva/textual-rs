@@ -1,5 +1,6 @@
 ---
 source: tests/keys_preview_snapshot.rs
+assertion_line: 94
 expression: buffer.debug_dump()
 ---
 lines:
@@ -21,6 +22,11 @@ lines:
 15: "▀▀▀▀▀▀▀▀▀▀▀▀▀                                                                   "
 meta:
 (1,14): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true), "textual:widget_id": Int(4294967315)}) }
+(2,14): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true), "textual:widget_id": Int(4294967315)}) }
+(3,14): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true), "textual:widget_id": Int(4294967315)}) }
+(4,14): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true), "textual:widget_id": Int(4294967315)}) }
 (5,14): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true), "textual:widget_id": Int(4294967315)}) }
 (8,14): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true), "textual:widget_id": Int(4294967317)}) }
+(9,14): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true), "textual:widget_id": Int(4294967317)}) }
+(10,14): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true), "textual:widget_id": Int(4294967317)}) }
 (11,14): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_text_style": Bool(true), "textual:widget_id": Int(4294967317)}) }
