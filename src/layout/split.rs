@@ -2,7 +2,10 @@ use crate::node_id::NodeId;
 use crate::style::{BoxSizing, OffsetValue, Scalar};
 use crate::widget_tree::WidgetTree;
 
-use super::common::{get_node_style, measure_intrinsic_content_height, resolve_scalar_to_cells};
+use super::common::{
+    get_node_style, measure_intrinsic_content_height, measure_intrinsic_content_width,
+    resolve_scalar_to_cells,
+};
 use super::region::{CarveDir, Region, border_spacing};
 
 // ---------------------------------------------------------------------------
@@ -14,16 +17,37 @@ use super::region::{CarveDir, Region, border_spacing};
 /// Used by both dock and split layout: the child's size is resolved from its
 /// style, then it is placed along the specified edge, and the bounds (x0/y0/x1/y1)
 /// are reduced by the child's outer size.
-pub(crate) fn carve_edge(
-    tree: &mut WidgetTree,
+/// Box-model result of an edge-carving child computed against an available area.
+///
+/// All values are in cells. `outer_w`/`outer_h` include border+padding+margin.
+/// `border_*`/`padding`/`chrome_*` describe the gutter used to derive the inner
+/// content rect from the placed (margin-excluded) layout rect.
+pub(crate) struct CarveBox {
+    pub outer_w: u16,
+    pub outer_h: u16,
+    pub margin: crate::style::Spacing,
+    pub border_top: u16,
+    pub border_left: u16,
+    pub padding_top: u16,
+    pub padding_left: u16,
+    pub chrome_w: u16,
+    pub chrome_h: u16,
+}
+
+/// Compute the box model (outer size + gutter) of an edge-carving child against
+/// an available content area of `avail_w` x `avail_h`.
+///
+/// This is the size-resolution half of edge carving, shared by split (which
+/// computes against the progressively-reduced bounds) and dock (which, matching
+/// Python `_arrange_dock_widgets`, computes every dock against the *full* region
+/// so docks overlap at the corners). It does not mutate the tree.
+pub(crate) fn compute_carve_box(
+    tree: &WidgetTree,
     child: NodeId,
-    direction: CarveDir,
-    x0: &mut u16,
-    y0: &mut u16,
-    x1: &mut u16,
-    y1: &mut u16,
+    avail_w: u16,
+    avail_h: u16,
     viewport: (u16, u16),
-) {
+) -> CarveBox {
     let style = get_node_style(tree, child);
     let margin = style.effective_margin();
     let padding = style.effective_padding();
@@ -34,8 +58,8 @@ pub(crate) fn carve_edge(
     let border_right = br as u16;
     let box_sizing = style.box_sizing.unwrap_or(BoxSizing::BorderBox);
 
-    let current_w = x1.saturating_sub(*x0);
-    let current_h = y1.saturating_sub(*y0);
+    let current_w = avail_w;
+    let current_h = avail_h;
 
     // Resolve child's content size from its style.
     //
@@ -46,15 +70,29 @@ pub(crate) fn carve_edge(
     let height_is_explicit = matches!(style.height, Some(ref s) if !matches!(s, Scalar::Auto));
     let width_is_explicit = matches!(style.width, Some(ref s) if !matches!(s, Scalar::Auto));
 
+    // `h_is_outer`: the resolved `child_h` is ALREADY an outer height (includes
+    // this widget's own border+padding) rather than a content height. This is the
+    // case when the value comes from a leaf widget's own `layout_height()` (e.g.
+    // Button/Checkbox report 1 + border_vertical_padding). For such values we must
+    // NOT re-add the border/padding chrome below — only the margin. (Mirror of
+    // `common::measure_child_outer_height`'s `own_outer` handling.)
+    let mut h_is_outer = false;
     let child_h = match style.height.as_ref() {
         None => {
-            // Unset: use widget intrinsic height if available, fall back to
+            // Unset: use widget intrinsic (OUTER) height if available, fall back to
             // full available height (fill behaviour for unset height, same as
             // `extract_child_spec` for None with no intrinsic).
-            tree.get(child)
+            match tree
+                .get(child)
                 .and_then(|node| node.widget.layout_height())
                 .and_then(|h| u16::try_from(h).ok())
-                .unwrap_or(current_h)
+            {
+                Some(h) => {
+                    h_is_outer = true;
+                    h
+                }
+                None => current_h,
+            }
         }
         Some(Scalar::Auto) => {
             // Explicit `height: auto`: size to content, NOT to the remaining
@@ -62,34 +100,53 @@ pub(crate) fn carve_edge(
             // branch calls `get_content_height` instead of filling the container).
             //
             // Try intrinsic leaf height first (fast path for single-widget leaves
-            // like Button/Checkbox that report their own layout_height). Fall back
-            // to `measure_intrinsic_content_height` for containers whose children
-            // were drained into the arena tree (layout_height == None). Only if
-            // measurement also yields nothing (truly empty / unmeasurable) do we
-            // fall back to filling the available height.
+            // like Button/Checkbox that report their own OUTER layout_height). Fall
+            // back to `measure_intrinsic_content_height` for containers whose
+            // children were drained into the arena tree (layout_height == None) —
+            // that returns CONTENT height. Only if measurement also yields nothing
+            // (truly empty / unmeasurable) do we fall back to filling the height.
             let leaf = tree
                 .get(child)
                 .and_then(|node| node.widget.layout_height())
                 .and_then(|h| u16::try_from(h).ok());
             if let Some(h) = leaf {
+                h_is_outer = true;
                 h
             } else {
                 measure_intrinsic_content_height(tree, child, viewport, current_h)
                     .unwrap_or(current_h)
             }
         }
+        // A docked/split widget sized in `fr` on an axis fills that axis: Python's
+        // box model resolves a lone `1fr` against the available size (the dock
+        // region's own extent), so it behaves like `100%`. `resolve_scalar_to_cells`
+        // cannot do this — it has no sibling-fr context and returns 0 — so resolve
+        // it to the full available height here.
+        Some(Scalar::Fraction(_)) => current_h,
         Some(s) => resolve_scalar_to_cells(s, current_h, viewport),
     };
     let child_w = match style.width.as_ref() {
         None => current_w, // truly unset → full available width
         Some(Scalar::Auto) => {
-            // Use widget's intrinsic width (content_width), fall back to
-            // layout_constraints max_width, then to current available.
+            // Explicit `width: auto`: size to content, NOT to the remaining
+            // available width (the mirror of the `height: auto` branch above).
+            // Python parity (`_get_box_model`: `is_auto_width` branch calls
+            // `get_content_width` instead of filling the container).
+            //
+            // Try the widget's own intrinsic width first (fast path for leaf
+            // widgets that report `content_width()`). When the widget reports
+            // None — true for a docked *container* whose children were drained
+            // into the arena tree (e.g. `Container(Label("left"))` docked left
+            // with `width: auto`) — recursively measure the intrinsic content
+            // width of its subtree. Only if measurement also yields nothing do
+            // we fall back to `layout.max_width`, then to the available width.
             let intrinsic = tree
                 .get(child)
                 .and_then(|node| node.widget.content_width())
                 .and_then(|w| u16::try_from(w).ok());
             if let Some(w) = intrinsic {
+                w
+            } else if let Some(w) = measure_intrinsic_content_width(tree, child, viewport) {
                 w
             } else {
                 let max_w = tree
@@ -99,6 +156,9 @@ pub(crate) fn carve_edge(
                 max_w.unwrap_or(current_w)
             }
         }
+        // `width: 1fr` on a dock/split widget fills the available width (see the
+        // height `Fraction` arm above for the rationale).
+        Some(Scalar::Fraction(_)) => current_w,
         Some(s) => resolve_scalar_to_cells(s, current_w, viewport),
     };
 
@@ -138,7 +198,13 @@ pub(crate) fn carve_edge(
     // with `height: 1` + `border: tall` (chrome 2) renders only its top border
     // row instead of top + bottom border rows.
     let border_box_size = |specified: u16, chrome: u16| -> u16 { specified.max(chrome) };
-    let outer_h = if box_sizing == BoxSizing::BorderBox && height_is_explicit {
+    let outer_h = if h_is_outer {
+        // `child_h` already includes the widget's own border+padding (leaf's own
+        // OUTER `layout_height()`). Add ONLY margin — re-adding `chrome_h` here
+        // would double-count the border (e.g. a docked Button reporting 3 would
+        // become 5).
+        child_h.saturating_add(margin.top + margin.bottom)
+    } else if box_sizing == BoxSizing::BorderBox && height_is_explicit {
         border_box_size(child_h, chrome_h).saturating_add(margin.top + margin.bottom)
     } else {
         child_h
@@ -152,6 +218,51 @@ pub(crate) fn carve_edge(
             .saturating_add(chrome_w)
             .saturating_add(margin.left + margin.right)
     };
+
+    CarveBox {
+        outer_w,
+        outer_h,
+        margin,
+        border_top,
+        border_left,
+        padding_top: padding.top,
+        padding_left: padding.left,
+        chrome_w,
+        chrome_h,
+    }
+}
+
+/// Position a single edge-carving child and shrink the available bounds.
+///
+/// Used by SPLIT layout: the child's size is resolved from its style against the
+/// current (progressively-reduced) bounds, it is placed along the edge, and the
+/// bounds (x0/y0/x1/y1) are reduced by the child's outer size so the next split
+/// sees a smaller area. (Dock layout no longer routes through here — see
+/// `arrange_dock`, which follows Python's overlapping-dock model.)
+pub(crate) fn carve_edge(
+    tree: &mut WidgetTree,
+    child: NodeId,
+    direction: CarveDir,
+    x0: &mut u16,
+    y0: &mut u16,
+    x1: &mut u16,
+    y1: &mut u16,
+    viewport: (u16, u16),
+) {
+    let current_w = x1.saturating_sub(*x0);
+    let current_h = y1.saturating_sub(*y0);
+    let bx = compute_carve_box(tree, child, current_w, current_h, viewport);
+    let CarveBox {
+        outer_w,
+        outer_h,
+        margin,
+        border_top,
+        border_left,
+        padding_top,
+        padding_left,
+        chrome_w,
+        chrome_h,
+    } = bx;
 
     let (layout_x, layout_y, layout_w, layout_h) = match direction {
         CarveDir::Top => {
@@ -189,8 +300,8 @@ pub(crate) fn carve_edge(
     };
 
     // Content rect.
-    let content_x = layout_x.saturating_add(border_left + padding.left);
-    let content_y = layout_y.saturating_add(border_top + padding.top);
+    let content_x = layout_x.saturating_add(border_left + padding_left);
+    let content_y = layout_y.saturating_add(border_top + padding_top);
     let content_w = layout_w.saturating_sub(chrome_w);
     let content_h = layout_h.saturating_sub(chrome_h);
 

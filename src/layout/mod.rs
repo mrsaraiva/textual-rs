@@ -1516,17 +1516,23 @@ mod tests {
         let available = Region::new(0, 0, 80, 50);
         let remaining = arrange_dock(&mut tree, &[header, footer, sidebar], available, (80, 50));
 
+        // Python parity (`_arrange.py::_arrange_dock_widgets`): every dock is sized
+        // and placed against the SAME full region — docks OVERLAP at the corners;
+        // they do not consume each other's space. Only the accumulated dock_spacing
+        // (max extent per edge) shrinks the region returned for flow children.
+
         // Header: top, full width, 3 tall.
         assert_layout_rect(&tree, header, 0, 0, 80, 3);
 
         // Footer: bottom, full width, 2 tall. y1 = 50 → footer at y=48.
         assert_layout_rect(&tree, footer, 0, 48, 80, 50);
 
-        // Sidebar: left, after header carved top (y0=3) and footer carved bottom (y1=48).
-        // Height = 48 - 3 = 45. Width = 20.
-        assert_layout_rect(&tree, sidebar, 0, 3, 20, 48);
+        // Sidebar: left, FULL height (0..50) against the original region — it does
+        // NOT shrink to fit between header/footer (those overlap it at the corners).
+        assert_layout_rect(&tree, sidebar, 0, 0, 20, 50);
 
-        // Remaining: x=20, y=3, w=60, h=45
+        // Remaining (flow region): shrunk by spacing left=20, top=3, bottom=2 →
+        // x=20, y=3, w=60, h=45.
         assert_eq!(remaining, Region::new(20, 3, 60, 45));
     }
 
