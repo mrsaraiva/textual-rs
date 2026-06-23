@@ -7,6 +7,22 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-23 (fix(render): CSS `hatch` compositing parity — defer + content-box scope)
+
+- **`hatch` fill** is now DEFERRED until after a node's children render and SCOPED to the
+  node content box (inside any border/padding), matching Python `line_post` / `apply_hatch`.
+  Previously the fill ran before children, so the inner content child of a `.class()`/`.id()`
+  `Node` wrapper (which carries the border + hatch, with the raw text in an inner child)
+  un-hatched the FIRST inner row. Naively deferring past children then over-filled the blank
+  padding around a `border_title` on the border row (` cross ` → `╳cross╳`); scoping the fill
+  to the content box fixes both. Leaf hatch (e.g. a bare `Label` with `hatch`) is unchanged —
+  its content box equals its layout rect.
+- **`Node` wrapper** gained `with_border_title()` / `with_border_subtitle()` and now reports
+  `border_title()` / `border_subtitle()` so a `.class()`/`.id()` panel renders its title on the
+  border (Python `static.border_title = ...`). The `docs/examples/styles/hatch` example sets
+  per-panel titles accordingly.
+- Promotes `"hatch"` to the styled PASSING set. (styled 65→66)
+
 ### 2026-06-23 (fix(render): chrome-only container vertical-extend fill is bg-only)
 
 - **Vertical-extend (BOX) fill** in `render_widget_with_meta` now discriminates chrome-only

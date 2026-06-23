@@ -740,6 +740,17 @@ fn render_tree_node(
     // below. Mirrors Python `StylesCache.render_line` outline block.
     let mut deferred_outline: Option<(Vec<OutlineCell>, i32, i32, ClipRect)> = None;
 
+    // CSS `hatch` fills the widget's blank cells with a repeating glyph. In
+    // Python this is applied via `line_post` to the widget's OWN content line,
+    // so the hatch covers the widget's full inner area — including the content
+    // row. In textual-rs, `.class()`/`.id()` on a leaf wraps it in a `Node`
+    // (border + hatch on the wrapper, raw text in an inner child). The inner
+    // content child renders AFTER the wrapper, so applying hatch before children
+    // lets the child's blank content line overpaint (un-hatch) the first inner
+    // row. Defer the fill until after children render (it only touches blank
+    // cells, preserving real content), mirroring Python's whole-inner-area hatch.
+    let mut deferred_hatch: Option<(Hatch, Option<Color>, i32, i32, usize, usize, ClipRect)> = None;
+
     if should_render {
         let dest_x = i32::from(rect.x0) + ctx.origin_x;
         let dest_y = i32::from(rect.y0) + ctx.origin_y;
@@ -934,9 +945,24 @@ fn render_tree_node(
             }
         }
 
-        // P2-34: Apply hatch fill to blank cells within the widget area.
+        // P2-34: Defer hatch fill until after children render (see the
+        // `deferred_hatch` declaration above) so the inner content child of a
+        // `.class()`/`.id()` Node wrapper cannot un-hatch the first inner row.
+        //
+        // Scope the fill to the node's CONTENT box (inside any border/padding),
+        // not the full widget box. Python's `line_post` hatch only touches the
+        // inner content lines — it must NOT bleed into the border row, where the
+        // blank padding spaces around a `border_title` would otherwise be
+        // hatched (e.g. ` cross ` -> `╳cross╳`). For a gutterless leaf the
+        // content box equals the layout rect, so leaf hatch (Label, no border)
+        // is unchanged.
         if let Some(ref hatch) = resolved.hatch {
-            apply_hatch_fill(frame, hatch, resolved.bg, dest_x, dest_y, w, h, ctx.clip);
+            let content = node_content_or_layout_rect(node);
+            let hx = i32::from(content.x0) + ctx.origin_x;
+            let hy = i32::from(content.y0) + ctx.origin_y;
+            let hw = content.x1.saturating_sub(content.x0) as usize;
+            let hh = content.y1.saturating_sub(content.y0) as usize;
+            deferred_hatch = Some((hatch.clone(), resolved.bg, hx, hy, hw, hh, ctx.clip));
         }
 
         // P2-34: Apply overlay compositing mode.
@@ -1066,6 +1092,14 @@ fn render_tree_node(
             ctx,
             frame,
         );
+    }
+
+    // CSS `hatch`: fill the widget's still-blank inner cells AFTER children have
+    // composited, so the inner content row participates in the hatch (it only
+    // touches blank cells, preserving real content). Painted before `outline` so
+    // an outline still draws on top.
+    if let Some((hatch, bg, dest_x, dest_y, w, h, clip)) = deferred_hatch {
+        apply_hatch_fill(frame, &hatch, bg, dest_x, dest_y, w, h, clip);
     }
 
     // CSS `outline`: paint perimeter cells over the final composited content at

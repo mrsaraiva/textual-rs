@@ -1,12 +1,9 @@
 /// Port of Python Textual `docs/examples/styles/hatch.py`.
 ///
 /// Demonstrates the `hatch` CSS property with five variants:
-/// cross, horizontal, custom ("T"), left, and right.
-///
-/// Framework gaps:
-///   - `hatch` CSS property is not yet implemented in textual-rs.
-///   - `border_title` cannot be set dynamically on arbitrary widgets;
-///     the per-widget title will be absent until a generic builder is added.
+/// cross, horizontal, custom ("T"), left, and right. Each panel sets its
+/// `border_title` to the hatch name, mirroring Python's
+/// `static.border_title = hatch`.
 use textual::prelude::*;
 
 const CSS: &str = r##"
@@ -43,11 +40,21 @@ impl TextualApp for HatchApp {
     fn compose(&mut self) -> AppRoot {
         AppRoot::new().with_child(
             Horizontal::new()
-                .with_child(Vertical::new().with_child(Static::new("").class("hatch").class("cross")))
-                .with_child(Vertical::new().with_child(Static::new("").class("hatch").class("horizontal")))
-                .with_child(Vertical::new().with_child(Static::new("").class("hatch").class("custom")))
-                .with_child(Vertical::new().with_child(Static::new("").class("hatch").class("left")))
-                .with_child(Vertical::new().with_child(Static::new("").class("hatch").class("right"))),
+                .with_child(Vertical::new().with_child(
+                    Static::new("").class("hatch").class("cross").with_border_title("cross"),
+                ))
+                .with_child(Vertical::new().with_child(
+                    Static::new("").class("hatch").class("horizontal").with_border_title("horizontal"),
+                ))
+                .with_child(Vertical::new().with_child(
+                    Static::new("").class("hatch").class("custom").with_border_title("custom"),
+                ))
+                .with_child(Vertical::new().with_child(
+                    Static::new("").class("hatch").class("left").with_border_title("left"),
+                ))
+                .with_child(Vertical::new().with_child(
+                    Static::new("").class("hatch").class("right").with_border_title("right"),
+                )),
         )
     }
 }
