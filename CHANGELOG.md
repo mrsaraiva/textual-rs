@@ -7,6 +7,25 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-22 (fix(layout): carve_edge respects `height: auto` for docked containers)
+
+- **fix(layout): split `None | Some(Scalar::Auto)` in `carve_edge` — docked containers with `height: auto` now size to their content**
+  - `carve_edge` in `src/layout/split.rs` (used by both dock and split layout) previously
+    treated `height: auto` identically to unset height (`None`), causing a docked Container
+    with `height: auto` to consume ALL remaining available height instead of sizing to its
+    content. Python parity: `_get_box_model`'s `is_auto_height` branch calls
+    `get_content_height()` rather than filling the container.
+  - Fix: split the `None | Some(Scalar::Auto)` match arm into two cases. `None` (unset) keeps
+    the existing fill-available behaviour. `Some(Scalar::Auto)` now tries `layout_height()` for
+    leaf widgets first, then falls back to `measure_intrinsic_content_height` for arena-tree
+    containers whose children are drained. This mirrors the pattern used in `layout_vertical.rs`
+    for auto-height flow children. 0 regressions; pty_parity 186; full suite green.
+  - **Note**: `dock_all` still does not promote to PASSING due to a pre-existing fg-color
+    rendering issue (empty container interiors show `fg=#e0e0e0` instead of `fg=def`) that
+    is outside the scope of `split.rs`. The layout height fix is correct and complete; the
+    rendering issue requires investigation in `src/widgets/core.rs` or
+    `src/css/selectors/segments.rs`.
+
 ### 2026-06-22 (fix(layout): apply_parent_align runs for Grid — border_all/outline_all promoted)
 
 - **fix(layout): remove early-return guard that skipped `apply_parent_align` for `Layout::Grid`**

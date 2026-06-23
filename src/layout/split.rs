@@ -2,7 +2,7 @@ use crate::node_id::NodeId;
 use crate::style::{BoxSizing, OffsetValue, Scalar};
 use crate::widget_tree::WidgetTree;
 
-use super::common::{get_node_style, resolve_scalar_to_cells};
+use super::common::{get_node_style, measure_intrinsic_content_height, resolve_scalar_to_cells};
 use super::region::{CarveDir, Region, border_spacing};
 
 // ---------------------------------------------------------------------------
@@ -47,14 +47,36 @@ pub(crate) fn carve_edge(
     let width_is_explicit = matches!(style.width, Some(ref s) if !matches!(s, Scalar::Auto));
 
     let child_h = match style.height.as_ref() {
-        None | Some(Scalar::Auto) => {
-            // Unset or auto: use widget intrinsic height if available, fall back
-            // to full available height (same policy as layout_vertical's
-            // extract_child_spec for None | Auto).
+        None => {
+            // Unset: use widget intrinsic height if available, fall back to
+            // full available height (fill behaviour for unset height, same as
+            // `extract_child_spec` for None with no intrinsic).
             tree.get(child)
                 .and_then(|node| node.widget.layout_height())
                 .and_then(|h| u16::try_from(h).ok())
                 .unwrap_or(current_h)
+        }
+        Some(Scalar::Auto) => {
+            // Explicit `height: auto`: size to content, NOT to the remaining
+            // available height. Python parity (`_get_box_model`: `is_auto_height`
+            // branch calls `get_content_height` instead of filling the container).
+            //
+            // Try intrinsic leaf height first (fast path for single-widget leaves
+            // like Button/Checkbox that report their own layout_height). Fall back
+            // to `measure_intrinsic_content_height` for containers whose children
+            // were drained into the arena tree (layout_height == None). Only if
+            // measurement also yields nothing (truly empty / unmeasurable) do we
+            // fall back to filling the available height.
+            let leaf = tree
+                .get(child)
+                .and_then(|node| node.widget.layout_height())
+                .and_then(|h| u16::try_from(h).ok());
+            if let Some(h) = leaf {
+                h
+            } else {
+                measure_intrinsic_content_height(tree, child, viewport, current_h)
+                    .unwrap_or(current_h)
+            }
         }
         Some(s) => resolve_scalar_to_cells(s, current_h, viewport),
     };
