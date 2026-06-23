@@ -107,6 +107,14 @@ const PASSING: &[&str] = &[
     // pre-existing missed promotion; box_sizing now matches after the Static
     // off-tree id() resolution stopped inserting a spurious Node wrapper level.
     "box_sizing", "min_height",
+    // Promoted after the BOX vertical-extend fill discriminates chrome-only
+    // containers from content widgets: a bordered Container renders no text
+    // content (Python `Widget.render` -> `Blank(background_colors[1])`, bg-only),
+    // so its interior extend rows are BG-ONLY even though `color` is inherited
+    // from `Screen { color: $foreground }`. Content widgets (Static/Label) keep
+    // the fg-bearing `visual_style` extend (Python `render_line` IndexError).
+    // This fixes the docked/bordered container blank-row fg bleed.
+    "dock_all", "margin_all",
 ];
 
 struct StyledCase {

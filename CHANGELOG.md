@@ -7,6 +7,19 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-23 (fix(render): chrome-only container vertical-extend fill is bg-only)
+
+- **Vertical-extend (BOX) fill** in `render_widget_with_meta` now discriminates chrome-only
+  containers from content widgets. A bordered/sized `Container` (or any layout container)
+  renders no text content — Python's `Widget.render` returns `Blank(background_colors[1])`,
+  a background-only visual with no foreground — so its interior extend rows are now **bg-only**
+  even though `color` is inherited from `Screen { color: $foreground }` (was bleeding
+  `fg=$foreground` onto the container's blank rows). Content widgets (Static/Label) keep the
+  foreground-bearing `visual_style` extend (Python `widget.render_line` `IndexError` fallback).
+  The `segments_empty` flag is the in-render discriminator (chrome-only containers produce no
+  content segments). Matches Python `_styles_cache` / `get_inner_outer` `inner.rich_style`.
+- Promotes `"dock_all"` and `"margin_all"` to the styled PASSING set. (styled 61→63)
+
 ### 2026-06-23 (feat(links): `links` example parity — id-selector CSS on Static, @click link styling, trailing-newline row count)
 
 - **`Static::id()`** now sets `seed.css_id` directly on the Static node (instead of
