@@ -143,6 +143,8 @@ const PASSING: &[&str] = &[
     // also gained `border_title`/`border_subtitle` support so the per-panel
     // titles render on the border (Python `static.border_title = hatch`).
     "hatch",
+    // Free win (matched Python after the text-align/auto-fg pass moved it to READY):
+    "grid",
 ];
 
 struct StyledCase {
