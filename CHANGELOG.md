@@ -7,6 +7,21 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-23 (feat(aliases/Static): migrate render to Content::render_strips — Phase-D retirement)
+
+- **feat(aliases/Static): render via Content::render_strips** —
+  `Static::render()` now calls `Content::from_markup`/`Content::from_text` +
+  `Content::render_strips` directly with `current_self_style()` /
+  `current_ancestor_composited_background()`.  The internal `Label` dependency
+  for rendering is retired; `Static` now owns its text, markup, wrap, expand,
+  shrink and `NodeSeed` fields directly.  Segments are tagged `no_text_style`
+  so `apply_style_to_segments` skips redundant re-application of text
+  attributes already baked in by render_strips.  The `Rich(Text)` path
+  (`update_rich`) continues to delegate to `Text::render` unchanged.
+  Layout helpers (`layout_height`, `content_width`, `auto_content_width`) are
+  now self-contained — no longer double-counting Label chrome.  All existing
+  regression tests pass (styled 52/87 unchanged, pty_parity 186/0 unchanged).
+
 ### 2026-06-23 (feat(widgets): migrate Tab, CollapsibleTitle, MarkdownHeadingBlock to Content::render_strips)
 
 - **feat(tabs/Tab): render via Content::render_strips** —
