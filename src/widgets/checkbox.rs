@@ -1,7 +1,8 @@
 use crossterm::event::KeyCode;
-use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
+use rich_rs::{Console, ConsoleOptions, MetaValue, Renderable, Segment, Segments, StyleMeta};
 
 use crate::compose::ComposeResult;
+use crate::content::{Content, ContentPart};
 use crate::event::{Action, Event, EventCtx};
 use crate::message::*;
 #[cfg(test)]
@@ -14,6 +15,24 @@ use crate::reactive::{
 use crate::action::ParsedAction;
 
 use super::{BindingDecl, NodeSeed, Widget};
+
+/// Tag a segment with `textual:no_text_style = true` so `apply_style_to_segments`
+/// skips re-applying widget CSS text attributes already baked in by
+/// `Content::render_strips`.
+fn tag_segment_no_text_style(seg: &mut Segment) {
+    let mut meta = seg.meta.take().unwrap_or_else(StyleMeta::new);
+    let mut map: std::collections::BTreeMap<String, MetaValue> = meta
+        .meta
+        .as_ref()
+        .map(|m| (**m).clone())
+        .unwrap_or_default();
+    map.insert(
+        "textual:no_text_style".to_string(),
+        MetaValue::Bool(true),
+    );
+    meta.meta = Some(std::sync::Arc::new(map));
+    seg.meta = Some(meta);
+}
 
 #[derive(Debug, Clone)]
 pub struct Checkbox {
@@ -227,31 +246,81 @@ impl Widget for Checkbox {
 
     fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
+
+        // Resolve the widget's visual style from the style stack so focus/hover
+        // state is reflected in the background.
+        let visual_style = crate::css::current_self_style().unwrap_or_default();
+
+        // Flatten widget's own bg over the ancestor composited background so
+        // transparent-bg checkboxes still get the correct surface color.
+        let parent_bg =
+            crate::css::current_ancestor_composited_background().unwrap_or_else(|| {
+                crate::style::parse_color_like("$background")
+                    .unwrap_or(crate::style::Color::rgb(0, 0, 0))
+            });
+        let effective_bg = visual_style
+            .bg
+            .map(|c| c.flatten_over(parent_bg))
+            .unwrap_or(parent_bg);
+        let mut render_style = visual_style.clone();
+        render_style.bg = Some(effective_bg);
+
         // Python's `ToggleButton` renders `▐X▌` — the `X` is ALWAYS present; the
         // checked state is conveyed by the button color (`.toggle--button`, which
         // brightens via `&.-on > .toggle--button` since `self` carries `-on` when
         // checked), not by swapping the glyph. `self` exposes its `-on` class to
         // off-tree resolution via its seed classes.
-        let button_style = crate::css::resolve_component_style(self, &["toggle--button"])
-            .to_rich()
-            .unwrap_or_else(rich_rs::Style::new);
-        let label_style = crate::css::resolve_component_style(self, &["toggle--label"])
-            .to_rich()
-            .unwrap_or_else(rich_rs::Style::new);
-        // Side half-blocks use the button background as their foreground.
-        let mut side_style = rich_rs::Style::new();
-        side_style.color = button_style.bgcolor;
+        let button_style = crate::css::resolve_component_style(self, &["toggle--button"]);
+        let label_style = crate::css::resolve_component_style(self, &["toggle--label"]);
 
-        let segs = [
-            Segment::styled("▐".to_string(), side_style),
-            Segment::styled("X".to_string(), button_style),
-            Segment::styled("▌".to_string(), side_style),
-            // Python renders `▐X▌` then the label padded 1 cell on each side
-            // (`label.pad(1, 1)`); markup is stripped to plain text first.
-            Segment::styled(format!(" {} ", self.label_plain()), label_style),
-        ];
+        // Side half-blocks use the button background as their foreground.
+        // Python: `side_style = Style(foreground=button_style.background, background=self.background_colors[1])`
+        let mut side_style = crate::style::Style::new();
+        side_style.fg = button_style.bg;
+
+        // Build Content via assemble, mirroring Python `Content.assemble(button, label)`:
+        //   button  = ▐ (side_style) + X (button_style) + ▌ (side_style)
+        //   label   = " label " (label_style, padded 1 cell each side)
+        let content = Content::assemble([
+            ContentPart::from(("▐", side_style.clone())),
+            ContentPart::from(("X", button_style)),
+            ContentPart::from(("▌", side_style)),
+            ContentPart::from((format!(" {} ", self.label_plain()), label_style)),
+        ]);
+
+        let resolve_fn = |raw: &str| {
+            crate::content::markup::parse_tag_style(raw)
+                .map(|t| t.style)
+                .unwrap_or_default()
+        };
+
+        // Render via Content::render_strips.
+        // - width: content width as received (borders/padding excluded by caller).
+        // - height=Some(1): checkbox is always single-line.
+        // - no_wrap=true: single-line — never word-wrap.
+        // - line_pad=0: no additional inner padding (the ` label ` pad is baked in).
+        // - Left align: content already fills its natural width.
+        let strips = content.render_strips(
+            width,
+            Some(1),
+            &render_style,
+            crate::style::TextAlign::Left,
+            "fold",
+            true,
+            0,
+            resolve_fn,
+        );
+
+        // Flatten strips into Segments and tag each with no_text_style so
+        // apply_style_to_segments does not re-apply CSS text attrs that have
+        // already been baked in by render_strips.
         let mut out = Segments::new();
-        out.extend(super::helpers::adjust_line_length_no_bg(&segs, width));
+        for strip in strips {
+            for mut seg in strip {
+                tag_segment_no_text_style(&mut seg);
+                out.push(seg);
+            }
+        }
         out
     }
 

@@ -7,6 +7,19 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-23 (feat(checkbox): migrate render to Content::render_strips — Phase-D retirement)
+
+- **feat(checkbox): render via Content::render_strips** —
+  `Checkbox::render()` now resolves `current_self_style()` +
+  `current_ancestor_composited_background()` for correct bg composition, builds
+  the `▐X▌ label ` content via `Content::assemble` with per-part styles
+  (`side_style`, `button_style`, `label_style` from `resolve_component_style`),
+  and calls `Content::render_strips` (no_wrap, height=1, left-align).
+  Segments are tagged `textual:no_text_style` so `apply_style_to_segments`
+  skips redundant re-application of CSS text attributes already baked in.
+  Snapshot updated: cells now carry `textual:no_text_style=true` metadata
+  (meta-only change, visual output unchanged).
+
 ### 2026-06-23 (feat(widgets): migrate Tab, CollapsibleTitle, MarkdownHeadingBlock to Content::render_strips)
 
 - **feat(tabs/Tab): render via Content::render_strips** —
