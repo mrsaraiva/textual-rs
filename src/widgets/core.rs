@@ -1026,8 +1026,15 @@ pub(crate) fn render_widget_with_meta<W: Widget + ?Sized>(
         // container produces no content segments (its render returns empty / only
         // surface chrome), whereas a content widget produces at least one content
         // line. So carry fg into the extend rows ONLY for content widgets.
-        let vfill_style = if !segments_empty && resolved.fg.is_some() {
-            fill_fg_style // content widget with explicit/inherited fg → visual_style extend
+        // fg and fg_auto are a linked pair (explicit color vs `color: auto`). A
+        // content widget with EITHER set has a fg-bearing visual_style, so its
+        // vertical-extend rows carry that color (auto-contrast for `color: auto`,
+        // already baked into fill_fg_style). Checking only `resolved.fg` missed
+        // the `color: auto` case (e.g. text_align), dropping fg on extend rows.
+        let vfill_style = if !segments_empty
+            && (resolved.fg.is_some() || resolved.fg_auto.is_some())
+        {
+            fill_fg_style // content widget with explicit/auto fg → visual_style extend
         } else {
             fill // chrome-only container (or no fg) → bg-only extend (Blank/inner.rich_style)
         };

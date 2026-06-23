@@ -122,6 +122,19 @@ const PASSING: &[&str] = &[
     // Python's fill-the-screen default for a bare Widget. (Example-only fix;
     // Placeholder bg cycling must stay for max_width/min_width.)
     "width", "height",
+    // Promoted after the text-render residual fixes:
+    //  - text_align: (1) content widgets with `color: auto` now carry the
+    //    auto-contrast fg into their vertical-extend fill rows (the vfill
+    //    discriminator checked only `fg`, missing `fg_auto`); (2) implemented
+    //    `text-align: justify` inter-word space distribution (Python
+    //    `_FormattedLine.to_strip`), with the final paragraph line left-aligned
+    //    and fg-bearing pad spaces.
+    //  - link_background: `link-color: auto` (the default `$link-color`/`$text`)
+    //    now recomputes its contrast against the LINK background (Python
+    //    `auto_link_color` → `link_background.get_contrast_text(a)`), so a bright
+    //    `link-background: $accent` yields dark link text instead of the screen
+    //    contrast. Added `link_color_auto` marker to Style.
+    "text_align", "link_background",
 ];
 
 struct StyledCase {

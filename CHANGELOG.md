@@ -7,6 +7,28 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-23 (fix(text): text-align auto-fg extend, justify spacing, link-color auto contrast)
+
+- **Vertical-extend fill for `color: auto` content widgets**: the BOX vfill discriminator in
+  `render_widget_with_meta` checked only `resolved.fg`, so a content widget with `color: auto`
+  (e.g. `text_align`'s `Label { color: auto }`) lost its auto-contrast foreground on the blank
+  extend rows below its text. It now also checks `resolved.fg_auto` (the linked auto pair), so
+  those rows carry the auto-contrast fg in their content area (padding stays bg-only), matching
+  Python `widget.render_line` `IndexError` → `Strip.blank(width, visual_style.rich_style)`.
+- **`text-align: justify`** is now implemented in `Content::render_strips`: inter-word spacing is
+  stretched so each non-final line fills the width (Python `_FormattedLine.to_strip` justify
+  branch — round-robin space distribution from the right). The last line of a paragraph stays
+  left-aligned (`line_end`), and the stretched pad spaces are foreground-bearing (resolving
+  `color: auto` contrast) like Python's `(style + text_style).rich_style`. `wrap_and_format`
+  gained a `_marked` variant returning the per-line `line_end` flag.
+- **`link-color: auto` contrast against the link background**: the default `$link-color`
+  (= `$text` = `auto 87%`) is now treated as auto (new `Style.link_color_auto` /
+  `link_color_hover_auto` markers). `Widget.link_style` parity: the link foreground is
+  `link_background.get_contrast_text(alpha)` — a contrast resolved against the LINK background,
+  not a fixed color resolved against the screen. A bright `link-background: $accent` now yields
+  dark link text instead of light. `$link-color`/`$link-color-hover` map to `auto 87%`.
+- Promotes `"text_align"` and `"link_background"` to the styled PASSING set. (styled 65→67)
+
 ### 2026-06-23 (fix(render): chrome-only container vertical-extend fill is bg-only)
 
 - **Vertical-extend (BOX) fill** in `render_widget_with_meta` now discriminates chrome-only
