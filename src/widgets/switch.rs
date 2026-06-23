@@ -291,7 +291,7 @@ impl Widget for Switch {
             thickness: 1,
             vertical: false,
         };
-        let lines = renderer.render_bar(width, back, thumb);
+        let lines = renderer.render_bar(width, back, thumb, None);
 
         let mut out = Segments::new();
         if let Some(row) = lines.into_iter().next() {

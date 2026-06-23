@@ -96,6 +96,13 @@ const PASSING: &[&str] = &[
     // strips emit an extra Segment::line() so split_and_crop_lines produces the right
     // row count (no spurious fill_fg_style bleed on blank trailing rows):
     "links",
+    // tint: bake explicit host `color` (fg) into scrollbar track_style so
+    // apply_style_to_segments sees s.color.is_some() and does not drop it —
+    // matching Python `_Styled` applying fg to ALL scrollbar render segments.
+    // background_tint: use Vertical::new().id() directly (not Node wrapper) so
+    // `background: $panel` and `background-tint: ...` resolve on the same node,
+    // matching Python `Vertical(Label(...), id="tint1")`.
+    "tint", "background_tint",
 ];
 
 struct StyledCase {
