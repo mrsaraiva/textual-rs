@@ -103,6 +103,10 @@ const PASSING: &[&str] = &[
     // `background: $panel` and `background-tint: ...` resolve on the same node,
     // matching Python `Vertical(Label(...), id="tint1")`.
     "tint", "background_tint",
+    // Match Python exactly (promoted as free wins this pass): min_height was a
+    // pre-existing missed promotion; box_sizing now matches after the Static
+    // off-tree id() resolution stopped inserting a spurious Node wrapper level.
+    "box_sizing", "min_height",
 ];
 
 struct StyledCase {
