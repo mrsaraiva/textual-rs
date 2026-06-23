@@ -85,6 +85,10 @@ const PASSING: &[&str] = &[
     "text_style_all", "border01", "border_title", "box_sizing01",
     "dimensions01", "dimensions02", "dimensions03", "outline01", "padding01",
     "text_opacity",
+    // Color-residual (re-scoped to real roots): placeholder bg uses exact float 0.5
+    // (was 128/255=0.50196) → column_span/row_span; border-fg + bg opacity now match
+    // Python's double-application (background_colors blend + _apply_opacity) → opacity.
+    "column_span", "row_span", "opacity",
 ];
 
 struct StyledCase {

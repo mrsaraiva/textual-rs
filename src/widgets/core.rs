@@ -1072,6 +1072,7 @@ pub(crate) fn render_widget_with_meta<W: Widget + ?Sized>(
         debug_widget_label,
         widget.border_title(),
         widget.border_subtitle(),
+        resolved.opacity,
     );
     let segments = if let Some(opacity) = resolved.opacity {
         crate::css::apply_widget_opacity_to_segments(segments, opacity, parent_style)

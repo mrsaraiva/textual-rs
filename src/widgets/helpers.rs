@@ -249,6 +249,10 @@ pub(crate) fn resolved_vertical_chrome<T: Widget + ?Sized>(widget: &T) -> usize 
     usize::from(padding.top.saturating_add(padding.bottom)) + bt + bb
 }
 
+// `opacity_percent`: When set, pre-blend border colors by opacity, matching Python's
+// `base_background + border_color.multiply_alpha(opacity)` step. This is necessary so
+// that after `apply_widget_opacity_to_segments` applies a second blend, the net result
+// matches Python's double-application of opacity on border-character foreground colors.
 pub(crate) fn apply_border_edges(
     segments: Segments,
     inner_width: usize,
@@ -259,6 +263,7 @@ pub(crate) fn apply_border_edges(
     debug_widget_label: &str,
     border_title: Option<&str>,
     border_subtitle: Option<&str>,
+    opacity_percent: Option<u8>,
 ) -> Segments {
     let border_top = style.border_top;
     let border_right = style.border_right;
@@ -281,6 +286,14 @@ pub(crate) fn apply_border_edges(
         .map(|c| c.flatten_over(parent_bg))
         .unwrap_or(parent_bg);
     let outer_bg = parent_bg;
+
+    // Pre-blend opacity for border colors: when `opacity_percent` is set,
+    // Python pre-composites the border color over `base_background` at the
+    // given opacity inside `render_line`, BEFORE `_apply_opacity` sees it.
+    // We replicate that as a float factor passed down to `border_inner_outer_styles`.
+    let pre_blend_opacity: Option<f32> = opacity_percent
+        .filter(|&o| o < 100)
+        .map(|o| o as f32 / 100.0);
     let border_debug = border_debug_matches(debug_widget_label);
     if border_debug {
         debug_border(&format!(
@@ -334,6 +347,7 @@ pub(crate) fn apply_border_edges(
                 Some(inner_bg),
                 Some(outer_bg),
                 Side::Left,
+                pre_blend_opacity,
             ));
         }
         row.extend(line);
@@ -343,6 +357,7 @@ pub(crate) fn apply_border_edges(
                 Some(inner_bg),
                 Some(outer_bg),
                 Side::Right,
+                pre_blend_opacity,
             ));
         }
         let row = adjust_line_length_no_bg(&row, full_width.max(1));
@@ -359,6 +374,7 @@ pub(crate) fn apply_border_edges(
             has_left,
             has_right,
             true,
+            pre_blend_opacity,
         );
         if let Some(title) = border_title.filter(|t| !t.is_empty()) {
             overlay_border_text(
@@ -395,6 +411,7 @@ pub(crate) fn apply_border_edges(
             has_left,
             has_right,
             false,
+            pre_blend_opacity,
         );
         if let Some(subtitle) = border_subtitle.filter(|t| !t.is_empty()) {
             overlay_border_text(
@@ -624,17 +641,39 @@ fn resolve_border_char_style(
     }
 }
 
+// `pre_blend_opacity`: When the widget carries a CSS `opacity` value, pre-blend
+// the border color by that factor.  Python's `_styles_cache.render_line` does:
+//   `border_color = base_background + border_color.multiply_alpha(opacity)`
+// meaning the border fg is already opacity-reduced BEFORE `_apply_opacity` sees it.
+// Pre-blending here ensures that when `apply_widget_opacity_to_segments` applies a
+// single blend, the net result matches Python's effective double-blend for border chars.
 fn border_inner_outer_styles(
     edge: BorderEdge,
     inner_bg: Option<crate::style::Color>,
     outer_bg: Option<crate::style::Color>,
+    pre_blend_opacity: Option<f32>,
 ) -> (rich_rs::Style, rich_rs::Style) {
-    let border_color = edge
+    let raw_border_color = edge
         .color()
         .unwrap_or_else(|| parse_color_like("$foreground").unwrap());
     let fallback_bg = parse_color_like("$background").unwrap_or(crate::style::Color::rgb(0, 0, 0));
     let inner_bg = inner_bg.unwrap_or(fallback_bg);
     let outer_bg = outer_bg.unwrap_or(fallback_bg);
+
+    // When `opacity` is active, Python pre-composites the border color over
+    // `base_background` (= outer/parent bg) at the given opacity factor:
+    //   `base_background + border_color.multiply_alpha(opacity)`
+    // = `outer_bg.blend(border_color, border_color.a * opacity)`.
+    // For fully-opaque border colors (alpha == 1.0), this simplifies to:
+    //   `outer_bg.blend(border_color, opacity)`.
+    // We replicate that here so the subsequent `apply_widget_opacity_to_segments`
+    // single-pass gives the same final value as Python's double-pass.
+    let border_color = if let Some(opacity) = pre_blend_opacity {
+        // blend_over_float(under, factor): under + (self - under) * factor
+        raw_border_color.blend_over_float(outer_bg, opacity)
+    } else {
+        raw_border_color
+    };
 
     // Border edge colors may carry alpha (e.g. `$foreground 30%`). Compose over
     // each local surface before converting to terminal color so dim separators
@@ -660,10 +699,11 @@ fn border_horizontal_row(
     has_left: bool,
     has_right: bool,
     top: bool,
+    pre_blend_opacity: Option<f32>,
 ) -> Vec<Segment> {
     let edge_type = edge.edge_type();
     let (chars, locations) = border_chars(edge_type);
-    let (inner, outer) = border_inner_outer_styles(edge, inner_bg, outer_bg);
+    let (inner, outer) = border_inner_outer_styles(edge, inner_bg, outer_bg, pre_blend_opacity);
     let row_idx = if top { 0 } else { 2 };
     let row_chars = chars[row_idx];
     let row_locs = locations[row_idx];
@@ -693,10 +733,11 @@ fn border_side_segment(
     inner_bg: Option<crate::style::Color>,
     outer_bg: Option<crate::style::Color>,
     side: Side,
+    pre_blend_opacity: Option<f32>,
 ) -> Segment {
     let edge_type = edge.edge_type();
     let (chars, locations) = border_chars(edge_type);
-    let (inner, outer) = border_inner_outer_styles(edge, inner_bg, outer_bg);
+    let (inner, outer) = border_inner_outer_styles(edge, inner_bg, outer_bg, pre_blend_opacity);
     let col = match side {
         Side::Left => 0,
         Side::Right => 2,
@@ -752,7 +793,7 @@ pub(crate) fn outline_edge_cells(
 
     // Build a horizontal edge row (top or bottom) and emit its per-cell glyphs.
     let mut push_horizontal_row = |edge: BorderEdge, row: usize| {
-        let segs = border_horizontal_row(edge, inner, outer, width, has_left, has_right, row == 0);
+        let segs = border_horizontal_row(edge, inner, outer, width, has_left, has_right, row == 0, None);
         let mut col = 0usize;
         for seg in segs {
             let style = seg.style.unwrap_or_default();
@@ -778,13 +819,13 @@ pub(crate) fn outline_edge_cells(
     let last_interior = height.saturating_sub(usize::from(has_bottom));
     for row in first_interior..last_interior {
         if has_left {
-            let seg = border_side_segment(outline_left, inner, outer, Side::Left);
+            let seg = border_side_segment(outline_left, inner, outer, Side::Left, None);
             if let Some(ch) = seg.text.chars().next() {
                 cells.push((0, row, ch, seg.style.unwrap_or_default()));
             }
         }
         if has_right && width > 1 {
-            let seg = border_side_segment(outline_right, inner, outer, Side::Right);
+            let seg = border_side_segment(outline_right, inner, outer, Side::Right, None);
             if let Some(ch) = seg.text.chars().next() {
                 cells.push((width - 1, row, ch, seg.style.unwrap_or_default()));
             }

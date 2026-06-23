@@ -166,8 +166,10 @@ impl Placeholder {
     fn apply_bg_color(&mut self) {
         let hex = PLACEHOLDER_COLORS[self.color_index];
         if let Some(color) = crate::style::parse_color_like(hex) {
-            // Apply at 50% opacity to match Python Textual's `background: {color} 50%`.
-            let bg = Color::rgba(color.r, color.g, color.b, 128);
+            // Apply at exactly 50% opacity to match Python Textual's `background: {color} 50%`.
+            // Use rgba_f (float alpha) so the blend factor is exactly 0.5, not the
+            // u8-quantized 128/255 = 0.50196 which would drift the composited RGB by ±1.
+            let bg = Color::rgba_f(color.r, color.g, color.b, 0.5);
             self.seed.styles.set_bg(bg);
         }
     }

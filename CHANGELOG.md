@@ -7,6 +7,16 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-23 (fix(color): exact-0.5 placeholder alpha + Python opacity double-application)
+
+- **Placeholder bg** uses exact float `0.5` alpha (`rgba_f`) instead of `128/255`=0.50196,
+  so composited cells match Python's `background: {color} 50%` per-cell RGB. Flips
+  `column_span`, `row_span`.
+- **Widget opacity** now matches Python's double-application: background is composited once
+  in `background_colors` and again in `_apply_opacity` (`parent.blend(parent.blend(bg,o),o)`),
+  while fg is blended once; border-fg is pre-blended in `apply_border_edges` to match. Flips
+  `opacity`. (styled 53→56)
+
 ### 2026-06-23 (fix(color): blend() and lab_to_rgb use truncation to match Python int() semantics)
 
 - **fix(style/blend):** `blend()` channel mix now uses truncating cast (`as u8`) instead of

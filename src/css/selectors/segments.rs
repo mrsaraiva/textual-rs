@@ -236,14 +236,20 @@ pub(crate) fn apply_widget_opacity_to_segments(
             let original_fg = style.color.map(crate::style::color_from_simple);
 
             if let Some(bg) = original_bg {
-                let bg = TextOpacity::<()>::apply_alpha(bg, opacity);
-                let flat_bg = bg.flatten_over(parent_bg);
+                // Python parity: background opacity is applied TWICE — once in
+                // widget.background_colors (bg = parent.blend(widget_bg, opacity)) and then
+                // again in _apply_opacity (blends those pre-composited segments at opacity).
+                // Net result: parent.blend(parent.blend(widget_bg, opacity), opacity).
+                let intermediate = TextOpacity::<()>::apply_alpha(bg, opacity).flatten_over(parent_bg);
+                let flat_bg = TextOpacity::<()>::apply_alpha(intermediate, opacity).flatten_over(parent_bg);
                 style.bgcolor = Some(flat_bg.to_simple_opaque());
                 style_changed = true;
             }
 
             if let Some(fg) = original_fg {
                 let fg_source = fg;
+                // Python parity: fg is only processed once — background_colors only composites
+                // the bg, not the fg. _apply_opacity then applies fg once. So fg gets ONE blend.
                 let fg = TextOpacity::<()>::apply_alpha(fg, opacity);
                 let mut flat_fg = fg.flatten_over(parent_bg);
                 if let (Some(src_bg), Some(dst_bg)) = (
