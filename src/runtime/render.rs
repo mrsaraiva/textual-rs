@@ -2621,7 +2621,12 @@ fn apply_host_scrollbar_layout(tree: &mut WidgetTree, viewport: (u16, u16)) {
         }
 
         if let Some(v_id) = scrollbar_children.vertical {
-            let show = geometry.vertical_lane_width > 0;
+            // Fix B: use geometry.show_vertical (content overflows AND allowed) as the
+            // widget visibility flag, keeping lane/gutter RESERVATION (vertical_lane_width)
+            // separate from widget VISIBILITY.  Python parity: `_arrange_scrollbars` uses
+            // `show_vertical_scrollbar` (which respects overflow + scrollbar_gutter separately
+            // from `_get_scrollbar_region`'s stable-gutter reservation).
+            let show = geometry.show_vertical;
             set_runtime_display(tree, v_id, show);
             let rect = if show {
                 crate::widget_tree::Rect {
@@ -2652,7 +2657,8 @@ fn apply_host_scrollbar_layout(tree: &mut WidgetTree, viewport: (u16, u16)) {
         }
 
         if let Some(h_id) = scrollbar_children.horizontal {
-            let show = geometry.horizontal_lane_height > 0;
+            // Fix B: same as vertical — use show_horizontal not horizontal_lane_height > 0.
+            let show = geometry.show_horizontal;
             set_runtime_display(tree, h_id, show);
             let rect = if show {
                 crate::widget_tree::Rect {
@@ -2683,7 +2689,8 @@ fn apply_host_scrollbar_layout(tree: &mut WidgetTree, viewport: (u16, u16)) {
         }
 
         if let Some(c_id) = scrollbar_children.corner {
-            let show = geometry.vertical_lane_width > 0 && geometry.horizontal_lane_height > 0;
+            // Corner is shown only when BOTH scrollbar widgets are shown.
+            let show = geometry.show_vertical && geometry.show_horizontal;
             set_runtime_display(tree, c_id, show);
             let rect = if show {
                 crate::widget_tree::Rect {

@@ -34,6 +34,27 @@ until the API stabilizes.
     whitespace removal.
   - 42 new unit tests covering all of the above; all 2049 suite tests green.
   - Phase B is still additive — not wired into the render path.
+### 2026-06-22 (fix(scrollbar): gutter reservation separated from widget visibility; CSS class cascade via take_node_seed)
+
+- **fix(scrollbar): `scrollbar-gutter: stable` now reserves the gutter lane without displaying the widget**
+  - `apply_host_scrollbar_layout` previously used `geometry.vertical_lane_width > 0` (which is
+    true for both stable-gutter reservation AND overflow-driven display) as the scrollbar-widget
+    SHOW flag. Changed to `geometry.show_vertical` / `geometry.show_horizontal`, which is `true`
+    only when content actually overflows AND visibility is allowed. Python parity:
+    `_arrange_scrollbars` uses `show_vertical_scrollbar` (overflow + allowed), while
+    `_get_scrollbar_region` handles gutter reservation separately. Styled parity 36→37 PASS
+    (`scrollbar_gutter` promoted); 0 regressions; pty_parity 186; full suite green.
+
+- **fix(css): `ScrollableContainer.take_node_seed()` now delegates to inner `ScrollView`**
+  - Classes set via `.class("foo")` on `VerticalScroll` / `HorizontalScroll` were silently
+    discarded during `tree.mount()` because `ScrollableContainer.take_node_seed()` used the
+    Widget trait default (returns empty `NodeSeed`), losing the `ScrollView.seed.classes` that
+    `.class()` had populated. Added `take_node_seed`, `style`, and `set_inline_style` to the
+    `delegate_widget_method!` list in `ScrollableContainer`. This makes CSS class selectors
+    (e.g. `.right { scrollbar-visibility: hidden }`) reach the node's resolved style in
+    `apply_host_scrollbar_layout`. Partially advances `scrollbar_visibility` parity (right panel
+    now hides scrollbar correctly); left panel still differs due to a pre-existing
+    double-subtraction in `ScrollView.render()` that is tracked as a separate issue.
 
 ### 2026-06-22 (fix(layout): apply_parent_align runs for Grid — border_all/outline_all promoted)
 

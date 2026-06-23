@@ -58,6 +58,12 @@ const PASSING: &[&str] = &[
     // an early-return guard) — border_all/outline_all grid cells are now centred
     // vertically/horizontally just like every other layout strategy:
     "border_all", "outline_all",
+    // Promoted after Fix B: apply_host_scrollbar_layout now uses geometry.show_vertical
+    // (content overflows AND allowed) as the scrollbar-widget SHOW flag instead of
+    // geometry.vertical_lane_width>0.  This separates gutter RESERVATION (stable gutter)
+    // from widget VISIBILITY, so scrollbar-gutter:stable reserves the lane without
+    // displaying the scrollbar widget when content does not overflow.
+    "scrollbar_gutter",
 ];
 
 struct StyledCase {
