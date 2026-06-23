@@ -64,11 +64,17 @@ impl ScrollBarRender {
         (thumb_start, thumb_len)
     }
 
+    /// Render the scrollbar track.
+    ///
+    /// `track_fg`: fg for track (whitespace) cells. Python `_Styled(render, rich_style)` applies
+    /// the host widget `color` to ALL segments (including track whitespace). When `Some`, this fg
+    /// is baked into the track_style so `apply_style_to_segments` sees `s.color.is_some()`.
     pub fn render_bar(
         &self,
         track_len: usize,
         back_color: Color,
         thumb_color: Color,
+        track_fg: Option<Color>,
     ) -> Vec<Vec<Segment>> {
         const FRACTION_BARS: usize = 8;
         // Glyphs used for scrollbar ends, for sub-cell granularity. Mirrors
@@ -95,7 +101,15 @@ impl ScrollBarRender {
         let blank = " ".repeat(width_thickness);
 
         // Track (background) segment style. Python: `_Style(bgcolor=back, ...)`.
-        let track_style = rich_rs::Style::new().with_bgcolor(back);
+        // Also bake in the fg so that `apply_style_to_segments` sees s.color.is_some()
+        // and preserves it (matching Python `_Styled` applying host fg to all segments).
+        let track_style = {
+            let mut s = rich_rs::Style::new().with_bgcolor(back);
+            if let Some(fg) = track_fg {
+                s = s.with_color(fg.flatten_over(back_color).to_simple_opaque());
+            }
+            s
+        };
         // Thumb body. Python uses `_Style(color=bar, reverse=True)` with NO
         // bgcolor (lines 150-152); after the reverse swap this paints bg=bar.
         let thumb_fill_style = rich_rs::Style::new().with_color(bar).with_reverse(true);
@@ -744,7 +758,12 @@ impl Widget for ScrollBar {
             thickness: self.thickness,
             vertical: self.vertical,
         };
-        let lines = renderer.render_bar(length, bg, thumb);
+        // Python `_Styled(renderable, rich_style)` applies the host widget's
+        // `color` (fg) to ALL segments from the scrollbar render, including track
+        // whitespace. Bake it into the track style so `apply_style_to_segments`
+        // sees s.color.is_some() and does not overwrite it.
+        let track_fg = resolved.fg;
+        let lines = renderer.render_bar(length, bg, thumb, track_fg);
         let mut out = Segments::new();
         for (idx, line) in lines.into_iter().enumerate() {
             out.extend(line);
@@ -987,7 +1006,7 @@ mod tests {
             thickness: 1,
             vertical,
         };
-        let lines = renderer.render_bar(track_len, Color::rgb(85, 85, 85), Color::rgb(255, 0, 255));
+        let lines = renderer.render_bar(track_len, Color::rgb(85, 85, 85), Color::rgb(255, 0, 255), None);
         // Vertical: one cell per line (one cell per track index). Horizontal:
         // first line holds the whole row.
         let cells: Vec<&Segment> = if vertical {

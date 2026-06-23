@@ -306,7 +306,18 @@ pub(crate) fn current_composited_background() -> Option<crate::style::Color> {
         let mut composited = fallback;
         for style in stack.iter() {
             if let Some(bg) = style.bg {
-                composited = bg.flatten_over(composited);
+                let flat = bg.flatten_over(composited);
+                // Mirror Python dom.py: `background += styles.background.tint(styles.background_tint)`
+                // `background_tint` blends the tint color into the widget's own bg at `percent`
+                // intensity. Apply it here so children see the tinted surface as parent bg.
+                let effective = if let Some(tint) = style.background_tint {
+                    crate::renderables::Tint::<()>::blend_color_with_percent(
+                        flat, tint.color, tint.percent,
+                    )
+                } else {
+                    flat
+                };
+                composited = effective;
                 saw_background = true;
             }
         }
@@ -339,7 +350,17 @@ pub(crate) fn current_ancestor_composited_background() -> Option<crate::style::C
         let mut composited = fallback;
         for style in ancestor_slice.iter() {
             if let Some(bg) = style.bg {
-                composited = bg.flatten_over(composited);
+                let flat = bg.flatten_over(composited);
+                // Mirror Python dom.py: apply background_tint when compositing
+                // ancestor backgrounds so the tinted surface propagates correctly.
+                let effective = if let Some(tint) = style.background_tint {
+                    crate::renderables::Tint::<()>::blend_color_with_percent(
+                        flat, tint.color, tint.percent,
+                    )
+                } else {
+                    flat
+                };
+                composited = effective;
                 saw_background = true;
             }
         }

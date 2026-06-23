@@ -7,6 +7,26 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-23 (fix(tint,background_tint): exact Python parity for tint and background-tint CSS properties)
+
+- **fix(scrollbar): bake explicit host `color` into track segments** — `ScrollBarRender::render_bar`
+  now accepts an optional `track_fg: Option<Color>`. `ScrollBar::render()` passes `resolved.fg`
+  (the host widget's `color`) so track whitespace cells carry explicit fg in their segment style,
+  matching Python's `_Styled(scrollbar_render, rich_style)` which applies the host fg to ALL
+  rendered segments (including track whitespace). Previously, `apply_style_to_segments` dropped fg
+  from whitespace cells via the `has_glyph` guard — scrollbar track cells always appeared `fg=def`.
+  Promoted `tint` to `PASSING` (58 total, styled 56→58).
+
+- **fix(example/background_tint): use `Vertical::new().id()` directly instead of `Node` wrapper** —
+  Python's `Vertical(Label(...), id="tint1")` sets the CSS id on the Vertical itself, so both
+  `Vertical { background: $panel; }` and `#tint1 { background-tint: ...; }` apply to the SAME
+  widget node. The Rust example previously used `Node::new(Vertical).id("tint1")`, which split these
+  CSS rules across two separate nodes (`background` on inner Vertical, `background-tint` on outer
+  Node), preventing the tint from affecting the background. Fixed to `Vertical::new().id("tint1")`.
+  Also: Fix 2 (previous session) applied `bg`-only vfill for `fg_auto` extend rows (matching Python's
+  `inner.rich_style` for vertical extend beyond content height). Promoted `background_tint` to
+  `PASSING`.
+
 ### 2026-06-23 (fix(color): exact-0.5 placeholder alpha + Python opacity double-application)
 
 - **Placeholder bg** uses exact float `0.5` alpha (`rgba_f`) instead of `128/255`=0.50196,

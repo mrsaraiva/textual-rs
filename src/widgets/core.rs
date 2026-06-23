@@ -1004,9 +1004,21 @@ pub(crate) fn render_widget_with_meta<W: Widget + ?Sized>(
             .take(content_height)
             .map(|line| rich_rs::Segment::adjust_line_length(line, fill_width, Some(fill), true))
             .collect();
-        // Vertical extend rows: full style with foreground.
+        // Vertical extend rows: carry fg only when it comes from an EXPLICIT
+        // CSS `color` rule. When fg is derived from `color: auto N%`
+        // (fg_auto), Python uses bg-only `inner.rich_style` for these rows
+        // (see `_styles_cache.render_line` / `Strip.blank(inner.rich_style)`).
+        // Widgets with `height: 100%` or `height: N` that have more layout
+        // rows than content rows rely on this: explicit `color: $foreground`
+        // carries fg into the extend rows (matching Python's visual_style),
+        // while auto-contrast color does NOT (matching Python's inner style).
+        let vfill_style = if resolved.fg.is_some() {
+            fill_fg_style // explicit fg → carry into extend rows
+        } else {
+            fill // auto-color or no color → bg-only extend
+        };
         let vfill_blank =
-            vec![rich_rs::Segment::styled(" ".repeat(fill_width), fill_fg_style)];
+            vec![rich_rs::Segment::styled(" ".repeat(fill_width), vfill_style)];
         while shaped.len() < content_height {
             shaped.push(vfill_blank.clone());
         }

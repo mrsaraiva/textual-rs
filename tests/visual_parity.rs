@@ -89,6 +89,13 @@ const PASSING: &[&str] = &[
     // (was 128/255=0.50196) → column_span/row_span; border-fg + bg opacity now match
     // Python's double-application (background_colors blend + _apply_opacity) → opacity.
     "column_span", "row_span", "opacity",
+    // tint: bake explicit host `color` (fg) into scrollbar track_style so
+    // apply_style_to_segments sees s.color.is_some() and does not drop it —
+    // matching Python `_Styled` applying fg to ALL scrollbar render segments.
+    // background_tint: use Vertical::new().id() directly (not Node wrapper) so
+    // `background: $panel` and `background-tint: ...` resolve on the same node,
+    // matching Python `Vertical(Label(...), id="tint1")`.
+    "tint", "background_tint",
 ];
 
 struct StyledCase {
