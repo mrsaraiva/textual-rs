@@ -1621,6 +1621,13 @@ pub(super) fn parse_style_body(body: &str) -> Style {
             // Use parse_color_like_with_alpha so that `link-color: hsl(...) 50%`
             // and `link-color: red 80%` work (optional trailing alpha %).
             "link-color" => {
+                // `auto`/`$text`/`$link-color` → contrast against the LINK bg
+                // (Python `auto_link_color`). Record the auto marker so the link
+                // renderer recomputes the contrast; still resolve a concrete
+                // fallback color for non-link consumers.
+                if let Some(auto) = crate::style::parse_auto_color_like(value) {
+                    style.link_color_auto = Some(auto);
+                }
                 if let Some((color, alpha)) = parse_color_like_with_alpha(value) {
                     let color = match alpha {
                         Some(p) => color.with_alpha(p as f32 / 100.0),

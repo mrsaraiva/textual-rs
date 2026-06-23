@@ -809,7 +809,18 @@ pub(crate) fn compute_link_span_style(
     };
 
     // Compose link_color over link_bg.
-    let computed_fg = link_color.flatten_over(link_bg);
+    //
+    // For `link-color: auto` (the default `$link-color`/`$text`), Python computes
+    // `link_background.get_contrast_text(alpha)` — a contrast color resolved
+    // against the LINK background, NOT a fixed color resolved against the screen.
+    // (widget.py `link_style`: `link_background.get_contrast_text(styles.link_color.a)`
+    // when `auto_link_color`.) Recompute the contrast against `link_bg` here so a
+    // bright link background (e.g. `link-background: $accent`) yields dark link text.
+    let computed_fg = if let Some(auto) = visual_style.link_color_auto {
+        crate::style::contrast_text(link_bg).blend_over_float(link_bg, auto.alpha())
+    } else {
+        link_color.flatten_over(link_bg)
+    };
 
     let mut style = crate::style::Style::new();
     style.fg = Some(computed_fg);

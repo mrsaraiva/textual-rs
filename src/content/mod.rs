@@ -870,6 +870,26 @@ impl Content {
         no_wrap: bool,
         line_pad: usize,
     ) -> Vec<Content> {
+        self.wrap_and_format_marked(width, overflow, no_wrap, line_pad)
+            .into_iter()
+            .map(|(line, _)| line)
+            .collect()
+    }
+
+    /// Like [`wrap_and_format`] but also returns, per output line, whether it is
+    /// the **last** wrapped line of its logical (newline-delimited) paragraph.
+    ///
+    /// Mirrors Python `_wrap_and_format` setting `new_lines[-1].line_end = True`.
+    /// The flag matters for `text-align: justify`, where the final line of a
+    /// paragraph is left-aligned (not space-stretched) just like Python's
+    /// `to_strip` guard `align == "justify" and self.line_end`.
+    pub fn wrap_and_format_marked(
+        &self,
+        width: usize,
+        overflow: &str,
+        no_wrap: bool,
+        line_pad: usize,
+    ) -> Vec<(Content, bool)> {
         if width == 0 {
             return Vec::new();
         }
@@ -880,7 +900,7 @@ impl Content {
         // Inner width available for text (after removing line_pad from both sides).
         let inner_width = width.saturating_sub(line_pad * 2);
 
-        let mut output: Vec<Content> = Vec::new();
+        let mut output: Vec<(Content, bool)> = Vec::new();
 
         // Split the content on newlines first (mirrors Python `self.split(allow_blank=True)`).
         let logical_lines = self.split_on("\n", true);
@@ -891,13 +911,15 @@ impl Content {
                     // Hard-fold at inner_width.
                     let offsets =
                         rich_rs::divide_line(logical_line.plain(), inner_width.max(1), true);
-                    for piece in logical_line.divide(&offsets) {
-                        output.push(piece.pad(line_pad, line_pad));
+                    let pieces = logical_line.divide(&offsets);
+                    let num_pieces = pieces.len();
+                    for (i, piece) in pieces.into_iter().enumerate() {
+                        output.push((piece.pad(line_pad, line_pad), i + 1 == num_pieces));
                     }
                 } else {
                     // Truncate (with optional ellipsis) — single output line.
                     let line = logical_line.truncate(inner_width, ellipsis);
-                    output.push(line.pad(line_pad, line_pad));
+                    output.push((line.pad(line_pad, line_pad), true));
                 }
             } else {
                 // Word-wrap using divide_line.
@@ -915,7 +937,7 @@ impl Content {
                     } else {
                         piece.rstrip().truncate(inner_width, ellipsis)
                     };
-                    output.push(line.pad(line_pad, line_pad));
+                    output.push((line.pad(line_pad, line_pad), is_last));
                 }
             }
         }
@@ -1008,11 +1030,13 @@ impl Content {
         // theme tokens ($primary, auto …) are concrete before rendering.
         let resolved = self.resolve_styles(&resolve_fn);
 
-        // Step 2: wrap into output lines.
-        let lines = resolved.wrap_and_format(width, overflow, no_wrap, line_pad);
+        // Step 2: wrap into output lines (with per-line "is last line of
+        // paragraph" markers, needed so `text-align: justify` leaves the final
+        // line left-aligned, matching Python `_FormattedLine.line_end`).
+        let lines = resolved.wrap_and_format_marked(width, overflow, no_wrap, line_pad);
 
         // Step 3: clip to height if requested.
-        let lines: Vec<Content> = match height {
+        let lines: Vec<(Content, bool)> = match height {
             Some(h) => lines.into_iter().take(h).collect(),
             None => lines,
         };
@@ -1022,7 +1046,9 @@ impl Content {
         // Step 4: render each content line into segments.
         let mut strips: Vec<Vec<rich_rs::Segment>> = lines
             .into_iter()
-            .map(|line| render_content_line_to_segments(&line, width, visual_style, align))
+            .map(|(line, line_end)| {
+                render_content_line_to_segments(&line, width, visual_style, align, line_end)
+            })
             .collect();
 
         // Step 5: vertical fill — pad to height.
@@ -1067,8 +1093,18 @@ fn render_content_line_to_segments(
     width: usize,
     visual_style: &Style,
     align: crate::style::TextAlign,
+    line_end: bool,
 ) -> Vec<rich_rs::Segment> {
     use crate::style::TextAlign;
+
+    // `text-align: justify` stretches inter-word spacing so the line fills the
+    // full width — EXCEPT for the last line of a paragraph (`line_end`), which
+    // is left-aligned. Mirrors Python `_FormattedLine.to_strip`:
+    //   `if align in ("start","left") or (align == "justify" and self.line_end)`.
+    if align == TextAlign::Justify && !line_end {
+        return render_justified_line(line, width, visual_style);
+    }
+
     // Compute pad cells for alignment.
     let cell_len = line.cell_length();
     let (pad_left, pad_right) = match align {
@@ -1079,7 +1115,7 @@ fn render_content_line_to_segments(
             (left, right)
         }
         TextAlign::Right => (width.saturating_sub(cell_len), 0),
-        // Left and Justify both start from the left edge.
+        // Left, and the last line of a Justify paragraph, start from the left edge.
         TextAlign::Left | TextAlign::Justify => (0, 0),
     };
 
@@ -1097,6 +1133,70 @@ fn render_content_line_to_segments(
     // Right alignment pad — bg only.
     if pad_right > 0 {
         segs.push(make_bg_segment(" ".repeat(pad_right), visual_style));
+    }
+
+    segs
+}
+
+/// Render a single line under `text-align: justify` (non-final line): the words
+/// are separated by stretched runs of spaces so the line fills `width`.
+///
+/// Direct adaptation of Python `_FormattedLine.to_strip`'s `align == "justify"`
+/// branch (content.py ~1772): split on single spaces, compute the base word
+/// width, then distribute the slack spaces from the right, round-robin. The
+/// inter-word pad spaces carry the full (fg-bearing) style, NOT bg-only —
+/// Python emits them with `(style + text_style).rich_style`.
+fn render_justified_line(
+    line: &Content,
+    width: usize,
+    visual_style: &Style,
+) -> Vec<rich_rs::Segment> {
+    // words = content.split(" ", include_separator=False)
+    let words = line.split_on(" ", false);
+    let num_words = words.len();
+
+    // words_size = sum(cell_len(word.rstrip(" ")))
+    let words_size: usize = words.iter().map(|w| w.rstrip().cell_length()).sum();
+
+    let mut num_spaces = num_words.saturating_sub(1);
+    let mut spaces = vec![1usize; num_spaces];
+    let mut index = 0usize;
+    if !spaces.is_empty() {
+        // Grow inter-word gaps from the right until the line fills `width`.
+        while words_size + num_spaces < width {
+            let n = spaces.len();
+            spaces[n - index - 1] += 1;
+            num_spaces += 1;
+            index = (index + 1) % n;
+        }
+    }
+
+    // Build the pad-space style. Python emits inter-word spaces with
+    // `(style + text_style).rich_style`, i.e. fg-bearing. The body text in these
+    // lines has no per-word spans, so the widget's foreground (or its `color:
+    // auto` contrast) is the effective fg. Resolve `color: auto` here so the
+    // blank pad runs carry the same concrete fg the glyphs receive (otherwise
+    // `apply_style_to_segments`'s has_glyph guard would leave them bg-only and
+    // split the line into many fg/def runs).
+    let mut pad_style = visual_style.clone();
+    if pad_style.fg.is_none() {
+        if let Some(auto) = visual_style.fg_auto {
+            if let Some(bg) = visual_style.bg {
+                let contrast =
+                    crate::style::contrast_text(bg).blend_over_float(bg, auto.alpha());
+                pad_style.fg = Some(contrast);
+            }
+        }
+    }
+
+    let mut segs: Vec<rich_rs::Segment> = Vec::new();
+    for (i, word) in words.iter().enumerate() {
+        emit_rendered_segments(word, visual_style, &mut segs);
+        if let Some(&pad) = spaces.get(i) {
+            if pad > 0 {
+                segs.push(make_full_segment(" ".repeat(pad), &pad_style));
+            }
+        }
     }
 
     segs

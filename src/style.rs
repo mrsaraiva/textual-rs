@@ -482,7 +482,11 @@ pub fn parse_auto_color_like(value: &str) -> Option<AutoColor> {
 
 fn resolve_textual_dark_auto_token(name: &str) -> Option<AutoColor> {
     match name {
-        "text" | "button-color-foreground" => Some(AutoColor::new(87)),
+        // `$link-color`/`$link-color-hover` default to `$text` (Python design.py:
+        // `colors["link-color"] = get("link-color", colors["text"])`) = `auto 87%`.
+        "text" | "button-color-foreground" | "link-color" | "link-color-hover" => {
+            Some(AutoColor::new(87))
+        }
         "text-muted" => Some(AutoColor::new(60)),
         "text-disabled" => Some(AutoColor::new(38)),
         _ => None,
@@ -1592,9 +1596,18 @@ pub struct Style {
 
     // P2-32: link styling
     pub link_color: Option<Color>,
+    /// When `link-color` is `auto`/`$text`/`$link-color`, the foreground is a
+    /// contrast color computed against the LINK background (not the screen).
+    /// Mirrors Python `auto_link_color` + `link_background.get_contrast_text(a)`.
+    /// Pairs with `link_color` (like `fg`/`fg_auto`): `link_color` still holds a
+    /// concrete fallback contrast for non-link uses, but when this is `Some` the
+    /// link renderer recomputes the contrast against the resolved link bg.
+    pub link_color_auto: Option<AutoColor>,
     pub link_background: Option<Color>,
     pub link_style: Option<TextStyleFlags>,
     pub link_color_hover: Option<Color>,
+    /// Auto-contrast marker for `link-color-hover` (see `link_color_auto`).
+    pub link_color_hover_auto: Option<AutoColor>,
     pub link_background_hover: Option<Color>,
     pub link_style_hover: Option<TextStyleFlags>,
 
@@ -2315,6 +2328,13 @@ impl Style {
                 StyleProperty::TextOverflowProp
             ),
             link_color: cascade_field!(self, other, imp, link_color, StyleProperty::LinkColor),
+            // `link_color_auto` pairs with `link_color`: the style that wins the
+            // link-color slot also provides its auto marker.
+            link_color_auto: if other.link_color.is_some() || other.link_color_auto.is_some() {
+                other.link_color_auto
+            } else {
+                self.link_color_auto
+            },
             link_background: cascade_field!(
                 self,
                 other,
@@ -2330,6 +2350,13 @@ impl Style {
                 link_color_hover,
                 StyleProperty::LinkColorHover
             ),
+            link_color_hover_auto: if other.link_color_hover.is_some()
+                || other.link_color_hover_auto.is_some()
+            {
+                other.link_color_hover_auto
+            } else {
+                self.link_color_hover_auto
+            },
             link_background_hover: cascade_field!(
                 self,
                 other,
@@ -2482,9 +2509,21 @@ impl Style {
             text_overflow: self.text_overflow.or(parent.text_overflow),
             // link styling IS inherited (children see parent link colors).
             link_color: self.link_color.or(parent.link_color),
+            link_color_auto: if self.link_color.is_some() || self.link_color_auto.is_some() {
+                self.link_color_auto
+            } else {
+                parent.link_color_auto
+            },
             link_background: self.link_background.or(parent.link_background),
             link_style: self.link_style.or(parent.link_style),
             link_color_hover: self.link_color_hover.or(parent.link_color_hover),
+            link_color_hover_auto: if self.link_color_hover.is_some()
+                || self.link_color_hover_auto.is_some()
+            {
+                self.link_color_hover_auto
+            } else {
+                parent.link_color_hover_auto
+            },
             link_background_hover: self.link_background_hover.or(parent.link_background_hover),
             link_style_hover: self.link_style_hover.or(parent.link_style_hover),
             row_span: self.row_span,
