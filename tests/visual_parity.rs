@@ -64,6 +64,11 @@ const PASSING: &[&str] = &[
     // from widget VISIBILITY, so scrollbar-gutter:stable reserves the lane without
     // displaying the scrollbar widget when content does not overflow.
     "scrollbar_gutter",
+    // Promoted after paint_keylines was extended to draw the full outer boundary
+    // (top/bottom horizontal lines + corner/T junctions) for Horizontal/Vertical
+    // layouts — previously only drew interior vertical dividers.  Background of
+    // keyline characters now preserves the surface beneath (bg-overlay fix):
+    "keyline_horizontal",
 ];
 
 struct StyledCase {
