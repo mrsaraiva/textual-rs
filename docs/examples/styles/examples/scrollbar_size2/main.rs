@@ -41,18 +41,26 @@ impl TextualApp for ScrollbarApp {
 
     fn compose(&mut self) -> AppRoot {
         let text5 = TEXT.repeat(5);
+        // NOTE: id() lives directly on the ScrollableContainer (the scrollbar
+        // host) — not on a Node wrapper. A wrapper level would make `#v1` match
+        // the wrapper while the scrollbar host falls back to the `Widget`
+        // default `scrollbar-size-vertical: 2`. Mirrors Python
+        // `ScrollableContainer(Label(...), id="v1")`.
         AppRoot::new().with_child(
             Horizontal::new()
                 .with_child(
-                    Node::new(ScrollableContainer::new().with_child(Label::new(text5.clone())))
+                    ScrollableContainer::new()
+                        .with_child(Label::new(text5.clone()))
                         .id("v1"),
                 )
                 .with_child(
-                    Node::new(ScrollableContainer::new().with_child(Label::new(text5.clone())))
+                    ScrollableContainer::new()
+                        .with_child(Label::new(text5.clone()))
                         .id("v2"),
                 )
                 .with_child(
-                    Node::new(ScrollableContainer::new().with_child(Label::new(text5.clone())))
+                    ScrollableContainer::new()
+                        .with_child(Label::new(text5.clone()))
                         .id("v3"),
                 ),
         )

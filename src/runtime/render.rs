@@ -2689,6 +2689,11 @@ fn apply_host_scrollbar_layout(tree: &mut WidgetTree, viewport: (u16, u16)) {
             if let Some(node) = tree.get_mut(v_id) {
                 let any = node.widget.as_mut() as &mut dyn std::any::Any;
                 if let Some(scrollbar) = any.downcast_mut::<ScrollBar>() {
+                    // Width of the vertical bar = the CSS-resolved vertical lane
+                    // (`scrollbar-size` vertical). The lane RECT alone is not
+                    // enough: ScrollBar paints `thickness`-wide glyphs from its
+                    // own field, which defaults to 2 at creation.
+                    scrollbar.set_thickness(geometry.vertical_lane_width.max(1));
                     scrollbar.set_window_virtual_size(geometry.content_height);
                     scrollbar.set_window_size(geometry.viewport_height);
                     if !scrollbar.grabbed() {
@@ -2721,6 +2726,9 @@ fn apply_host_scrollbar_layout(tree: &mut WidgetTree, viewport: (u16, u16)) {
             if let Some(node) = tree.get_mut(h_id) {
                 let any = node.widget.as_mut() as &mut dyn std::any::Any;
                 if let Some(scrollbar) = any.downcast_mut::<ScrollBar>() {
+                    // Height of the horizontal bar = the CSS-resolved horizontal
+                    // lane (`scrollbar-size` horizontal); see vertical note above.
+                    scrollbar.set_thickness(geometry.horizontal_lane_height.max(1));
                     scrollbar.set_window_virtual_size(geometry.content_width);
                     scrollbar.set_window_size(geometry.viewport_width);
                     if !scrollbar.grabbed() {
