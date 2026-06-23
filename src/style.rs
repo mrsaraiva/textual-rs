@@ -719,7 +719,7 @@ fn blend(a: Color, b: Color, t: f32) -> Color {
     let mix = |x: u8, y: u8| -> u8 {
         let xf = x as f32;
         let yf = y as f32;
-        (xf + (yf - xf) * t).round().clamp(0.0, 255.0) as u8
+        (xf + (yf - xf) * t).clamp(0.0, 255.0) as u8
     };
     let alpha = (aa + (ba - aa) * t).clamp(0.0, 1.0);
     Color::rgba_f(mix(ar, br), mix(ag, bg), mix(ab, bb), alpha)
@@ -798,7 +798,7 @@ fn lab_to_rgb(l: f32, a: f32, b: f32) -> Color {
     let g = linear_to_srgb(g);
     let b = linear_to_srgb(b);
 
-    let clamp = |v: f32| -> u8 { (v * 255.0).round().clamp(0.0, 255.0) as u8 };
+    let clamp = |v: f32| -> u8 { (v * 255.0).clamp(0.0, 255.0) as u8 };
     from_rgb(clamp(r), clamp(g), clamp(b))
 }
 

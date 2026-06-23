@@ -7,6 +7,18 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-23 (fix(color): blend() and lab_to_rgb use truncation to match Python int() semantics)
+
+- **fix(style/blend):** `blend()` channel mix now uses truncating cast (`as u8`) instead of
+  `round()`, matching Python's `int(r1 + (r2 - r1) * factor)` semantics.  Dynamic shade
+  tokens computed at runtime (via `parse_shade` / muted variants) now produce exact
+  Python-parity values.
+
+- **fix(style/lab_to_rgb):** `lab_to_rgb` final quantisation step changed from `round()` to
+  truncating `as u8` cast, matching Python's `int(r * 255)` in `lab_to_rgb`.  Fixes
+  off-by-one for dynamic darken/lighten calls on any color not covered by the hard-coded
+  token map (e.g. `primary-darken-1`, `primary-lighten-1`).
+
 ### 2026-06-23 (feat(widgets): migrate Tab, CollapsibleTitle, MarkdownHeadingBlock to Content::render_strips)
 
 - **feat(tabs/Tab): render via Content::render_strips** —
