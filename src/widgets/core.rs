@@ -1004,18 +1004,32 @@ pub(crate) fn render_widget_with_meta<W: Widget + ?Sized>(
             .take(content_height)
             .map(|line| rich_rs::Segment::adjust_line_length(line, fill_width, Some(fill), true))
             .collect();
-        // Vertical extend rows: carry fg only when it comes from an EXPLICIT
-        // CSS `color` rule. When fg is derived from `color: auto N%`
-        // (fg_auto), Python uses bg-only `inner.rich_style` for these rows
-        // (see `_styles_cache.render_line` / `Strip.blank(inner.rich_style)`).
-        // Widgets with `height: 100%` or `height: N` that have more layout
-        // rows than content rows rely on this: explicit `color: $foreground`
-        // carries fg into the extend rows (matching Python's visual_style),
-        // while auto-contrast color does NOT (matching Python's inner style).
-        let vfill_style = if resolved.fg.is_some() {
-            fill_fg_style // explicit fg → carry into extend rows
+        // Vertical extend rows: which fill style to use depends on which Python
+        // surface this widget's blank rows correspond to.
+        //
+        //  - CONTENT widgets (Static/Label, etc.) render their text Visual. When
+        //    the widget is TALLER than its content lines, Python's
+        //    `widget.render_line` hits `IndexError` and fills with
+        //    `Strip.blank(width, visual_style.rich_style)` — visual_style carries
+        //    `$foreground`. So those extend rows are FG-bearing.
+        //
+        //  - CHROME-ONLY CONTAINERS (Container/Vertical/Horizontal, etc.) do not
+        //    render text content; Python's `Widget.render` returns
+        //    `Blank(self.background_colors[1])`, a BG-ONLY visual with no
+        //    foreground. Their whole interior (including the vertical extend) is
+        //    therefore BG-ONLY, even though `color` is inherited from an ancestor
+        //    (`Screen { color: $foreground }`) and is present in `resolved.fg`.
+        //    (This matches the `inner.rich_style` / `get_inner_outer` bg-only
+        //    style; see `_styles_cache.render_line`.)
+        //
+        // `segments_empty` is the in-render discriminator: a chrome-only
+        // container produces no content segments (its render returns empty / only
+        // surface chrome), whereas a content widget produces at least one content
+        // line. So carry fg into the extend rows ONLY for content widgets.
+        let vfill_style = if !segments_empty && resolved.fg.is_some() {
+            fill_fg_style // content widget with explicit/inherited fg → visual_style extend
         } else {
-            fill // auto-color or no color → bg-only extend
+            fill // chrome-only container (or no fg) → bg-only extend (Blank/inner.rich_style)
         };
         let vfill_blank =
             vec![rich_rs::Segment::styled(" ".repeat(fill_width), vfill_style)];
