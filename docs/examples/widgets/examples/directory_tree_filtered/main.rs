@@ -7,13 +7,11 @@
 /// Rust achieves the same by passing a static predicate function to
 /// `DirectoryTree::filter_paths()`.
 ///
-/// ## Known gap (DEFERRED)
-///
-/// The Rust `DirectoryTree` filter only applies to the initial synchronous tree
-/// build and direct `read_children` calls. Lazily-loaded subdirectory entries
-/// (dispatched via `AsyncTaskRequest::ReadDirectory`) bypass the filter predicate
-/// because `show_hidden` is the only flag carried in the async request.
-/// Tracking issue: thread the filter through the async load path.
+/// The filter applies on every load path — the initial synchronous build *and*
+/// the async lazy subdirectory load (`AsyncTaskRequest::ReadDirectory`) — matching
+/// Python `DirectoryTree.filter_paths`, whose filter runs inside the single
+/// `_load_directory` worker used for all loads. Expanding a nested directory keeps
+/// dotfiles hidden just like the top level.
 use textual::prelude::*;
 
 // ---------------------------------------------------------------------------
