@@ -25,6 +25,27 @@ until the API stabilizes.
   resolve their square colours from the CSS component-class rules via `get_component_rich_style`,
   faithfully reproducing Python's `checker0{2,3,4}.py`. `checker03` continues to match its PTY
   parity golden byte-for-byte.
+### 2026-06-23 (feat(content): Content::from_markup_with_vars template-variable substitution)
+
+- **`Content::from_markup_with_vars(markup, &variables)`**: a new constructor that performs
+  `string.Template`-style `safe_substitute` over `$name` / `${name}` **before** tag parsing,
+  faithfully mirroring Python `Content.from_markup(text, **variables)` (`markup.py` `_to_content`'s
+  `process_text`). Substitution applies to **text tokens only** — tag bodies like `[$primary]`
+  are left intact so theme tokens still resolve at render time — and follows CPython's default
+  `Template` semantics: `$$`→`$` escape, ASCII identifier pattern (`[A-Za-z_][A-Za-z0-9_]*`),
+  exact-case dict lookup, and unknown keys left unmodified (no error). Critically, a variable
+  *value* that contains markup (`$x` where `x = "[red]BIG[/red]"`) is inserted as **literal text**,
+  never re-parsed as a tag — matching Python. Span offsets are tracked post-substitution.
+- **`Static::update_content(Content)`**: render a pre-built `Content` (e.g. one with template
+  variables already substituted) through the same alignment / background / theme-token / link
+  path as plain markup, so the widget displays the content's own spans verbatim. Mirrors Python
+  `Static.update(content)` for `Content`/`Visual` values. (`Content` is now `Send + Sync` — its
+  lazy `cell_length` cache moved from `OnceCell` to `OnceLock`.)
+- **Markup Playground port now faithfully reproduces Python** (`guide/content/playground`): the
+  JSON variables panel is parsed (`serde_json`) into a variable map and threaded into
+  `Content::from_markup_with_vars`, then rendered via `Static::update_content`, with the
+  `Content.spans` list shown in the Spans panel. Previously the port parsed the variables panel
+  but never substituted (a confirmed framework gap). Clears the `guide/content/playground` demo.
 
 ### 2026-06-23 (fix(layout): exact cumulative-floor fr distribution + per-layer dock isolation)
 
