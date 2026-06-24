@@ -542,7 +542,12 @@ pub(crate) fn apply_display_visibility_to_tree(tree: &mut WidgetTree) {
     }
     let _fw_guard = super::context::set_focus_within(focus_within_ids);
 
-    fn apply_node(tree: &mut WidgetTree, node_id: NodeId) {
+    // `inherited_vis` is the effective visibility flowing down from ancestors.
+    // Python (`DOMNode.visible`): a node with no OWN `visibility` rule inherits
+    // its parent's effective visibility; an explicit rule overrides it. So a
+    // `visibility:hidden` container hides its descendants, but a descendant with
+    // an explicit `visibility:visible` (e.g. `#bot > Placeholder`) shows again.
+    fn apply_node(tree: &mut WidgetTree, node_id: NodeId, inherited_vis: Visibility) {
         let (meta, resolved, child_ids) = {
             if tree.get(node_id).is_none() {
                 return;
@@ -558,18 +563,18 @@ pub(crate) fn apply_display_visibility_to_tree(tree: &mut WidgetTree) {
         let display_bool = !matches!(resolved.display, Some(Display::None));
         tree.set_css_display(node_id, display_bool);
 
-        // Apply visibility.
-        let vis = resolved.visibility.unwrap_or(Visibility::Visible);
-        tree.set_visibility(node_id, vis);
+        // Effective visibility: own rule if explicitly set, else inherited.
+        let effective_vis = resolved.visibility.unwrap_or(inherited_vis);
+        tree.set_visibility(node_id, effective_vis);
 
         with_style_stack(meta, resolved, || {
             for child_id in child_ids {
-                apply_node(tree, child_id);
+                apply_node(tree, child_id, effective_vis);
             }
         });
     }
 
-    apply_node(tree, root);
+    apply_node(tree, root, Visibility::Visible);
 }
 
 #[cfg(test)]

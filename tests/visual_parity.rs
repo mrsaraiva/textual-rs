@@ -164,6 +164,18 @@ const PASSING: &[&str] = &[
     //    height at the RESOLVED width (was using the stale `layout_height()`), so a
     //    wrapping Label sized its box to the right line count. → text_style.
     "width_comparison", "height_comparison", "text_style",
+    // Promoted after the visibility-as-inheritance + layout-of-hidden-subtrees fix:
+    //  (1) `apply_display_visibility_to_tree` now inherits effective visibility
+    //      down the tree (Python `DOMNode.visible`): a `visibility:hidden`
+    //      container hides descendants, but a descendant with an explicit
+    //      `visibility:visible` (`#bot > Placeholder`) re-shows.
+    //  (2) layout no longer skips the descendants of a `visibility:hidden` node
+    //      (only `display:none` removes from layout) — so a visible descendant of
+    //      a hidden container gets a real rect and paints. Visibility is a
+    //      paint-time concern (`render_tree_node::should_render`), not layout.
+    //  (3) example rewired: id on the Horizontal itself (`Horizontal::new().id`)
+    //      instead of a `Node` wrapper, so `#bot > Placeholder` resolves.
+    "visibility_containers",
 ];
 
 struct StyledCase {
@@ -347,6 +359,13 @@ fn visual_parity_batch() {
             for line in actual.lines().take(50) {
                 eprintln!("  {line}");
             }
+        }
+        // DUMP_FILE=<name>: write the full actual + golden captures side-by-side to
+        // /tmp for offline structural diffing (no take() truncation).
+        if std::env::var("DUMP_FILE").map_or(false, |d| d == case.name) {
+            std::fs::write(format!("/tmp/vp_{}_actual.txt", case.name), &actual).ok();
+            std::fs::write(format!("/tmp/vp_{}_golden.txt", case.name), &golden).ok();
+            eprintln!("--- DUMP_FILE wrote /tmp/vp_{}_{{actual,golden}}.txt ---", case.name);
         }
         let passing = PASSING.contains(&case.name.as_str());
         match (matches, passing) {
