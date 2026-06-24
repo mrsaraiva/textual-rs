@@ -525,6 +525,11 @@ impl App {
     }
 
     pub(super) fn print_segments(&mut self, diff: &rich_rs::Segments) -> crate::Result<()> {
+        // Headless (run_test): the in-memory FrameBuffer is the only output —
+        // never write ANSI to a real terminal.
+        if self.headless {
+            return Ok(());
+        }
         // Some terminals may silently reset runtime modes (including line wrap)
         // during aggressive resize bursts. Reassert before every frame write.
         let _ = self.driver.reassert_runtime_modes();

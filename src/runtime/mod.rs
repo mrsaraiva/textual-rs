@@ -2,6 +2,7 @@ mod devtools;
 pub mod dispatch_ctx;
 mod event_loop;
 mod helpers;
+pub mod pilot;
 mod render;
 mod routing;
 mod tasks;
@@ -10,6 +11,7 @@ mod types;
 
 // Public re-exports for integration testing via `textual::runtime::*`.
 pub use event_loop::resolve_transition_for_property;
+pub use pilot::{Pilot, parse_key};
 pub use helpers::{call_on_mouse_move_tree, tree_content_local_coords, widget_at_tree_layout};
 pub use render::{
     apply_text_overflow_to_line, constrain_overlay_position, render_tree_to_frame,
@@ -444,6 +446,12 @@ pub struct App {
     console: Console,
     options: ConsoleOptions,
     frame: FrameBuffer,
+    /// Headless mode (set by `App::run_test`): suppress real terminal I/O and
+    /// pin a virtual screen size so the event loop renders into the in-memory
+    /// [`FrameBuffer`] without a TTY. See `src/runtime/pilot.rs`.
+    headless: bool,
+    /// Virtual terminal size used while `headless` is set.
+    headless_size: (u16, u16),
     hit_test: HitTestMap,
     debug_layout: DebugLayout,
     action_map: ActionMap,
@@ -609,6 +617,8 @@ impl App {
             console,
             options,
             frame,
+            headless: false,
+            headless_size: (80, 24),
             hit_test: HitTestMap::default(),
             debug_layout: DebugLayout::default(),
             action_map: default_action_map(),
@@ -3161,6 +3171,12 @@ impl App {
         self.last_binding_hint_sources.clear();
         self.last_focused_help_source = None;
         self.last_focused_help_markup = None;
+        if self.headless {
+            // Headless: no real terminal lifecycle. Pin the virtual size and
+            // size the in-memory frame buffer so the loop can render.
+            self.refresh_size()?;
+            return Ok(());
+        }
         self.driver.start()?;
         self.refresh_size()?;
         debug_render(&format!("[app] sync_output={}", self.sync_output));
@@ -3174,6 +3190,9 @@ impl App {
     }
 
     pub fn finish(&mut self) -> Result<()> {
+        if self.headless {
+            return Ok(());
+        }
         Ok(self.driver.stop()?)
     }
 
@@ -3797,7 +3816,14 @@ impl App {
     }
 
     fn refresh_size(&mut self) -> Result<()> {
-        let size = self.driver.refresh_size()?;
+        let size = if self.headless {
+            crate::driver::Size {
+                width: self.headless_size.0,
+                height: self.headless_size.1,
+            }
+        } else {
+            self.driver.refresh_size()?
+        };
         apply_size(&mut self.options, size);
         if self.frame.width != size.width as usize || self.frame.height != size.height as usize {
             let now = Instant::now();

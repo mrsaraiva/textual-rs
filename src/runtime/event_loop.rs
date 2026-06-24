@@ -4173,6 +4173,640 @@ impl App {
         Ok(())
     }
 
+    // ── Headless test harness (App::run_test / Pilot) ────────────────────────
+    //
+    // These methods power the in-process Pilot (see `src/runtime/pilot.rs`).
+    // They drive the same dispatch primitives the live `run_widget_tree` loop
+    // uses (`dispatch_event_auto`, `dispatch_message_queue_with_runtime`,
+    // declarative BINDINGS resolution, action-map, focus/scroll, animation and
+    // timer pumps, `render_widget_with_regions`) but read input from injected
+    // events instead of a real terminal, and render into the in-memory
+    // `FrameBuffer` (see `App::headless`). This mirrors Python Textual's
+    // headless driver + `pilot.py`.
+
+    /// Set up the headless style context (default + app + screen stylesheets and
+    /// runtime pseudo-state) for the duration of a closure that mutates state.
+    fn with_headless_style_context<R>(&mut self, f: impl FnOnce(&mut Self) -> R) -> R {
+        let mut sheet = self.default_stylesheet.clone();
+        sheet.extend(&self.stylesheet);
+        if let Some(screen_sheet) = self.active_screen_stylesheet() {
+            sheet.extend(screen_sheet);
+        }
+        let _active = set_app_active(self.app_active);
+        let _pseudo_state = set_app_runtime_pseudos(AppRuntimePseudos {
+            dark: self.dark_mode,
+            inline: self.app_inline,
+            ansi: self.app_ansi,
+            nocolor: self.app_nocolor,
+        });
+        let _guard = set_style_context(sheet);
+        f(self)
+    }
+
+    /// Headless equivalent of the `run_widget_tree` startup sequence: mount the
+    /// root, build the arena tree, auto-focus, dispatch the initial Mount/Ready
+    /// lifecycle, and produce the first render into the in-memory frame.
+    pub(crate) fn headless_startup(&mut self, root: &mut dyn Widget) -> crate::Result<()> {
+        self.headless = true;
+        self.start()?;
+
+        root.on_mount();
+        self.build_widget_tree(root);
+        if let Some(tree) = self.active_widget_tree_mut() {
+            let _ = sync_widget_controlled_child_display_tree(tree, root);
+        }
+        self.style_snapshot_cache.clear();
+
+        if let Some(tree) = self.active_widget_tree_mut() {
+            let focus_chain = collect_focus_chain_tree(tree);
+            if let Some(&first) = focus_chain.first() {
+                tree.set_focus_state(first, true);
+            }
+        }
+
+        {
+            let mut mount_ctx = crate::event::EventCtx::default();
+            root.on_app_mount(self, &mut mount_ctx);
+        }
+
+        let mut pending = PendingInvalidation::default();
+        self.render_widget(root)?;
+        self.apply_layout_info_to_tree();
+
+        // Dispatch initial Mount events for all tree nodes.
+        let initial_mount_nodes: Vec<NodeId> = self
+            .active_widget_tree()
+            .and_then(|tree| tree.root().map(|r| tree.walk_depth_first(r)))
+            .unwrap_or_default();
+        for node_id in initial_mount_nodes {
+            let mut outcome = self.dispatch_event_to_target_auto(
+                root,
+                node_id,
+                &Event::Mount(MountEvent { node: node_id }),
+            );
+            self.absorb_outcome(&mut outcome, &mut pending, InvalidationScope::Global);
+            let mut msg_outcome =
+                self.dispatch_message_queue_with_runtime(root, outcome.messages);
+            self.absorb_outcome(&mut msg_outcome, &mut pending, InvalidationScope::Global);
+            let mut mount_msg_outcome = self.drain_pending_mount_messages(root, node_id);
+            self.absorb_outcome(&mut mount_msg_outcome, &mut pending, InvalidationScope::Global);
+        }
+
+        // Ready event after first render.
+        {
+            let mut outcome = self.dispatch_event_auto(root, Event::Ready(ReadyEvent));
+            self.absorb_outcome(&mut outcome, &mut pending, InvalidationScope::Global);
+            let mut msg_outcome =
+                self.dispatch_message_queue_with_runtime(root, outcome.messages);
+            self.absorb_outcome(&mut msg_outcome, &mut pending, InvalidationScope::Global);
+        }
+
+        self.dispatch_style_transition_requests(root);
+        self.headless_pump(root, &mut pending)?;
+        Ok(())
+    }
+
+    /// Run housekeeping (background/app messages, ready timers, animation frame,
+    /// style transitions, recompositions) and render until the app is idle.
+    ///
+    /// "Idle" = no pending invalidation, no runtime animations, and no timers
+    /// whose deadline has elapsed. Mirrors `pilot._wait_for_screen` + `pause`.
+    pub(crate) fn headless_pump(
+        &mut self,
+        root: &mut dyn Widget,
+        pending: &mut PendingInvalidation,
+    ) -> crate::Result<()> {
+        const MAX_ITERATIONS: usize = 10_000;
+        for _ in 0..MAX_ITERATIONS {
+            let mut progressed = false;
+
+            // App-level / broadcast messages (set_title etc.).
+            let app_messages = self.drain_pending_app_messages();
+            if !app_messages.is_empty() {
+                progressed = true;
+                let mut outcome = self.dispatch_message_queue_with_runtime(root, app_messages);
+                self.absorb_outcome(&mut outcome, pending, InvalidationScope::Global);
+            }
+
+            // Ready timers (deadlines that have already elapsed). App-level timer
+            // callbacks are run via run_due_timer_callbacks.
+            let timer_messages = self.drain_ready_timers();
+            if !timer_messages.is_empty() {
+                progressed = true;
+                let mut outcome =
+                    self.dispatch_message_queue_with_runtime(root, timer_messages);
+                self.absorb_outcome(&mut outcome, pending, InvalidationScope::Global);
+            }
+            if self.has_pending_timer_fires() {
+                progressed = true;
+                let mut ctx = EventCtx::default();
+                self.run_due_timer_callbacks(&mut ctx);
+                let mut outcome = DispatchOutcome {
+                    handled: ctx.handled(),
+                    repaint_requested: ctx.repaint_requested(),
+                    invalidation: ctx.invalidation(),
+                    stop_requested: ctx.stop_requested(),
+                    messages: ctx.take_messages(),
+                    animation_requests: ctx.take_animation_requests(),
+                    worker_requests: ctx.take_worker_requests(),
+                    recompose_nodes: ctx.take_recompose_nodes(),
+                    default_prevented: false,
+                    class_ops: ctx.take_class_ops(),
+                };
+                self.absorb_outcome(&mut outcome, pending, InvalidationScope::Global);
+                let mut msg_outcome =
+                    self.dispatch_message_queue_with_runtime(root, outcome.messages);
+                self.absorb_outcome(&mut msg_outcome, pending, InvalidationScope::Global);
+            }
+
+            // Async task completions.
+            let task_messages = self.async_tasks.drain_completed();
+            if !task_messages.is_empty() {
+                progressed = true;
+                let mut outcome =
+                    self.dispatch_message_queue_with_runtime(root, task_messages);
+                self.absorb_outcome(&mut outcome, pending, InvalidationScope::Global);
+            }
+
+            // Animation frame (advances active animations toward completion).
+            if self.animator.has_animations() {
+                progressed = true;
+                let mut anim_outcome = self.dispatch_animation_frame(root);
+                self.absorb_outcome(&mut anim_outcome, pending, InvalidationScope::Global);
+            }
+
+            // Binding-hints changed (footer/help refresh).
+            let mut binding_outcome = self.dispatch_binding_hints_changed(root);
+            if binding_outcome.invalidation.layout
+                || binding_outcome.invalidation.style
+                || binding_outcome.repaint_requested
+                || !binding_outcome.messages.is_empty()
+            {
+                progressed = true;
+            }
+            self.absorb_outcome(&mut binding_outcome, pending, InvalidationScope::Global);
+
+            // Style transitions + display-tree sync + recompositions.
+            if pending.flags.style || pending.flags.layout || self.style_snapshot_cache.is_empty() {
+                self.dispatch_style_transition_requests(root);
+            }
+            if let Some(tree) = self.active_widget_tree_mut()
+                && sync_widget_controlled_child_display_tree(tree, root)
+            {
+                progressed = true;
+                pending.request_flags(crate::event::InvalidationFlags::layout());
+                pending.request_full_content();
+            }
+            self.absorb_pending_recompositions(pending);
+            self.absorb_pending_query_refreshes(pending);
+            if self.take_pending_force_relayout() {
+                pending.request_flags(crate::event::InvalidationFlags::layout());
+                pending.request_full_content();
+            }
+
+            // Render if dirty.
+            if pending.is_dirty() || self.resized_since_last_render {
+                progressed = true;
+                let regions = pending
+                    .content_regions
+                    .as_render_regions(self.frame.width, self.frame.height);
+                let layout_invalidation = pending.flags.layout
+                    || pending.flags.style
+                    || self.resized_since_last_render;
+                self.render_widget_with_regions(root, regions.as_deref(), layout_invalidation)?;
+                self.apply_layout_info_to_tree();
+                *pending = PendingInvalidation::default();
+            }
+
+            if !progressed {
+                break;
+            }
+        }
+        Ok(())
+    }
+
+    /// Inject a single key press through the same dispatch cascade the live
+    /// event loop uses, then pump to idle. Mirrors `pilot.press`.
+    pub(crate) fn headless_inject_key(
+        &mut self,
+        root: &mut dyn Widget,
+        key: KeyEvent,
+    ) -> crate::Result<()> {
+        if !matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat) {
+            return Ok(());
+        }
+        let mut pending = PendingInvalidation::default();
+        self.with_headless_style_context(|app| {
+            app.headless_process_key(root, key, &mut pending)
+        });
+        self.headless_pump(root, &mut pending)
+    }
+
+    /// Full key cascade (app key hook → priority action → command palette →
+    /// declarative BINDINGS → raw key dispatch → action-map), mirroring the
+    /// `CrosstermEvent::Key` arm of `run_widget_tree` without instrumentation.
+    fn headless_process_key(
+        &mut self,
+        root: &mut dyn Widget,
+        key: KeyEvent,
+        pending: &mut PendingInvalidation,
+    ) {
+        let key = KeyEventData::from_crossterm(key);
+
+        // App-level key hook.
+        let mut app_key_ctx = EventCtx::default();
+        root.on_app_key(self, &key, &mut app_key_ctx);
+        if app_key_ctx.repaint_requested() {
+            pending.request_full_content();
+        }
+        pending.request_flags(app_key_ctx.invalidation());
+        let app_key_handled = app_key_ctx.handled();
+        let app_key_messages = app_key_ctx.take_messages();
+        if !app_key_messages.is_empty() {
+            let mut msg_outcome = self.dispatch_message_queue_with_runtime(root, app_key_messages);
+            self.absorb_outcome(&mut msg_outcome, pending, InvalidationScope::Global);
+        }
+        let app_key_class_ops = app_key_ctx.take_class_ops();
+        if !app_key_class_ops.is_empty() {
+            if let Some(tree) = self.active_widget_tree_mut() {
+                for (node, op) in app_key_class_ops {
+                    match op {
+                        crate::event::ClassOp::Add(c) => tree.add_class(node, &c),
+                        crate::event::ClassOp::Remove(c) => tree.remove_class(node, &c),
+                    }
+                }
+            }
+        }
+        if app_key_handled {
+            return;
+        }
+
+        let bind = crate::event::KeyBind::from_event(&key);
+        let mapped_action = self.action_map.lookup(&bind);
+
+        // Priority actions (command palette) before raw key dispatch.
+        if let Some(action) = mapped_action.filter(|a| is_priority_action(*a)) {
+            let mut outcome = self.dispatch_event_auto(root, Event::Action(action));
+            self.absorb_outcome(&mut outcome, pending, InvalidationScope::Global);
+            let mut msg_outcome =
+                self.dispatch_message_queue_with_runtime(root, outcome.messages);
+            self.absorb_outcome(&mut msg_outcome, pending, InvalidationScope::Global);
+            if outcome.handled {
+                return;
+            }
+        }
+
+        // Command-palette open: route keys directly.
+        if let Some(_palette_target) = self.open_command_palette_target() {
+            let mut key_outcome = self.dispatch_event_auto(root, Event::Key(key.clone()));
+            self.absorb_outcome(&mut key_outcome, pending, InvalidationScope::Global);
+            let mut msg_outcome =
+                self.dispatch_message_queue_with_runtime(root, key_outcome.messages);
+            self.absorb_outcome(&mut msg_outcome, pending, InvalidationScope::Global);
+            return;
+        }
+
+        // Declarative BINDINGS on the focused widget chain.
+        let binding_match = self.active_widget_tree().and_then(|tree| {
+            match_binding_tree(tree, &key)
+                .map(|(node_id, action_str)| (node_id, action_str, tree.root().unwrap_or_default()))
+        });
+        if let Some((_binding_node_id, action_str, root_target)) = binding_match
+            && let Some(parsed) = crate::action::parse_action(&action_str)
+        {
+            if let Some(tree_mut) = self.active_widget_tree_mut() {
+                let focused = focused_node_id_tree(tree_mut);
+                let resolved = {
+                    let tree_ref = &*tree_mut;
+                    focused.and_then(|fid| {
+                        crate::action::resolve_action(&parsed, tree_ref, fid, |nid| {
+                            tree_ref
+                                .get(nid)
+                                .map(|n| (n.widget.action_namespace(), n.widget.action_registry()))
+                        })
+                    })
+                };
+                if let Some(ra) = resolved
+                    && let Some(node) = tree_mut.get_mut(ra.node)
+                {
+                    let mut ctx = EventCtx::default();
+                    let handled = execute_action_with_dispatch_target(
+                        &mut *node.widget,
+                        &parsed,
+                        &mut ctx,
+                        ra.node,
+                    );
+                    if handled || ctx.handled() {
+                        let mut binding_outcome = DispatchOutcome {
+                            handled: handled || ctx.handled(),
+                            repaint_requested: ctx.repaint_requested(),
+                            invalidation: ctx.invalidation(),
+                            stop_requested: ctx.stop_requested(),
+                            messages: ctx.take_messages(),
+                            animation_requests: ctx.take_animation_requests(),
+                            worker_requests: ctx.take_worker_requests(),
+                            recompose_nodes: ctx.take_recompose_nodes(),
+                            default_prevented: false,
+                            class_ops: ctx.take_class_ops(),
+                        };
+                        self.absorb_outcome(&mut binding_outcome, pending, InvalidationScope::Global);
+                        let messages = binding_outcome.messages;
+                        if !messages.is_empty() {
+                            let mut msg_outcome =
+                                self.dispatch_message_queue_with_runtime(root, messages);
+                            self.absorb_outcome(&mut msg_outcome, pending, InvalidationScope::Global);
+                        }
+                        return;
+                    }
+                }
+            }
+
+            let mut root_ctx = EventCtx::default();
+            let handled =
+                execute_action_with_dispatch_target(root, &parsed, &mut root_ctx, root_target);
+            if handled || root_ctx.handled() {
+                let mut root_binding_outcome = DispatchOutcome {
+                    handled: handled || root_ctx.handled(),
+                    repaint_requested: root_ctx.repaint_requested(),
+                    invalidation: root_ctx.invalidation(),
+                    stop_requested: root_ctx.stop_requested(),
+                    messages: root_ctx.take_messages(),
+                    animation_requests: root_ctx.take_animation_requests(),
+                    worker_requests: root_ctx.take_worker_requests(),
+                    recompose_nodes: root_ctx.take_recompose_nodes(),
+                    default_prevented: false,
+                    class_ops: root_ctx.take_class_ops(),
+                };
+                self.absorb_outcome(&mut root_binding_outcome, pending, InvalidationScope::Global);
+                let messages = root_binding_outcome.messages;
+                if !messages.is_empty() {
+                    let mut msg_outcome =
+                        self.dispatch_message_queue_with_runtime(root, messages);
+                    self.absorb_outcome(&mut msg_outcome, pending, InvalidationScope::Global);
+                }
+                return;
+            }
+
+            // App-defined custom action fallback.
+            let mut fallback_ctx = EventCtx::default();
+            root.on_app_unhandled_action(self, &action_str, &mut fallback_ctx);
+            if fallback_ctx.handled() {
+                let mut fallback_outcome = DispatchOutcome {
+                    handled: true,
+                    repaint_requested: fallback_ctx.repaint_requested(),
+                    invalidation: fallback_ctx.invalidation(),
+                    stop_requested: fallback_ctx.stop_requested(),
+                    messages: fallback_ctx.take_messages(),
+                    animation_requests: fallback_ctx.take_animation_requests(),
+                    worker_requests: fallback_ctx.take_worker_requests(),
+                    recompose_nodes: fallback_ctx.take_recompose_nodes(),
+                    default_prevented: false,
+                    class_ops: fallback_ctx.take_class_ops(),
+                };
+                self.absorb_outcome(&mut fallback_outcome, pending, InvalidationScope::Global);
+                let messages = fallback_outcome.messages;
+                if !messages.is_empty() {
+                    let mut msg_outcome =
+                        self.dispatch_message_queue_with_runtime(root, messages);
+                    self.absorb_outcome(&mut msg_outcome, pending, InvalidationScope::Global);
+                }
+                return;
+            }
+        }
+
+        // Raw key dispatch so focused widgets (Input etc.) can consume it.
+        let mut key_outcome = self.dispatch_event_auto(root, Event::Key(key.clone()));
+        self.absorb_outcome(&mut key_outcome, pending, InvalidationScope::Global);
+        let mut msg_outcome =
+            self.dispatch_message_queue_with_runtime(root, key_outcome.messages);
+        self.absorb_outcome(&mut msg_outcome, pending, InvalidationScope::Global);
+        if key_outcome.handled {
+            return;
+        }
+
+        // Action-map fallback (non-priority).
+        if let Some(action) = mapped_action.filter(|a| !is_priority_action(*a)) {
+            if matches!(action, Action::FocusNext | Action::FocusPrev) {
+                let mut focus_outcome = self.dispatch_event_auto(root, Event::Action(action));
+                self.absorb_outcome(&mut focus_outcome, pending, InvalidationScope::Global);
+                let mut focus_msg_outcome =
+                    self.dispatch_message_queue_with_runtime(root, focus_outcome.messages);
+                self.absorb_outcome(&mut focus_msg_outcome, pending, InvalidationScope::Global);
+                if focus_outcome.handled {
+                    return;
+                }
+                if self.move_focus_auto(action) {
+                    pending.request_full_content();
+                    return;
+                }
+            }
+            let mut outcome = if is_scroll_action(action) {
+                self.dispatch_scroll_action_auto(root, action, self.hovered)
+            } else {
+                self.dispatch_event_auto(root, Event::Action(action))
+            };
+            self.absorb_outcome(&mut outcome, pending, InvalidationScope::Global);
+            let mut msg_outcome =
+                self.dispatch_message_queue_with_runtime(root, outcome.messages);
+            self.absorb_outcome(&mut msg_outcome, pending, InvalidationScope::Global);
+        }
+    }
+
+    /// Inject a mouse click (down + up at a screen coordinate) through the same
+    /// path the live loop uses (which synthesizes a `Click` from the click
+    /// tracker), then pump to idle. Mirrors `pilot.click`.
+    pub(crate) fn headless_inject_click(
+        &mut self,
+        root: &mut dyn Widget,
+        screen_x: u16,
+        screen_y: u16,
+    ) -> crate::Result<()> {
+        let mut pending = PendingInvalidation::default();
+        self.with_headless_style_context(|app| {
+            app.headless_process_mouse_down(root, screen_x, screen_y, &mut pending);
+            app.headless_process_mouse_up(root, screen_x, screen_y, &mut pending);
+        });
+        self.headless_pump(root, &mut pending)
+    }
+
+    fn headless_process_mouse_down(
+        &mut self,
+        root: &mut dyn Widget,
+        screen_x: u16,
+        screen_y: u16,
+        pending: &mut PendingInvalidation,
+    ) {
+        if let Some(target) = self.widget_at_auto(screen_x, screen_y) {
+            let (x, y) = self.content_local_coords_auto(target, screen_x, screen_y);
+            self.click_tracker
+                .on_mouse_down(target, x, y, screen_x, screen_y, 0);
+            let down_event = Event::MouseDown(MouseDownEvent {
+                target,
+                screen_x,
+                screen_y,
+                x,
+                y,
+            });
+            let mut outcome = self.dispatch_event_to_target_auto(root, target, &down_event);
+            self.absorb_outcome(&mut outcome, pending, InvalidationScope::Global);
+            let mut msg_outcome =
+                self.dispatch_message_queue_with_runtime(root, outcome.messages);
+            self.absorb_outcome(&mut msg_outcome, pending, InvalidationScope::Global);
+        }
+    }
+
+    fn headless_process_mouse_up(
+        &mut self,
+        root: &mut dyn Widget,
+        screen_x: u16,
+        screen_y: u16,
+        pending: &mut PendingInvalidation,
+    ) {
+        let down_target = self.click_tracker.down_target();
+        let target = self.widget_at_auto(screen_x, screen_y);
+        let (x, y) = target
+            .map(|id| self.content_local_coords_auto(id, screen_x, screen_y))
+            .unwrap_or((screen_x, screen_y));
+        let up_event = Event::MouseUp(MouseUpEvent {
+            target,
+            screen_x,
+            screen_y,
+            x,
+            y,
+        });
+        if let Some(capture_target) = down_target.filter(|id| Some(*id) != target) {
+            let (cx, cy) = self.content_local_coords_auto(capture_target, screen_x, screen_y);
+            let capture_up = Event::MouseUp(MouseUpEvent {
+                target: Some(capture_target),
+                screen_x,
+                screen_y,
+                x: cx,
+                y: cy,
+            });
+            let mut capture_outcome =
+                self.dispatch_event_to_target_auto(root, capture_target, &capture_up);
+            self.absorb_outcome(&mut capture_outcome, pending, InvalidationScope::Global);
+            let mut capture_msg_outcome =
+                self.dispatch_message_queue_with_runtime(root, capture_outcome.messages);
+            self.absorb_outcome(&mut capture_msg_outcome, pending, InvalidationScope::Global);
+        }
+
+        let mut outcome = if let Some(target) = target {
+            self.dispatch_event_to_target_auto(root, target, &up_event)
+        } else {
+            self.dispatch_event_auto(root, up_event)
+        };
+        self.absorb_outcome(&mut outcome, pending, InvalidationScope::Global);
+
+        if let Some((click_target, click_event)) =
+            self.click_tracker.on_mouse_up(target, x, y, screen_x, screen_y)
+        {
+            let mut click_outcome =
+                self.dispatch_event_to_target_auto(root, click_target, &click_event);
+            self.absorb_outcome(&mut click_outcome, pending, InvalidationScope::Global);
+            let mut click_msg_outcome =
+                self.dispatch_message_queue_with_runtime(root, click_outcome.messages);
+            self.absorb_outcome(&mut click_msg_outcome, pending, InvalidationScope::Global);
+        }
+        let mut msg_outcome =
+            self.dispatch_message_queue_with_runtime(root, outcome.messages);
+        self.absorb_outcome(&mut msg_outcome, pending, InvalidationScope::Global);
+    }
+
+    /// Headless: advance to idle without injecting input. Mirrors `pilot.pause`.
+    pub(crate) fn headless_pause(&mut self, root: &mut dyn Widget) -> crate::Result<()> {
+        let mut pending = PendingInvalidation::default();
+        self.headless_pump(root, &mut pending)
+    }
+
+    /// Headless: resize the virtual terminal, dispatch Resize, and pump to idle.
+    pub(crate) fn headless_resize(
+        &mut self,
+        root: &mut dyn Widget,
+        width: u16,
+        height: u16,
+    ) -> crate::Result<()> {
+        self.headless_size = (width.max(1), height.max(1));
+        self.refresh_size()?;
+        root.on_resize(width, height);
+        let mut pending = PendingInvalidation::default();
+        let mut outcome = self.dispatch_event_auto(root, Event::Resize(width, height));
+        self.absorb_outcome(&mut outcome, &mut pending, InvalidationScope::Global);
+        let mut msg_outcome = self.dispatch_message_queue_with_runtime(root, outcome.messages);
+        self.absorb_outcome(&mut msg_outcome, &mut pending, InvalidationScope::Global);
+        pending.request_full_content();
+        self.headless_pump(root, &mut pending)
+    }
+
+    /// Set the virtual terminal size used in headless (`run_test`) mode.
+    /// Has no effect once the app is running in a real terminal.
+    pub fn set_headless_size(&mut self, width: u16, height: u16) {
+        self.headless_size = (width.max(1), height.max(1));
+    }
+
+    /// Screen-space rect `(x0, y0, x1, y1)` of a rendered node, from the
+    /// hit-test map. Used by Pilot to target clicks at a selector's centre.
+    pub fn node_screen_rect(&self, node: NodeId) -> Option<(u16, u16, u16, u16)> {
+        self.hit_test.rect(node).map(|r| (r.x0, r.y0, r.x1, r.y1))
+    }
+
+    /// A cheap fingerprint of the currently rendered frame (text + per-cell
+    /// foreground/background). Two equal fingerprints mean visually identical
+    /// frames; a change after input proves rendered output changed. Test/Pilot
+    /// helper.
+    pub fn frame_fingerprint(&self) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        self.frame.width.hash(&mut hasher);
+        self.frame.height.hash(&mut hasher);
+        for y in 0..self.frame.height {
+            for x in 0..self.frame.width {
+                let cell = self.frame.get(x, y);
+                cell.text.hash(&mut hasher);
+                if let Some(style) = cell.style {
+                    if let Some(bg) = style.bgcolor {
+                        format!("{bg:?}").hash(&mut hasher);
+                    }
+                    if let Some(fg) = style.color {
+                        format!("{fg:?}").hash(&mut hasher);
+                    }
+                }
+            }
+        }
+        hasher.finish()
+    }
+
+    /// The explicit inline background color of a tree node, if any.
+    ///
+    /// Mirrors reading `widget.styles.background` in Python Textual — the value
+    /// set via `query_mut(sel).set_styles(|s| s.set_bg(..))`. Used by
+    /// Pilot-driven tests to assert state the way Python's `test_rgb` does.
+    pub fn node_explicit_bg(&self, node: NodeId) -> Option<crate::style::Color> {
+        self.active_widget_tree()
+            .and_then(|tree| tree.get(node))
+            .and_then(|n| n.styles.style.bg)
+    }
+
+    /// Headless unmount + finish (returns the app to a clean state).
+    pub(crate) fn headless_finish(&mut self, root: &mut dyn Widget) -> crate::Result<()> {
+        root.on_unmount();
+        self.finish()
+    }
+
+    /// Read the resolved background color of the rendered cell at `(x, y)` in the
+    /// in-memory frame. Used by Pilot-driven tests to assert visible state
+    /// (mirrors reading `app.screen.styles.background`).
+    pub fn frame_cell_bg(&self, x: usize, y: usize) -> Option<crate::style::Color> {
+        if x >= self.frame.width || y >= self.frame.height {
+            return None;
+        }
+        self.frame
+            .get(x, y)
+            .style
+            .and_then(|s| s.bgcolor)
+            .map(crate::style::color_from_simple)
+    }
+
     pub(super) fn dispatch_binding_hints_changed(
         &mut self,
         root: &mut dyn Widget,

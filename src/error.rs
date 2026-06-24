@@ -8,6 +8,8 @@ pub enum Error {
     TextAreaLanguage(String),
     #[error("app runtime stopped")]
     RuntimeStopped,
+    #[error("{0}")]
+    Message(String),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

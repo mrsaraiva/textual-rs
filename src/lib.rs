@@ -46,11 +46,12 @@ pub use runtime::{App, DomQuery, DomQueryMut, TimerHandle};
 pub use screen::{Screen, ScreenMessageCtx, ScreenResult, ScreenResultCallback, ScreenStack};
 pub use style::{Color, Style, Theme};
 pub use theme::{NamedTheme, available_theme_names, get_theme, register_theme};
+pub use runtime::Pilot;
 pub use textual_app::{
     OverlayScreenStack, TextualApp, run, run_snapshot, run_snapshot_with_output, run_sync,
-    run_sync_snapshot, run_sync_snapshot_with_output, run_sync_with_output, run_textual_app,
-    run_textual_app_or_snapshot, run_textual_app_or_snapshot_with_output,
-    run_textual_app_with_output,
+    run_sync_snapshot, run_sync_snapshot_with_output, run_sync_with_output, run_test,
+    run_test_sized, run_textual_app, run_textual_app_or_snapshot,
+    run_textual_app_or_snapshot_with_output, run_textual_app_with_output,
 };
 pub use textual_macros::Reactive;
 pub use textual_macros::on;
@@ -89,11 +90,12 @@ pub mod prelude {
     pub use crate::style::{Color, Style, TextAlign, Theme};
     pub use crate::theme::{NamedTheme, available_theme_names, get_theme, register_theme};
     pub use textual_macros::Reactive;
+    pub use crate::runtime::Pilot;
     pub use crate::textual_app::{
         OverlayScreenStack, TextualApp, run, run_snapshot, run_snapshot_with_output, run_sync,
-        run_sync_snapshot, run_sync_snapshot_with_output, run_sync_with_output, run_textual_app,
-        run_textual_app_or_snapshot, run_textual_app_or_snapshot_with_output,
-        run_textual_app_with_output,
+        run_sync_snapshot, run_sync_snapshot_with_output, run_sync_with_output, run_test,
+        run_test_sized, run_textual_app, run_textual_app_or_snapshot,
+        run_textual_app_or_snapshot_with_output, run_textual_app_with_output,
     };
     pub use crate::validation::{
         Function, Integer, Length, Number, Regex, Url, ValidationResult, Validator, ValidatorRef,

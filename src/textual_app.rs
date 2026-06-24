@@ -113,6 +113,17 @@ pub trait TextualApp: Send + 'static {
     {
     }
 
+    /// Run this app headless (in-process, no terminal) and drive it with a
+    /// [`Pilot`](crate::runtime::Pilot), mirroring Python Textual's
+    /// `app.run_test()`. See [`run_test`].
+    fn run_test<F>(self, body: F) -> Result<()>
+    where
+        Self: Sized,
+        F: FnOnce(&mut crate::runtime::Pilot) -> Result<()>,
+    {
+        run_test(self, body)
+    }
+
     /// Return a mutable `ReactiveWidget` reference if this app uses
     /// `#[derive(Reactive)]` on its struct fields.
     ///
@@ -1204,6 +1215,65 @@ pub async fn run_with_output<T: TextualApp>(definition: T) -> Result<Option<Stri
 pub async fn run<T: TextualApp>(definition: T) -> Result<()> {
     let _ = run_with_output(definition).await?;
     Ok(())
+}
+
+/// Run a `TextualApp` definition headless (in-process, no terminal) and drive it
+/// with a [`Pilot`](crate::runtime::Pilot), mirroring Python Textual's
+/// `app.run_test()`.
+///
+/// The app is mounted, the initial render is produced into an in-memory frame,
+/// and `body` is invoked with a `Pilot` to simulate input and inspect state.
+/// Each `pilot.press` / `pilot.click` advances the app to idle. After `body`
+/// returns, the app is unmounted cleanly.
+///
+/// ```no_run
+/// use textual::prelude::*;
+///
+/// struct MyApp;
+/// impl TextualApp for MyApp {
+///     fn compose(&mut self) -> AppRoot { AppRoot::new() }
+/// }
+///
+/// run_test(MyApp, |pilot| {
+///     pilot.press(&["tab"])?;
+///     Ok(())
+/// }).unwrap();
+/// ```
+pub fn run_test<T, F>(definition: T, body: F) -> Result<()>
+where
+    T: TextualApp,
+    F: FnOnce(&mut crate::runtime::Pilot) -> Result<()>,
+{
+    run_test_sized(definition, 80, 24, body)
+}
+
+/// Like [`run_test`] but with an explicit virtual terminal size.
+pub fn run_test_sized<T, F>(definition: T, width: u16, height: u16, body: F) -> Result<()>
+where
+    T: TextualApp,
+    F: FnOnce(&mut crate::runtime::Pilot) -> Result<()>,
+{
+    let state = Arc::new(Mutex::new(definition));
+    let mut app = App::new()?;
+    app.set_headless_size(width, height);
+
+    state
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .configure(&mut app)?;
+    let composed = state.lock().unwrap_or_else(|e| e.into_inner()).compose();
+    let mut root = build_textual_app_runtime_root(state.clone(), composed);
+
+    app.headless_startup(&mut root)?;
+
+    let result = {
+        let mut pilot = crate::runtime::Pilot::new(&mut app, &mut root);
+        body(&mut pilot)
+    };
+
+    // Always attempt a clean unmount, even if the body errored.
+    let finish = app.headless_finish(&mut root);
+    result.and(finish)
 }
 
 /// Compatibility alias for [`run`].

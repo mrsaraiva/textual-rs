@@ -7,6 +7,31 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-24 (feat(pilot): App::run_test + in-process Pilot headless test harness)
+
+- **`run_test()` / `Pilot`** — an in-process, headless test harness mirroring Python
+  Textual's `App.run_test()` + `pilot.py`. Drives the real app dispatch engine without a
+  terminal: a `headless` seam on `App` pins a virtual screen size, suppresses real TTY
+  lifecycle/ANSI output, and renders into the in-memory `FrameBuffer`.
+  - `textual::run_test(app, |pilot| { ... })` and `run_test_sized(app, w, h, |pilot| ...)`
+    free functions, plus a `TextualApp::run_test(self, body)` convenience method. The body
+    runs synchronously with a `Pilot` that borrows the live app + root.
+  - `Pilot` API (Python parity): `press(&["r", "ctrl+a", "enter", ...])` / `press_key`,
+    `click(selector)` / `click_at(x, y)`, `pause()` / `wait_for_idle()`, `resize(w, h)`, and
+    `app()` / `app_mut()` for assertions (`query_one`, app state). Each driver call injects the
+    event(s) through the same dispatch primitives the live loop uses (app key hook → priority
+    action → command palette → declarative BINDINGS → raw key → action-map; mouse down/up with
+    click synthesis) and advances the loop to idle (messages, timers, animations, render).
+  - `parse_key(spec)` — Textual key-name → crossterm `KeyEvent` (chars, named keys, `ctrl+`/
+    `shift+`/`alt+` modifiers, `fN`).
+  - Test-assertion helpers on `App`: `node_explicit_bg(node)` (mirrors `widget.styles.background`),
+    `frame_cell_bg(x, y)`, `frame_fingerprint()`, `node_screen_rect(node)`, `set_headless_size`.
+- **`Error::Message(String)`** variant added for harness/selector errors.
+- This unblocks behavioural (input-simulating) tests across the whole framework. The
+  `docs/examples/guide/testing/test_rgb` example's tests are now real Pilot-driven ports of
+  Python's `test_rgb.py` (`test_keys` presses r/g/b/x; `test_buttons` clicks #red/#green/#blue),
+  replacing the prior structural-only stand-ins.
+
 ### 2026-06-24 (feat(screen): Screen-as-Widget — BINDINGS + handlers + dismiss-with-result)
 
 - **`Screen` is now a handler-owning DOM node**, mirroring Python Textual's `Screen(Widget)`.
