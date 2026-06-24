@@ -316,10 +316,17 @@ pub fn layout_vertical(
         // Apply explicit width constraint (P2-25: width_edge.size includes chrome).
         if let Some(edge_w) = spec.width_edge.size {
             let explicit_w = edge_w.saturating_sub(spec.margin.left + spec.margin.right);
-            if allow_h_overflow && spec.width_is_auto {
-                // Horizontally-scrollable parent: let auto-width children keep their
-                // intrinsic width (which may exceed the viewport) so the content
-                // overflows and can be scrolled, instead of wrapping to the viewport.
+            if allow_h_overflow {
+                // Horizontally-scrollable parent (`overflow-x: auto|scroll`): the
+                // child keeps its RESOLVED width even when it exceeds the viewport,
+                // so the content overflows and can be scrolled instead of wrapping
+                // to the viewport. This covers BOTH `width: auto` (intrinsic
+                // width) AND an explicit oversized width like `width: 150%`
+                // (Python `_resolve.resolve_box_models` calls `_get_box_model`
+                // WITHOUT `constrain_width`, so an explicit percentage width
+                // resolves to e.g. 1.5x the container and is NOT clamped — the
+                // compositor clips it to the viewport at render time). The grid
+                // layout is the only Python layout that passes `constrain_width`.
                 layout_w = explicit_w;
             } else {
                 layout_w = base_w.min(explicit_w);

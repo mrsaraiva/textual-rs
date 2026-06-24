@@ -311,20 +311,43 @@ pub fn resolve_layout(
         if is_dock_parent && flow.len() == 1 {
             layout_dock_fill(tree, flow[0], inner);
         } else {
-            // A horizontally-scrollable parent (overflow-x: auto/scroll) lets auto-width
-            // children keep their intrinsic width (overflowing the viewport) so the content
-            // can be scrolled horizontally instead of wrapping to the viewport width.
+            // A SCROLL HOST (a widget that clips its descendants to its content
+            // box — the `ScrollView` host behind every `*Scroll`/`Scrollable
+            // Container`) keeps its children at their RESOLVED size on a clipped
+            // axis instead of WRAPPING them to the viewport. Python establishes a
+            // clipping content region for any non-`visible` overflow and never
+            // re-wraps a widget's box to its container (`_resolve.resolve_box_
+            // models` passes no `constrain_width`); the compositor clips at the
+            // content box. So a `VerticalScroll` (overflow-x: HIDDEN, overflow-y:
+            // auto) must still let its auto/explicit-width child overflow + clip
+            // horizontally — `hidden` differs from `auto`/`scroll` only by hiding
+            // the scrollbar, not by re-wrapping content. A plain `Container`
+            // (overflow: hidden but NOT a scroll host) keeps the historical
+            // wrap-to-fit behavior, so this is scoped to scroll hosts only.
+            let is_scroll_host = tree
+                .get(node)
+                .map(|n| n.widget.clips_descendants_to_content())
+                .unwrap_or(false);
+            // A horizontally-scrollable parent (overflow-x: auto/scroll), OR a
+            // scroll host that clips horizontal overflow (overflow-x: hidden on a
+            // `VerticalScroll`), lets its children keep their resolved width.
             let allow_h_overflow = matches!(
                 style.overflow_x.or(style.overflow),
                 Some(crate::style::Overflow::Auto) | Some(crate::style::Overflow::Scroll)
-            );
-            // Same for the vertical axis: a `overflow-y: auto|scroll` parent lets
-            // auto-height children keep their resolved height (exceeding the
-            // viewport, e.g. via `min-height`) so content overflows + can scroll.
+            ) || (is_scroll_host
+                && matches!(
+                    style.overflow_x.or(style.overflow),
+                    Some(crate::style::Overflow::Hidden)
+                ));
+            // Same for the vertical axis.
             let allow_v_overflow = matches!(
                 style.overflow_y.or(style.overflow),
                 Some(crate::style::Overflow::Auto) | Some(crate::style::Overflow::Scroll)
-            );
+            ) || (is_scroll_host
+                && matches!(
+                    style.overflow_y.or(style.overflow),
+                    Some(crate::style::Overflow::Hidden)
+                ));
             // Transparent styling wrappers (`Node`, from `.id()`/`.class()`) stand
             // in for the styled widget itself. Python applies `content-align`
             // directly to that widget to position its (shrink-to-content) content

@@ -208,6 +208,17 @@ const PASSING: &[&str] = &[
     // `visibility:hidden` cell (the hidden Placeholder) show the canvas color
     // `fg=#121212 bg=#121212` instead of the screen's `fg=default` base blank.
     "keyline",
+    // Promoted after the PERCENTAGE-WIDTH / horizontal-overflow-clip fix
+    // (c13-scrollh): an explicit `width: 150%` child of a horizontally-scrollable
+    // parent now resolves to 1.5x the container content width and KEEPS that
+    // oversized width (the layout no longer clamps explicit widths to the
+    // viewport in `layout_vertical` when `allow_h_overflow` is set). The
+    // compositor clips the overflow to the viewport and the horizontal scrollbar
+    // scrolls it — matching Python `_resolve.resolve_box_models` (no
+    // `constrain_width`) + the clipping content region. `scrollbars` (Label
+    // `width: 150%; height: 150%`) and `scrollbar_size` (Label `width: 200`)
+    // are now cell-and-RGB exact vs Python.
+    "scrollbars", "scrollbar_size",
 ];
 
 struct StyledCase {

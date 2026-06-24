@@ -228,10 +228,6 @@ pub(crate) struct ChildSpec {
     pub(crate) max_height_cells: Option<u16>,
     /// Box-sizing model (P2-25).
     pub(crate) box_sizing: BoxSizing,
-    /// Whether `width` is `auto` (no explicit/percentage/fraction width). Used by
-    /// horizontally-scrollable parents to let auto-width children keep their intrinsic
-    /// width (exceeding the viewport) instead of being clamped/wrapped to it.
-    pub(crate) width_is_auto: bool,
     /// EXACT (pre-floor) box height in cells for a simple fixed-scalar height
     /// (`%`/`w`/`h`/`vw`/`vh`/cells, border-box, no border/padding, not min/max
     /// clamped), margin-excluded — same units as the resolver's integer result.
@@ -518,8 +514,6 @@ pub(crate) fn extract_child_spec(
         ),
     };
 
-    let width_is_auto = matches!(style.width.as_ref(), None | Some(Scalar::Auto));
-
     // Python parity (`Widget.get_box_model`): for a border-box explicit size,
     // `content = max(0, size - gutter)` and the box is `content + gutter`. So a
     // specified size smaller than the box's own chrome (border + padding) does
@@ -639,7 +633,6 @@ pub(crate) fn extract_child_spec(
         max_width_cells: max_w_cells,
         max_height_cells: max_h_cells,
         box_sizing,
-        width_is_auto,
         frac_height,
         frac_width,
     }
