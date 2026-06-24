@@ -7,6 +7,33 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-23 (feat(reactive): field-to-field `data_bind` reactive binding)
+
+- **Field-to-field data binding (keystone).** `App::data_bind_reactive::<W, T>(source, source_field,
+  target_selector, set_child)` binds a parent/app reactive **field** to a child widget's reactive
+  **field** — Python parity with `child.data_bind(App.field)` / `child.data_bind(child=App.field)`.
+  Whenever the source reactive changes, the value propagates into every widget matched by
+  `target_selector` (via the caller-supplied typed setter, an unconditional set mirroring Python's
+  `_Mutated`) and each child's `watch_*` fires. Previously the derive `Reactive` engine had
+  compute/watch/recompose/validate/mutate but **no** way to propagate one reactive into another
+  widget's reactive; demos faked it with manual `on_tick` fan-out.
+- **App-level reactive changes now fire dynamic watchers.** The app-reactive bridge
+  (`dispatch_app_reactive`) fires `data_bind` / `watch_reactive` watchers registered against the app
+  reactive source (`App::app_reactive_source()`) after the app's own `watch_*`, mirroring Python
+  `_check_watchers` firing the "global" `__watchers`. App reactives have no tree node, so bindings
+  key off a sentinel app-source `NodeId`.
+- **`watch_with_app` child watchers fire during fan-out.** New `App::with_widget_taken_as::<W>()`
+  temporarily swaps a child widget out of the tree (children/styles/`NodeId` preserved) so its
+  `reactive_dispatch_with_app` can run with `&mut App` — letting a bound child's watcher
+  `query_one`/mutate sibling/descendant nodes (e.g. update its `Digits`) without a borrow conflict.
+- **Demo ports rewired to real `data_bind`:** `guide/reactivity/world_clock02` (positional
+  `data_bind(App.time)`) and `world_clock03` (keyword `data_bind(clock_time=App.time)`, binding a
+  source field onto a differently-named target field) now use `App::data_bind_reactive` instead of
+  `on_tick_with_app` polling.
+- **Deterministic tests.** New behavioral tests assert the binding propagates a value to each bound
+  child's reactive and fires its watcher with that value (no wall-clock/time-dependent goldens), plus
+  `with_widget_taken_as` round-trips the widget and preserves child nodes.
+
 ### 2026-06-23 (feat(timer): `set_interval` / `set_timer` scheduling primitive)
 
 - **Real timer subsystem (keystone).** Apps can now self-schedule arbitrary-delay, named,

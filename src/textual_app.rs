@@ -512,6 +512,23 @@ impl<T: TextualApp> TextualAppAdapter<T> {
             {
                 rw.reactive_dispatch_with_app(app, &changes, &mut rctx);
             }
+            // Fire field-to-field data bindings (Python `child.data_bind(App.field)`)
+            // and any other dynamic watchers registered against the app reactive
+            // source. These are independent of the app's own `watch_*`: each
+            // matching binding propagates the new value into every bound child's
+            // reactive and runs the child's `watch_*` (see `data_bind_reactive`).
+            // Mirrors Python `_check_watchers` firing the "global" `__watchers`
+            // after the public/private watch methods.
+            let source = App::app_reactive_source();
+            for change in &changes {
+                if app.has_dynamic_watcher(source, change.field_name) {
+                    app.notify_dynamic_watchers(
+                        source,
+                        change.field_name,
+                        change.new_value.as_ref(),
+                    );
+                }
+            }
             needs_repaint |= rctx.needs_repaint();
             needs_layout |= rctx.needs_layout();
             needs_styles |= rctx.needs_styles();

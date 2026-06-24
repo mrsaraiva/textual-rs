@@ -2134,6 +2134,131 @@ impl App {
         }
     }
 
+    /// Sentinel `NodeId` identifying the **app** as a reactive watcher source.
+    ///
+    /// App-level reactive fields (declared on the `TextualApp` definition) have
+    /// no widget-tree node; they are stored on a singleton context keyed by the
+    /// default (null) `NodeId`. Field-to-field data bindings registered against
+    /// an app reactive use this sentinel as their watcher target, mirroring
+    /// Python where the compose-parent of `child.data_bind(App.time)` is the
+    /// singleton `App`/`Screen`.
+    pub fn app_reactive_source() -> NodeId {
+        NodeId::default()
+    }
+
+    /// Bind a parent reactive **field** to a child widget's reactive **field**
+    /// (Python `child.data_bind(Parent.field)` / `child.data_bind(child=Parent.field)`).
+    ///
+    /// This is the faithful field-to-field data-binding primitive: whenever the
+    /// `source_field` reactive on `source` changes, every widget matched by
+    /// `target_selector` has its own reactive updated via `set_child` and its
+    /// `watch_*` fired — exactly as Python propagates a parent reactive into each
+    /// bound child and runs the child's watcher.
+    ///
+    /// Mechanism (mirrors Python `DOMNode._initialize_data_bind`):
+    ///   - the binding is a [dynamic watcher](Self::watch_reactive) on
+    ///     `source` + `source_field`;
+    ///   - on fire, the new value is downcast to `T`, then for each matched
+    ///     child the caller-supplied `set_child` runs the child's generated
+    ///     reactive setter into a fresh [`ReactiveCtx`] (an *unconditional* set,
+    ///     like Python wrapping the value in `_Mutated`);
+    ///   - any recorded change is enqueued as a
+    ///     [`RuntimeReactiveEntry`](crate::reactive::RuntimeReactiveEntry) so the
+    ///     child's `watch_*` runs through the normal runtime reactive phase.
+    ///
+    /// For app-level source reactives pass [`App::app_reactive_source`] as
+    /// `source`.
+    pub fn data_bind_reactive<W, T>(
+        &mut self,
+        source: NodeId,
+        source_field: impl Into<String>,
+        target_selector: impl Into<String>,
+        set_child: impl Fn(&mut W, &T, &mut crate::reactive::ReactiveCtx) + Send + Sync + 'static,
+    ) where
+        W: Widget + 'static,
+        T: Clone + Send + Sync + 'static,
+    {
+        let target_selector = target_selector.into();
+        let set_child = Arc::new(set_child);
+        self.watch_reactive(source, source_field, move |app, value| {
+            let Some(typed) = value.downcast_ref::<T>() else {
+                return;
+            };
+            let value = typed.clone();
+            let node_ids = app
+                .query(&target_selector)
+                .map(|q| q.into_ids())
+                .unwrap_or_default();
+            for node_id in node_ids {
+                let value_ref = &value;
+                let set_child = Arc::clone(&set_child);
+                // Take the child out of the tree so the watcher (which receives
+                // `&mut App` and may `query_one`/mutate sibling/descendant nodes)
+                // can run without a tree borrow held. Inside: run the child's
+                // reactive setter (records the change) then dispatch its `watch_*`
+                // with app access, iterating chained changes.
+                app.with_widget_taken_as::<W, _>(node_id, |child, app| {
+                    let mut rctx = crate::reactive::ReactiveCtx::new(node_id);
+                    set_child(child, value_ref, &mut rctx);
+                    crate::reactive::run_reactive_phase_with_dispatch(
+                        &mut rctx,
+                        |changes, ctx| {
+                            if let Some(rw) = child.reactive_widget() {
+                                rw.reactive_dispatch_with_app(app, changes, ctx);
+                            }
+                        },
+                    );
+                });
+            }
+        });
+    }
+
+    /// Temporarily remove a widget from the tree, run `f` with `(&mut W, &mut App)`,
+    /// then restore the widget into its node.
+    ///
+    /// The node's children, styles, and identity (`NodeId`) are preserved — only
+    /// the widget box is swapped out for a lightweight placeholder while `f` runs,
+    /// so `f` may freely borrow `&mut App` (e.g. to `query_one`/mutate other
+    /// nodes) without a borrow conflict on the taken widget. Used by
+    /// [`data_bind_reactive`](Self::data_bind_reactive) so a child's
+    /// `reactive_dispatch_with_app` (`watch_with_app`) can run during fan-out.
+    ///
+    /// Returns `None` if the node is absent or its widget is not a `W`.
+    pub fn with_widget_taken_as<W, R>(
+        &mut self,
+        node_id: NodeId,
+        f: impl FnOnce(&mut W, &mut App) -> R,
+    ) -> Option<R>
+    where
+        W: Widget + 'static,
+    {
+        // Confirm the node exists and holds a `W` before swapping anything out.
+        {
+            let tree = self.active_widget_tree_mut()?;
+            let node = tree.get_mut(node_id)?;
+            (node.widget.as_mut() as &mut dyn Any).downcast_mut::<W>()?;
+        }
+        // Swap the widget box out for a placeholder.
+        let mut taken: Box<dyn Widget> = {
+            let tree = self.active_widget_tree_mut()?;
+            let node = tree.get_mut(node_id)?;
+            std::mem::replace(&mut node.widget, Box::new(crate::widgets::Spacer::new(0)))
+        };
+        let result = {
+            let widget = (taken.as_mut() as &mut dyn Any)
+                .downcast_mut::<W>()
+                .expect("widget type re-checked after swap");
+            f(widget, self)
+        };
+        // Restore the original widget (drop the placeholder).
+        if let Some(tree) = self.active_widget_tree_mut() {
+            if let Some(node) = tree.get_mut(node_id) {
+                node.widget = taken;
+            }
+        }
+        Some(result)
+    }
+
     #[cfg(test)]
     pub(crate) fn set_suspend_process_impl_for_test(&mut self, f: SuspendProcessFn) {
         self.suspend_process_impl = f;
@@ -4664,6 +4789,164 @@ mod tests {
         assert_eq!(mounted, by_type);
         let button_children = app.query_children("Button").expect("selector parses");
         assert_eq!(button_children.len(), 2);
+    }
+
+    // ── Field-to-field reactive data binding (Python `child.data_bind(App.field)`) ──
+
+    /// A child widget with a reactive `v` field whose `watch_with_app`-style
+    /// watcher records the value it observed into a shared cell. Mirrors a
+    /// `#[derive(Reactive)]` widget's generated setter + `reactive_dispatch_with_app`.
+    struct BindProbe {
+        v: i32,
+        observed: Arc<std::sync::atomic::AtomicI32>,
+    }
+
+    impl BindProbe {
+        fn set_v(&mut self, value: i32, ctx: &mut crate::reactive::ReactiveCtx) {
+            // Unconditional set (Python `_Mutated`): always record so the watcher
+            // fires even when the value is unchanged.
+            let old = self.v;
+            self.v = value;
+            ctx.record_change(
+                "v",
+                crate::reactive::ReactiveFlags::reactive(),
+                Box::new(old),
+                Box::new(value),
+            );
+        }
+    }
+
+    impl Widget for BindProbe {
+        fn style_type(&self) -> &'static str {
+            "BindProbe"
+        }
+        fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+            Segments::new()
+        }
+        fn reactive_widget(&mut self) -> Option<&mut dyn crate::reactive::ReactiveWidget> {
+            Some(self)
+        }
+    }
+
+    impl crate::reactive::ReactiveWidget for BindProbe {
+        fn reactive_dispatch(
+            &mut self,
+            _changes: &[crate::reactive::ReactiveChange],
+            _ctx: &mut crate::reactive::ReactiveCtx,
+        ) {
+            // No plain watchers; the app-watch override carries the behaviour.
+        }
+        fn reactive_dispatch_with_app(
+            &mut self,
+            _app: &mut App,
+            changes: &[crate::reactive::ReactiveChange],
+            _ctx: &mut crate::reactive::ReactiveCtx,
+        ) {
+            for change in changes {
+                if change.field_name == "v" {
+                    if let Some(new) = change.new_value.downcast_ref::<i32>() {
+                        self.observed
+                            .store(*new, std::sync::atomic::Ordering::SeqCst);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn data_bind_reactive_propagates_app_field_to_child_watch() {
+        use std::sync::atomic::{AtomicI32, Ordering};
+
+        let observed_a = Arc::new(AtomicI32::new(-1));
+        let observed_b = Arc::new(AtomicI32::new(-1));
+
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(Box::new(AppRoot::new()));
+        tree.mount(
+            root,
+            Box::new(BindProbe {
+                v: 0,
+                observed: Arc::clone(&observed_a),
+            }),
+        );
+        tree.mount(
+            root,
+            Box::new(BindProbe {
+                v: 0,
+                observed: Arc::clone(&observed_b),
+            }),
+        );
+
+        let mut app = App::new().expect("app init");
+        app.widget_tree = Some(tree);
+
+        // Bind app source field "time" -> each BindProbe's "v" reactive.
+        app.data_bind_reactive::<BindProbe, i32>(
+            App::app_reactive_source(),
+            "time",
+            "BindProbe",
+            |probe, value, ctx| {
+                probe.set_v(*value, ctx);
+            },
+        );
+
+        // Simulate an app reactive change firing the bound watchers.
+        let value: i32 = 42;
+        app.notify_dynamic_watchers(App::app_reactive_source(), "time", &value);
+
+        // Both bound children observed the propagated value via their watcher.
+        assert_eq!(
+            observed_a.load(Ordering::SeqCst),
+            42,
+            "first bound child's watch fired with propagated value"
+        );
+        assert_eq!(observed_b.load(Ordering::SeqCst), 42);
+
+        // And each child's own reactive `v` now holds the value.
+        let mut v_values = Vec::new();
+        for node_id in app.query("BindProbe").unwrap().into_ids() {
+            app.with_widget_mut_as::<BindProbe, _>(node_id, |p| v_values.push(p.v));
+        }
+        assert_eq!(v_values, vec![42, 42]);
+    }
+
+    #[test]
+    fn with_widget_taken_as_restores_widget_and_preserves_children() {
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(Box::new(AppRoot::new()));
+        let probe = tree.mount(
+            root,
+            Box::new(BindProbe {
+                v: 7,
+                observed: Arc::new(std::sync::atomic::AtomicI32::new(-1)),
+            }),
+        );
+        // Child of the probe, to confirm children survive the swap.
+        let child = tree.mount(probe, Box::new(Label::new("child")));
+
+        let mut app = App::new().expect("app init");
+        app.widget_tree = Some(tree);
+
+        let got = app
+            .with_widget_taken_as::<BindProbe, _>(probe, |p, app| {
+                // The probe's child is still queryable while the probe is taken.
+                let child_present = app
+                    .active_widget_tree()
+                    .and_then(|t| t.get(child))
+                    .is_some();
+                p.v += 1;
+                (p.v, child_present)
+            })
+            .expect("probe taken");
+        assert_eq!(got, (8, true));
+
+        // Widget restored: the mutation persisted and the node still holds a BindProbe.
+        let restored_v = app
+            .with_widget_mut_as::<BindProbe, _>(probe, |p| p.v)
+            .expect("probe restored");
+        assert_eq!(restored_v, 8);
+        // Child node still present.
+        assert!(app.active_widget_tree().unwrap().get(child).is_some());
     }
 
     #[test]

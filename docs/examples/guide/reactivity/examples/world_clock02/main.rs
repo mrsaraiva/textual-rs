@@ -1,24 +1,32 @@
 /// Port of Python Textual `docs/examples/guide/reactivity/world_clock02.py`.
 ///
-/// Displays three world clocks (London, Paris, Tokyo) stacked vertically using
-/// the `Digits` widget for time and a `Label` for the timezone name.
+/// Same three world clocks as world_clock01, but the App fans its `time`
+/// reactive out to each child via **`data_bind`** instead of an explicit
+/// `watch_time` loop:
 ///
-/// Python uses `pytz` for timezone-aware datetime conversion. The Rust port
-/// approximates this with fixed UTC offsets (standard time only — DST is not
-/// applied, which is a framework gap: there is no timezone crate in the
-/// dependency list).
+/// ```python
+/// def compose(self) -> ComposeResult:
+///     yield WorldClock("Europe/London").data_bind(WorldClockApp.time)  # (1)!
+///     yield WorldClock("Europe/Paris").data_bind(WorldClockApp.time)
+///     yield WorldClock("Asia/Tokyo").data_bind(WorldClockApp.time)
+/// ```
 ///
-/// FRAMEWORK GAPS:
-/// - No timezone/chrono crate available → fixed UTC offsets; DST not applied.
-/// - Python's `data_bind(App.time)` reactive binding propagates a single
-///   `datetime` reactive field from App to each WorldClock widget.  The Rust
-///   `reactive` system does not yet support cross-widget data binding of this
-///   kind; the Rust port drives the per-clock update from `on_tick_with_app`
-///   instead (same observable behaviour, different mechanism).
-/// - `WorldClock` is a simple wrapper; nested CSS selector
-///   `WorldClock > Digits` is approximated by ID-based selectors at tick time.
+/// `data_bind(WorldClockApp.time)` binds the App's `time` reactive to each
+/// `WorldClock`'s same-named `time` reactive: whenever `App.time` changes, the
+/// value propagates into each child and the child's `watch_time` fires.
+///
+/// Rust port (faithful): both the App and `WorldClock` derive `Reactive` with a
+/// `time` reactive (seconds-since-epoch stands in for `datetime`). The App no
+/// longer needs a `watch_time` — instead `on_mount` registers a field-to-field
+/// binding via `App::data_bind_reactive(App.time -> WorldClock.time)`. The
+/// runtime propagates each `App.time` change into every `WorldClock`, firing
+/// `WorldClock::watch_time`, which formats the local time and updates its
+/// `Digits`.
+///
+/// NOTE: interactive live clock — not promotable to a static snapshot. Timezone
+/// conversion uses fixed UTC offsets (no pytz/DST), as `std` has no tz database.
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use textual::prelude::*;
 
 const CSS: &str = r#"
@@ -41,62 +49,56 @@ WorldClock Digits {
 }
 "#;
 
-// ---------------------------------------------------------------------------
-// Timezone helpers (fixed UTC offsets, no DST)
-// ---------------------------------------------------------------------------
-
-/// Compute "HH:MM:SS" for a given UTC offset in whole seconds.
-fn time_with_offset(utc_offset_secs: i64) -> String {
-    let now_secs = SystemTime::now()
+fn now_secs() -> u64 {
+    SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
-        .as_secs() as i64;
-    let local_secs = now_secs + utc_offset_secs;
-    let s = local_secs.rem_euclid(60) as u64;
-    let total_m = local_secs.rem_euclid(3600 * 24) as u64 / 60;
-    let m = total_m % 60;
-    let h = (total_m / 60) % 24;
+        .as_secs()
+}
+
+/// Format the local time (UTC seconds + offset) as HH:MM:SS.
+fn format_local(utc_secs: u64, offset_secs: i64) -> String {
+    let local = (utc_secs as i64 + offset_secs).rem_euclid(24 * 3600) as u64;
+    let s = local % 60;
+    let m = (local / 60) % 60;
+    let h = (local / 3600) % 24;
     format!("{h:02}:{m:02}:{s:02}")
 }
 
-// ---------------------------------------------------------------------------
-// Monotonic counter so each WorldClock gets a unique Digits CSS id.
-// ---------------------------------------------------------------------------
+// Unique Digits id per WorldClock so each watcher targets its own display.
 static NEXT_CLOCK: AtomicU64 = AtomicU64::new(0);
 
 // ---------------------------------------------------------------------------
-// WorldClock widget
+// WorldClock widget — own `time` reactive driving its Digits
 // ---------------------------------------------------------------------------
 
+#[derive(Reactive)]
 struct WorldClock {
-    inner: VerticalGroup,
-    /// Display name for the timezone (stored for future use / debugging).
-    #[allow(dead_code)]
-    pub timezone: String,
-    /// Fixed UTC offset in seconds (no DST).
-    pub utc_offset_secs: i64,
-    /// CSS id of the inner Digits child (`wc-digits-<n>`).
-    pub digits_id: String,
+    #[reactive(watch_with_app, init = false)]
+    time: u64,
+    timezone: String,
+    utc_offset_secs: i64,
+    digits_id: String,
 }
 
 impl WorldClock {
-    fn new(timezone: impl Into<String>, utc_offset_secs: i64) -> Self {
-        let timezone = timezone.into();
+    fn new(timezone: &'static str, utc_offset_secs: i64) -> Self {
         let n = NEXT_CLOCK.fetch_add(1, Ordering::Relaxed);
-        let digits_id = format!("wc-digits-{n}");
-        let initial_time = time_with_offset(utc_offset_secs);
-
-        let inner = VerticalGroup::new().with_compose(vec![
-            ChildDecl::from(Label::new(timezone.clone())),
-            ChildDecl::from(Digits::new(initial_time)).with_id(&digits_id),
-        ]);
-
         Self {
-            inner,
-            timezone,
+            time: now_secs(),
+            timezone: timezone.to_string(),
             utc_offset_secs,
-            digits_id,
+            digits_id: format!("wc-digits-{n}"),
         }
+    }
+
+    /// Python `watch_time`: localize and update this clock's Digits.
+    fn watch_time(&mut self, app: &mut App, _old: &u64, new: &u64, _ctx: &mut ReactiveCtx) {
+        let text = format_local(*new, self.utc_offset_secs);
+        let sel = format!("#{}", self.digits_id);
+        let _ = app.with_query_one_mut_as::<Digits, _>(&sel, |digits| {
+            digits.update(text);
+        });
     }
 }
 
@@ -109,126 +111,106 @@ impl Widget for WorldClock {
         false
     }
 
-    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
-        self.inner.take_composed_children()
+    fn compose(&self) -> ComposeResult {
+        vec![
+            ChildDecl::from(Label::new(self.timezone.clone())),
+            ChildDecl::from(Digits::new(format_local(self.time, self.utc_offset_secs)))
+                .with_id(&self.digits_id),
+        ]
     }
 
     fn render(
         &self,
-        console: &rich_rs::Console,
-        options: &rich_rs::ConsoleOptions,
+        _console: &rich_rs::Console,
+        _options: &rich_rs::ConsoleOptions,
     ) -> rich_rs::Segments {
-        self.inner.render(console, options)
+        rich_rs::Segments::new()
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
-        self.inner.on_event(event, ctx);
-    }
-
-    fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
-        self.inner.on_event_capture(event, ctx);
-    }
-
-    fn on_tick(&mut self, tick: u64) {
-        self.inner.on_tick(tick);
-    }
-
-    fn on_layout(&mut self, width: u16, height: u16) {
-        self.inner.on_layout(width, height);
-    }
-
-    fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
-        self.inner.on_message(message, ctx);
+    fn reactive_widget(&mut self) -> Option<&mut dyn ReactiveWidget> {
+        Some(self)
     }
 }
 
 // ---------------------------------------------------------------------------
-// App
+// App — `time` reactive data-bound to each WorldClock
 // ---------------------------------------------------------------------------
 
-/// Fixed UTC offsets (standard time, no DST):
-///   Europe/London → UTC+0  (BST=+3600 in summer — not applied)
-///   Europe/Paris  → UTC+1  (CEST=+7200 in summer — not applied)
-///   Asia/Tokyo    → UTC+9  (no DST)
-const CLOCKS: &[(&str, i64)] = &[
-    ("Europe/London", 0),
-    ("Europe/Paris", 3600),
-    ("Asia/Tokyo", 9 * 3600),
-];
-
+#[derive(Reactive)]
 struct WorldClockApp {
-    last_second: u64,
-    /// CSS ids of each clock's Digits child, in order, populated at first tick.
-    digits_ids: Vec<(String, i64)>,
+    #[reactive(init = false)]
+    time: u64,
 }
 
-impl Default for WorldClockApp {
-    fn default() -> Self {
-        Self {
-            last_second: 0,
-            digits_ids: Vec::new(),
-        }
+impl WorldClockApp {
+    fn new() -> Self {
+        Self { time: now_secs() }
+    }
+
+    /// Python `update_time`: `self.time = datetime.now()`.
+    fn update_time(&mut self, ctx: &mut ReactiveCtx) {
+        self.set_time(now_secs(), ctx);
     }
 }
 
 impl TextualApp for WorldClockApp {
+    fn title(&self) -> &'static str {
+        "WorldClockApp"
+    }
+
     fn configure(&mut self, app: &mut App) -> textual::Result<()> {
         app.load_stylesheet(CSS);
         Ok(())
     }
 
+    fn reactive_widget_mut(&mut self) -> Option<&mut dyn ReactiveWidget> {
+        Some(self)
+    }
+
     fn compose(&mut self) -> AppRoot {
-        let clocks: Vec<ChildDecl> = CLOCKS
-            .iter()
-            .map(|(tz, offset)| ChildDecl::from(WorldClock::new(*tz, *offset)))
-            .collect();
-
-        AppRoot::new().with_compose(clocks)
+        AppRoot::new()
+            .with_child(WorldClock::new("Europe/London", 0))
+            .with_child(WorldClock::new("Europe/Paris", 3600))
+            .with_child(WorldClock::new("Asia/Tokyo", 9 * 3600))
     }
 
-    fn on_mount_with_app(&mut self, app: &mut App, ctx: &mut EventCtx) {
-        // Collect (digits_id, utc_offset) pairs from all WorldClock nodes.
-        let wc_nodes = app
-            .query("WorldClock")
-            .map(|q| q.into_ids())
-            .unwrap_or_default();
+    fn on_mount_with_app(&mut self, app: &mut App, _ctx: &mut EventCtx) {
+        // Python compose: `WorldClock(...).data_bind(WorldClockApp.time)`.
+        // Register the field-to-field binding `App.time -> WorldClock.time`:
+        // every change to the app's `time` reactive propagates into each
+        // WorldClock's `time` reactive and fires `WorldClock::watch_time`.
+        app.data_bind_reactive::<WorldClock, u64>(
+            App::app_reactive_source(),
+            "time",
+            "WorldClock",
+            |clock, value, ctx| {
+                clock.set_time(*value, ctx);
+            },
+        );
 
-        for node_id in wc_nodes {
-            if let Some(Some((digits_id, offset))) =
-                app.with_widget_mut_as::<WorldClock, _>(node_id, |wc| {
-                    Some((wc.digits_id.clone(), wc.utc_offset_secs))
-                })
-            {
-                self.digits_ids.push((digits_id, offset));
-            }
-        }
-        ctx.request_repaint();
-    }
-
-    fn on_tick_with_app(&mut self, app: &mut App, _tick: u64, ctx: &mut EventCtx) {
-        let now_secs = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-
-        if now_secs == self.last_second {
-            return;
-        }
-        self.last_second = now_secs;
-
-        for (digits_id, offset) in &self.digits_ids {
-            let time_str = time_with_offset(*offset);
-            let sel = format!("#{digits_id}");
-            let _ = app.with_query_one_mut_as::<Digits, _>(&sel, |digits| {
-                digits.update(time_str);
-            });
-        }
-        ctx.request_repaint();
+        // Python on_mount: self.update_time(); self.set_interval(1, self.update_time).
+        // Seed the initial time (propagates through the binding), then register
+        // the repeating timer; each fire bumps `App.time`, fanning out via the
+        // data binding.
+        self.update_time(app.reactive_ctx());
+        app.set_interval(
+            Duration::from_secs(1),
+            None,
+            false,
+            Box::new(|app, ctx| {
+                app.with_app_struct::<WorldClockApp, _>(
+                    |clock_app, app, _ctx| {
+                        clock_app.update_time(app.reactive_ctx());
+                    },
+                    ctx,
+                );
+            }),
+        );
     }
 }
 
 fn main() -> textual::Result<()> {
-    run_sync(WorldClockApp::default())
+    run_sync(WorldClockApp::new())
 }
 
 #[cfg(test)]
@@ -236,44 +218,54 @@ mod tests {
     use super::*;
 
     #[test]
-    fn world_clock_app_composes_without_panic() {
-        let mut app = WorldClockApp::default();
-        let _root = app.compose();
-    }
-
-    #[test]
-    fn three_clocks_are_composed() {
-        let mut app = WorldClockApp::default();
+    fn app_composes_three_clocks() {
+        let mut app = WorldClockApp::new();
         let root = app.compose();
-        assert_eq!(
-            root.children().len(),
-            3,
-            "AppRoot should have 3 WorldClock children"
-        );
+        assert_eq!(root.children().len(), 3);
     }
 
     #[test]
-    fn time_with_offset_returns_hms_format() {
-        let t = time_with_offset(0);
-        assert_eq!(t.len(), 8, "expected HH:MM:SS (8 chars)");
-        assert_eq!(&t[2..3], ":");
-        assert_eq!(&t[5..6], ":");
+    fn world_clock_composes_label_and_digits() {
+        let wc = WorldClock::new("Europe/London", 0);
+        assert_eq!(wc.compose().len(), 2);
     }
 
     #[test]
-    fn time_with_offset_tokyo_differs_from_london() {
-        // Tokyo is UTC+9, so its hours should differ from UTC+0 by 9 (mod 24).
-        let london = time_with_offset(0);
-        let tokyo = time_with_offset(9 * 3600);
-        // Both must be valid HH:MM:SS
-        assert_eq!(london.len(), 8);
-        assert_eq!(tokyo.len(), 8);
+    fn format_local_is_hms() {
+        let t = format_local(3661, 0); // 01:01:01 UTC
+        assert_eq!(t, "01:01:01");
     }
 
     #[test]
-    fn world_clock_digits_id_is_unique() {
-        let c1 = WorldClock::new("Europe/London", 0);
-        let c2 = WorldClock::new("Europe/Paris", 3600);
-        assert_ne!(c1.digits_id, c2.digits_id, "each WorldClock needs a unique digits_id");
+    fn tokyo_offset_advances_hours() {
+        // 00:00:00 UTC + 9h = 09:00:00.
+        assert_eq!(format_local(0, 9 * 3600), "09:00:00");
+    }
+
+    #[test]
+    fn world_clock_digits_ids_unique() {
+        let a = WorldClock::new("Europe/London", 0);
+        let b = WorldClock::new("Europe/Paris", 3600);
+        assert_ne!(a.digits_id, b.digits_id);
+    }
+
+    #[test]
+    fn set_time_records_change() {
+        let mut app = WorldClockApp::new();
+        let mut ctx = ReactiveCtx::new(textual::node_id::NodeId::default());
+        app.set_time(*app.time() + 1, &mut ctx);
+        assert!(ctx.has_changes());
+    }
+
+    #[test]
+    fn child_set_time_records_change() {
+        // Deterministic data-bind contract: setting a WorldClock's `time`
+        // reactive (what the binding does for each child) records a change so
+        // its `watch_time` fires through the runtime reactive phase.
+        let mut clock = WorldClock::new("Asia/Tokyo", 9 * 3600);
+        let mut ctx = ReactiveCtx::new(textual::node_id::NodeId::default());
+        clock.set_time(*clock.time() + 1, &mut ctx);
+        assert!(ctx.has_changes(), "child time set must record a change");
+        assert_eq!(ctx.changes()[0].field_name, "time");
     }
 }
