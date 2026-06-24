@@ -29,6 +29,30 @@ until the API stabilizes.
 - New regression tests `style::tests::lab_shade_parity_with_python` (41 LAB lighten/darken cases) and
   `style::tests::dark_design_tokens_match_python_generate` (bare + shade + derived tokens) lock the
   parity. No styled-parity regression (72 PASSING held).
+### 2026-06-23 (feat(helpers): B-cluster helper APIs — scroll_visible + Welcome arena composition)
+
+- **`App::scroll_visible(node_id: NodeId) -> bool`** — new method that scrolls the nearest
+  scrollable ancestor to make a descendant widget visible, mirroring Python's
+  `Widget.scroll_visible()` → `Screen.scroll_to_widget()` → `scroll_to_region()` flow.
+  Two-phase algorithm: read phase walks the arena ancestor chain looking for the first
+  `scroll_viewport_size()`-bearing container, computes the widget's virtual coordinate
+  (screen_pos − container_origin + current_offset), applies minimum delta on each axis via
+  `min_scroll_delta`, then write phase downcast-dispatches to `ScrollView`,
+  `ScrollableContainer`, `HorizontalScroll`, or `VerticalScroll`.  Returns `false` when no
+  scrollable ancestor exists or the node is absent.
+- **`Welcome` — arena composition.** `Welcome` was using an inline-rendering approach where
+  its `Button` and `Markdown` were private fields not mounted in the arena tree.  `Welcome`
+  now uses `compose()` to place `Container(id="md") > Markdown` and `Button(id="close")` as
+  proper arena children.  `render()` returns empty segments; events and messages route through
+  the tree.  `set_close_label(&str)` is a new public method.  `query_one(Button)` / `#close`
+  now resolves correctly — enabling `widgets04` label update.
+- **Demos rewired:** `actions06`, `actions07` — replaced terminal-width scroll hack with
+  `app.scroll_visible(page_id)`; `widgets04` — uses `with_query_one_mut_as::<Button>` on
+  `#close` to change the label after mount.
+- **Tests:** `tests/welcome.rs` — 3 integration tests (render, compose count, lifecycle);
+  internal unit tests in `src/widgets/welcome.rs` for compose ids + message routing;
+  `tests/scroll_view.rs` — `app_scroll_visible_returns_false_for_missing_node` verifies
+  method contract.
 
 ### 2026-06-23 (feat(renderwire): B-cluster renderable wiring — gradient, OptionContent, pretty, rich_log)
 

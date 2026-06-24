@@ -7,13 +7,8 @@
 ///   so the Footer binding hints update dynamically (mirroring Python's
 ///   `check_action` + `refresh_bindings` pattern).
 ///
-/// Framework gap (scroll_visible):
-///   Python calls `widget.scroll_visible()` to scroll the parent container so the
-///   target child is visible. Rust's `HorizontalScroll` exposes only `scroll_by_x`,
-///   so we compute the absolute target column offset (page_no * page_width) and
-///   convert it to a delta relative to the previous page. The page width is read
-///   from the terminal via `app.driver().size().width`, which is correct when
-///   each Placeholder is set to `width: 100vw`.
+/// Python calls `widget.scroll_visible()` to scroll the parent container so the
+/// target child widget is visible. Rust mirrors this via `app.scroll_visible(node_id)`.
 use textual::prelude::*;
 
 const PAGES_COUNT: usize = 5;
@@ -77,16 +72,19 @@ impl TextualApp for PagesApp {
     }
 
     fn on_app_action_str(&mut self, app: &mut App, action: &str, ctx: &mut EventCtx) {
-        let old_page = self.page_no;
         match action {
             "next" => {
                 if self.page_no < PAGES_COUNT - 1 {
                     self.page_no += 1;
+                } else {
+                    return;
                 }
             }
             "previous" => {
                 if self.page_no > 0 {
                     self.page_no -= 1;
+                } else {
+                    return;
                 }
             }
             _ => return,
@@ -95,16 +93,11 @@ impl TextualApp for PagesApp {
         // Refresh bindings so the footer updates "Next"/"Previous" visibility.
         app.refresh_bindings();
 
-        // Scroll the page container to make the new page visible.
-        // Python uses `widget.scroll_visible()` which queries the widget's bounding
-        // box. Rust's HorizontalScroll only exposes `scroll_by_x(delta)`, so we
-        // compute the page width from the terminal size (each page is 100vw wide)
-        // and scroll by the delta between the old and new page.
-        let page_width = app.driver().size().width as i32;
-        let delta = (self.page_no as i32 - old_page as i32) * page_width;
-        let _ = app.with_query_one_mut_as::<HorizontalScroll, _>("#page-container", |hs| {
-            hs.scroll_by_x(delta);
-        });
+        // Scroll to make the new page visible — mirrors Python:
+        //   self.query_one(f"#page-{self.page_no}").scroll_visible()
+        if let Ok(page_id) = app.query_one(&format!("#page-{}", self.page_no)) {
+            app.scroll_visible(page_id);
+        }
 
         ctx.request_repaint();
         ctx.set_handled();

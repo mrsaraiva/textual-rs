@@ -2327,6 +2327,121 @@ impl App {
             .ok_or(QueryError::NoMatch)
     }
 
+    /// Scroll the nearest scrollable ancestor of `node_id` so that the widget
+    /// is visible — mirrors Python `Widget.scroll_visible()`.
+    ///
+    /// Walks the ancestor chain (nearest first) looking for the first widget
+    /// whose `scroll_viewport_size()` is `Some`.  Computes the widget's
+    /// position in the scroll container's virtual coordinate space (screen
+    /// position + current scroll offset − container screen origin), then
+    /// applies the minimum scroll delta required to bring the whole widget
+    /// into the visible viewport.
+    ///
+    /// Scrolling is applied on both axes when the scroll container supports
+    /// both (e.g. `ScrollView`); `HorizontalScroll` will only move on X.
+    ///
+    /// Returns `true` if any scroll offset changed.
+    pub fn scroll_visible(&mut self, node_id: NodeId) -> bool {
+        // --- Read phase (immutable borrow) ---
+
+        // Gather (ancestor_id, widget_rect, ancestor_rect, scroll_offset, viewport_size)
+        // for the first scrollable ancestor.
+        let scroll_info = {
+            let tree = match self.active_widget_tree() {
+                Some(t) => t,
+                None => return false,
+            };
+            let node = match tree.get(node_id) {
+                Some(n) => n,
+                None => return false,
+            };
+            let widget_rect = node.layout_rect;
+
+            // Walk ancestors to find the first scrollable one.
+            let mut found = None;
+            for anc_id in tree.ancestors(node_id) {
+                let anc_node = match tree.get(anc_id) {
+                    Some(n) => n,
+                    None => continue,
+                };
+                if let Some(vp) = anc_node.widget.scroll_viewport_size() {
+                    let scroll_off = anc_node.widget.scroll_offset();
+                    let anc_rect = anc_node.layout_rect;
+                    found = Some((anc_id, widget_rect, anc_rect, scroll_off, vp));
+                    break;
+                }
+            }
+            found
+        };
+
+        let (anc_id, widget_rect, anc_rect, (offset_x, offset_y), (vp_w, vp_h)) = match scroll_info {
+            Some(info) => info,
+            None => return false,
+        };
+
+        // --- Compute target offsets ---
+
+        // Widget position in the virtual content coordinate space of the
+        // scroll container: screen_pos − container_origin + current_offset.
+        let virt_x = (widget_rect.x0 as i64)
+            .saturating_sub(anc_rect.x0 as i64)
+            .saturating_add(offset_x as i64)
+            .max(0) as usize;
+        let virt_y = (widget_rect.y0 as i64)
+            .saturating_sub(anc_rect.y0 as i64)
+            .saturating_add(offset_y as i64)
+            .max(0) as usize;
+        let widget_w = widget_rect.x1.saturating_sub(widget_rect.x0) as usize;
+        let widget_h = widget_rect.y1.saturating_sub(widget_rect.y0) as usize;
+
+        // Minimum delta to make [virt_x, virt_x + widget_w) fit in [offset_x, offset_x + vp_w).
+        fn min_scroll_delta(pos: usize, size: usize, current: usize, viewport: usize) -> i32 {
+            if size >= viewport {
+                // Widget larger than viewport: align top-left.
+                pos as i32 - current as i32
+            } else if pos < current {
+                // Widget is above/left of current view.
+                pos as i32 - current as i32
+            } else if pos + size > current + viewport {
+                // Widget extends below/right of current view.
+                (pos + size) as i32 - (current + viewport) as i32
+            } else {
+                0
+            }
+        }
+
+        let delta_x = min_scroll_delta(virt_x, widget_w, offset_x, vp_w);
+        let delta_y = min_scroll_delta(virt_y, widget_h, offset_y, vp_h);
+
+        if delta_x == 0 && delta_y == 0 {
+            return false;
+        }
+
+        // --- Write phase: apply scroll ---
+        // Try the concrete types that expose scroll_by / scroll_by_x.
+        // `HorizontalScroll` wraps `ScrollableContainer` which wraps `ScrollView`;
+        // all three delegate `scroll_viewport_size()` so any may be the ancestor.
+        let mut scrolled = false;
+        let _ = self.with_widget_mut(anc_id, |widget| {
+            use crate::widgets::{
+                HorizontalScroll, ScrollView, ScrollableContainer, VerticalScroll,
+            };
+            let any = widget as &mut dyn std::any::Any;
+            if let Some(sv) = any.downcast_mut::<ScrollView>() {
+                if delta_x != 0 { sv.scroll_by_x(delta_x); scrolled = true; }
+                if delta_y != 0 { sv.scroll_by(delta_y); scrolled = true; }
+            } else if let Some(sc) = any.downcast_mut::<ScrollableContainer>() {
+                if delta_x != 0 { sc.scroll_by_x(delta_x); scrolled = true; }
+                if delta_y != 0 { sc.scroll_by(delta_y); scrolled = true; }
+            } else if let Some(hs) = any.downcast_mut::<HorizontalScroll>() {
+                if delta_x != 0 { hs.scroll_by_x(delta_x); scrolled = true; }
+            } else if let Some(vs) = any.downcast_mut::<VerticalScroll>() {
+                if delta_y != 0 { vs.scroll_by(delta_y); scrolled = true; }
+            }
+        });
+        scrolled
+    }
+
     /// Typed `query_one` upgrade: selector must match exactly one node whose
     /// concrete type is `W`.
     ///
