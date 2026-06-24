@@ -138,6 +138,7 @@ pub fn layout_resolve_1d_exact(
 ///
 /// The returned sizes normally sum to `total`, but may exceed it when minimum
 /// constraints force it (e.g. two edges with min_size=20 in 30 cells of space).
+#[allow(clippy::manual_checked_ops)] // guarded by if total_fraction > 0
 pub fn layout_resolve_1d(total: u16, edges: &[Edge]) -> Vec<u16> {
     if edges.is_empty() {
         return Vec::new();

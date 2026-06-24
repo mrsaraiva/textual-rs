@@ -1367,8 +1367,10 @@ impl BorderType {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default)]
 pub enum BorderEdge {
     /// Not specified by any rule / inline style.
+    #[default]
     Unset,
     /// Explicitly clear the edge.
     None,
@@ -1379,11 +1381,6 @@ pub enum BorderEdge {
     },
 }
 
-impl Default for BorderEdge {
-    fn default() -> Self {
-        BorderEdge::Unset
-    }
-}
 
 impl BorderEdge {
     pub fn is_set(&self) -> bool {

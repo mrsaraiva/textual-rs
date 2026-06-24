@@ -1,4 +1,4 @@
-use rich_rs::{Console, ConsoleOptions, MetaValue, Renderable, Segment, Segments, StyleMeta, Text};
+use rich_rs::{Console, ConsoleOptions, MetaValue, Renderable, Segment, Segments, Text};
 use std::sync::Arc;
 
 use crate::widgets::{Node, NodeSeed, Widget};
@@ -7,7 +7,7 @@ use crate::widgets::{Node, NodeSeed, Widget};
 /// skips re-applying widget CSS text attributes (bold, italic, etc.) that have
 /// already been baked into the segment by `Content::render_strips`.
 fn tag_segment_no_text_style(seg: &mut Segment) {
-    let mut meta = seg.meta.take().unwrap_or_else(StyleMeta::new);
+    let mut meta = seg.meta.take().unwrap_or_default();
     let mut map: std::collections::BTreeMap<String, MetaValue> = meta
         .meta
         .as_ref()
@@ -440,7 +440,7 @@ impl Widget for Static {
                 // sizes to its real line count rather than the char-count estimate.
                 let plain = content.plain();
                 let lines = crate::widgets::text::intrinsic_wrapped_height(
-                    &plain,
+                    plain,
                     self.layout_width,
                     self.wrap,
                 );

@@ -1,7 +1,7 @@
 use pulldown_cmark::{
     Event as MdEvent, Options as MdOptions, Parser as MdParser, Tag as MdTag, TagEnd as MdTagEnd,
 };
-use rich_rs::{Console, ConsoleOptions, MetaValue, Renderable, Segment, Segments, StyleMeta, Text};
+use rich_rs::{Console, ConsoleOptions, MetaValue, Renderable, Segment, Segments, Text};
 use std::sync::{Arc, RwLock};
 use unicode_width::UnicodeWidthChar;
 
@@ -17,7 +17,7 @@ use super::{NodeSeed, Vertical, Widget, helpers::border_spacing_from_style};
 /// skips re-applying widget CSS text attributes (bold, italic, etc.) that have
 /// already been baked into the segment by `Content::render_strips`.
 fn tag_segment_no_text_style(seg: &mut Segment) {
-    let mut meta = seg.meta.take().unwrap_or_else(StyleMeta::new);
+    let mut meta = seg.meta.take().unwrap_or_default();
     let mut map: std::collections::BTreeMap<String, MetaValue> = meta
         .meta
         .as_ref()
@@ -71,8 +71,10 @@ pub struct Label {
 
 impl Label {
     pub fn new(text: impl Into<String>) -> Self {
-        let mut seed = NodeSeed::default();
-        seed.classes = vec!["label".to_string()];
+        let seed = NodeSeed {
+            classes: vec!["label".to_string()],
+            ..NodeSeed::default()
+        };
         Self {
             text: text.into(),
             wrap: true,
@@ -915,8 +917,10 @@ struct MarkdownHeadingBlock {
 
 impl MarkdownHeadingBlock {
     fn new(level: usize, text: String) -> Self {
-        let mut seed = NodeSeed::default();
-        seed.classes = vec![format!("markdown--h{}", level.clamp(1, 6))];
+        let seed = NodeSeed {
+            classes: vec![format!("markdown--h{}", level.clamp(1, 6))],
+            ..NodeSeed::default()
+        };
         Self {
             level,
             text,
@@ -1219,7 +1223,7 @@ where
     let mut depth_strong = 0usize;
     let mut depth_strike = 0usize;
     let mut link_stack: Vec<String> = Vec::new();
-    while let Some(event) = parser.next() {
+    for event in parser.by_ref() {
         match event {
             MdEvent::End(MdTagEnd::Paragraph) => break,
             MdEvent::Start(MdTag::Emphasis) => {
@@ -1650,8 +1654,10 @@ struct MarkdownTableCell {
 
 impl MarkdownTableCell {
     fn new(text: String, raw: String, classes: Vec<String>) -> Self {
-        let mut seed = NodeSeed::default();
-        seed.classes = classes;
+        let seed = NodeSeed {
+            classes,
+            ..NodeSeed::default()
+        };
         Self {
             text,
             inline_doc: InlineTextDoc::parse(&raw),
@@ -1788,6 +1794,7 @@ fn compute_markdown_table_column_fractions(
         .collect()
 }
 
+#[allow(clippy::needless_range_loop)] // `col` used as index key stored in best_col
 fn compute_markdown_table_column_widths(
     header_markups: &[String],
     row_markups: &[Vec<String>],

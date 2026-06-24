@@ -1,5 +1,5 @@
 use crossterm::event::KeyCode;
-use rich_rs::{Console, ConsoleOptions, MetaValue, Renderable, Segment, Segments, StyleMeta};
+use rich_rs::{Console, ConsoleOptions, MetaValue, Renderable, Segment, Segments};
 
 use crate::compose::ComposeResult;
 use crate::content::{Content, ContentPart};
@@ -20,7 +20,7 @@ use super::{BindingDecl, NodeSeed, Widget};
 /// skips re-applying widget CSS text attributes already baked in by
 /// `Content::render_strips`.
 fn tag_segment_no_text_style(seg: &mut Segment) {
-    let mut meta = seg.meta.take().unwrap_or_else(StyleMeta::new);
+    let mut meta = seg.meta.take().unwrap_or_default();
     let mut map: std::collections::BTreeMap<String, MetaValue> = meta
         .meta
         .as_ref()
@@ -137,16 +137,13 @@ impl Checkbox {
 impl ReactiveWidget for Checkbox {
     fn reactive_dispatch(&mut self, changes: &[ReactiveChange], ctx: &mut ReactiveCtx) {
         for change in changes {
-            match change.field_name {
-                "checked" => {
-                    if let (Some(old), Some(new)) = (
-                        change.old_value.downcast_ref::<bool>(),
-                        change.new_value.downcast_ref::<bool>(),
-                    ) {
-                        self.watch_checked(old, new, ctx);
-                    }
+            if change.field_name == "checked" {
+                if let (Some(old), Some(new)) = (
+                    change.old_value.downcast_ref::<bool>(),
+                    change.new_value.downcast_ref::<bool>(),
+                ) {
+                    self.watch_checked(old, new, ctx);
                 }
-                _ => {}
             }
         }
     }
@@ -213,8 +210,8 @@ impl Widget for Checkbox {
                 ctx.request_repaint();
                 ctx.set_handled();
             }
-            Event::MouseUp(mouse) => {
-                if self.pressed {
+            Event::MouseUp(mouse)
+                if self.pressed => {
                     self.pressed = false;
                     ctx.request_repaint();
                     if mouse.target.is_some_and(|t| t == self.node_id()) {
@@ -222,13 +219,11 @@ impl Widget for Checkbox {
                         ctx.set_handled();
                     }
                 }
-            }
-            Event::AppFocus(false) => {
-                if self.pressed {
+            Event::AppFocus(false)
+                if self.pressed => {
                     self.pressed = false;
                     ctx.request_repaint();
                 }
-            }
             Event::Action(Action::Toggle) if self.node_state().focused => {
                 self.toggle_reactive(ctx);
                 ctx.set_handled();

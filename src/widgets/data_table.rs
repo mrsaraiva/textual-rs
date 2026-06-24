@@ -1572,12 +1572,11 @@ impl Widget for DataTable {
                 let rendered_columns = self.rendered_column_indices();
                 let clicked_col =
                     self.column_at_x_in_rendered_columns(mouse.x as usize, &rendered_columns);
-                if matches!(self.cursor_type, CursorType::Cell | CursorType::Column) {
-                    if self.cursor_column != clicked_col {
+                if matches!(self.cursor_type, CursorType::Cell | CursorType::Column)
+                    && self.cursor_column != clicked_col {
                         self.cursor_column = clicked_col;
                         cursor_changed = true;
                     }
-                }
 
                 let header_rows = if self.show_header { 1 } else { 0 };
                 if mouse.y >= header_rows {
@@ -1848,15 +1847,14 @@ impl Widget for DataTable {
                     }
                     handled = true;
                 }
-                KeyCode::Enter | KeyCode::Char(' ') => {
-                    if !self.rows.is_empty() && !self.headers.is_empty() {
+                KeyCode::Enter | KeyCode::Char(' ')
+                    if !self.rows.is_empty() && !self.headers.is_empty() => {
                         ctx.post_message(DataTableCellActivated {
                             row: self.selected,
                             column: self.cursor_column,
                         });
                         handled = true;
                     }
-                }
                 _ => {}
             },
             _ => {}
@@ -1995,7 +1993,7 @@ impl Widget for DataTable {
         let mut rendered_rows = 0usize;
 
         let mut emit_data_row = |row_idx: usize, out: &mut Segments| {
-            if rendered_rows >= visible_rows as usize {
+            if rendered_rows >= visible_rows {
                 return;
             }
             let Some(row) = self.rows.get(row_idx) else {
@@ -2048,7 +2046,7 @@ impl Widget for DataTable {
             emit_data_row(fixed_row_idx, &mut out);
         }
         let scroll_start = fixed_data_rows + offset;
-        let scrollable_slots = (visible_rows as usize).saturating_sub(fixed_visible);
+        let scrollable_slots = visible_rows.saturating_sub(fixed_visible);
         for row_offset in 0..scrollable_slots {
             emit_data_row(scroll_start + row_offset, &mut out);
         }
@@ -2192,8 +2190,10 @@ impl CellVisual {
     /// Build the `crate::style::Style` base used as `visual_style` for
     /// `Content::render_strips` (bg + bold; the cell's spans add fg/italic).
     fn to_style(self) -> Style {
-        let mut s = Style::default();
-        s.bg = Some(self.bg);
+        let mut s = Style {
+            bg: Some(self.bg),
+            ..Style::default()
+        };
         if self.bold {
             s.bold = Some(true);
         }
@@ -2286,6 +2286,7 @@ fn size_cell_content(content: &Content, align: TextAlign, width: usize) -> Conte
 /// Emit a row of styled [`Cell`]s. Each cell is rendered via
 /// [`Content::render_strips`] so its color/italic/markup spans compose over the
 /// row background (`style_for_col`) and its alignment is honoured.
+#[allow(clippy::too_many_arguments)]
 fn emit_row_per_cell(
     cells: &[Cell],
     column_widths: &[usize],

@@ -912,6 +912,7 @@ pub struct LayoutConstraints {
     pub max_height: Option<usize>,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn render_widget_with_meta<W: Widget + ?Sized>(
     widget: &W,
     console: &Console,

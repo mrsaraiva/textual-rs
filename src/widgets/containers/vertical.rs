@@ -8,6 +8,12 @@ pub struct Vertical {
     container: Container,
 }
 
+impl Default for Vertical {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Vertical {
     crate::delegate_ident_methods!(container);
 

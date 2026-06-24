@@ -394,8 +394,8 @@ impl BinaryToggleState {
                 outcome.repaint = true;
                 outcome.handled = true;
             }
-            Event::MouseUp(mouse) => {
-                if self.pressed {
+            Event::MouseUp(mouse)
+                if self.pressed => {
                     self.pressed = false;
                     outcome.repaint = true;
                     if mouse.target == Some(id) {
@@ -404,13 +404,11 @@ impl BinaryToggleState {
                         outcome.handled = true;
                     }
                 }
-            }
-            Event::AppFocus(false) => {
-                if self.pressed {
+            Event::AppFocus(false)
+                if self.pressed => {
                     self.pressed = false;
                     outcome.repaint = true;
                 }
-            }
             Event::Action(Action::Toggle) if self.focused => {
                 self.toggle();
                 outcome.toggled = true;

@@ -1,5 +1,5 @@
 use crossterm::event::KeyCode;
-use rich_rs::{Console, ConsoleOptions, MetaValue, Renderable, Segment, Segments, StyleMeta};
+use rich_rs::{Console, ConsoleOptions, MetaValue, Renderable, Segment, Segments};
 
 use crate::compose::ComposeResult;
 use crate::content::Content;
@@ -14,7 +14,7 @@ use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget
 /// skips re-applying CSS text attributes that have already been baked in by
 /// `Content::render_strips`.
 fn tag_segment_no_text_style(seg: &mut Segment) {
-    let mut meta = seg.meta.take().unwrap_or_else(StyleMeta::new);
+    let mut meta = seg.meta.take().unwrap_or_default();
     let mut map: std::collections::BTreeMap<String, MetaValue> = meta
         .meta
         .as_ref()
@@ -215,8 +215,6 @@ pub struct CollapsibleContents {
 }
 
 impl CollapsibleContents {
-    crate::seed_ident_methods!();
-
     pub fn new(children: Vec<Box<dyn Widget>>) -> Self {
         Self {
             children,
@@ -285,9 +283,7 @@ impl Widget for CollapsibleContents {
         }
         let mut total = 0usize;
         for child in &self.children {
-            let Some(child_height) = child.layout_height() else {
-                return None;
-            };
+            let child_height = child.layout_height()?;
             total = total.saturating_add(child_height.max(1));
         }
         if total == 0 { None } else { Some(total) }
@@ -528,28 +524,25 @@ impl Widget for Collapsible {
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
         match event {
-            Event::MouseDown(mouse) if mouse.target == self.node_id() => {
-                if mouse.y == 0 {
+            Event::MouseDown(mouse) if mouse.target == self.node_id()
+                && mouse.y == 0 => {
                     self.pressed = true;
                     ctx.request_repaint();
                     ctx.set_handled();
                 }
-            }
-            Event::MouseUp(mouse) => {
-                if self.pressed {
+            Event::MouseUp(mouse)
+                if self.pressed => {
                     self.pressed = false;
                     ctx.request_repaint();
                     if mouse.target.is_some_and(|t| t == self.node_id()) && mouse.y == 0 {
                         self.toggle_with_ctx(ctx);
                     }
                 }
-            }
-            Event::AppFocus(false) => {
-                if self.pressed {
+            Event::AppFocus(false)
+                if self.pressed => {
                     self.pressed = false;
                     ctx.request_repaint();
                 }
-            }
             Event::Key(key) if self.focused => {
                 if matches!(key.code, KeyCode::Enter | KeyCode::Char(' ')) {
                     self.toggle_with_ctx(ctx);

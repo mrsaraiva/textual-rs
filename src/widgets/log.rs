@@ -127,6 +127,12 @@ pub struct Log {
     cache_width: AtomicUsize,
 }
 
+impl Default for Log {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Log {
     crate::seed_ident_methods!();
 
@@ -354,7 +360,7 @@ impl Log {
         for ch in line.chars() {
             if ch == '\t' {
                 let to_next_tab = tab_size - (col % tab_size);
-                out.extend(std::iter::repeat(' ').take(to_next_tab));
+                out.extend(std::iter::repeat_n(' ', to_next_tab));
                 col += to_next_tab;
             } else {
                 out.push(ch);

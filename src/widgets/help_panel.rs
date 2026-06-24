@@ -20,6 +20,12 @@ pub struct HelpPanel {
     seed: NodeSeed,
 }
 
+impl Default for HelpPanel {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl HelpPanel {
     crate::seed_ident_methods!();
 

@@ -7,6 +7,12 @@ pub struct Middle {
     inner: Container,
 }
 
+impl Default for Middle {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Middle {
     crate::delegate_ident_methods!(inner);
 

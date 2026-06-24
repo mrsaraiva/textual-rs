@@ -8,7 +8,7 @@
 //! task spawning/execution is handled by the runtime event loop.
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
+use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -337,11 +337,8 @@ impl WorkerRegistry {
     }
 
     fn drain_completion_queue_nonblocking(&mut self) {
-        loop {
-            match self.completion_rx.try_recv() {
-                Ok(completion) => self.apply_completion(completion),
-                Err(TryRecvError::Empty) | Err(TryRecvError::Disconnected) => break,
-            }
+        while let Ok(completion) = self.completion_rx.try_recv() {
+            self.apply_completion(completion);
         }
     }
 

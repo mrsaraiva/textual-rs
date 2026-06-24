@@ -171,7 +171,7 @@ pub(crate) fn seed_wrapper_subtree_widths(
         let (_, _, bl, br) = border_spacing(&child_style);
         let padding = child_style.effective_padding();
         let outer_inset = margin.left + margin.right;
-        let inner_inset = (bl as u16) + (br as u16) + padding.left + padding.right;
+        let inner_inset = bl + br + padding.left + padding.right;
         let child_outer_w = content_width.saturating_sub(outer_inset).max(1);
         let child_content_w = child_outer_w.saturating_sub(inner_inset).max(1);
         if let Some(node) = tree.get_mut(child) {
@@ -271,8 +271,8 @@ fn horizontal_chrome(
 pub(crate) fn own_box_chrome(style: &Style) -> (u16, u16) {
     let (bt, bb, bl, br) = border_spacing(style);
     let padding = style.effective_padding();
-    let h = (bl as u16) + (br as u16) + padding.left + padding.right;
-    let v = (bt as u16) + (bb as u16) + padding.top + padding.bottom;
+    let h = bl + br + padding.left + padding.right;
+    let v = bt + bb + padding.top + padding.bottom;
     (h, v)
 }
 
@@ -341,10 +341,10 @@ pub(crate) fn extract_child_spec(
     let margin = style.effective_margin();
     let padding = style.effective_padding();
     let (bt, bb, bl, br) = border_spacing(style);
-    let border_top = bt as u16;
-    let border_bottom = bb as u16;
-    let border_left = bl as u16;
-    let border_right = br as u16;
+    let border_top = bt;
+    let border_bottom = bb;
+    let border_left = bl;
+    let border_right = br;
 
     let box_sizing = style.box_sizing.unwrap_or(BoxSizing::BorderBox);
 

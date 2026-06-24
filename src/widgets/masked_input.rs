@@ -261,21 +261,11 @@ impl Template {
         if position == 0 {
             return None;
         }
-        for i in (0..position).rev() {
-            if self.defs[i].is_separator() {
-                return Some(i);
-            }
-        }
-        None
+        (0..position).rev().find(|&i| self.defs[i].is_separator())
     }
 
     fn next_separator_position(&self, position: usize) -> Option<usize> {
-        for i in (position + 1)..self.defs.len() {
-            if self.defs[i].is_separator() {
-                return Some(i);
-            }
-        }
-        None
+        ((position + 1)..self.defs.len()).find(|&i| self.defs[i].is_separator())
     }
 
     fn next_separator_char(&self, position: usize) -> Option<char> {
@@ -880,17 +870,15 @@ impl Widget for MaskedInput {
                 ctx.request_repaint();
                 ctx.set_handled();
             }
-            Event::MouseUp(_) => {
-                if self.chrome.is_mouse_down() {
+            Event::MouseUp(_)
+                if self.chrome.is_mouse_down() => {
                     self.chrome.set_mouse_down(false);
                     ctx.request_repaint();
                 }
-            }
-            Event::Tick(_) => {
-                if self.chrome.handle_tick(Instant::now()) {
+            Event::Tick(_)
+                if self.chrome.handle_tick(Instant::now()) => {
                     ctx.request_repaint();
                 }
-            }
             Event::Key(key) if self.node_state().focused => {
                 let Some(cmd) = edit_command_from_key(key, false) else {
                     return;
@@ -1025,7 +1013,7 @@ impl Widget for MaskedInput {
             let style = crate::css::resolve_style_for_meta(&meta);
             let mut rich = style
                 .to_rich_without_colors()
-                .unwrap_or_else(rich_rs::Style::new);
+                .unwrap_or_default();
             let mut under_bg = base_bg;
 
             if let Some(bg) = style.bg {

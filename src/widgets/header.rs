@@ -84,11 +84,10 @@ impl Widget for HeaderIcon {
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
         match event {
-            Event::BindingsChanged(bindings) => {
-                if self.apply_bindings(bindings) {
+            Event::BindingsChanged(bindings)
+                if self.apply_bindings(bindings) => {
                     ctx.request_repaint();
                 }
-            }
             Event::MouseDown(mouse) if mouse.target == self.node_id() => {
                 self.pressed = true;
                 ctx.set_handled();
@@ -384,6 +383,12 @@ pub struct Header {
     time_format: String,
     children_extracted: bool,
     seed: NodeSeed,
+}
+
+impl Default for Header {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Header {

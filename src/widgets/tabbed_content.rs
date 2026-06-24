@@ -467,11 +467,9 @@ impl TabbedContent {
     }
 
     fn sans_content_tab_id(tab_id: &str) -> Option<String> {
-        if tab_id.starts_with(Self::CONTENT_TAB_PREFIX) {
-            Some(tab_id[Self::CONTENT_TAB_PREFIX.len()..].to_string())
-        } else {
-            None
-        }
+        tab_id
+            .strip_prefix(Self::CONTENT_TAB_PREFIX)
+            .map(str::to_string)
     }
 
     fn build_tabs(&self) -> Tabs {
@@ -727,9 +725,7 @@ impl Widget for TabbedContent {
         }
         let pane_index = child_index.saturating_sub(1);
         let meta = self.pane_meta.lock().expect("tabbed meta lock");
-        let Some(pane) = meta.get(pane_index) else {
-            return None;
-        };
+        let pane = meta.get(pane_index)?;
         if pane.hidden {
             return Some(false);
         }
@@ -755,7 +751,7 @@ impl Widget for TabbedContent {
             return Segments::new();
         }
         let width = options.size.0.max(1);
-        let height = options.size.1.max(1).min(2);
+        let height = options.size.1.clamp(1, 2);
         let mut tabs = self.build_tabs();
         if self.focused {
             tabs.on_node_state_changed(

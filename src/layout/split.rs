@@ -52,10 +52,10 @@ pub(crate) fn compute_carve_box(
     let margin = style.effective_margin();
     let padding = style.effective_padding();
     let (bt, bb, bl, br) = border_spacing(&style);
-    let border_top = bt as u16;
-    let border_bottom = bb as u16;
-    let border_left = bl as u16;
-    let border_right = br as u16;
+    let border_top = bt;
+    let border_bottom = bb;
+    let border_left = bl;
+    let border_right = br;
     let box_sizing = style.box_sizing.unwrap_or(BoxSizing::BorderBox);
 
     let current_w = avail_w;
@@ -239,6 +239,7 @@ pub(crate) fn compute_carve_box(
 /// bounds (x0/y0/x1/y1) are reduced by the child's outer size so the next split
 /// sees a smaller area. (Dock layout no longer routes through here — see
 /// `arrange_dock`, which follows Python's overlapping-dock model.)
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn carve_edge(
     tree: &mut WidgetTree,
     child: NodeId,

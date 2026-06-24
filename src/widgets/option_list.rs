@@ -36,13 +36,21 @@ pub struct OptionList {
     seed: NodeSeed,
 }
 
+impl Default for OptionList {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl OptionList {
     crate::seed_ident_methods!();
 
     /// Create an empty `OptionList`.
     pub fn new() -> Self {
-        let mut seed = NodeSeed::default();
-        seed.classes = vec!["option-list".to_string()];
+        let seed = NodeSeed {
+            classes: vec!["option-list".to_string()],
+            ..NodeSeed::default()
+        };
         Self {
             items: Vec::new(),
             cursor: OptionCursorState::default(),
@@ -673,12 +681,11 @@ impl Widget for OptionList {
                 }
                 _ => {}
             },
-            Event::AppFocus(false) => {
-                if self.node_state().hovered || self.hovered_index.is_some() {
+            Event::AppFocus(false)
+                if (self.node_state().hovered || self.hovered_index.is_some()) => {
                     self.hovered_index = None;
                     ctx.request_repaint();
                 }
-            }
             _ => {}
         }
     }
@@ -740,7 +747,7 @@ impl Widget for OptionList {
 
         let base_style = crate::css::resolve_component_style(self, &["option-list--option"])
             .to_rich()
-            .unwrap_or_else(rich_rs::Style::new);
+            .unwrap_or_default();
 
         // Flatten options into display lines and render the visible window in
         // line space (Python parity: a multi-row option occupies multiple lines).

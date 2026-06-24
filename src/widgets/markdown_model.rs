@@ -124,7 +124,7 @@ pub(crate) fn parse_markdown_blocks(markup: &str) -> Vec<MarkdownBlock> {
                 };
                 let mut code = String::new();
                 let mut end_offset = range.end;
-                while let Some((next, next_range)) = parser.next() {
+                for (next, next_range) in parser.by_ref() {
                     end_offset = next_range.end;
                     match next {
                         Event::Text(text) => code.push_str(&text),
@@ -155,15 +155,14 @@ pub(crate) fn parse_markdown_blocks(markup: &str) -> Vec<MarkdownBlock> {
                     end_offset = next_range.end;
                     match next {
                         Event::Start(Tag::TableHead) => current_row.clear(),
-                        Event::End(TagEnd::TableHead) => {
-                            if headers.is_empty() && !current_row.is_empty() {
+                        Event::End(TagEnd::TableHead)
+                            if headers.is_empty() && !current_row.is_empty() => {
                                 headers =
                                     current_row.iter().map(|(text, _)| text.clone()).collect();
                                 header_markups =
                                     current_row.iter().map(|(_, raw)| raw.clone()).collect();
                                 current_row.clear();
                             }
-                        }
                         Event::Start(Tag::TableRow) => current_row.clear(),
                         Event::End(TagEnd::TableRow) => {
                             if headers.is_empty() {
@@ -261,7 +260,7 @@ fn collect_plain_text_until(
     end: TagEnd,
 ) -> String {
     let mut out = String::new();
-    while let Some((event, _)) = parser.next() {
+    for (event, _) in parser.by_ref() {
         match event {
             Event::End(tag_end) if tag_end == end => break,
             Event::Text(text) | Event::Code(text) => out.push_str(&text),
@@ -278,7 +277,7 @@ fn collect_plain_text_until_with_end(
 ) -> (String, usize) {
     let mut out = String::new();
     let mut end_offset = 0usize;
-    while let Some((event, range)) = parser.next() {
+    for (event, range) in parser.by_ref() {
         end_offset = range.end;
         match event {
             Event::End(tag_end) if tag_end == end => break,

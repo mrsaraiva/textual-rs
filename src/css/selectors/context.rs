@@ -7,10 +7,10 @@ use crate::style::Style;
 use super::ast::{SelectorMeta, StyleSheet};
 
 thread_local! {
-    pub(super) static STYLE_CONTEXT: RefCell<Option<StyleSheet>> = RefCell::new(None);
-    pub(super) static STYLE_STACK: RefCell<Vec<Style>> = RefCell::new(Vec::new());
-    pub(super) static SELECTOR_STACK: RefCell<Vec<SelectorMeta>> = RefCell::new(Vec::new());
-    pub(super) static APP_ACTIVE: RefCell<bool> = RefCell::new(true);
+    pub(super) static STYLE_CONTEXT: RefCell<Option<StyleSheet>> = const { RefCell::new(None) };
+    pub(super) static STYLE_STACK: RefCell<Vec<Style>> = const { RefCell::new(Vec::new()) };
+    pub(super) static SELECTOR_STACK: RefCell<Vec<SelectorMeta>> = const { RefCell::new(Vec::new()) };
+    pub(super) static APP_ACTIVE: RefCell<bool> = const { RefCell::new(true) };
     pub(super) static APP_RUNTIME_PSEUDOS: RefCell<AppRuntimePseudos> =
         RefCell::new(AppRuntimePseudos::default());
     pub(super) static COMPUTED_STYLE_CACHE: RefCell<ComputedStyleCache> =

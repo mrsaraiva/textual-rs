@@ -32,11 +32,11 @@ pub type HandleSink = Box<dyn FnOnce(NodeId, u64) + Send + Sync>;
 // Internal resolution helpers
 // ---------------------------------------------------------------------------
 
-fn resolve_node<'t, W: Widget>(
-    tree: &'t WidgetTree,
+fn resolve_node<W: Widget>(
+    tree: &WidgetTree,
     node: NodeId,
     tree_id: u64,
-) -> Result<&'t W, QueryError> {
+) -> Result<&W, QueryError> {
     if tree.tree_id() != tree_id {
         return Err(QueryError::Unmounted);
     }
@@ -49,11 +49,11 @@ fn resolve_node<'t, W: Widget>(
         })
 }
 
-fn resolve_node_mut<'t, W: Widget>(
-    tree: &'t mut WidgetTree,
+fn resolve_node_mut<W: Widget>(
+    tree: &mut WidgetTree,
     node: NodeId,
     tree_id: u64,
-) -> Result<&'t mut W, QueryError> {
+) -> Result<&mut W, QueryError> {
     if tree.tree_id() != tree_id {
         return Err(QueryError::Unmounted);
     }

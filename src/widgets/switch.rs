@@ -160,16 +160,13 @@ impl Switch {
 impl ReactiveWidget for Switch {
     fn reactive_dispatch(&mut self, changes: &[ReactiveChange], ctx: &mut ReactiveCtx) {
         for change in changes {
-            match change.field_name {
-                "value" => {
-                    if let (Some(old), Some(new)) = (
-                        change.old_value.downcast_ref::<bool>(),
-                        change.new_value.downcast_ref::<bool>(),
-                    ) {
-                        self.watch_value(old, new, ctx);
-                    }
+            if change.field_name == "value" {
+                if let (Some(old), Some(new)) = (
+                    change.old_value.downcast_ref::<bool>(),
+                    change.new_value.downcast_ref::<bool>(),
+                ) {
+                    self.watch_value(old, new, ctx);
                 }
-                _ => {}
             }
         }
     }
@@ -200,8 +197,8 @@ impl Widget for Switch {
                 ctx.request_repaint();
                 ctx.set_handled();
             }
-            Event::MouseUp(mouse) => {
-                if self.pressed {
+            Event::MouseUp(mouse)
+                if self.pressed => {
                     self.pressed = false;
                     ctx.request_repaint();
                     if mouse.target.is_some_and(|t| t == self.node_id()) {
@@ -211,13 +208,11 @@ impl Widget for Switch {
                         ctx.set_handled();
                     }
                 }
-            }
-            Event::AppFocus(false) => {
-                if self.pressed {
+            Event::AppFocus(false)
+                if self.pressed => {
                     self.pressed = false;
                     ctx.request_repaint();
                 }
-            }
             Event::Action(Action::Toggle) if self.node_state().focused => {
                 self.value = !self.value;
                 self.on_toggled();

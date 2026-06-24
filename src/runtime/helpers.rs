@@ -44,7 +44,7 @@ pub(crate) fn mouse_scroll_deltas(kind: MouseEventKind, modifiers: KeyModifiers)
 
 pub(crate) fn should_quit_key(key: &crossterm::event::KeyEvent, quit_keys: &[KeyBind]) -> bool {
     let bind = KeyBind::new(key.code, key.modifiers);
-    quit_keys.iter().any(|candidate| *candidate == bind)
+    quit_keys.contains(&bind)
 }
 
 pub(crate) fn default_action_map() -> ActionMap {

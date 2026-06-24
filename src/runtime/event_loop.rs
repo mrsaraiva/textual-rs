@@ -1139,9 +1139,7 @@ fn snapshot_for(
 ) -> SelectorSnapshot {
     let is_screen = widget.style_type() == "Screen"
         || widget
-            .style_type_aliases()
-            .iter()
-            .any(|alias| *alias == "Screen");
+            .style_type_aliases().contains(&"Screen");
     SelectorSnapshot {
         type_name: widget.style_type().to_string(),
         // Step 6: identity/state now lives on the node record; this off-tree
@@ -1172,9 +1170,7 @@ fn snapshot_for_node(
     let widget = node.widget.as_ref();
     let is_screen = widget.style_type() == "Screen"
         || widget
-            .style_type_aliases()
-            .iter()
-            .any(|alias| *alias == "Screen");
+            .style_type_aliases().contains(&"Screen");
     let style_id = node.css_id.clone();
     let classes: Vec<String> = node.classes.iter().cloned().collect();
     SelectorSnapshot {
@@ -1205,15 +1201,14 @@ fn selector_matches_snapshot(
             return false;
         }
     }
-    if !selector.classes().is_empty() {
-        if !selector
+    if !selector.classes().is_empty()
+        && !selector
             .classes()
             .iter()
             .all(|class| meta.classes.iter().any(|value| value == class))
         {
             return false;
         }
-    }
     for pseudo in selector.pseudos() {
         let ok = match pseudo {
             crate::css::PseudoClass::Disabled => meta.disabled,
@@ -1654,9 +1649,9 @@ fn copy_to_system_clipboard(text: &str) -> bool {
 
     #[cfg(all(unix, not(target_os = "macos")))]
     {
-        return run_copy_command("wl-copy", &[], text)
+        run_copy_command("wl-copy", &[], text)
             || run_copy_command("xclip", &["-selection", "clipboard"], text)
-            || run_copy_command("xsel", &["--clipboard", "--input"], text);
+            || run_copy_command("xsel", &["--clipboard", "--input"], text)
     }
 
     #[cfg(not(any(unix, target_os = "windows")))]
@@ -1683,9 +1678,9 @@ fn paste_from_system_clipboard() -> Option<String> {
 
     #[cfg(all(unix, not(target_os = "macos")))]
     {
-        return run_paste_command("wl-paste", &["-n"])
+        run_paste_command("wl-paste", &["-n"])
             .or_else(|| run_paste_command("xclip", &["-selection", "clipboard", "-o"]))
-            .or_else(|| run_paste_command("xsel", &["--clipboard", "--output"]));
+            .or_else(|| run_paste_command("xsel", &["--clipboard", "--output"]))
     }
 
     #[cfg(not(any(unix, target_os = "windows")))]
@@ -2023,13 +2018,13 @@ impl App {
             aggregate.stop_requested |= pass.stop_requested;
             aggregate
                 .animation_requests
-                .extend(pass.animation_requests.into_iter());
+                .extend(pass.animation_requests);
             aggregate
                 .worker_requests
-                .extend(pass.worker_requests.into_iter());
+                .extend(pass.worker_requests);
             aggregate
                 .recompose_nodes
-                .extend(pass.recompose_nodes.into_iter());
+                .extend(pass.recompose_nodes);
             aggregate.class_ops.extend(pass.class_ops);
             let mut next_queue =
                 collect_clipboard_runtime_messages(&mut self.clipboard, &pass.deliver);
@@ -3175,7 +3170,7 @@ impl App {
                                     "[input] mouse down x={} y={} hovered={:?}",
                                     mouse.column,
                                     mouse.row,
-                                    self.hovered.map(|id| node_id_to_ffi(id))
+                                    self.hovered.map(node_id_to_ffi)
                                 ));
                                 if let Some(target) = self.widget_at_auto(mouse.column, mouse.row) {
                                     let (x, y) = self.content_local_coords_auto(
@@ -5107,8 +5102,10 @@ impl App {
 
         if updates.is_empty() {
             // Only style updates — request repaint without event dispatch.
-            let mut aggregate = DispatchOutcome::default();
-            aggregate.repaint_requested = true;
+            let mut aggregate = DispatchOutcome {
+                repaint_requested: true,
+                ..DispatchOutcome::default()
+            };
             aggregate
                 .invalidation
                 .merge(crate::event::InvalidationFlags::content());

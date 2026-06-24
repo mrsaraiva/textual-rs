@@ -511,9 +511,7 @@ pub fn set_active_theme(name: &str) -> bool {
 /// non-default theme. Returns `None` when the default path should be used.
 pub(crate) fn active_token(name: &str) -> Option<Color> {
     let reg = registry().lock().unwrap();
-    if reg.active.is_none() {
-        return None;
-    }
+    reg.active.as_ref()?;
     if let Some(color) = reg.active_tokens.get(name).copied() {
         return Some(color);
     }

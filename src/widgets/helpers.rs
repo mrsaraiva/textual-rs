@@ -167,8 +167,7 @@ pub(crate) fn apply_debug_box(
     let fill_width = (width - 2).saturating_sub(label_width);
     top.push_str(&label_text);
     top.push_str(
-        &std::iter::repeat(b.top)
-            .take(fill_width)
+        &std::iter::repeat_n(b.top, fill_width)
             .collect::<String>(),
     );
     top.push(b.top_right);
@@ -189,8 +188,7 @@ pub(crate) fn apply_debug_box(
     let mut bottom = String::new();
     bottom.push(b.bottom_left);
     bottom.push_str(
-        &std::iter::repeat(b.bottom)
-            .take(width - 2)
+        &std::iter::repeat_n(b.bottom, width - 2)
             .collect::<String>(),
     );
     bottom.push(b.bottom_right);
@@ -253,6 +251,7 @@ pub(crate) fn resolved_vertical_chrome<T: Widget + ?Sized>(widget: &T) -> usize 
 // `base_background + border_color.multiply_alpha(opacity)` step. This is necessary so
 // that after `apply_widget_opacity_to_segments` applies a second blend, the net result
 // matches Python's double-application of opacity on border-character foreground colors.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn apply_border_edges(
     segments: Segments,
     inner_width: usize,
@@ -691,6 +690,7 @@ fn border_inner_outer_styles(
     (inner, outer)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn border_horizontal_row(
     edge: BorderEdge,
     inner_bg: Option<crate::style::Color>,
@@ -710,7 +710,7 @@ fn border_horizontal_row(
 
     let left_w = if has_left { 1 } else { 0 };
     let right_w = if has_right { 1 } else { 0 };
-    let mid_w = width.saturating_sub(left_w + right_w).max(0);
+    let mid_w = width.saturating_sub(left_w + right_w);
 
     let mut out: Vec<Segment> = Vec::new();
     if has_left {
@@ -837,16 +837,16 @@ pub(crate) fn outline_edge_cells(
 
 fn apply_text_style_flags(style: &mut rich_rs::Style, flags: &crate::style::TextStyleFlags) {
     if flags.bold {
-        *style = style.clone().with_bold(true);
+        *style = (*style).with_bold(true);
     }
     if flags.dim {
-        *style = style.clone().with_dim(true);
+        *style = (*style).with_dim(true);
     }
     if flags.italic {
-        *style = style.clone().with_italic(true);
+        *style = (*style).with_italic(true);
     }
     if flags.underline {
-        *style = style.clone().with_underline(true);
+        *style = (*style).with_underline(true);
     }
     if flags.reverse {
         style.reverse = Some(true);
@@ -856,6 +856,7 @@ fn apply_text_style_flags(style: &mut rich_rs::Style, flags: &crate::style::Text
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn overlay_border_text(
     row: &mut Vec<Segment>,
     text: &str,
@@ -999,8 +1000,8 @@ pub(crate) fn apply_line_pad(
     lines = Segment::set_shape(&lines, content_width.max(1), None, None, false);
 
     let mut padded: Vec<Vec<Segment>> = Vec::with_capacity(lines.len());
-    let left = vec![no_text_style_space_segment(line_pad)];
-    let right = vec![no_text_style_space_segment(line_pad)];
+    let left = [no_text_style_space_segment(line_pad)];
+    let right = [no_text_style_space_segment(line_pad)];
 
     for line in lines {
         let mut row: Vec<Segment> = Vec::new();

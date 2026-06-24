@@ -154,6 +154,12 @@ pub struct Input {
     suggestion: String,
 }
 
+impl Default for Input {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Input {
     pub fn new() -> Self {
         Self {
@@ -637,16 +643,13 @@ impl Input {
 impl ReactiveWidget for Input {
     fn reactive_dispatch(&mut self, changes: &[ReactiveChange], ctx: &mut ReactiveCtx) {
         for change in changes {
-            match change.field_name {
-                "value" => {
-                    if let (Some(old), Some(new)) = (
-                        change.old_value.downcast_ref::<String>(),
-                        change.new_value.downcast_ref::<String>(),
-                    ) {
-                        self.watch_value(old, new, ctx);
-                    }
+            if change.field_name == "value" {
+                if let (Some(old), Some(new)) = (
+                    change.old_value.downcast_ref::<String>(),
+                    change.new_value.downcast_ref::<String>(),
+                ) {
+                    self.watch_value(old, new, ctx);
                 }
-                _ => {}
             }
         }
     }
@@ -738,12 +741,11 @@ impl Widget for Input {
                 ctx.request_repaint();
                 ctx.set_handled();
             }
-            Event::MouseUp(_) => {
-                if self.chrome.is_mouse_down() {
+            Event::MouseUp(_)
+                if self.chrome.is_mouse_down() => {
                     self.chrome.set_mouse_down(false);
                     ctx.request_repaint();
                 }
-            }
             Event::Tick(tick) => {
                 let _ = tick;
                 if self.pending_blur {
@@ -1000,7 +1002,7 @@ impl Widget for Input {
             let style = crate::css::resolve_component_style(self, &[class]);
             let mut rich = style
                 .to_rich_without_colors()
-                .unwrap_or_else(rich_rs::Style::new);
+                .unwrap_or_default();
             let mut under_bg = base_bg;
 
             if let Some(bg) = style.bg {
@@ -1070,7 +1072,7 @@ impl Widget for Input {
             if pending_text.is_empty() {
                 return;
             }
-            let style = pending_style.take().unwrap_or_else(rich_rs::Style::new);
+            let style = pending_style.take().unwrap_or_default();
             out.push(rich_rs::Segment::styled(
                 std::mem::take(pending_text),
                 style,

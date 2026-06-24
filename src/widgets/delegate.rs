@@ -74,6 +74,7 @@
 
 // ── Per-method delegation ─────────────────────────────────────────────
 
+#[allow(clippy::empty_line_after_doc_comments)]
 #[macro_export]
 macro_rules! delegate_widget_method {
     // ── Dispatch: list of names ────────────────────────────────────────
@@ -98,7 +99,7 @@ macro_rules! delegate_widget_method {
             &self,
             console: &rich_rs::Console,
             options: &rich_rs::ConsoleOptions,
-            debug: &crate::debug::DebugLayout,
+            debug: &$crate::debug::DebugLayout,
         ) -> rich_rs::Segments {
             self.$field.render_with_debug(console, options, debug)
         }
@@ -130,31 +131,31 @@ macro_rules! delegate_widget_method {
     // ── Composition ────────────────────────────────────────────────────
 
     ($field:ident, compose) => {
-        fn compose(&self) -> crate::compose::ComposeResult {
+        fn compose(&self) -> $crate::compose::ComposeResult {
             self.$field.compose()
         }
     };
 
     ($field:ident, take_composed_children) => {
-        fn take_composed_children(&mut self) -> Vec<Box<dyn crate::widgets::Widget>> {
+        fn take_composed_children(&mut self) -> Vec<Box<dyn $crate::widgets::Widget>> {
             self.$field.take_composed_children()
         }
     };
 
     ($field:ident, take_child_decl_meta) => {
-        fn take_child_decl_meta(&mut self) -> Vec<crate::widgets::ChildDeclMeta> {
+        fn take_child_decl_meta(&mut self) -> Vec<$crate::widgets::ChildDeclMeta> {
             self.$field.take_child_decl_meta()
         }
     };
 
     ($field:ident, take_child_handle_sinks) => {
-        fn take_child_handle_sinks(&mut self) -> Vec<(usize, crate::handle::HandleSink)> {
+        fn take_child_handle_sinks(&mut self) -> Vec<(usize, $crate::handle::HandleSink)> {
             self.$field.take_child_handle_sinks()
         }
     };
 
     ($field:ident, take_pending_mount_messages) => {
-        fn take_pending_mount_messages(&mut self) -> Vec<Box<dyn crate::message::Message>> {
+        fn take_pending_mount_messages(&mut self) -> Vec<Box<dyn $crate::message::Message>> {
             self.$field.take_pending_mount_messages()
         }
     };
@@ -174,7 +175,7 @@ macro_rules! delegate_widget_method {
     };
 
     ($field:ident, on_node_state_changed) => {
-        fn on_node_state_changed(&mut self, old: crate::widgets::NodeState, new: crate::widgets::NodeState) {
+        fn on_node_state_changed(&mut self, old: $crate::widgets::NodeState, new: $crate::widgets::NodeState) {
             self.$field.on_node_state_changed(old, new);
         }
     };
@@ -212,8 +213,8 @@ macro_rules! delegate_widget_method {
     ($field:ident, on_event_capture) => {
         fn on_event_capture(
             &mut self,
-            event: &crate::event::Event,
-            ctx: &mut crate::event::EventCtx,
+            event: &$crate::event::Event,
+            ctx: &mut $crate::event::EventCtx,
         ) {
             self.$field.on_event_capture(event, ctx);
         }
@@ -222,8 +223,8 @@ macro_rules! delegate_widget_method {
     ($field:ident, on_event) => {
         fn on_event(
             &mut self,
-            event: &crate::event::Event,
-            ctx: &mut crate::event::EventCtx,
+            event: &$crate::event::Event,
+            ctx: &mut $crate::event::EventCtx,
         ) {
             self.$field.on_event(event, ctx);
         }
@@ -232,8 +233,8 @@ macro_rules! delegate_widget_method {
     ($field:ident, on_message) => {
         fn on_message(
             &mut self,
-            message: &crate::message::MessageEvent,
-            ctx: &mut crate::event::EventCtx,
+            message: &$crate::message::MessageEvent,
+            ctx: &mut $crate::event::EventCtx,
         ) {
             self.$field.on_message(message, ctx);
         }
@@ -244,7 +245,7 @@ macro_rules! delegate_widget_method {
             &mut self,
             delta_x: i32,
             delta_y: i32,
-            ctx: &mut crate::event::EventCtx,
+            ctx: &mut $crate::event::EventCtx,
         ) {
             self.$field.on_mouse_scroll(delta_x, delta_y, ctx);
         }
@@ -261,9 +262,9 @@ macro_rules! delegate_widget_method {
     ($field:ident, on_app_key) => {
         fn on_app_key(
             &mut self,
-            app: &mut crate::App,
-            key: &crate::keys::KeyEventData,
-            ctx: &mut crate::event::EventCtx,
+            app: &mut $crate::App,
+            key: &$crate::keys::KeyEventData,
+            ctx: &mut $crate::event::EventCtx,
         ) {
             self.$field.on_app_key(app, key, ctx);
         }
@@ -272,9 +273,9 @@ macro_rules! delegate_widget_method {
     ($field:ident, on_app_action) => {
         fn on_app_action(
             &mut self,
-            app: &mut crate::App,
-            action: crate::event::Action,
-            ctx: &mut crate::event::EventCtx,
+            app: &mut $crate::App,
+            action: $crate::event::Action,
+            ctx: &mut $crate::event::EventCtx,
         ) {
             self.$field.on_app_action(app, action, ctx);
         }
@@ -283,9 +284,9 @@ macro_rules! delegate_widget_method {
     ($field:ident, on_app_message) => {
         fn on_app_message(
             &mut self,
-            app: &mut crate::App,
-            message: &crate::message::MessageEvent,
-            ctx: &mut crate::event::EventCtx,
+            app: &mut $crate::App,
+            message: &$crate::message::MessageEvent,
+            ctx: &mut $crate::event::EventCtx,
         ) {
             self.$field.on_app_message(app, message, ctx);
         }
@@ -294,9 +295,9 @@ macro_rules! delegate_widget_method {
     ($field:ident, on_app_tick) => {
         fn on_app_tick(
             &mut self,
-            app: &mut crate::App,
+            app: &mut $crate::App,
             tick: u64,
-            ctx: &mut crate::event::EventCtx,
+            ctx: &mut $crate::event::EventCtx,
         ) {
             self.$field.on_app_tick(app, tick, ctx);
         }
@@ -305,8 +306,8 @@ macro_rules! delegate_widget_method {
     ($field:ident, on_app_mount) => {
         fn on_app_mount(
             &mut self,
-            app: &mut crate::App,
-            ctx: &mut crate::event::EventCtx,
+            app: &mut $crate::App,
+            ctx: &mut $crate::event::EventCtx,
         ) {
             self.$field.on_app_mount(app, ctx);
         }
@@ -369,18 +370,18 @@ macro_rules! delegate_widget_method {
     // ── Actions / bindings ─────────────────────────────────────────────
 
     ($field:ident, bindings) => {
-        fn bindings(&self) -> Vec<crate::widgets::BindingDecl> { self.$field.bindings() }
+        fn bindings(&self) -> Vec<$crate::widgets::BindingDecl> { self.$field.bindings() }
     };
 
     ($field:ident, binding_hints) => {
-        fn binding_hints(&self) -> Vec<crate::event::BindingHint> { self.$field.binding_hints() }
+        fn binding_hints(&self) -> Vec<$crate::event::BindingHint> { self.$field.binding_hints() }
     };
 
     ($field:ident, execute_action) => {
         fn execute_action(
             &mut self,
-            action: &crate::action::ParsedAction,
-            ctx: &mut crate::event::EventCtx,
+            action: &$crate::action::ParsedAction,
+            ctx: &mut $crate::event::EventCtx,
         ) -> bool {
             self.$field.execute_action(action, ctx)
         }
@@ -391,23 +392,23 @@ macro_rules! delegate_widget_method {
     };
 
     ($field:ident, action_registry) => {
-        fn action_registry(&self) -> &[crate::action::ActionDecl] { self.$field.action_registry() }
+        fn action_registry(&self) -> &[$crate::action::ActionDecl] { self.$field.action_registry() }
     };
 
     // ── Styles ─────────────────────────────────────────────────────────
 
     ($field:ident, style) => {
-        fn style(&self) -> Option<crate::style::Style> { self.$field.style() }
+        fn style(&self) -> Option<$crate::style::Style> { self.$field.style() }
     };
 
     ($field:ident, set_inline_style) => {
-        fn set_inline_style(&mut self, style: crate::style::Style) {
+        fn set_inline_style(&mut self, style: $crate::style::Style) {
             self.$field.set_inline_style(style);
         }
     };
 
     ($field:ident, take_node_seed) => {
-        fn take_node_seed(&mut self) -> crate::widgets::NodeSeed {
+        fn take_node_seed(&mut self) -> $crate::widgets::NodeSeed {
             self.$field.take_node_seed()
         }
     };
@@ -459,7 +460,7 @@ macro_rules! delegate_widget_method {
     };
 
     ($field:ident, selection_at) => {
-        fn selection_at(&self, x: u16, y: u16) -> Option<crate::widgets::WidgetSelectionAnchor> {
+        fn selection_at(&self, x: u16, y: u16) -> Option<$crate::widgets::WidgetSelectionAnchor> {
             self.$field.selection_at(x, y)
         }
     };
@@ -469,7 +470,7 @@ macro_rules! delegate_widget_method {
             &self,
             x: u16,
             y: u16,
-        ) -> Option<(crate::widgets::WidgetSelectionAnchor, crate::widgets::WidgetSelectionAnchor)> {
+        ) -> Option<($crate::widgets::WidgetSelectionAnchor, $crate::widgets::WidgetSelectionAnchor)> {
             self.$field.selection_word_range_at(x, y)
         }
     };
@@ -477,7 +478,7 @@ macro_rules! delegate_widget_method {
     ($field:ident, selection_all_range) => {
         fn selection_all_range(
             &self,
-        ) -> Option<(crate::widgets::WidgetSelectionAnchor, crate::widgets::WidgetSelectionAnchor)> {
+        ) -> Option<($crate::widgets::WidgetSelectionAnchor, $crate::widgets::WidgetSelectionAnchor)> {
             self.$field.selection_all_range()
         }
     };
@@ -485,8 +486,8 @@ macro_rules! delegate_widget_method {
     ($field:ident, update_selection) => {
         fn update_selection(
             &mut self,
-            from: crate::widgets::WidgetSelectionAnchor,
-            to: crate::widgets::WidgetSelectionAnchor,
+            from: $crate::widgets::WidgetSelectionAnchor,
+            to: $crate::widgets::WidgetSelectionAnchor,
         ) -> bool {
             self.$field.update_selection(from, to)
         }
@@ -501,7 +502,7 @@ macro_rules! delegate_widget_method {
     };
 
     ($field:ident, selection_updated) => {
-        fn selection_updated(&mut self, ctx: &mut crate::event::EventCtx) {
+        fn selection_updated(&mut self, ctx: &mut $crate::event::EventCtx) {
             self.$field.selection_updated(ctx);
         }
     };
@@ -509,7 +510,7 @@ macro_rules! delegate_widget_method {
     // ── Reactive ───────────────────────────────────────────────────────
 
     ($field:ident, reactive_widget) => {
-        fn reactive_widget(&mut self) -> Option<&mut dyn crate::reactive::ReactiveWidget> {
+        fn reactive_widget(&mut self) -> Option<&mut dyn $crate::reactive::ReactiveWidget> {
             self.$field.reactive_widget()
         }
     };
@@ -526,7 +527,7 @@ macro_rules! delegate_renderable {
                 console: &rich_rs::Console,
                 options: &rich_rs::ConsoleOptions,
             ) -> rich_rs::Segments {
-                crate::widgets::Widget::render(self, console, options)
+                $crate::widgets::Widget::render(self, console, options)
             }
         }
     };

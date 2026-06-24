@@ -7,6 +7,28 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-24 (chore: clippy hygiene sweep — zero non-forbidden warnings)
+
+- Removed genuinely-dead private fields: `ParsedTag.meta` (markup.rs), `RunningTimer.name`
+  (timers.rs); callers already stored metadata elsewhere.
+- Removed `seed_ident_methods!()` from `CollapsibleContents` (private type, methods unused).
+- Fixed all `unused_mut` / `field_reassign_with_default` / `manual_clamp` / `manual_strip`
+  / `while_let_loop` / `vec_init_then_push` / `map_identity` / `manual_checked_ops`
+  / `question_mark` / `redundant_locals` warnings across ~25 source files.
+- Added targeted `#[allow(clippy::...)]` (with rationale comments) for intentional
+  patterns: `too_many_arguments` on layout/border/render helpers, `needless_range_loop`
+  where the index is load-bearing, `type_complexity` on public API signatures,
+  `large_enum_variant` on content model enums, `while_let_loop` in the binding-hints
+  loop (multiple break conditions).
+- Replaced all bare `crate::` references inside `macro_rules!` bodies in `delegate.rs`
+  with `$crate::` (fixes `clippy::crate_in_macro_def`).
+- Replaced `is_multiple_of(100)` (stable since 1.87) in `progress_bar.rs` with
+  `% 100 == 0` to stay within MSRV 1.85.
+- Added `Default` impls for `OptionList` and `RadioSet` (previously only had `new()`).
+- Remaining 25 warnings are all in the 3 forbidden files owned by the
+  `c11-scrollthumb` branch (`render.rs`, `scroll_view.rs`, `scrollbar.rs`);
+  they will be addressed there.
+
 ### 2026-06-24 (fix(render): keyline canvas fg=bg base + Label trailing-blank height)
 
 - **`Label` intrinsic height now counts a trailing blank line.**

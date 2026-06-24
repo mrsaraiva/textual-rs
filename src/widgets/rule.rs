@@ -207,7 +207,7 @@ impl Widget for Rule {
         let meta = crate::css::selector_meta_generic(self);
         let style = crate::css::resolve_style(self, &meta)
             .to_rich()
-            .unwrap_or_else(rich_rs::Style::new);
+            .unwrap_or_default();
 
         match self.orientation {
             RuleOrientation::Horizontal => {
@@ -259,16 +259,13 @@ impl Renderable for Rule {
 impl ReactiveWidget for Rule {
     fn reactive_dispatch(&mut self, changes: &[ReactiveChange], ctx: &mut ReactiveCtx) {
         for change in changes {
-            match change.field_name {
-                "orientation" => {
-                    if let (Some(old), Some(new)) = (
-                        change.old_value.downcast_ref::<RuleOrientation>(),
-                        change.new_value.downcast_ref::<RuleOrientation>(),
-                    ) {
-                        self.watch_orientation(old, new, ctx);
-                    }
+            if change.field_name == "orientation" {
+                if let (Some(old), Some(new)) = (
+                    change.old_value.downcast_ref::<RuleOrientation>(),
+                    change.new_value.downcast_ref::<RuleOrientation>(),
+                ) {
+                    self.watch_orientation(old, new, ctx);
                 }
-                _ => {}
             }
         }
     }

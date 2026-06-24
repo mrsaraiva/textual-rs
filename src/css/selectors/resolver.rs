@@ -14,9 +14,7 @@ use super::matching::rule_specificity;
 fn widget_is_screen<T: Widget + ?Sized>(widget: &T) -> bool {
     widget.style_type() == "Screen"
         || widget
-            .style_type_aliases()
-            .iter()
-            .any(|alias| *alias == "Screen")
+            .style_type_aliases().contains(&"Screen")
 }
 
 /// Interaction states for type-only/off-tree meta, sourced from the dispatch
@@ -173,9 +171,7 @@ pub(crate) fn node_selector_meta_from_node(node: &WidgetNode, node_id: NodeId) -
     let is_screen = node.widget.style_type() == "Screen"
         || node
             .widget
-            .style_type_aliases()
-            .iter()
-            .any(|alias| *alias == "Screen");
+            .style_type_aliases().contains(&"Screen");
     // Python parity: an active screen behaves as :focus while the app is active.
     let focused = (state.focused || is_screen) && app_is_active();
     SelectorMeta {

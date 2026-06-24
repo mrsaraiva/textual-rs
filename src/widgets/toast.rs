@@ -1,4 +1,4 @@
-use rich_rs::{Console, ConsoleOptions, MetaValue, Renderable, Segment, Segments, StyleMeta, Text};
+use rich_rs::{Console, ConsoleOptions, MetaValue, Renderable, Segment, Segments, Text};
 
 use crate::content::{Content, ContentPart};
 use crate::event::{Event, EventCtx};
@@ -10,7 +10,7 @@ use super::{NodeSeed, Widget};
 /// skips re-applying widget CSS text attributes that have already been baked in
 /// by `Content::render_strips`.
 fn tag_segment_no_text_style(seg: &mut Segment) {
-    let mut meta = seg.meta.take().unwrap_or_else(StyleMeta::new);
+    let mut meta = seg.meta.take().unwrap_or_default();
     let mut map: std::collections::BTreeMap<String, MetaValue> = meta
         .meta
         .as_ref()
@@ -72,8 +72,10 @@ impl Toast {
     pub fn new(message: impl Into<String>, severity: ToastSeverity) -> Self {
         let message = message.into();
         let classes = vec![severity.class_name().to_string()];
-        let mut seed = NodeSeed::default();
-        seed.classes = classes.clone();
+        let seed = NodeSeed {
+            classes: classes.clone(),
+            ..NodeSeed::default()
+        };
         Self {
             message,
             title: None,

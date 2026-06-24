@@ -20,6 +20,12 @@ pub struct BindingsTable {
     seed: NodeSeed,
 }
 
+impl Default for BindingsTable {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl BindingsTable {
     crate::seed_ident_methods!();
 
@@ -123,8 +129,7 @@ impl BindingsTable {
             .map(|binding| rich_rs::cell_len(&binding.key))
             .max()
             .unwrap_or(0)
-            .min(24)
-            .max(3);
+            .clamp(3, 24);
         let description_width = width
             .saturating_sub(key_column_width.saturating_add(2))
             .max(1);
@@ -291,6 +296,12 @@ pub struct KeyPanel {
     widget_height: AtomicUsize,
     scrollbar_extracted: bool,
     seed: NodeSeed,
+}
+
+impl Default for KeyPanel {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl KeyPanel {

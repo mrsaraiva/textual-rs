@@ -99,8 +99,6 @@ struct RunningTimer {
     /// When `skip` is enabled a timer that fell behind fires once and
     /// fast-forwards, rather than firing a backlog burst.
     skip: bool,
-    /// Optional debug name (Python `Timer.name`).
-    name: Option<String>,
 }
 
 impl RunningTimer {
@@ -164,7 +162,7 @@ impl TimerRuntime {
         target: NodeId,
         delay: Duration,
     ) -> Option<MessageEvent> {
-        self.schedule_full(timer_id, target, delay, Some(1), false, None)
+        self.schedule_full(timer_id, target, delay, Some(1), false)
     }
 
     /// Schedule a repeating timer (`set_interval`).
@@ -177,9 +175,8 @@ impl TimerRuntime {
         interval: Duration,
         repeat: Option<u64>,
         paused: bool,
-        name: Option<String>,
     ) -> Option<MessageEvent> {
-        self.schedule_full(timer_id, target, interval, repeat, paused, name)
+        self.schedule_full(timer_id, target, interval, repeat, paused)
     }
 
     fn schedule_full(
@@ -189,7 +186,6 @@ impl TimerRuntime {
         interval: Duration,
         repeat: Option<u64>,
         paused: bool,
-        name: Option<String>,
     ) -> Option<MessageEvent> {
         let now = self.clock.now();
         let replaced = self.running.insert(
@@ -202,7 +198,6 @@ impl TimerRuntime {
                 repeat,
                 paused,
                 skip: true,
-                name,
             },
         );
         replaced.map(|timer| self.cancelled_event(timer_id, timer.target))
@@ -366,7 +361,7 @@ mod tests {
     fn interval_fires_repeatedly_n_times_after_n_advances() {
         let mut runtime = TimerRuntime::manual();
         let target = node_id_from_ffi(2);
-        runtime.schedule_interval(3, target, Duration::from_secs(1), None, false, None);
+        runtime.schedule_interval(3, target, Duration::from_secs(1), None, false);
 
         let mut fires = 0;
         for _ in 0..5 {
@@ -381,7 +376,7 @@ mod tests {
     fn bounded_repeat_stops_after_limit() {
         let mut runtime = TimerRuntime::manual();
         let target = node_id_from_ffi(9);
-        runtime.schedule_interval(11, target, Duration::from_secs(1), Some(3), false, None);
+        runtime.schedule_interval(11, target, Duration::from_secs(1), Some(3), false);
 
         let mut fires = 0;
         for _ in 0..6 {
@@ -396,7 +391,7 @@ mod tests {
     fn skip_collapses_backlog_to_single_fire() {
         let mut runtime = TimerRuntime::manual();
         let target = node_id_from_ffi(4);
-        runtime.schedule_interval(5, target, Duration::from_secs(1), None, false, None);
+        runtime.schedule_interval(5, target, Duration::from_secs(1), None, false);
         // Jump far ahead: 10 deadlines elapse, but skip collapses to one fire.
         runtime.advance(Duration::from_secs(10));
         let ready = runtime.drain_ready(runtime.now());
@@ -407,7 +402,7 @@ mod tests {
     fn paused_timer_does_not_fire_until_resumed() {
         let mut runtime = TimerRuntime::manual();
         let target = node_id_from_ffi(6);
-        runtime.schedule_interval(8, target, Duration::from_secs(1), None, true, None);
+        runtime.schedule_interval(8, target, Duration::from_secs(1), None, true);
         runtime.advance(Duration::from_secs(3));
         assert!(
             runtime.drain_ready(runtime.now()).is_empty(),
@@ -426,7 +421,7 @@ mod tests {
     fn pause_then_resume_does_not_release_backlog() {
         let mut runtime = TimerRuntime::manual();
         let target = node_id_from_ffi(7);
-        runtime.schedule_interval(2, target, Duration::from_secs(1), None, false, None);
+        runtime.schedule_interval(2, target, Duration::from_secs(1), None, false);
         runtime.pause(2);
         runtime.advance(Duration::from_secs(100));
         assert!(runtime.drain_ready(runtime.now()).is_empty());
@@ -441,7 +436,7 @@ mod tests {
     fn reset_restarts_schedule() {
         let mut runtime = TimerRuntime::manual();
         let target = node_id_from_ffi(8);
-        runtime.schedule_interval(12, target, Duration::from_secs(2), None, false, None);
+        runtime.schedule_interval(12, target, Duration::from_secs(2), None, false);
         runtime.advance(Duration::from_millis(1500));
         runtime.reset(12);
         // After reset, the original 0.5s remaining is discarded.
@@ -491,7 +486,7 @@ mod tests {
     fn next_timeout_ignores_paused_timers() {
         let mut runtime = TimerRuntime::manual();
         let target = node_id_from_ffi(3);
-        runtime.schedule_interval(1, target, Duration::from_secs(5), None, true, None);
+        runtime.schedule_interval(1, target, Duration::from_secs(5), None, true);
         let now = runtime.now();
         assert!(
             runtime.next_timeout(now).is_none(),

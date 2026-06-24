@@ -8,6 +8,12 @@ pub struct Horizontal {
     inner: Container,
 }
 
+impl Default for Horizontal {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Horizontal {
     crate::delegate_ident_methods!(inner);
 

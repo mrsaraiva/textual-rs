@@ -365,8 +365,8 @@ fn build_textual_app_runtime_root<T: TextualApp>(
     state: Arc<Mutex<T>>,
     composed: AppRoot,
 ) -> TextualAppAdapter<T> {
-    let adapter = TextualAppAdapter::new(state, composed);
-    adapter
+    
+    TextualAppAdapter::new(state, composed)
 }
 
 impl<T: TextualApp> TextualAppAdapter<T> {
@@ -1178,7 +1178,6 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
                 .on_tab_activated(m.index, &m.title, ctx);
         }
         if ctx.handled() {
-            return;
         }
     }
 }
