@@ -56,7 +56,10 @@ until the API stabilizes.
   `rose-pine{,-moon,-dawn}`, `atom-one-{dark,light}`, `ansi-{dark,light}`). The generator
   derives every semantic token (`$text-error`, `$primary-muted`, `$surface-active`,
   `$scrollbar`, shades, …) per theme using Python's exact algorithms (LAB lighten/darken,
-  truncating channel blends, `tint`/`__add__`), verified hex-for-hex against Python.
+  truncating channel blends, `tint`/`__add__`). Base/semantic tokens verified hex-for-hex
+  against Python; the LAB-derived shade family (`$*-lighten-2/3`, `$*-darken-3`) still
+  diverges by up to ~42/channel on some themes — a pre-existing `rgb_to_lab`/`lab_to_rgb`
+  inaccuracy (Bruce-Lindbloom vs Python's easyrgb form, f32 vs f64), tracked as a follow-up.
 - **App theme API** (`App::register_theme` / `available_themes` / `theme_name` /
   `set_theme_by_name` / `set_theme_cycle` / `cycle_theme` / `action_cycle_theme`): mirrors
   Python `App.register_theme` / `available_themes` / `App.theme = name` / `action_cycle_theme`.
