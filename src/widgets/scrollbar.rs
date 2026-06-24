@@ -106,7 +106,10 @@ impl ScrollBarRender {
         let track_style = {
             let mut s = rich_rs::Style::new().with_bgcolor(back);
             if let Some(fg) = track_fg {
-                s = s.with_color(fg.flatten_over(back_color).to_simple_opaque());
+                // `track_fg` is already composited over the host's base surface by
+                // the caller (Python applies the host `color` over
+                // `background_colors[0]`, not over the scrollbar track). Use it as-is.
+                s = s.with_color(fg.to_simple_opaque());
             }
             s
         };
@@ -772,7 +775,14 @@ impl Widget for ScrollBar {
         // `color` (fg) to ALL segments from the scrollbar render, including track
         // whitespace. Bake it into the track style so `apply_style_to_segments`
         // sees s.color.is_some() and does not overwrite it.
-        let track_fg = resolved.fg;
+        //
+        // The host `color` (e.g. `color: blue 80%`) is composited over the host's
+        // BASE BACKGROUND surface (Python `background_colors[0]`), NOT over the
+        // scrollbar's own track background. Flatten it here over `base_bg` so a
+        // semi-transparent host color resolves against the real surface (white in
+        // `scrollbar_size`'s `background: white`) rather than the dark scrollbar
+        // track (`#0000cc` regression). Already-opaque colors are unchanged.
+        let track_fg = resolved.fg.map(|fg| fg.flatten_over(base_bg));
         let lines = renderer.render_bar(length, bg, thumb, track_fg);
         // NOTE: line-break between ROWS, so the bound is the number of rendered
         // rows — NOT `length`. For a vertical bar rows == `length` (track_len),
@@ -1328,6 +1338,61 @@ mod tests {
                 .iter()
                 .any(|s| s.style.and_then(|st| st.bgcolor) == Some(blue)),
             "track should use host scrollbar-background (blue)"
+        );
+    }
+
+    /// Regression: the host `color` baked into the track foreground must be
+    /// composited over the host's BASE BACKGROUND surface (Python
+    /// `background_colors[0]`), NOT over the scrollbar's own (dark) track
+    /// background. `scrollbar_size` sets `background: white; color: blue 80%`, so
+    /// the track fg must be `blue 80%` over white (#3333ff) — previously it was
+    /// flattened over the dark scrollbar track (#0000cc), a parity regression.
+    #[test]
+    fn track_fg_composites_over_host_base_background_not_track() {
+        use crate::css::SelectorMeta;
+        let mut host = Style::default();
+        // background: white; color: blue 80%
+        host.bg = Some(Color::rgb(255, 255, 255));
+        host.fg = Some(Color::rgba_f(0, 0, 255, 0.8));
+        // scrollbar-background: a dark surface (so the regression would show).
+        host.scrollbar_background = Some(Color::rgb(0, 0, 0));
+        let host_meta = SelectorMeta::new("Screen".to_string(), None, Vec::new());
+
+        let mut bar = ScrollBar::new(true, 1);
+        bar.set_window_virtual_size(100);
+        bar.set_window_size(20);
+        bar.on_layout(1, 20);
+        let self_meta = SelectorMeta::new("ScrollBar".to_string(), None, Vec::new());
+
+        let console = rich_rs::Console::new();
+        let mut options = console.options().clone();
+        options.size = (1, 20);
+        options.max_width = 1;
+        options.max_height = 20;
+
+        crate::css::push_style_context(host_meta, host);
+        crate::css::push_style_context(self_meta, Style::default());
+        let segments = Widget::render(&bar, &console, &options);
+        crate::css::pop_style_context();
+        crate::css::pop_style_context();
+
+        // blue(0,0,255) at 80% over white(255,255,255) = (51,51,255) = #3333ff.
+        let expected = Color::rgb(51, 51, 255).to_simple_opaque();
+        let wrong = Color::rgb(0, 0, 204).to_simple_opaque(); // blue 80% over black
+        let track_seg = segments
+            .iter()
+            .find(|s| {
+                let st = s.style.unwrap_or_default();
+                // Track cells carry the host fg color AND a bgcolor (no reverse).
+                st.color.is_some() && st.bgcolor.is_some() && st.reverse != Some(true)
+            })
+            .expect("expected a track cell carrying the host fg color");
+        let fg = track_seg.style.and_then(|s| s.color);
+        assert_ne!(fg, Some(wrong), "track fg must NOT flatten over the dark track");
+        assert_eq!(
+            fg,
+            Some(expected),
+            "track fg must be host color (blue 80%) over base background (white)"
         );
     }
 

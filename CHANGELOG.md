@@ -7,6 +7,20 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-24 (fix(scrollbar): track foreground composites over host base surface)
+
+- **Scrollbar track foreground now composites over the host's base background, not
+  the dark scrollbar track.** Python applies the host widget `color` to every
+  scrollbar segment via `_Styled`, with a semi-transparent color resolved against
+  `background_colors[0]` (the surface beneath the widget). The Rust scrollbar was
+  flattening the host fg over the scrollbar's own (dark) track background, so a
+  `Screen { background: white; color: blue 80% }` produced a `#0000cc` track fg
+  (blue 80% over black) instead of Python's `#3333ff` (blue 80% over white). The fg
+  is now flattened over the resolved `base_bg` surface before being baked into the
+  track style. Improves `docs/examples/styles/scrollbar_size` (the track-fg colour
+  now matches Python; the residual thumb-geometry gap is a separate content-height
+  word-wrap root, not scrollbar render math).
+
 ### 2026-06-24 (fix(render): keyline canvas fg=bg base + Label trailing-blank height)
 
 - **`Label` intrinsic height now counts a trailing blank line.**
