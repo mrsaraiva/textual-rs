@@ -25,8 +25,10 @@ impl RadioButton {
 
     pub fn new(label: impl Into<String>) -> Self {
         let label = label.into();
-        let mut seed = NodeSeed::default();
-        seed.classes = vec!["radio-button".to_string(), "-off".to_string()];
+        let seed = NodeSeed {
+            classes: vec!["radio-button".to_string(), "-off".to_string()],
+            ..NodeSeed::default()
+        };
         Self {
             label,
             state: BinaryToggleState::new(false),

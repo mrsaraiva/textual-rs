@@ -1,5 +1,5 @@
 use crossterm::event::KeyCode;
-use rich_rs::{Console, ConsoleOptions, MetaValue, Renderable, Segment, Segments, StyleMeta, Text};
+use rich_rs::{Console, ConsoleOptions, MetaValue, Renderable, Segment, Segments, Text};
 
 use crate::debug::{debug_input, debug_message};
 use crate::event::{Action, Event, EventCtx};
@@ -77,7 +77,7 @@ impl std::fmt::Debug for Button {
 /// skips re-applying widget CSS text attributes that have already been baked in
 /// by `Content::render_strips`.
 fn tag_segment_no_text_style(seg: &mut Segment) {
-    let mut meta = seg.meta.take().unwrap_or_else(StyleMeta::new);
+    let mut meta = seg.meta.take().unwrap_or_default();
     let mut map: std::collections::BTreeMap<String, MetaValue> = meta
         .meta
         .as_ref()
@@ -507,8 +507,8 @@ impl Widget for Button {
                 ctx.request_repaint();
                 ctx.set_handled();
             }
-            Event::MouseUp(mouse) => {
-                if self.pressed == PressedState::Mouse {
+            Event::MouseUp(mouse)
+                if self.pressed == PressedState::Mouse => {
                     // Activate only on click (mouse released while still over the button).
                     if mouse.target.is_some_and(|t| t == self.node_id()) {
                         debug_message(&format!(
@@ -527,7 +527,6 @@ impl Widget for Button {
                     ctx.remove_class("-active");
                     ctx.request_repaint();
                 }
-            }
             Event::Action(Action::Toggle) if self.node_state().focused => {
                 self.pressed = PressedState::KeyboardPending;
                 ctx.add_class("-active");

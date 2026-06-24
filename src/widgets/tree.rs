@@ -1099,16 +1099,13 @@ impl Tree {
 impl ReactiveWidget for Tree {
     fn reactive_dispatch(&mut self, changes: &[ReactiveChange], ctx: &mut ReactiveCtx) {
         for change in changes {
-            match change.field_name {
-                "show_root" => {
-                    if let (Some(old), Some(new)) = (
-                        change.old_value.downcast_ref::<bool>(),
-                        change.new_value.downcast_ref::<bool>(),
-                    ) {
-                        self.watch_show_root(old, new, ctx);
-                    }
+            if change.field_name == "show_root" {
+                if let (Some(old), Some(new)) = (
+                    change.old_value.downcast_ref::<bool>(),
+                    change.new_value.downcast_ref::<bool>(),
+                ) {
+                    self.watch_show_root(old, new, ctx);
                 }
-                _ => {}
             }
         }
     }
@@ -1444,7 +1441,7 @@ impl Widget for Tree {
             .unwrap_or(default_bg);
         let base_style = parent_resolved
             .to_rich_over(component_bg_base)
-            .unwrap_or_else(rich_rs::Style::new);
+            .unwrap_or_default();
         let guide_style = resolve_component(&["tree--guides"])
             .to_rich_over(component_bg_base)
             .unwrap_or(base_style);

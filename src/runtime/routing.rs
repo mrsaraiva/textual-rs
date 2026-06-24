@@ -593,7 +593,7 @@ fn key_matches_binding(key: &KeyEventData, binding_key: &str) -> bool {
     binding_key
         .split(',')
         .map(str::trim)
-        .any(|alt| aliases.iter().any(|a| *a == alt))
+        .any(|alt| aliases.contains(&alt))
 }
 
 fn format_binding_key_display(binding_key: &str) -> String {
@@ -627,9 +627,7 @@ pub(crate) fn match_binding_tree(
     } else {
         // No focused widget: fall back to root + single-child chain so
         // app-level/root declarative bindings still work.
-        let Some(root) = tree.root() else {
-            return None;
-        };
+        let root = tree.root()?;
         let mut path = vec![root];
         let mut current = root;
         loop {
@@ -721,6 +719,7 @@ fn collect_root_scope_hints(tree: &WidgetTree) -> (Vec<BindingHint>, Vec<NodeId>
     };
 
     let mut current = root;
+    #[allow(clippy::while_let_loop)] // loop also breaks on children.len() != 1
     loop {
         if let Some(node) = tree.get(current) {
             sources.push(current);

@@ -66,6 +66,12 @@ pub struct Container {
     suppress_scrollbars: bool,
 }
 
+impl Default for Container {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Container {
     crate::seed_ident_methods!();
 
@@ -429,9 +435,7 @@ impl Widget for Container {
 
         let mut total = 0usize;
         for child in &self.children {
-            let Some(child_height) = child.layout_height() else {
-                return None;
-            };
+            let child_height = child.layout_height()?;
             total = total.saturating_add(child_height.max(1));
         }
         if total == 0 { None } else { Some(total) }

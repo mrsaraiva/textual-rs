@@ -1399,12 +1399,11 @@ impl Widget for TextArea {
                 ctx.request_repaint();
                 ctx.set_handled();
             }
-            Event::MouseUp(_) => {
-                if self.mouse_down {
+            Event::MouseUp(_)
+                if self.mouse_down => {
                     self.mouse_down = false;
                     ctx.request_repaint();
                 }
-            }
             Event::Key(key) if self.node_state().focused => {
                 if !self.read_only && matches!(key.code, KeyCode::Char('\u{7f}' | '\u{08}')) {
                     self.save_undo_checkpoint();
@@ -1803,7 +1802,7 @@ impl Widget for TextArea {
                 if pending_text.is_empty() {
                     return;
                 }
-                let style = pending_style.take().unwrap_or_else(rich_rs::Style::new);
+                let style = pending_style.take().unwrap_or_default();
                 out.push(Segment::styled(std::mem::take(pending_text), style));
             };
 
@@ -1922,7 +1921,7 @@ impl Widget for TextArea {
 fn compose_rich(style: &Style, base_bg: Color) -> rich_rs::Style {
     let mut rich = style
         .to_rich_without_colors()
-        .unwrap_or_else(rich_rs::Style::new);
+        .unwrap_or_default();
     let mut under_bg = base_bg;
     if let Some(bg) = style.bg {
         let flat = bg.flatten_over(under_bg);
@@ -1942,11 +1941,10 @@ fn split_lines(text: String) -> Vec<String> {
     }
     let mut lines: Vec<String> = text.split('\n').map(|s| s.to_string()).collect();
     // Preserve trailing newline as an empty last line.
-    if text.ends_with('\n') {
-        if !lines.last().is_some_and(|s| s.is_empty()) {
+    if text.ends_with('\n')
+        && !lines.last().is_some_and(|s| s.is_empty()) {
             lines.push(String::new());
         }
-    }
     if lines.is_empty() {
         lines.push(String::new());
     }

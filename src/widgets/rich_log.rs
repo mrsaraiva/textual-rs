@@ -130,6 +130,12 @@ impl std::fmt::Debug for LogLine {
     }
 }
 
+impl Default for RichLog {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RichLog {
     crate::seed_ident_methods!();
 

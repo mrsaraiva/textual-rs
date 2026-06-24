@@ -81,7 +81,6 @@ impl SystemCommandsProvider {
         let indexed = commands
             .iter()
             .cloned()
-            .into_iter()
             .map(|command| SystemCommandEntry {
                 title_lower: command.title.to_lowercase(),
                 command,
@@ -632,7 +631,7 @@ impl CommandList {
         let right_pad = option_padding.right as usize;
         let base_title_style = option_style
             .to_rich_over(default_bg)
-            .unwrap_or_else(rich_rs::Style::new);
+            .unwrap_or_default();
         let hover_style = crate::css::resolve_component_style(self, &["option-list--option-hover"])
             .to_rich_over(default_bg)
             .unwrap_or(base_title_style);
@@ -745,7 +744,7 @@ impl Widget for CommandList {
             .help_style_override
             .lock()
             .ok()
-            .and_then(|guard| guard.clone());
+            .and_then(|guard| *guard);
         self.render_with_help_style(console, options, help_style_override)
     }
 
@@ -1453,7 +1452,7 @@ impl Widget for CommandPalette {
             .unwrap_or_else(|| self.palette_geometry(width, height));
         let panel_style = crate::css::resolve_component_style(self, &["command-palette--panel"])
             .to_rich()
-            .unwrap_or_else(rich_rs::Style::new);
+            .unwrap_or_default();
         let background_bg = crate::style::parse_color_like("$background")
             .unwrap_or_else(|| crate::style::Color::rgb(0, 0, 0))
             .to_simple_opaque();
@@ -1883,8 +1882,8 @@ impl Widget for CommandPalette {
             return;
         }
 
-        if !self.open && self.panel_visible {
-            if matches!(
+        if !self.open && self.panel_visible
+            && matches!(
                 event,
                 Event::MouseDown(_)
                     | Event::MouseUp(_)
@@ -1895,7 +1894,6 @@ impl Widget for CommandPalette {
                 ctx.set_handled();
                 return;
             }
-        }
 
         if !self.open {
             if self.show_key_panel {
@@ -2157,8 +2155,8 @@ impl Widget for CommandPalette {
         }
 
         // Clear stale row hover when leaving the results area.
-        let changed = self.list.on_mouse_move(0, u16::MAX);
-        changed
+        
+        self.list.on_mouse_move(0, u16::MAX)
     }
 
     fn on_mouse_scroll(&mut self, delta_x: i32, delta_y: i32, ctx: &mut EventCtx) {

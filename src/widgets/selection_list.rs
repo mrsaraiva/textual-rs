@@ -103,8 +103,10 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> SelectionList<T> {
 
     /// Create an empty `SelectionList`.
     pub fn new() -> Self {
-        let mut seed = NodeSeed::default();
-        seed.classes = vec!["selection-list".to_string()];
+        let seed = NodeSeed {
+            classes: vec!["selection-list".to_string()],
+            ..NodeSeed::default()
+        };
         Self {
             inner: OptionList::new(),
             disabled: false,
@@ -412,7 +414,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for SelectionList<T> {
 
         let base_style = crate::css::resolve_component_style(self, &["option-list--option"])
             .to_rich()
-            .unwrap_or_else(rich_rs::Style::new);
+            .unwrap_or_default();
 
         let btn_width = Self::button_width();
 

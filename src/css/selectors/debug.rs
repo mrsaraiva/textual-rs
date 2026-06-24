@@ -100,8 +100,8 @@ pub(super) fn style_debug_matches(meta: &SelectorMeta) -> bool {
                 "inline" => meta.states.inline,
                 "ansi" => meta.states.ansi,
                 "nocolor" => meta.states.nocolor,
-                "even" => meta.states.child_index.map_or(false, |i| i % 2 == 0),
-                "odd" => meta.states.child_index.map_or(false, |i| i % 2 == 1),
+                "even" => meta.states.child_index.is_some_and(|i| i % 2 == 0),
+                "odd" => meta.states.child_index.is_some_and(|i| i % 2 == 1),
                 "first-child" | "first_child" => meta.states.child_index == Some(0),
                 "last-child" | "last_child" => {
                     matches!((meta.states.child_index, meta.states.sibling_count),

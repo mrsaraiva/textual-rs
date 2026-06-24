@@ -69,8 +69,10 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Select<T> {
             list.set_highlighted(0);
         }
 
-        let mut seed = NodeSeed::default();
-        seed.classes = vec!["select".to_string()];
+        let seed = NodeSeed {
+            classes: vec!["select".to_string()],
+            ..NodeSeed::default()
+        };
         Self {
             options,
             cursor,
@@ -308,7 +310,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Select<T> {
         let panel_width = self.viewport_width.max(1);
         let available_height = self.viewport_height.saturating_sub(panel_y).max(1);
         let desired = self.options.len().max(1);
-        let panel_height = desired.min(available_height).min(12).max(1);
+        let panel_height = desired.min(available_height).clamp(1, 12);
         (panel_x, panel_y, panel_width, panel_height)
     }
 
@@ -423,17 +425,14 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for Select<T> {
             return false;
         }
         match action.name.as_str() {
-            "show_overlay" => {
-                if !self.open {
+            "show_overlay"
+                if !self.open => {
                     self.set_open(true, ctx);
                     ctx.set_handled();
                     true
-                } else {
-                    false
                 }
-            }
-            "dismiss_overlay" => {
-                if self.open {
+            "dismiss_overlay"
+                if self.open => {
                     if self.allow_blank {
                         self.cursor.clear();
                         self.list.clear_highlighted();
@@ -441,10 +440,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for Select<T> {
                     self.set_open(false, ctx);
                     ctx.set_handled();
                     true
-                } else {
-                    false
                 }
-            }
             _ => false,
         }
     }
@@ -486,15 +482,14 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for Select<T> {
                         ctx.set_handled();
                         return;
                     }
-                    KeyCode::Char(ch) => {
+                    KeyCode::Char(ch)
                         // Type-to-search: printable chars that aren't space (space toggles).
-                        if ch != ' ' {
+                        if ch != ' ' => {
                             self.handle_search_char(ch, self.current_tick);
                             ctx.request_repaint();
                             ctx.set_handled();
                             return;
                         }
-                    }
                     _ => {}
                 },
                 Event::MouseDown(mouse) => {
@@ -571,7 +566,6 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for Select<T> {
             if let Some(OptionSelected { index }) = message.downcast_ref::<OptionSelected>() {
                 self.apply_selection(*index, ctx);
                 ctx.set_handled();
-                return;
             }
         }
     }
@@ -645,7 +639,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for Select<T> {
 
         let panel_style = crate::css::resolve_component_style(self, &["select--dropdown"])
             .to_rich()
-            .unwrap_or_else(rich_rs::Style::new);
+            .unwrap_or_default();
 
         // Clear the dropdown area.
         for y in panel_y..panel_y.saturating_add(panel_height).min(height) {
@@ -764,16 +758,13 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Renderable for Select<T> {
 impl<T: Clone + PartialEq + Send + Sync + 'static> ReactiveWidget for Select<T> {
     fn reactive_dispatch(&mut self, changes: &[ReactiveChange], ctx: &mut ReactiveCtx) {
         for change in changes {
-            match change.field_name {
-                "allow_blank" => {
-                    if let (Some(old), Some(new)) = (
-                        change.old_value.downcast_ref::<bool>(),
-                        change.new_value.downcast_ref::<bool>(),
-                    ) {
-                        self.watch_allow_blank(old, new, ctx);
-                    }
+            if change.field_name == "allow_blank" {
+                if let (Some(old), Some(new)) = (
+                    change.old_value.downcast_ref::<bool>(),
+                    change.new_value.downcast_ref::<bool>(),
+                ) {
+                    self.watch_allow_blank(old, new, ctx);
                 }
-                _ => {}
             }
         }
     }

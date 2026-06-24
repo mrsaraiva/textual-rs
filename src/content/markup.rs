@@ -102,7 +102,6 @@ pub(crate) fn parse_tag_style(tag_body: &str) -> Option<ParsedTag> {
     }
 
     let mut style = Style::new();
-    let mut meta: Vec<(String, String)> = Vec::new();
     let mut is_background = false;
     let mut pending_color: Option<Color> = None;
     let mut had_style = false; // did we consume at least one token?
@@ -117,10 +116,9 @@ pub(crate) fn parse_tag_style(tag_body: &str) -> Option<ParsedTag> {
         i += 1;
 
         // --- key=value attribute (link=url, @click=action, etc.) ---
-        if let Some(eq) = token.find('=') {
-            let key = &token[..eq];
-            let value = token[eq + 1..].trim_matches('"').trim_matches('\'');
-            meta.push((key.to_string(), value.to_string()));
+        // Key=value attributes affect only `RawSpan.meta` (populated directly
+        // by `parse_markup`/`extract_meta_only`), not the visual style.
+        if token.contains('=') {
             had_style = true;
             style_state = true; // reset after consuming the token
             continue;
@@ -152,9 +150,9 @@ pub(crate) fn parse_tag_style(tag_body: &str) -> Option<ParsedTag> {
             continue;
         }
 
-        // --- "link" bare keyword → link meta with empty url ---
+        // --- "link" bare keyword → treated as had_style but no visual change ---
+        // (link metadata with empty url lives in RawSpan.meta, not ParsedTag)
         if token == "link" {
-            meta.push(("link".to_string(), String::new()));
             had_style = true;
             style_state = true;
             continue;
@@ -229,7 +227,7 @@ pub(crate) fn parse_tag_style(tag_body: &str) -> Option<ParsedTag> {
         return None;
     }
 
-    Some(ParsedTag { style, meta })
+    Some(ParsedTag { style })
 }
 
 /// Apply a canonical style keyword string to the style builder, respecting `state`.
@@ -252,8 +250,9 @@ fn apply_style_keyword(style: &mut Style, keyword: &str, state: bool) {
 pub(crate) struct ParsedTag {
     /// The visual style portion.
     pub style: Style,
-    /// Non-visual key=value metadata (link=url, @click=action, etc.)
-    pub meta: Vec<(String, String)>,
+    // Note: non-visual key=value metadata (link=url, @click=action, etc.) is
+    // NOT stored here; it is extracted directly into `RawSpan.meta` by
+    // `parse_markup`/`extract_meta_only` at parse time.
 }
 
 // ---------------------------------------------------------------------------

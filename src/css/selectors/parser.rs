@@ -344,8 +344,7 @@ fn snippet_of(source: &str, start: usize, end: usize) -> String {
     let safe_start = start.min(source.len());
     let safe_end = end.min(source.len()).max(safe_start);
     source[safe_start..safe_end]
-        .replace('\n', " ")
-        .replace('\r', " ")
+        .replace(['\n', '\r'], " ")
         .trim()
         .chars()
         .take(120)
@@ -397,7 +396,7 @@ fn parse_selector(selector: &str) -> Option<StyleSelector> {
     let mut classes: Vec<String> = Vec::new();
     let mut pseudos: Vec<PseudoClass> = Vec::new();
 
-    let mut chars = selector.chars().peekable();
+    let chars = selector.chars().peekable();
     let mut current = String::new();
     let mut mode: Option<char> = None; // '#', '.', ':', or None for type
 
@@ -406,11 +405,10 @@ fn parse_selector(selector: &str) -> Option<StyleSelector> {
             return;
         }
         match mode {
-            None => {
-                if type_name.is_none() {
+            None
+                if type_name.is_none() => {
                     type_name = Some(token.to_string());
                 }
-            }
             Some('#') => id = Some(token.to_string()),
             Some('.') => classes.push(token.to_string()),
             Some(':') => {
@@ -448,7 +446,7 @@ fn parse_selector(selector: &str) -> Option<StyleSelector> {
         }
     };
 
-    while let Some(ch) = chars.next() {
+    for ch in chars {
         match ch {
             '#' | '.' | ':' => {
                 flush(mode, current.trim());
@@ -1230,7 +1228,7 @@ pub(super) fn parse_style_body(body: &str) -> Style {
             "grid-columns" => {
                 let parsed: Vec<Option<Scalar>> = value
                     .split_whitespace()
-                    .map(|token| parse_scalar(token))
+                    .map(parse_scalar)
                     .collect();
                 if !parsed.is_empty() && parsed.iter().all(|s| s.is_some()) {
                     style.grid_columns = Some(parsed.into_iter().map(|s| s.unwrap()).collect());
@@ -1239,7 +1237,7 @@ pub(super) fn parse_style_body(body: &str) -> Style {
             "grid-rows" => {
                 let parsed: Vec<Option<Scalar>> = value
                     .split_whitespace()
-                    .map(|token| parse_scalar(token))
+                    .map(parse_scalar)
                     .collect();
                 if !parsed.is_empty() && parsed.iter().all(|s| s.is_some()) {
                     style.grid_rows = Some(parsed.into_iter().map(|s| s.unwrap()).collect());
@@ -2193,7 +2191,7 @@ fn parse_link_style_value(value: &str) -> Option<TextStyleFlags> {
     let mut flags = TextStyleFlags::default();
     let mut any = false;
     let mut pending_not = false;
-    for token in value.split(|c: char| c == ' ' || c == ',' || c == '|') {
+    for token in value.split([' ', ',', '|']) {
         let token = token.trim().to_ascii_lowercase();
         if token.is_empty() {
             continue;
@@ -2240,7 +2238,7 @@ fn parse_link_style_value(value: &str) -> Option<TextStyleFlags> {
 fn parse_text_style_flags(value: &str) -> Option<TextStyleFlags> {
     let mut flags = TextStyleFlags::default();
     let mut any = false;
-    for token in value.split(|c: char| c == ' ' || c == ',' || c == '|') {
+    for token in value.split([' ', ',', '|']) {
         let token = token.trim();
         if token.is_empty() {
             continue;
@@ -2281,7 +2279,7 @@ fn parse_text_style_flags(value: &str) -> Option<TextStyleFlags> {
 
 fn parse_text_style_shorthand_into_style(style: &mut Style, value: &str, is_important: bool) {
     let mut pending_not = false;
-    for token in value.split(|c: char| c == ' ' || c == ',' || c == '|') {
+    for token in value.split([' ', ',', '|']) {
         let token = token.trim().to_ascii_lowercase();
         if token.is_empty() {
             continue;

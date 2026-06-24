@@ -111,10 +111,10 @@ pub(crate) fn layout_dock_fill(tree: &mut WidgetTree, child: NodeId, inner: Regi
     let padding = style.effective_padding();
     let (bt, bb, bl, br) = border_spacing(&style);
 
-    let border_top = bt as u16;
-    let border_bottom = bb as u16;
-    let border_left = bl as u16;
-    let border_right = br as u16;
+    let border_top = bt;
+    let border_bottom = bb;
+    let border_left = bl;
+    let border_right = br;
 
     let chrome_w = border_left + border_right + padding.left + padding.right;
     let chrome_h = border_top + border_bottom + padding.top + padding.bottom;

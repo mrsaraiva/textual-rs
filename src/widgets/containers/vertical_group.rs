@@ -8,6 +8,12 @@ pub struct VerticalGroup {
     inner: Vertical,
 }
 
+impl Default for VerticalGroup {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl VerticalGroup {
     crate::delegate_ident_methods!(inner);
 

@@ -221,6 +221,7 @@ impl Tooltip {
         changed
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn apply_system_state(
         &mut self,
         owner: NodeId,
@@ -462,6 +463,7 @@ impl Tooltip {
         ))
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn overlay_origin(
         &self,
         base_width: usize,
@@ -626,12 +628,11 @@ impl Widget for Tooltip {
 
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
         match event {
-            Event::AppFocus(active) => {
-                if !*active && self.visible {
+            Event::AppFocus(active)
+                if !*active && self.visible => {
                     self.set_visible(false, ctx);
                     ctx.set_handled();
                 }
-            }
             Event::MouseDown(mouse) if mouse.target == self.node_id() => {
                 self.set_anchor(mouse.x as usize, mouse.y as usize);
             }

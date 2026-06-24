@@ -30,6 +30,12 @@ pub struct Row {
     hovered_child: Option<usize>,
 }
 
+impl Default for Row {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Row {
     crate::seed_ident_methods!();
 
@@ -259,16 +265,8 @@ impl Widget for Row {
         }
 
         let remaining = width.saturating_sub(fixed_total);
-        let base = if flex_count > 0 {
-            remaining / flex_count
-        } else {
-            0
-        };
-        let remainder = if flex_count > 0 {
-            remaining % flex_count
-        } else {
-            0
-        };
+        let base = remaining.checked_div(flex_count).unwrap_or(0);
+        let remainder = remaining.checked_rem(flex_count).unwrap_or(0);
 
         let mut flex_seen = 0usize;
         let widths: Vec<usize> = (0..count)
@@ -389,7 +387,6 @@ impl Widget for Row {
             out_lines.push(line);
         }
 
-        let mut out_lines = out_lines;
         out_lines.truncate(max_child_height);
         while out_lines.len() < max_child_height {
             out_lines.push(Vec::new());
@@ -477,16 +474,8 @@ impl Widget for Row {
         }
 
         let remaining = width.saturating_sub(fixed_total);
-        let base = if flex_count > 0 {
-            remaining / flex_count
-        } else {
-            0
-        };
-        let remainder = if flex_count > 0 {
-            remaining % flex_count
-        } else {
-            0
-        };
+        let base = remaining.checked_div(flex_count).unwrap_or(0);
+        let remainder = remaining.checked_rem(flex_count).unwrap_or(0);
 
         let mut flex_seen = 0usize;
         let widths: Vec<usize> = (0..count)
@@ -604,7 +593,6 @@ impl Widget for Row {
             out_lines.push(line);
         }
 
-        let mut out_lines = out_lines;
         out_lines.truncate(max_child_height);
         while out_lines.len() < max_child_height {
             out_lines.push(Vec::new());
@@ -758,7 +746,7 @@ impl Widget for Row {
             "[hover][row] x={} y={} hit={:?}",
             x,
             y,
-            hit.map(|(idx, local_x)| (idx, local_x))
+            hit
         ));
 
         // Dispatch Enter/Leave events when the hovered child changes.
@@ -830,6 +818,12 @@ pub struct Dock {
     last_layout_width: AtomicUsize,
     last_layout_height: AtomicUsize,
     seed: NodeSeed,
+}
+
+impl Default for Dock {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Dock {
@@ -1399,9 +1393,7 @@ impl Widget for Dock {
             return false;
         }
         let mut changed = false;
-        let hit = self
-            .child_at_xy(x, y)
-            .map(|(idx, local_x, local_y, w, h)| (idx, local_x, local_y, w, h));
+        let hit = self.child_at_xy(x, y);
         if let Some((idx, local_x, local_y, w, h)) = hit
             && let Some(item) = self.items.get_mut(idx)
         {
@@ -1917,6 +1909,7 @@ impl Widget for Grid {
             .collect()
     }
 
+    #[allow(clippy::needless_range_loop)] // r/c used as 2D indices into row_heights[r]/col_widths[c]
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
         let height = options.size.1.max(1);
@@ -2053,6 +2046,7 @@ impl Widget for Grid {
         out
     }
 
+    #[allow(clippy::needless_range_loop)] // r/c used as 2D indices into row_heights[r]/col_widths[c]
     fn render_with_debug(
         &self,
         console: &Console,
@@ -2201,40 +2195,32 @@ impl Widget for Grid {
 
     fn on_mount(&mut self) {
         if !self.is_tree_mode() {
-            for cell in &mut self.cells {
-                if let Some(child) = cell {
-                    child.on_mount();
-                }
+            for child in self.cells.iter_mut().flatten() {
+                child.on_mount();
             }
         }
     }
 
     fn on_unmount(&mut self) {
         if !self.is_tree_mode() {
-            for cell in &mut self.cells {
-                if let Some(child) = cell {
-                    child.on_unmount();
-                }
+            for child in self.cells.iter_mut().flatten() {
+                child.on_unmount();
             }
         }
     }
 
     fn on_tick(&mut self, tick: u64) {
         if !self.is_tree_mode() {
-            for cell in &mut self.cells {
-                if let Some(child) = cell {
-                    child.on_tick(tick);
-                }
+            for child in self.cells.iter_mut().flatten() {
+                child.on_tick(tick);
             }
         }
     }
 
     fn on_resize(&mut self, width: u16, height: u16) {
         if !self.is_tree_mode() {
-            for cell in &mut self.cells {
-                if let Some(child) = cell {
-                    child.on_resize(width, height);
-                }
+            for child in self.cells.iter_mut().flatten() {
+                child.on_resize(width, height);
             }
         }
     }
@@ -2243,12 +2229,10 @@ impl Widget for Grid {
         if self.is_tree_mode() {
             return;
         }
-        for cell in &mut self.cells {
-            if let Some(child) = cell {
-                child.on_event_capture(event, ctx);
-                if ctx.handled() {
-                    break;
-                }
+        for child in self.cells.iter_mut().flatten() {
+            child.on_event_capture(event, ctx);
+            if ctx.handled() {
+                break;
             }
         }
     }
@@ -2257,12 +2241,10 @@ impl Widget for Grid {
         if self.is_tree_mode() {
             return;
         }
-        for cell in &mut self.cells {
-            if let Some(child) = cell {
-                child.on_event(event, ctx);
-                if ctx.handled() {
-                    break;
-                }
+        for child in self.cells.iter_mut().flatten() {
+            child.on_event(event, ctx);
+            if ctx.handled() {
+                break;
             }
         }
     }

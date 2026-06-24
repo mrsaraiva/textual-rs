@@ -21,15 +21,14 @@ impl StyleSelector {
                 return false;
             }
         }
-        if !self.classes.is_empty() {
-            if !self
+        if !self.classes.is_empty()
+            && !self
                 .classes
                 .iter()
                 .all(|class| meta.classes.iter().any(|value| value == class))
             {
                 return false;
             }
-        }
         if !self.pseudos.is_empty() {
             for pseudo in &self.pseudos {
                 let ok = match pseudo {
@@ -46,10 +45,10 @@ impl StyleSelector {
                     super::ast::PseudoClass::NoColor => meta.states.nocolor,
                     super::ast::PseudoClass::CanFocus => meta.states.can_focus,
                     super::ast::PseudoClass::Even => {
-                        meta.states.child_index.map_or(false, |i| i % 2 == 0)
+                        meta.states.child_index.is_some_and(|i| i % 2 == 0)
                     }
                     super::ast::PseudoClass::Odd => {
-                        meta.states.child_index.map_or(false, |i| i % 2 == 1)
+                        meta.states.child_index.is_some_and(|i| i % 2 == 1)
                     }
                     super::ast::PseudoClass::FirstChild => meta.states.child_index == Some(0),
                     super::ast::PseudoClass::LastChild => {

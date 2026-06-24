@@ -7,6 +7,12 @@ pub struct Right {
     inner: Container,
 }
 
+impl Default for Right {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Right {
     crate::delegate_ident_methods!(inner);
 

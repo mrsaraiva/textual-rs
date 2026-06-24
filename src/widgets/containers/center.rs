@@ -7,6 +7,12 @@ pub struct Center {
     inner: Container,
 }
 
+impl Default for Center {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Center {
     crate::delegate_ident_methods!(inner);
 

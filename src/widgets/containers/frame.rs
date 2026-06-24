@@ -68,8 +68,7 @@ impl Widget for Frame {
                 let top = format!(
                     "{}{}{}",
                     b.top_left,
-                    std::iter::repeat(b.top)
-                        .take(inner_total)
+                    std::iter::repeat_n(b.top, inner_total)
                         .collect::<String>(),
                     b.top_right
                 );
@@ -87,8 +86,7 @@ impl Widget for Frame {
                 let bottom = format!(
                     "{}{}{}",
                     b.bottom_left,
-                    std::iter::repeat(b.bottom)
-                        .take(inner_total)
+                    std::iter::repeat_n(b.bottom, inner_total)
                         .collect::<String>(),
                     b.bottom_right
                 );
@@ -138,7 +136,7 @@ impl Widget for Frame {
         for _ in 0..self.padding {
             content_lines.push(padding_line.clone());
         }
-        content_lines.extend(child_lines.into_iter());
+        content_lines.extend(child_lines);
         for _ in 0..self.padding {
             content_lines.push(padding_line.clone());
         }
@@ -159,8 +157,7 @@ impl Widget for Frame {
             let top = format!(
                 "{}{}{}",
                 b.top_left,
-                std::iter::repeat(b.top)
-                    .take(inner_total)
+                std::iter::repeat_n(b.top, inner_total)
                     .collect::<String>(),
                 b.top_right
             );
@@ -186,8 +183,7 @@ impl Widget for Frame {
             let bottom = format!(
                 "{}{}{}",
                 b.bottom_left,
-                std::iter::repeat(b.bottom)
-                    .take(inner_total)
+                std::iter::repeat_n(b.bottom, inner_total)
                     .collect::<String>(),
                 b.bottom_right
             );

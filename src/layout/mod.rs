@@ -439,6 +439,7 @@ pub fn resolve_layout(
 ///
 /// Returns `Some((layout: (x0,y0,x1,y1), content: (x0,y0,x1,y1)))`,
 /// or `None` if the node doesn't exist.
+#[allow(clippy::type_complexity)] // return type is simple tuples, just wide
 pub fn inspect_node_rects(
     tree: &WidgetTree,
     node: NodeId,

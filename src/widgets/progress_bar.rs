@@ -53,7 +53,7 @@ impl Eta {
         }
         self.samples.push((time, progress));
         self.add_count += 1;
-        if self.add_count.is_multiple_of(100) {
+        if self.add_count % 100 == 0 {
             self.prune();
         }
     }
@@ -591,7 +591,7 @@ impl ProgressBar {
 
         let style = crate::css::resolve_component_style(self, &[component])
             .to_rich()
-            .unwrap_or_else(rich_rs::Style::new);
+            .unwrap_or_default();
         let range = (start.max(0.0), end.min(width as f32));
         let text: String = Bar::new(range, style, style)
             .width(width)

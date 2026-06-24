@@ -26,13 +26,21 @@ pub struct RadioSet {
     seed: NodeSeed,
 }
 
+impl Default for RadioSet {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RadioSet {
     crate::seed_ident_methods!();
 
     /// Create a new empty RadioSet.
     pub fn new() -> Self {
-        let mut seed = NodeSeed::default();
-        seed.classes = vec!["radio-set".to_string()];
+        let seed = NodeSeed {
+            classes: vec!["radio-set".to_string()],
+            ..NodeSeed::default()
+        };
         Self {
             buttons: Vec::new(),
             cursor: OptionCursorState::default(),
@@ -351,7 +359,7 @@ impl Widget for RadioSet {
 
         let base_style = crate::css::resolve_component_style(self, &["radio-button--label"])
             .to_rich()
-            .unwrap_or_else(rich_rs::Style::new);
+            .unwrap_or_default();
 
         for row in 0..height {
             if row >= self.buttons.len() {

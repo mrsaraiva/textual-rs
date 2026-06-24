@@ -107,10 +107,11 @@ impl Widget for Panel {
 
             // Blank content rows
             for _ in 0..content_height {
-                let mut middle = Vec::new();
-                middle.push(Segment::new(box_chars.mid_left.to_string()));
-                middle.push(Segment::new(" ".repeat(inner_width)));
-                middle.push(Segment::new(box_chars.mid_right.to_string()));
+                let middle = vec![
+                    Segment::new(box_chars.mid_left.to_string()),
+                    Segment::new(" ".repeat(inner_width)),
+                    Segment::new(box_chars.mid_right.to_string()),
+                ];
                 out_lines.push(middle);
             }
 
@@ -163,7 +164,7 @@ impl Widget for Panel {
         for _ in 0..self.padding {
             content_lines.push(padding_line.clone());
         }
-        content_lines.extend(child_lines.into_iter());
+        content_lines.extend(child_lines);
         for _ in 0..self.padding {
             content_lines.push(padding_line.clone());
         }

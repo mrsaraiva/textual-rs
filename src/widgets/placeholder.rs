@@ -349,16 +349,13 @@ impl Renderable for Placeholder {
 impl ReactiveWidget for Placeholder {
     fn reactive_dispatch(&mut self, changes: &[ReactiveChange], ctx: &mut ReactiveCtx) {
         for change in changes {
-            match change.field_name {
-                "variant" => {
-                    if let (Some(old), Some(new)) = (
-                        change.old_value.downcast_ref::<PlaceholderVariant>(),
-                        change.new_value.downcast_ref::<PlaceholderVariant>(),
-                    ) {
-                        self.watch_variant(old, new, ctx);
-                    }
+            if change.field_name == "variant" {
+                if let (Some(old), Some(new)) = (
+                    change.old_value.downcast_ref::<PlaceholderVariant>(),
+                    change.new_value.downcast_ref::<PlaceholderVariant>(),
+                ) {
+                    self.watch_variant(old, new, ctx);
                 }
-                _ => {}
             }
         }
     }

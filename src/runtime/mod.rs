@@ -552,6 +552,7 @@ pub struct App {
     /// to the app's `TextualApp::check_action()` method. Used by
     /// `dispatch_binding_hints_changed` to set enabled/disabled state on each
     /// binding hint.
+    #[allow(clippy::type_complexity)]
     check_action_fn: Option<Arc<dyn Fn(&str, &[String]) -> Option<bool> + Send + Sync>>,
     /// Reactive context for app-level reactive fields.
     ///
@@ -595,14 +596,16 @@ pub struct App {
 
 impl App {
     pub fn new() -> Result<Self> {
-        let mut options = DriverOptions::default();
-        // Preserve textual-rs behavior: mouse capture enabled by default.
-        options.enable_mouse = true;
-        // Enable xterm focus change reporting so widgets can react to window focus.
-        options.enable_focus_change = true;
-        // Default to Auto so supported terminals can enable richer key reporting,
-        // while still allowing TEXTUAL_KEYBOARD_PROTOCOL overrides.
-        options.keyboard_protocol = KeyboardProtocol::Auto;
+        let options = DriverOptions {
+            // Preserve textual-rs behavior: mouse capture enabled by default.
+            enable_mouse: true,
+            // Enable xterm focus change reporting so widgets can react to window focus.
+            enable_focus_change: true,
+            // Default to Auto so supported terminals can enable richer key reporting,
+            // while still allowing TEXTUAL_KEYBOARD_PROTOCOL overrides.
+            keyboard_protocol: KeyboardProtocol::Auto,
+            ..DriverOptions::default()
+        };
         let driver = TerminalDriver::new(options)?;
         let console = Console::new();
         let mut options = console.options().clone();
@@ -752,8 +755,9 @@ impl App {
         callback: TimerCallback,
     ) -> TimerHandle {
         let timer_id = self.alloc_timer_id();
+        let _ = name; // Python `name` arg accepted but not stored (TimerRuntime is name-free).
         self.timers
-            .schedule_interval(timer_id, self.runtime_node_id(), interval, repeat, pause, name);
+            .schedule_interval(timer_id, self.runtime_node_id(), interval, repeat, pause);
         self.timer_callbacks.insert(timer_id, callback);
         TimerHandle(timer_id)
     }
@@ -1686,7 +1690,7 @@ impl App {
             .with_widget_mut(target, |widget| widget.selection_at(x, y))
             .flatten()?;
         self.selection_anchor_end = Some(anchor);
-        Some(self.with_widget_mut(target, |widget| {
+        self.with_widget_mut(target, |widget| {
             let changed = widget.update_selection(from, anchor);
             if changed {
                 let mut selection_ctx = EventCtx::default();
@@ -1694,7 +1698,7 @@ impl App {
                 widget.selection_updated(&mut selection_ctx);
             }
             changed
-        })?)
+        })
     }
 
     pub(super) fn end_selection_drag(&mut self) {
@@ -3087,6 +3091,7 @@ impl App {
 
     /// Register the `check_action` callback. Called by `TextualAppAdapter` during
     /// initialization to forward `check_action` calls to the app's trait method.
+    #[allow(clippy::type_complexity)]
     pub fn set_check_action_fn(
         &mut self,
         f: Arc<dyn Fn(&str, &[String]) -> Option<bool> + Send + Sync>,
@@ -3720,9 +3725,7 @@ impl App {
                 _ => None,
             });
 
-        let Some(target) = target else {
-            return None;
-        };
+        let target = target?;
 
         if target == NodeId::default() {
             return None;

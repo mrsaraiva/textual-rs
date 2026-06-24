@@ -95,16 +95,16 @@ impl Link {
 /// Apply [`TextStyleFlags`] onto a `rich_rs::Style`.
 fn apply_text_style_flags(style: &mut rich_rs::Style, flags: &crate::style::TextStyleFlags) {
     if flags.bold {
-        *style = style.clone().with_bold(true);
+        *style = (*style).with_bold(true);
     }
     if flags.dim {
-        *style = style.clone().with_dim(true);
+        *style = (*style).with_dim(true);
     }
     if flags.italic {
-        *style = style.clone().with_italic(true);
+        *style = (*style).with_italic(true);
     }
     if flags.underline {
-        *style = style.clone().with_underline(true);
+        *style = (*style).with_underline(true);
     }
     if flags.reverse {
         style.reverse = Some(true);
@@ -143,30 +143,25 @@ impl Widget for Link {
                 ctx.request_repaint();
                 ctx.set_handled();
             }
-            Event::MouseUp(mouse) => {
-                if self.pressed {
+            Event::MouseUp(mouse)
+                if self.pressed => {
                     self.pressed = false;
                     ctx.request_repaint();
                     if mouse.target.is_some_and(|t| t == self.node_id()) {
                         self.activate(ctx);
-                        return;
                     }
                 }
-            }
-            Event::AppFocus(false) => {
-                if self.pressed {
+            Event::AppFocus(false)
+                if self.pressed => {
                     self.pressed = false;
                     ctx.request_repaint();
                 }
-            }
             Event::Action(Action::Toggle) if focused => {
                 self.activate(ctx);
-                return;
             }
             Event::Key(key) if focused => match key.code {
                 KeyCode::Enter | KeyCode::Char(' ') => {
                     self.activate(ctx);
-                    return;
                 }
                 _ => {}
             },
@@ -182,7 +177,7 @@ impl Widget for Link {
         // Start with component-resolved base style.
         let mut style = crate::css::resolve_component_style(self, &["link"])
             .to_rich()
-            .unwrap_or_else(rich_rs::Style::new);
+            .unwrap_or_default();
 
         // Overlay CSS link styling properties (P2-32).
         let meta = crate::css::selector_meta_generic(self);

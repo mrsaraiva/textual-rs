@@ -274,6 +274,7 @@ fn repeat_scalars(scalars: Option<&[Scalar]>, count: usize, default: Scalar) -> 
 ///
 /// Simulates placement on a growable occupancy grid and returns the total
 /// row count required.
+#[allow(clippy::needless_range_loop)] // r/c used as 2D grid indices (occupied[r][c])
 fn compute_rows_with_spans(tree: &WidgetTree, children: &[NodeId], num_cols: usize) -> usize {
     let mut max_row_end = 0usize;
     let mut occupied: Vec<Vec<bool>> = Vec::new();
@@ -351,6 +352,7 @@ fn find_next_grid_slot(
 /// Supports `row-span` / `column-span` (P2-33) via occupancy-based placement.
 ///
 /// Reference: Python Textual's `layouts/grid.py`.
+#[allow(clippy::needless_range_loop)] // r/c/row/col used as 2D grid indices
 pub fn layout_grid(
     tree: &mut WidgetTree,
     children: &[NodeId],
@@ -391,7 +393,7 @@ pub fn layout_grid(
     });
 
     // Row count: auto-detect from children, ensure enough rows for all.
-    let min_rows = (children.len() + num_cols - 1) / num_cols;
+    let min_rows = children.len().div_ceil(num_cols);
     let num_rows = if any_spans {
         let span_rows = compute_rows_with_spans(tree, children, num_cols);
         match parent_style.grid_size_rows {

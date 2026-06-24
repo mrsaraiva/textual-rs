@@ -1,5 +1,5 @@
 use crossterm::event::KeyCode;
-use rich_rs::{Console, ConsoleOptions, MetaValue, Renderable, Segment, Segments, StyleMeta};
+use rich_rs::{Console, ConsoleOptions, MetaValue, Renderable, Segment, Segments};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -24,7 +24,7 @@ use super::{BindingDecl, Container, Horizontal, NodeSeed, Vertical, Widget};
 /// skips re-applying CSS text attributes that have already been baked in by
 /// `Content::render_strips`.
 fn tag_segment_no_text_style(seg: &mut Segment) {
-    let mut meta = seg.meta.take().unwrap_or_else(StyleMeta::new);
+    let mut meta = seg.meta.take().unwrap_or_default();
     let mut map: std::collections::BTreeMap<String, MetaValue> = meta
         .meta
         .as_ref()
@@ -252,7 +252,7 @@ impl Widget for Underline {
     }
 
     fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
-        let width = options.size.0.max(1) as usize;
+        let width = options.size.0.max(1);
         let state = self.state.lock().expect("underline state lock");
         let (start, end) = if state.show_highlight {
             (state.highlight_start, state.highlight_end)
@@ -261,7 +261,7 @@ impl Widget for Underline {
         };
         let bar_style = crate::css::resolve_component_style(self, &["underline--bar"])
             .to_rich()
-            .unwrap_or_else(rich_rs::Style::new);
+            .unwrap_or_default();
         let mut base_style = rich_rs::Style::new();
         if let Some(bg) = bar_style.bgcolor {
             base_style = base_style.with_color(bg);
@@ -313,8 +313,10 @@ impl Tabs {
     pub fn new() -> Self {
         let n = NEXT_TABS_SCOPE_ID.fetch_add(1, Ordering::Relaxed);
         let auto_id = format!("__tabs-{n}");
-        let mut seed = NodeSeed::default();
-        seed.css_id = Some(auto_id.clone());
+        let seed = NodeSeed {
+            css_id: Some(auto_id.clone()),
+            ..NodeSeed::default()
+        };
         Self {
             state: Arc::new(Mutex::new(TabsState {
                 tabs: Vec::new(),
@@ -1146,10 +1148,9 @@ impl Widget for Tabs {
     }
 
     fn style(&self) -> Option<crate::style::Style> {
-        self.dock.map(|dock| {
-            let mut s = crate::style::Style::default();
-            s.dock = Some(dock);
-            s
+        self.dock.map(|dock| crate::style::Style {
+            dock: Some(dock),
+            ..crate::style::Style::default()
         })
     }
 
@@ -1275,7 +1276,6 @@ impl Widget for Tabs {
                     let clicked_active = self.active_index() == Some(index);
                     if self.activate(index, Some(ctx)) || clicked_active {
                         ctx.set_handled();
-                        return;
                     }
                 }
             }

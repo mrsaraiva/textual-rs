@@ -8,6 +8,12 @@ pub struct HorizontalGroup {
     inner: Horizontal,
 }
 
+impl Default for HorizontalGroup {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl HorizontalGroup {
     crate::delegate_ident_methods!(inner);
 

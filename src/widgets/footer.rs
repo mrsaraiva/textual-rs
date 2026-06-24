@@ -153,7 +153,7 @@ impl FooterKey {
         let base = self.resolved_base_style();
         let base_rich = base
             .to_rich_over(self.parent_bg)
-            .unwrap_or_else(rich_rs::Style::new);
+            .unwrap_or_default();
 
         let key_component = crate::css::resolve_component_style(self, &["footer-key--key"]);
         let mut key_padding = key_component.effective_padding();
@@ -273,7 +273,7 @@ impl FooterLabel {
     fn render_segments(&self) -> Segments {
         let meta = crate::css::selector_meta_generic(self);
         let style = crate::css::resolve_style(self, &meta);
-        let rich = style.to_rich().unwrap_or_else(rich_rs::Style::new);
+        let rich = style.to_rich().unwrap_or_default();
         let mut out = Segments::new();
         out.push(Segment::styled(format!(" {}", self.text), rich));
         out
@@ -309,6 +309,12 @@ pub struct Footer {
     app_focused: bool,
     deferred_bindings: Option<Vec<FooterBinding>>,
     seed: NodeSeed,
+}
+
+impl Default for Footer {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Footer {
@@ -406,7 +412,7 @@ impl Footer {
             .unwrap_or(crate::style::Color::rgb(0, 0, 0));
         self.resolved_base_style()
             .to_rich_over(fallback_bg)
-            .unwrap_or_else(rich_rs::Style::new)
+            .unwrap_or_default()
     }
 
     fn effective_row_bg(&self) -> crate::style::Color {
@@ -889,11 +895,10 @@ impl Widget for Footer {
                     }
                 }
             }
-            Event::Leave(_) => {
-                if self.hovered_item.take().is_some() {
+            Event::Leave(_)
+                if self.hovered_item.take().is_some() => {
                     ctx.request_repaint();
                 }
-            }
             _ => {}
         }
     }
@@ -955,16 +960,13 @@ impl Renderable for Footer {
 impl ReactiveWidget for Footer {
     fn reactive_dispatch(&mut self, changes: &[ReactiveChange], ctx: &mut ReactiveCtx) {
         for change in changes {
-            match change.field_name {
-                "compact" => {
-                    if let (Some(old), Some(new)) = (
-                        change.old_value.downcast_ref::<bool>(),
-                        change.new_value.downcast_ref::<bool>(),
-                    ) {
-                        self.watch_compact(old, new, ctx);
-                    }
+            if change.field_name == "compact" {
+                if let (Some(old), Some(new)) = (
+                    change.old_value.downcast_ref::<bool>(),
+                    change.new_value.downcast_ref::<bool>(),
+                ) {
+                    self.watch_compact(old, new, ctx);
                 }
-                _ => {}
             }
         }
     }

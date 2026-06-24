@@ -62,6 +62,7 @@ use std::sync::OnceLock;
 /// Unknown raw tags resolve to a null / transparent style at render time,
 /// exactly as Python's `Style.parse("foobar")` does.
 #[derive(Debug, Clone, PartialEq)]
+#[allow(clippy::large_enum_variant)] // Raw(String) vs Parsed(Style) size difference is intentional
 pub enum SpanStyle {
     /// Raw tag body string, deferred for render-time resolution.
     Raw(String),
@@ -1083,6 +1084,7 @@ impl Content {
     /// `render_strips` is called from `Label::render()` in `text.rs` (Phase D).
     /// Migration of remaining widgets (Button, DataTable, Input, Tree, etc.)
     /// to this path is a future phase.
+    #[allow(clippy::too_many_arguments)]
     pub fn render_strips<F>(
         &self,
         width: usize,
@@ -1404,7 +1406,7 @@ fn emit_rendered_segments(
 /// (`app._broker_event` / `widget._on_click` in Python).  Each pair becomes a
 /// string-valued `MetaValue` keyed by the markup attribute name.
 fn attach_span_meta(seg: &mut rich_rs::Segment, meta: &[(String, String)]) {
-    use rich_rs::{MetaValue, StyleMeta};
+    use rich_rs::MetaValue;
     let mut map = seg
         .meta
         .as_ref()
@@ -1414,7 +1416,7 @@ fn attach_span_meta(seg: &mut rich_rs::Segment, meta: &[(String, String)]) {
     for (k, v) in meta {
         map.insert(k.clone(), MetaValue::str(v.as_str()));
     }
-    let mut style_meta = seg.meta.take().unwrap_or_else(StyleMeta::new);
+    let mut style_meta = seg.meta.take().unwrap_or_default();
     style_meta.meta = Some(std::sync::Arc::new(map));
     seg.meta = Some(style_meta);
 }
@@ -1520,6 +1522,7 @@ fn make_bg_segment(text: impl Into<String>, visual_style: &Style) -> rich_rs::Se
 // ---------------------------------------------------------------------------
 
 /// A part that can be assembled into a [`Content`] via [`Content::assemble`].
+#[allow(clippy::large_enum_variant)] // Text vs Styled vs Content size difference is intentional
 pub enum ContentPart {
     /// Plain text, no style.
     Text(String),

@@ -105,7 +105,7 @@ impl Widget for SelectCurrent {
         // `style_classes`), so `SelectCurrent.-has-value .label` resolves via meta.
         let label_style = crate::css::resolve_component_style(self, &["label"])
             .to_rich()
-            .unwrap_or_else(rich_rs::Style::new);
+            .unwrap_or_default();
         let arrow_style = crate::css::resolve_component_style(self, &["arrow"])
             .to_rich()
             .unwrap_or(label_style);
