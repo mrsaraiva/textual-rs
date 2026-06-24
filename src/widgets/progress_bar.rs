@@ -505,27 +505,56 @@ impl ProgressBar {
             .into_iter()
             .collect();
 
-        // Re-color per-cell: iterate cell by cell, applying gradient to highlighted cells.
+        // Re-color per-cell: mirrors Python `_apply_gradient`.
+        //
+        // Python applies the gradient REVERSED, keyed off the highlighted
+        // (text) length — NOT the absolute cell position:
+        //
+        //   text_length = len(highlight_bar)   # highlighted cells only
+        //   for offset in range(text_length):
+        //       bar_offset = text_length - offset    # counts DOWN: high left
+        //       t = bar_offset / (width - 1)
+        //
+        // So the leftmost highlighted cell gets the HIGHEST t value and the
+        // rightmost gets the LOWEST — the gradient runs in reverse direction
+        // relative to reading order.  `get_color` clamps t to [0, 1], so
+        // t > 1 (possible when the bar is partially filled) is handled correctly.
+
+        // First pass: count total highlighted cells.
+        let highlighted_count: usize = base_segs
+            .iter()
+            .filter(|seg| seg.control.is_none() && seg.style.unwrap_or(style) == style)
+            .map(|seg| seg.text.chars().count())
+            .sum();
+
+        let max_width = width.saturating_sub(1);
+
         let mut out: Vec<Segment> = Vec::with_capacity(base_segs.len());
-        let mut x = 0usize;
+        let mut highlight_offset = 0usize; // offset within highlighted cells
         for seg in base_segs {
             if seg.control.is_some() {
                 out.push(seg);
                 continue;
             }
             let seg_style = seg.style.unwrap_or(style);
-            // Only color cells that are part of the highlight style (filled bar/boundary).
+            // Only color cells that are part of the highlight (filled bar/boundary).
             let is_highlighted = seg_style == style;
             for ch in seg.text.chars() {
-                let t = if width <= 1 { 0.0 } else { x as f32 / (width - 1) as f32 };
                 let cell_style = if is_highlighted {
+                    // Python: bar_offset = text_length - offset (counts DOWN from text_length)
+                    let bar_offset = highlighted_count.saturating_sub(highlight_offset);
+                    let t = if max_width == 0 {
+                        0.0
+                    } else {
+                        bar_offset as f32 / max_width as f32
+                    };
                     let color = gradient.get_color(t);
+                    highlight_offset += 1;
                     seg_style.with_color(color.to_simple_opaque())
                 } else {
                     seg_style
                 };
                 out.push(Segment::styled(ch.to_string(), cell_style));
-                x += 1;
             }
         }
         (out, component)
@@ -1183,5 +1212,116 @@ mod tests {
         let (text, component) = bar.render_determinate(10);
         assert_eq!(text, "━━━━━╺━━━━");
         assert_eq!(component, "bar--bar");
+    }
+
+    /// Verify that the gradient direction exactly mirrors Python `_apply_gradient`.
+    ///
+    /// Python applies the gradient REVERSED, keyed off highlighted length:
+    ///
+    ///   text_length = len(highlight_bar)
+    ///   for offset in range(text_length):
+    ///       bar_offset = text_length - offset   # DOWN: high left, low right
+    ///       t = bar_offset / (width - 1)
+    ///
+    /// For a fully-filled bar of width=5 (max_width=4):
+    ///   - text_length = 5 (all 5 cells highlighted)
+    ///   - cell 0 (leftmost):  t = 5/4 = 1.25 → clamped to 1.0 → end color
+    ///   - cell 1:             t = 4/4 = 1.0  → end color
+    ///   - cell 2:             t = 3/4 = 0.75 → 75% blend
+    ///   - cell 3:             t = 2/4 = 0.5  → midpoint
+    ///   - cell 4 (rightmost): t = 1/4 = 0.25 → low end → closer to start color
+    ///
+    /// With start=black (rgb 0,0,0) and end=white (rgb 255,255,255):
+    ///   - leftmost cell fg must have r > rightmost cell fg (gradient runs right-to-left)
+    #[test]
+    fn gradient_direction_reversed_matches_python() {
+        // Black → White gradient: start = black (t=0), end = white (t=1).
+        let start = Color::rgb(0, 0, 0);
+        let end = Color::rgb(255, 255, 255);
+        let gradient = make_two_stop_gradient(start, end);
+
+        // 100% filled bar, width=5 → all 5 cells highlighted.
+        let mut bar = ProgressBar::new(Some(100.0)).with_gradient(gradient.clone());
+        bar.advance(100.0);
+
+        let (segments, _) = bar.render_determinate_gradient(5, &gradient);
+
+        // Collect foreground red-channel values of highlighted (non-control) segments.
+        let fg_reds: Vec<u8> = segments
+            .iter()
+            .filter(|s| s.control.is_none())
+            .filter_map(|s| {
+                let color = s.style.as_ref()?.color?;
+                if let rich_rs::SimpleColor::Rgb { r, .. } = color { Some(r) } else { None }
+            })
+            .collect();
+
+        assert_eq!(fg_reds.len(), 5, "expected 5 highlighted cells, got: {fg_reds:?}");
+
+        // Python direction: LEFT cell has HIGHER t → closer to white (r=255).
+        // RIGHT cell has LOWER t → closer to black (r=0).
+        // So fg_reds should be DECREASING left-to-right.
+        let leftmost_r = fg_reds[0];
+        let rightmost_r = fg_reds[4];
+        assert!(
+            leftmost_r > rightmost_r,
+            "gradient should run right-to-left (Python direction): \
+             leftmost r={leftmost_r} should be > rightmost r={rightmost_r}. \
+             Full fg_reds: {fg_reds:?}"
+        );
+
+        // Specifically, the leftmost cell gets t = 5/4 = 1.25 → clamped 1.0 → white (r=255).
+        // The rightmost cell gets t = 1/4 = 0.25 → closer to black.
+        assert_eq!(leftmost_r, 255,
+            "leftmost cell (t=1.25 clamped to 1.0) should be white (r=255), got r={leftmost_r}");
+        assert!(
+            rightmost_r < 100,
+            "rightmost cell (t=0.25) should be close to black (r<100), got r={rightmost_r}"
+        );
+    }
+
+    /// Verify gradient direction with a partially-filled bar.
+    ///
+    /// For a 50%-filled bar of width=10 (max_width=9):
+    ///   - highlighted portion: 5 full cells + 1 boundary = 6 highlighted cells
+    ///   - text_length = 6
+    ///   - cell 0 (leftmost highlighted): t = 6/9 = 0.667
+    ///   - cell 5 (rightmost highlighted): t = 1/9 = 0.111
+    ///   - leftmost cell fg r should be > rightmost highlighted cell fg r
+    #[test]
+    fn gradient_direction_partial_fill_reversed() {
+        let start = Color::rgb(0, 0, 0);
+        let end = Color::rgb(255, 255, 255);
+        let gradient = make_two_stop_gradient(start, end);
+
+        let mut bar = ProgressBar::new(Some(100.0)).with_gradient(gradient.clone());
+        bar.advance(50.0); // 50% filled → width=10, ~5 highlighted + boundary
+
+        let (segments, _) = bar.render_determinate_gradient(10, &gradient);
+
+        // Collect fg red-channel values from highlighted cells (those with a color set).
+        let highlighted_fg_reds: Vec<u8> = segments
+            .iter()
+            .filter(|s| s.control.is_none())
+            .filter_map(|s| {
+                let color = s.style.as_ref()?.color?;
+                if let rich_rs::SimpleColor::Rgb { r, .. } = color { Some(r) } else { None }
+            })
+            .collect();
+
+        assert!(
+            !highlighted_fg_reds.is_empty(),
+            "should have highlighted cells with gradient colors"
+        );
+
+        let leftmost_r = *highlighted_fg_reds.first().unwrap();
+        let rightmost_r = *highlighted_fg_reds.last().unwrap();
+
+        assert!(
+            leftmost_r > rightmost_r,
+            "gradient direction wrong for partial fill: \
+             leftmost r={leftmost_r} should be > rightmost r={rightmost_r}. \
+             fg_reds: {highlighted_fg_reds:?}"
+        );
     }
 }

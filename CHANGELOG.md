@@ -76,6 +76,23 @@ until the API stabilizes.
     `App::call_from_thread` to apply fetched weather to the `#weather` `Static`, exactly mirroring
     Python weather05's `self.call_from_thread(weather_widget.update, weather)` (and dropping the
     shared-mutex result buffer entirely).
+### 2026-06-23 (fix(progress_bar): gradient color sweep reversed to match Python `_apply_gradient`)
+
+- **`render_determinate_gradient` — gradient direction now matches Python exactly.**
+  Python's `_apply_gradient` (in `renderables/bar.py`) applies the gradient
+  **reversed**, keyed off the highlighted (text) length — not the absolute cell
+  position: `t = (text_length - offset) / (width - 1)`, so the leftmost highlighted
+  cell gets the highest t value and the rightmost gets the lowest.  The previous Rust
+  implementation used forward `t = x / (width - 1)` keyed off absolute position,
+  producing a mirrored sweep.  Fixed by:
+  - Pre-counting the total highlighted cells (`highlighted_count`).
+  - Computing per-cell `t = (highlighted_count - highlight_offset) / (width - 1)`
+    (decreasing left-to-right), matching Python exactly.
+  - `get_color` already clamps t to [0, 1] so t > 1 (partially-filled bar) is
+    handled correctly.
+- Added two regression tests (`gradient_direction_reversed_matches_python`,
+  `gradient_direction_partial_fill_reversed`) that assert the per-cell gradient
+  color direction matches Python's direction for both 100%- and 50%-filled bars.
 
 ### 2026-06-23 (feat(renderwire): B-cluster renderable wiring — gradient, OptionContent, pretty, rich_log)
 
