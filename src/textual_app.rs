@@ -646,6 +646,24 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
                 ctx.set_handled();
                 true
             }
+            "cycle_theme" => {
+                if !no_args(action) {
+                    return false;
+                }
+                ctx.post_message(crate::message::AppCycleTheme);
+                ctx.set_handled();
+                true
+            }
+            "set_theme" => {
+                let Some(name) = single_arg(action) else {
+                    return false;
+                };
+                ctx.post_message(crate::message::AppSetTheme {
+                    name: name.to_string(),
+                });
+                ctx.set_handled();
+                true
+            }
             "command_palette" => {
                 if !no_args(action) {
                     return false;

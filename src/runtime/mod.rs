@@ -443,6 +443,11 @@ pub struct App {
     command_palette_hint: Option<BindingHintEntry>,
     theme: Theme,
     dark_mode: bool,
+    /// Name of the active named theme (default `textual-dark`).
+    theme_name: String,
+    /// Optional cycle list used by `action_cycle_theme` / `cycle_theme`.
+    theme_cycle: Vec<String>,
+    theme_cycle_index: usize,
     default_stylesheet: StyleSheet,
     stylesheet: StyleSheet,
     stylesheet_watch: Option<StylesheetWatcher>,
@@ -595,6 +600,9 @@ impl App {
             }),
             theme: Theme::default(),
             dark_mode: true,
+            theme_name: "textual-dark".to_string(),
+            theme_cycle: Vec::new(),
+            theme_cycle_index: 0,
             default_stylesheet: default_widget_stylesheet(),
             stylesheet: StyleSheet::default(),
             stylesheet_watch: None,
@@ -2270,6 +2278,79 @@ impl App {
 
     pub fn set_theme(&mut self, theme: Theme) {
         self.theme = theme;
+    }
+
+    /// Register (or replace) a named theme in the global catalog.
+    ///
+    /// Mirrors Python `App.register_theme`.
+    pub fn register_theme(&mut self, theme: crate::theme::NamedTheme) {
+        crate::theme::register_theme(theme);
+    }
+
+    /// Names of all registered themes, sorted (Python `App.available_themes`).
+    pub fn available_themes(&self) -> Vec<String> {
+        crate::theme::available_theme_names()
+    }
+
+    /// The currently active theme name.
+    pub fn theme_name(&self) -> &str {
+        &self.theme_name
+    }
+
+    /// Activate a named theme by name (Python `App.theme = name`).
+    ///
+    /// Re-colors the UI by swapping the active design-token map and rebuilding
+    /// the base surface Style. Returns `false` if no such theme is registered.
+    pub fn set_theme_by_name(&mut self, name: &str) -> bool {
+        if !crate::theme::set_active_theme(name) {
+            return false;
+        }
+        self.theme_name = name.to_string();
+        self.dark_mode = crate::theme::get_theme(name).map(|t| t.dark).unwrap_or(true);
+        self.rebuild_base_from_active_theme();
+        true
+    }
+
+    /// Rebuild the runtime base Style (`$background`/`$foreground`) from the
+    /// active theme's tokens.
+    fn rebuild_base_from_active_theme(&mut self) {
+        let mut base = crate::style::Style::new();
+        if let Some(bg) = crate::style::parse_color_like("$background") {
+            base = base.bg(bg);
+        }
+        if let Some(fg) = crate::style::parse_color_like("$foreground") {
+            base = base.fg(fg);
+        }
+        self.theme = Theme::new().base(base);
+    }
+
+    /// Set the ordered list of theme names cycled by `action_cycle_theme`.
+    ///
+    /// Mirrors the Python pattern `THEMES = cycle([...])` + `action_cycle_theme`.
+    pub fn set_theme_cycle<I, S>(&mut self, names: I)
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.theme_cycle = names.into_iter().map(Into::into).collect();
+        self.theme_cycle_index = 0;
+    }
+
+    /// Advance to the next theme in the configured cycle (Python
+    /// `action_cycle_theme` over `cycle([...])`). Returns `true` if the theme
+    /// changed.
+    pub fn cycle_theme(&mut self) -> bool {
+        if self.theme_cycle.is_empty() {
+            return false;
+        }
+        let name = self.theme_cycle[self.theme_cycle_index % self.theme_cycle.len()].clone();
+        self.theme_cycle_index = (self.theme_cycle_index + 1) % self.theme_cycle.len();
+        self.set_theme_by_name(&name)
+    }
+
+    /// Action handler bound to e.g. `ctrl+t` for theme cycling.
+    pub fn action_cycle_theme(&mut self) -> bool {
+        self.cycle_theme()
     }
 
     pub fn binding_hints(&self) -> Vec<BindingHint> {

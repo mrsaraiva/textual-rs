@@ -27,6 +27,7 @@ pub mod runtime;
 pub mod screen;
 pub mod signal;
 pub mod style;
+pub mod theme;
 pub mod textual_app;
 pub mod validation;
 pub mod widget_tree;
@@ -43,6 +44,7 @@ pub use reactive::ReactiveWidget;
 pub use runtime::{App, DomQuery, DomQueryMut};
 pub use screen::{Screen, ScreenResult, ScreenResultCallback, ScreenStack};
 pub use style::{Color, Style, Theme};
+pub use theme::{NamedTheme, available_theme_names, get_theme, register_theme};
 pub use textual_app::{
     OverlayScreenStack, TextualApp, run, run_snapshot, run_snapshot_with_output, run_sync,
     run_sync_snapshot, run_sync_snapshot_with_output, run_sync_with_output, run_textual_app,
@@ -79,6 +81,7 @@ pub mod prelude {
     pub use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
     pub use crate::signal::{Signal, SignalResponse};
     pub use crate::style::{Color, Style, Theme};
+    pub use crate::theme::{NamedTheme, available_theme_names, get_theme, register_theme};
     pub use textual_macros::Reactive;
     pub use crate::textual_app::{
         OverlayScreenStack, TextualApp, run, run_snapshot, run_snapshot_with_output, run_sync,

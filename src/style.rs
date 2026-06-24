@@ -158,6 +158,17 @@ impl Color {
         Color::rgb(mix(self.r, under.r), mix(self.g, under.g), mix(self.b, under.b))
     }
 
+    /// Python `Color.inverse` — `Color(255 - r, 255 - g, 255 - b, a)`.
+    pub fn inverse(self) -> Color {
+        Color::rgba_f(255 - self.r, 255 - self.g, 255 - self.b, self.a)
+    }
+
+    /// Python `Color.clamped` — channels are already `u8` (in-range); only alpha
+    /// can drift, so clamp it to `[0,1]`.
+    pub fn clamped(self) -> Color {
+        Color::rgba_f(self.r, self.g, self.b, self.a.clamp(0.0, 1.0))
+    }
+
     pub fn flatten_over(self, under: Color) -> Color {
         if self.a >= 1.0 {
             return Color::rgb(self.r, self.g, self.b);
@@ -496,6 +507,12 @@ fn resolve_textual_dark_auto_token(name: &str) -> Option<AutoColor> {
 fn resolve_color_token(token: &str) -> Option<Color> {
     let token = token.trim();
     let name = token.strip_prefix('$')?;
+    // When a non-default named theme is active, resolve from its generated token
+    // map first; only fall through to the hand-tuned textual-dark static for the
+    // default theme (which keeps the calibrated goldens intact).
+    if let Some(color) = crate::theme::active_token(name) {
+        return Some(color);
+    }
     resolve_textual_dark_token(name)
 }
 
@@ -729,11 +746,11 @@ fn blend(a: Color, b: Color, t: f32) -> Color {
     Color::rgba_f(mix(ar, br), mix(ag, bg), mix(ab, bb), alpha)
 }
 
-fn lighten_lab(color: Color, amount: f32) -> Color {
+pub(crate) fn lighten_lab(color: Color, amount: f32) -> Color {
     darken_lab(color, -amount)
 }
 
-fn darken_lab(color: Color, amount: f32) -> Color {
+pub(crate) fn darken_lab(color: Color, amount: f32) -> Color {
     let alpha = color.a;
     let (l, a, b) = rgb_to_lab(color);
     let mut l = l - amount * 100.0;
@@ -842,6 +859,13 @@ fn lab_f_inv(t: f32) -> f32 {
 
 pub(crate) fn blend_colors(a: Color, b: Color, percent: u8) -> Color {
     blend(a, b, (percent as f32 / 100.0).clamp(0.0, 1.0))
+}
+
+/// Interpolate a single 8-bit channel, Python-faithful (`int(a + (b-a)*t)` —
+/// computed in float and TRUNCATED, matching `Color.blend`/`tint`).
+pub(crate) fn blend_channels_trunc(a: u8, b: u8, t: f32) -> u8 {
+    let t = t.clamp(0.0, 1.0);
+    (a as f32 + (b as f32 - a as f32) * t).clamp(0.0, 255.0) as u8
 }
 
 // ---------------------------------------------------------------------------

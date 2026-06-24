@@ -1,19 +1,21 @@
 /// Port of Python Textual `docs/examples/themes/todo_app.py`.
 ///
-/// Demonstrates a todo-list app with theme cycling. The Python source cycles through
-/// named themes ["nord", "gruvbox", "tokyo-night", "textual-dark", "solarized-light"]
-/// on Ctrl+T.
+/// Demonstrates a todo-list app with named-theme cycling. The Python source
+/// cycles through the named themes
+/// `["nord", "gruvbox", "tokyo-night", "textual-dark", "solarized-light"]` on
+/// Ctrl+T (`action_cycle_theme` over `itertools.cycle`), and applies the first
+/// theme on mount.
 ///
-/// textual-rs does not yet support named themes beyond the built-in dark/light toggle.
-/// This port wires Ctrl+T to `toggle_dark` (alternates built-in dark/light).
-///
-/// NON-PROMOTABLE: color-only; named themes differ from Python at every frame.
-/// The layout and widget structure are faithful ports.
+/// textual-rs now has a faithful named theme catalog/registry (keystone
+/// "themereg"): `App::set_theme_cycle` + the `cycle_theme` action reproduce the
+/// Python behavior exactly, re-coloring every `$`-token (`$text-error`,
+/// `$error-muted`, `$primary-muted`, …) from the active theme.
 use textual::prelude::*;
 
 const CSS: &str = r#"
 Screen {
     align: center middle;
+    hatch: right $foreground 10%;
 }
 #content {
     height: auto;
@@ -59,6 +61,9 @@ Screen {
 }
 "#;
 
+/// The named themes cycled by Ctrl+T (exact Python `THEMES` list).
+const THEME_CYCLE: &[&str] = &["nord", "gruvbox", "tokyo-night", "textual-dark", "solarized-light"];
+
 struct TodoList;
 
 impl TextualApp for TodoList {
@@ -67,11 +72,15 @@ impl TextualApp for TodoList {
     }
 
     fn bindings(&self) -> Vec<BindingDecl> {
-        vec![BindingDecl::new("ctrl+t", "toggle_dark", "Cycle theme")]
+        vec![BindingDecl::new("ctrl+t", "cycle_theme", "Cycle theme")]
     }
 
     fn configure(&mut self, app: &mut App) -> textual::Result<()> {
         app.load_stylesheet(CSS);
+        // Python: `THEMES = cycle([...])` + `on_mount` -> `action_cycle_theme()`
+        // applies the first theme (nord) before the first paint.
+        app.set_theme_cycle(THEME_CYCLE.iter().copied());
+        app.cycle_theme();
         Ok(())
     }
 
@@ -138,8 +147,28 @@ mod tests {
         let app = TodoList;
         let bindings = app.bindings();
         assert!(
-            bindings.iter().any(|b| b.key == "ctrl+t"),
-            "ctrl+t binding missing"
+            bindings.iter().any(|b| b.key == "ctrl+t" && b.action == "cycle_theme"),
+            "ctrl+t -> cycle_theme binding missing"
         );
+    }
+
+    #[test]
+    fn configure_applies_named_theme_cycle_like_python() {
+        // Faithful to Python: configure sets the THEMES cycle and applies the
+        // first theme (nord) before the first paint, re-coloring the UI tokens.
+        let mut app = App::new().expect("app init");
+        let mut todo = TodoList;
+        todo.configure(&mut app).expect("configure ok");
+        assert_eq!(app.theme_name(), "nord");
+        assert_eq!(
+            textual::style::parse_color_like("$primary"),
+            Color::parse("#88C0D0")
+        );
+        // Ctrl+T advances to the next theme in the Python cycle.
+        assert!(app.cycle_theme());
+        assert_eq!(app.theme_name(), "gruvbox");
+
+        // Restore default so global theme state does not leak.
+        app.set_theme_by_name("textual-dark");
     }
 }
