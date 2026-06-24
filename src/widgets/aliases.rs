@@ -113,16 +113,29 @@ impl Static {
     ///
     /// DEFERRED(display-clear): making this SEED-BASED (the class on the Static's
     /// own node, like Python `Static(classes=...)`) is the faithful fix for
-    /// `docs/examples/styles/display` (`Static.remove { display:none }`). It was
-    /// implemented and cleared `display`, but regressed `nesting01`/`nesting02`:
-    /// putting the button styles (`margin: 1 2`, border, padding) on the leaf
-    /// Static instead of a wrapper Node shifts the `align: center middle` block
-    /// down by 2 rows (the button's vertical margin). That is a real
-    /// margin-vs-`apply_parent_align` centering bug in the layout engine that the
-    /// Node wrapper happened to mask; the seed-based class only EXPOSES it.
-    /// Fixing it requires layout work (`apply_parent_align` / Horizontal child
-    /// margin in the centered block) outside this cluster's scope. Re-land the
-    /// seed-based `class()` together with that layout fix.
+    /// `docs/examples/styles/display` (`Static.remove { display:none }`), and it
+    /// DOES clear `display` cleanly (verified: only type/class selectors, which
+    /// the leaf resolves fine). But it regresses `nesting01`/`nesting02`, and the
+    /// REAL root is NOT `apply_parent_align` (that already centers the margin box
+    /// correctly): it is auto-HEIGHT chrome resolution for a DESCENDANT-selected
+    /// leaf. `#questions .button { border; padding; margin }` is a descendant
+    /// rule, so the leaf Static's context-free `layout_height()` (via
+    /// `resolved_vertical_chrome` → `selector_meta_generic`, which has NO ancestor
+    /// chain) cannot match `#questions .button` and reports content height with
+    /// ZERO chrome. The box then collapses to 1 row (debug: `lr h=1`, expected 5),
+    /// and the (correct) margin-box centering places that 1-row box ~2 rows low.
+    /// The Node wrapper masked this because the chrome lived on the wrapper, whose
+    /// height the layout engine resolves WITH full ancestor context.
+    /// The faithful fix is to make the auto/unset HEIGHT edge add the
+    /// CSS-resolved `v_chrome` to the widget's PURE content height (symmetric with
+    /// the WIDTH arm in `extract_child_spec`, which already does
+    /// `content + full_h_chrome`). That requires unwinding the mixed
+    /// `layout_height()`-includes-chrome convention across the height-measurement
+    /// callsites (`horizontal.rs`/`vertical.rs`/grid) and the ~6 widgets that bake
+    /// chrome into `layout_height()` (Static/Label/Checkbox/Switch/RadioSet/Panel),
+    /// with five_by_five `GameCell` as the regression guard — out of this cluster's
+    /// allowed-file scope. Re-land seed-based `class()` together with that
+    /// height-chrome convention fix.
     pub fn class(self, value: impl Into<String>) -> Node {
         Node::new(self).class(value)
     }

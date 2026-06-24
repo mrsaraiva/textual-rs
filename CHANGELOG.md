@@ -7,6 +7,26 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-24 (fix(render): keyline canvas fg=bg base + Label trailing-blank height)
+
+- **`Label` intrinsic height now counts a trailing blank line.**
+  `Label::intrinsic_height` had its own inline line counter using a naive
+  `cell_len.div_ceil(width)` char-count that also dropped the trailing empty row of
+  text ending in `\n` (Rust `str::lines()` semantics). It now routes through the
+  shared `widgets::text::intrinsic_wrapped_height` (Python
+  `Content.split(allow_blank=True)`), so a `Label(TEXT * N)` whose `TEXT` ends in
+  `\n` measures the trailing blank — its auto/content height matches Python (e.g. 71
+  vs 70 rows), which drives the correct scroll/overflow geometry. Fixes
+  `docs/examples/styles/scrollbars2`.
+- **`keyline` containers now render their canvas background (`fg = bg`).** A
+  container with a `keyline` paints its whole content box as a solid
+  `fg=<surface> bg=<surface>` base before children render (Python
+  `layout.py::render_keyline` → `Canvas.render`, whose keyline-spanned rows set the
+  blank foreground to the background color). Visible children composite on top; the
+  gutter and any `visibility:hidden` grid cell now show the canvas color
+  (`fg=<bg> bg=<bg>`) instead of the screen's `fg=default` base blank. Fixes
+  `docs/examples/styles/keyline`.
+
 ### 2026-06-24 (fix(widgets): word-wrap Static height + Placeholder height:auto)
 
 - **`Static` intrinsic height now counts real word-wrapped lines.**

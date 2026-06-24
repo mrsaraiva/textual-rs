@@ -188,17 +188,13 @@ impl Label {
     }
 
     fn intrinsic_height(&self) -> usize {
-        let width = self.layout_width;
-        let mut lines = 0usize;
-        for line in self.text.lines() {
-            if self.wrap && width > 0 {
-                let len = rich_rs::cell_len(line);
-                lines += len.div_ceil(width).max(1);
-            } else {
-                lines += 1;
-            }
-        }
-        lines.max(1)
+        // Route through the shared word-wrap line counter so the trailing-blank
+        // semantics match Python: `Content.split(allow_blank=True)` keeps a final
+        // empty line when the text ends with '\n' (Rust `str::lines()` drops it).
+        // This is what `Static(TEXT * N)` (TEXT ending in '\n') relies on for its
+        // auto height to match Python's content height (e.g. 71 vs 70 rows), which
+        // in turn drives the scroll/overflow/scrollbar geometry.
+        intrinsic_wrapped_height(&self.text, self.layout_width, self.wrap)
     }
 
     fn intrinsic_content_width(&self) -> usize {
@@ -2971,5 +2967,39 @@ I must not fear. Fear is the mind-killer. Fear is the little-death that brings t
         let children = super::build_markdown_children(markup);
         let types: Vec<&str> = children.iter().map(|c| c.style_type()).collect();
         assert_eq!(types, vec!["MarkdownH1", "MarkdownBlockQuote", "MarkdownParagraph"]);
+    }
+
+    #[test]
+    fn intrinsic_wrapped_height_counts_trailing_blank_line() {
+        // Python `Content.split(allow_blank=True)`: text ending in '\n' keeps a
+        // final empty line. Rust `str::lines()` drops it, so without the fix
+        // "a\nb\n" measures 2 (Rust) vs 3 (Python). No-wrap path:
+        assert_eq!(super::intrinsic_wrapped_height("a\nb", 20, false), 2);
+        assert_eq!(super::intrinsic_wrapped_height("a\nb\n", 20, false), 3);
+        // Repeated block (TEXT * N where TEXT ends in '\n'): the intermediate
+        // '\n's are line separators (3 lines per block), and the WHOLE string ends
+        // in '\n' so exactly ONE trailing blank is added — matching Python's
+        // `Label(TEXT * N)` height (3*N + 1), not `str::lines()`'s 3*N.
+        let block = "x\ny\nz\n";
+        let n = 10;
+        let text = block.repeat(n);
+        assert_eq!(super::intrinsic_wrapped_height(&text, 20, false), 3 * n + 1);
+    }
+
+    #[test]
+    fn label_layout_height_counts_trailing_blank_line() {
+        // `Label(TEXT)` whose TEXT ends in '\n' must include the trailing blank
+        // row in its auto/content height — the keystone for the scrollbars2
+        // scroll geometry (Python 71 vs Rust 70 before the fix).
+        let no_nl = Label::new("line1\nline2");
+        let with_nl = Label::new("line1\nline2\n");
+        // Wide layout so wrapping does not add rows; isolate the trailing-blank.
+        let mut a = no_nl;
+        let mut b = with_nl;
+        a.on_layout(40, 1);
+        b.on_layout(40, 1);
+        let ha = a.layout_height().expect("height");
+        let hb = b.layout_height().expect("height");
+        assert_eq!(hb, ha + 1, "trailing '\\n' must add exactly one blank row");
     }
 }

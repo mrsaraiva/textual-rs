@@ -984,6 +984,38 @@ fn render_tree_node(
     let node_layout = resolved.layout;
     push_style_context(meta, resolved);
 
+    // Keyline background canvas (Python `layout.py::render_keyline` ->
+    // `Canvas.render(primitives, container.rich_style)`): a container with a
+    // keyline renders its WHOLE content box as a canvas whose blank cells on every
+    // keyline-spanned row carry `fg = base_style.bgcolor` (Canvas.render sets the
+    // base span color to the background color), i.e. `fg=<bg> bg=<bg>` — distinct
+    // from the screen's `fg=default` base blank. Visible children composite ON TOP
+    // of this canvas, so only the cells NOT covered by a visible child (gutter +
+    // `visibility:hidden` cells, e.g. the hidden Placeholder in `keyline`) show the
+    // canvas color. Paint that solid-fg/bg base here, BEFORE children render, so
+    // children overpaint it; the line glyphs are drawn after children by
+    // `paint_keylines`. (Every grid/flow content row carries a vertical keyline, so
+    // the whole content box is a span row — fill it uniformly.)
+    if let Some(ref kl) = node_keyline {
+        if kl.keyline_type != KeylineType::None {
+            let canvas_bg = crate::css::current_composited_background().unwrap_or_else(|| {
+                crate::style::parse_color_like("$background")
+                    .unwrap_or(crate::style::Color::rgb(0, 0, 0))
+            });
+            if let Some(parent_node) = tree.get(node_id) {
+                let content_rect = node_content_or_layout_rect(parent_node);
+                let cx0 = i32::from(content_rect.x0) + ctx.origin_x;
+                let cy0 = i32::from(content_rect.y0) + ctx.origin_y;
+                let cx1 = i32::from(content_rect.x1) + ctx.origin_x;
+                let cy1 = i32::from(content_rect.y1) + ctx.origin_y;
+                let region_clip = ClipRect { x0: cx0, y0: cy0, x1: cx1, y1: cy1 };
+                if let Some(paint_clip) = ctx.clip.intersect(region_clip) {
+                    fill_rect_solid_fg_bg(frame, paint_clip, canvas_bg);
+                }
+            }
+        }
+    }
+
     let unclipped_child_ctx = ctx;
     let mut child_ctx = ctx;
     // Clip descendants to this node's content box (inside border + padding) when
@@ -1352,6 +1384,24 @@ fn clip_rect_from_tree_rect(
 
 fn fill_rect_with_background(frame: &mut FrameBuffer, clip: ClipRect, bg: Color) {
     let style = rich_rs::Style::new().with_bgcolor(bg.to_simple_opaque());
+    for y in clip.y0.max(0) as usize..clip.y1.max(0) as usize {
+        for x in clip.x0.max(0) as usize..clip.x1.max(0) as usize {
+            frame.set_cell(x, y, crate::render::Cell::blank(Some(style)));
+        }
+    }
+}
+
+/// Fill a rect with a blank where BOTH the foreground and the background carry
+/// `bg`. Python renders a `visibility:hidden` widget's region as a solid block
+/// of the widget's surface color (the blank `Segment`'s style sets fg = bg), so
+/// the hidden cell reads as `fg=<bg> bg=<bg>` — distinct from the screen's base
+/// blank (`fg=default`). `fill_rect_with_background` only sets `bg`, leaving
+/// `fg=default`, which diverges from Python for hidden cells (e.g. `keyline`).
+fn fill_rect_solid_fg_bg(frame: &mut FrameBuffer, clip: ClipRect, bg: Color) {
+    let opaque = bg.to_simple_opaque();
+    let style = rich_rs::Style::new()
+        .with_bgcolor(opaque)
+        .with_color(opaque);
     for y in clip.y0.max(0) as usize..clip.y1.max(0) as usize {
         for x in clip.x0.max(0) as usize..clip.x1.max(0) as usize {
             frame.set_cell(x, y, crate::render::Cell::blank(Some(style)));
@@ -3323,6 +3373,34 @@ mod tests {
             }
         }
         out
+    }
+
+    #[test]
+    fn fill_rect_solid_fg_bg_sets_both_fg_and_bg() {
+        // Keyline canvas base (Python `Canvas.render` spanned rows): a hidden /
+        // gutter cell must carry fg == bg == the surface color, NOT fg=default.
+        let mut frame = FrameBuffer::new(6, 3, None);
+        let bg = Color::rgb(0x12, 0x12, 0x12);
+        let clip = ClipRect { x0: 1, y0: 1, x1: 4, y1: 2 };
+        fill_rect_solid_fg_bg(&mut frame, clip, bg);
+
+        // Inside the clip: fg and bg both set to the surface color.
+        let cell = frame.get(2, 1);
+        let style = cell.style.expect("filled cell has style");
+        let want = bg.to_simple_opaque();
+        assert_eq!(style.bgcolor.map(color_from_simple), Some(bg));
+        assert_eq!(style.color.map(color_from_simple), Some(bg));
+        assert_eq!(style.bgcolor, Some(want));
+        assert_eq!(style.color, Some(want));
+
+        // Outside the clip: untouched (still the frame base = None).
+        assert!(frame.get(0, 0).style.is_none(), "outside clip stays bare");
+        // Contrast with the bg-only fill, which leaves fg=default.
+        let mut frame2 = FrameBuffer::new(6, 3, None);
+        fill_rect_with_background(&mut frame2, clip, bg);
+        let s2 = frame2.get(2, 1).style.expect("bg-only fill has style");
+        assert_eq!(s2.bgcolor.map(color_from_simple), Some(bg));
+        assert!(s2.color.is_none(), "bg-only fill must leave fg=default");
     }
 
     #[test]

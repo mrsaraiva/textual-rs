@@ -192,6 +192,22 @@ const PASSING: &[&str] = &[
     //    (a margin-vs-`apply_parent_align` layout bug the Node wrapper masked).
     //    See `Static::class` doc-comment; re-land with the layout fix.
     "padding02", "padding_all",
+    // Promoted after the TEXT-HEIGHT trailing-blank fix: `Label::intrinsic_height`
+    // now routes through `text::intrinsic_wrapped_height` (Python
+    // `Content.split(allow_blank=True)`), so a `Label(TEXT * N)` whose TEXT ends
+    // with '\n' counts the trailing empty row — its auto/content height matches
+    // Python (e.g. 71 vs 70 rows), driving the correct scroll geometry. (The
+    // remaining scrollbars/overflow/scrollbar_size* cases still need the separate
+    // scrollbar-thumb/lane geometry pass; only this single-Label case is exact.)
+    "scrollbars2",
+    // Promoted after the KEYLINE canvas-background fix: a container with a
+    // `keyline` now paints its whole content box as a solid `fg=<bg> bg=<bg>`
+    // canvas base BEFORE children render (Python `layout.py::render_keyline` ->
+    // `Canvas.render(primitives, container.rich_style)`, whose spanned rows set the
+    // blank fg to the background color). Visible children overpaint; the gutter and
+    // `visibility:hidden` cell (the hidden Placeholder) show the canvas color
+    // `fg=#121212 bg=#121212` instead of the screen's `fg=default` base blank.
+    "keyline",
 ];
 
 struct StyledCase {
