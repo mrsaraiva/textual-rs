@@ -7,6 +7,28 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-24 (feat(screen): App::push_screen_wait — worker-suspending screen push)
+
+- **`App::push_screen_wait(screen)`** — the Rust analogue of Python Textual's
+  `result = await self.push_screen_wait(QuestionScreen(...))`. Pushes a screen from a
+  background worker thread and suspends that worker until the screen is dismissed, then
+  resumes it with the dismiss `ScreenResult`.
+  - Built on the existing `call_from_thread` UI-thread bridge and the Screen-as-Widget
+    dismiss seam (`drain_screen_dismissals`): the push is marshalled onto the UI thread
+    (where `push_screen_with_callback` registers a result callback), and the worker blocks
+    on a oneshot channel that the callback resolves when the screen is popped — mirroring
+    Python suspending a `@work` worker on the screen-result future.
+  - Associated function (no `&self`), like `call_from_thread`: a worker thread never holds an
+    `App` reference; the app is supplied to the push on the UI thread.
+  - `PushScreenWaitError` (re-exported in the prelude): `NotRunning` (no event loop),
+    `NoActiveWorker` (called on the UI thread — Python's `NoActiveWorker` parity; would
+    deadlock the loop it waits on), and `Disconnected` (app shut down before dismissal).
+  - **`questions01`** (`docs/examples/guide/screens/questions01`) rewired to the faithful
+    port: `QuestionScreen` owns its dismiss decision via `on_button_pressed`
+    (`#yes` → `dismiss(true)`, `#no` → `dismiss(false)`), and `on_mount` spawns a worker that
+    `push_screen_wait`s and notifies based on the returned `bool` — no app-level callback
+    plumbing or shared answer slot.
+
 ### 2026-06-24 (feat(pilot): App::run_test + in-process Pilot headless test harness)
 
 - **`run_test()` / `Pilot`** — an in-process, headless test harness mirroring Python
