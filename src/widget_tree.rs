@@ -248,6 +248,37 @@ impl WidgetTree {
         !self.pending_lifecycle.is_empty()
     }
 
+    /// Drain pending `Mount` lifecycle events and invoke `on_mount()` on each
+    /// freshly-mounted node's widget, in mount order.
+    ///
+    /// In Python Textual every mounted widget receives a `Mount` event and its
+    /// `on_mount` handler runs. In the arena runtime, children declared via
+    /// `compose()`/`with_child()` are *extracted* out of their parent widget and
+    /// re-homed as tree nodes, so the parent can no longer forward `on_mount()`
+    /// to them (container widgets deliberately skip self-propagation in tree
+    /// mode — see e.g. `Vertical::on_mount`). The runtime must therefore fire
+    /// `on_mount()` per node here, otherwise widgets that populate their content
+    /// in `on_mount` (e.g. a `Static` wrapper that calls `update()` on mount)
+    /// would render an empty content box.
+    ///
+    /// `root_stub` is the synthetic tree-root slot (a `TreeStubWidget` mirroring
+    /// the real root); its `on_mount()` is a no-op and the real root's lifecycle
+    /// is driven separately, so it is skipped.
+    pub fn fire_mount_callbacks(&mut self, root_stub: NodeId) {
+        let mount_nodes: Vec<NodeId> = std::mem::take(&mut self.pending_lifecycle)
+            .into_iter()
+            .filter_map(|evt| match evt {
+                LifecycleEvent::Mount { node } if node != root_stub => Some(node),
+                _ => None,
+            })
+            .collect();
+        for node_id in mount_nodes {
+            if let Some(node) = self.arena.get_mut(node_id) {
+                node.widget.on_mount();
+            }
+        }
+    }
+
     // -- Mutation ------------------------------------------------------------
 
     /// Set the root widget, replacing any previous root (and its subtree).

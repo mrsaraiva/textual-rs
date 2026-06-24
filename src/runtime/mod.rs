@@ -2433,9 +2433,11 @@ impl App {
 
         Self::mount_system_tooltip(&mut tree, root_node_id);
 
-        // Drain lifecycle events from initial build (mount events) — the
-        // runtime will call on_mount separately via the existing path.
-        let _ = tree.drain_lifecycle();
+        // Fire `on_mount()` on every freshly-mounted tree node (children that
+        // were extracted out of their parent widget into the arena tree). The
+        // real root's `on_mount()` is driven separately by the caller, so the
+        // synthetic root stub is skipped.
+        tree.fire_mount_callbacks(root_node_id);
         self.widget_tree = Some(tree);
     }
 
@@ -3816,7 +3818,11 @@ pub fn build_widget_tree_from_root(root: &mut dyn Widget) -> Option<WidgetTree> 
         return None;
     }
 
-    let _ = tree.drain_lifecycle();
+    // Fire `on_mount()` on every freshly-mounted tree node so widgets that
+    // populate their content in `on_mount` render correctly. The synthetic
+    // root stub is skipped (its `on_mount` is a no-op; the real root is
+    // handled by the caller).
+    tree.fire_mount_callbacks(root_node_id);
 
     // Propagate the real root widget's initial focused state to the tree so
     // that CSS `:focus` rules and `node.state.focused` are correct from the
