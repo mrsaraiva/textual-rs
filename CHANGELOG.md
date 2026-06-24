@@ -7,6 +7,25 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-23 (feat(style): public component-class style API — `get_component_rich_style`)
+
+- **Public component-class style API** (Python parity: `Widget.COMPONENT_CLASSES` /
+  `Widget.get_component_styles` / `Widget.get_component_rich_style`). Custom/external widgets can
+  now declare and resolve component-class styling from CSS instead of hardcoding colours:
+  - `Widget::component_classes() -> &[&'static str]` — declare the widget's component-class names
+    (mirrors Python's `COMPONENT_CLASSES`).
+  - `Widget::get_component_styles(name) -> Style` — resolve a declared component class to the
+    typed CSS `Style` against the live widget context.
+  - `Widget::get_component_rich_style(name) -> Option<rich_rs::Style>` — resolve a component class
+    to a ready-to-paint Rich style (colours flattened over the effective background).
+  - The underlying resolver `css::resolve_component_style` is now `pub` and re-exported in the
+    prelude (was `pub(crate)`), so example/3rd-party crates can use it directly.
+- **Demo ports rewired to the real API** (no more hardcoded `#A5BAC9` / `#004578` / `darkred`):
+  `guide/widgets` `checker02`, `checker03`, and `checker04` now declare `component_classes()` and
+  resolve their square colours from the CSS component-class rules via `get_component_rich_style`,
+  faithfully reproducing Python's `checker0{2,3,4}.py`. `checker03` continues to match its PTY
+  parity golden byte-for-byte.
+
 ### 2026-06-23 (fix(layout): exact cumulative-floor fr distribution + per-layer dock isolation)
 
 - **Exact cumulative-floor flow sizing** (`layout_resolve_1d_exact`): the vertical/horizontal

@@ -18,12 +18,14 @@ pub use context::{
 pub use context::{FocusWithinGuard, set_focus_within};
 pub(crate) use parser::parse_selector_list;
 
+// Public re-export: component-class resolution for custom widgets.
+pub use resolver::resolve_component_style;
 // Crate-internal re-exports
 pub(crate) use resolver::{
     apply_display_visibility_to_tree, begin_style_render_pass,
     current_ancestor_composited_background, current_composited_background,
     current_host_style, current_parent_style, current_self_style, node_selector_meta,
-    node_selector_meta_from_node, pop_style_context, push_style_context, resolve_component_style,
+    node_selector_meta_from_node, pop_style_context, push_style_context,
     resolve_node_style, resolve_style, resolve_style_for_meta, selector_meta_component,
     selector_meta_generic, take_layout_affected_style_changes, with_style_stack,
 };

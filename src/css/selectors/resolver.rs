@@ -410,7 +410,13 @@ pub(crate) fn resolve_style_for_meta(meta: &SelectorMeta) -> Style {
     style
 }
 
-pub(crate) fn resolve_component_style<T: Widget + ?Sized>(widget: &T, classes: &[&str]) -> Style {
+/// Resolve the component-class CSS for `widget` into a [`Style`].
+///
+/// Public so external/custom widgets can read component-class styling from CSS
+/// (Python parity: `Widget.get_component_styles`). The widget's own selector
+/// meta is pushed as the parent context so descendant component-class rules
+/// (`SelfType .name` / `SelfType > .name`) match against the live widget state.
+pub fn resolve_component_style<T: Widget + ?Sized>(widget: &T, classes: &[&str]) -> Style {
     let parent_meta = selector_meta_generic(widget);
     let meta = selector_meta_component_for(widget, classes);
     SELECTOR_STACK.with(|stack| {

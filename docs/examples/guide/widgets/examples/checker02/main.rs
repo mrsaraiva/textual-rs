@@ -4,24 +4,17 @@
 /// overrides `render_line` to produce one visual row at a time.
 ///
 /// Python uses `COMPONENT_CLASSES` + `get_component_rich_style()` to allow
-/// CSS-driven colour overrides for the two square colours.  The Rust framework
-/// exposes `resolve_component_style` only as `pub(crate)`, so the colours are
-/// hardcoded here using the same values from the Python DEFAULT_CSS:
-///   - white square: #A5BAC9
-///   - black square: #004578
-///
-/// Framework gap: `resolve_component_style` / `get_component_rich_style`
-/// equivalent is not yet public API.  Once it is, the hardcoded colours should
-/// be replaced by CSS-driven component style resolution.
+/// CSS-driven colour overrides for the two square colours.  Rust now exposes
+/// the same surface via [`Widget::component_classes`] +
+/// [`Widget::get_component_rich_style`], so the square colours come from the
+/// CSS below (no hardcoded hex), faithfully reproducing Python.
 use rich_rs::{Console, ConsoleOptions, Segment, Segments};
 use textual::prelude::*;
 
 // ── CSS ──────────────────────────────────────────────────────────────────────
 //
-// The component-class rules below mirror Python's DEFAULT_CSS.  They are
-// loaded into the stylesheet but currently cannot be read back from the widget
-// render method (resolve_component_style is crate-internal).  They are
-// preserved here for documentation and for when the public API is added.
+// Mirrors Python's DEFAULT_CSS: the two component-class rules drive the square
+// colours, resolved at render time via `get_component_rich_style`.
 
 const CSS: &str = r#"
 CheckerBoard .checkerboard--white-square {
@@ -34,16 +27,6 @@ CheckerBoard {
     height: 32;
 }
 "#;
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-fn parse_hex_color(hex: &str) -> rich_rs::SimpleColor {
-    let s = hex.trim_start_matches('#');
-    let r = u8::from_str_radix(&s[0..2], 16).unwrap_or(0);
-    let g = u8::from_str_radix(&s[2..4], 16).unwrap_or(0);
-    let b = u8::from_str_radix(&s[4..6], 16).unwrap_or(0);
-    rich_rs::SimpleColor::Rgb { r, g, b }
-}
 
 // ── CheckerBoard widget ───────────────────────────────────────────────────────
 
@@ -64,6 +47,11 @@ impl CheckerBoard {
 impl Widget for CheckerBoard {
     fn style_type(&self) -> &'static str {
         "CheckerBoard"
+    }
+
+    /// Python parity: `COMPONENT_CLASSES`.
+    fn component_classes(&self) -> &[&'static str] {
+        &["checkerboard--white-square", "checkerboard--black-square"]
     }
 
     fn take_node_seed(&mut self) -> NodeSeed {
@@ -97,6 +85,8 @@ impl Widget for CheckerBoard {
     /// Mirrors Python:
     ///   row_index = y // 4        # four terminal lines per logical square row
     ///   is_odd    = row_index % 2
+    ///   white     = self.get_component_rich_style("checkerboard--white-square")
+    ///   black     = self.get_component_rich_style("checkerboard--black-square")
     ///   segments  = [Segment(" " * 8, black if (col + is_odd) % 2 else white)
     ///                for col in range(8)]
     fn render_line(&self, y: usize, _console: &Console, options: &ConsoleOptions) -> Segments {
@@ -105,20 +95,20 @@ impl Widget for CheckerBoard {
         let row_index = y / 4; // four terminal lines per logical row
         if row_index >= 8 {
             // Beyond the 8×8 board — return a blank line.
-            let blank_style = rich_rs::Style::new();
             let mut out = Segments::new();
-            out.push(Segment::styled(" ".repeat(width), blank_style));
+            out.push(Segment::new(" ".repeat(width)));
             return out;
         }
 
         let is_odd = row_index % 2;
 
-        // Colours from Python DEFAULT_CSS.
-        let white_bg = parse_hex_color("#A5BAC9");
-        let black_bg = parse_hex_color("#004578");
-
-        let white_style = rich_rs::Style::new().with_bgcolor(white_bg);
-        let black_style = rich_rs::Style::new().with_bgcolor(black_bg);
+        // CSS-driven component-class colours (Python parity).
+        let white_style = self
+            .get_component_rich_style("checkerboard--white-square")
+            .unwrap_or_default();
+        let black_style = self
+            .get_component_rich_style("checkerboard--black-square")
+            .unwrap_or_default();
 
         let mut out = Segments::new();
         for col in 0..8usize {
@@ -174,5 +164,14 @@ mod tests {
     fn checkerboard_not_focusable() {
         let board = CheckerBoard::new();
         assert!(!board.focusable());
+    }
+
+    #[test]
+    fn declares_component_classes() {
+        let board = CheckerBoard::new();
+        assert_eq!(
+            board.component_classes(),
+            &["checkerboard--white-square", "checkerboard--black-square"]
+        );
     }
 }

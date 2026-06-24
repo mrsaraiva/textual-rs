@@ -11,8 +11,8 @@
 /// Rust mapping:
 ///   - `CheckerBoardContent` — custom `Widget` that renders the full board
 ///     content and exposes content_width / layout_height for ScrollView sizing.
-///     Colors are hardcoded from Python DEFAULT_CSS because `resolve_component_style`
-///     is pub(crate) and not accessible from example crates (framework gap).
+///     Colors come from the CSS component-class rules below, resolved at render
+///     time via `get_component_rich_style` (Python parity, no hardcoding).
 ///   - Wrapped in `ScrollView::new(CheckerBoardContent::new(100))` in the app's
 ///     `compose()` so scrolling works.
 ///
@@ -62,6 +62,11 @@ impl Widget for CheckerBoardContent {
         "CheckerBoardContent"
     }
 
+    /// Python parity: `COMPONENT_CLASSES`.
+    fn component_classes(&self) -> &[&'static str] {
+        &["checkerboard--white-square", "checkerboard--black-square"]
+    }
+
     fn content_width(&self) -> Option<usize> {
         Some(self.board_size * 8)
     }
@@ -84,18 +89,14 @@ impl Widget for CheckerBoardContent {
             return vec![Segment::new(" ".repeat(width))].into();
         }
 
-        // Hardcoded colors from Python DEFAULT_CSS.
-        //
-        // FRAMEWORK GAP: Python uses `get_component_rich_style()` to resolve
-        // CSS-declared component class colors at runtime.  In Rust the equivalent
-        // `textual::css::resolve_component_style` is pub(crate) only and therefore
-        // not accessible from example crates.  The values here reproduce the exact
-        // defaults from the Python source; once the framework exposes a public
-        // `resolve_component_style` API the CSS block above will take effect.
-        let white_style = rich_rs::Style::new()
-            .with_bgcolor(rich_rs::SimpleColor::rgb(0xA5, 0xBA, 0xC9));
-        let black_style = rich_rs::Style::new()
-            .with_bgcolor(rich_rs::SimpleColor::rgb(0x00, 0x45, 0x78));
+        // CSS-driven component-class colours (Python parity): resolve the
+        // declared component classes from the stylesheet at render time.
+        let white_style = self
+            .get_component_rich_style("checkerboard--white-square")
+            .unwrap_or_default();
+        let black_style = self
+            .get_component_rich_style("checkerboard--black-square")
+            .unwrap_or_default();
 
         let is_odd = row_index % 2;
         // Each square is 8 columns wide; alternate color per column index.
@@ -163,5 +164,14 @@ mod tests {
     fn board_app_composes_without_panic() {
         let mut app = BoardApp;
         let _root = app.compose();
+    }
+
+    #[test]
+    fn declares_component_classes() {
+        let cb = CheckerBoardContent::new(8);
+        assert_eq!(
+            cb.component_classes(),
+            &["checkerboard--white-square", "checkerboard--black-square"]
+        );
     }
 }
