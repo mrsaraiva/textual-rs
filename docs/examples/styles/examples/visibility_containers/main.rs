@@ -41,34 +41,33 @@ impl TextualApp for VisibilityContainersApp {
     }
 
     fn compose(&mut self) -> AppRoot {
+        // Put the id directly on each Horizontal (matching Python
+        // `Horizontal(..., id="top")`) so the `#bot > Placeholder` child-combinator
+        // rule targets the Placeholders that are DIRECT children of `#bot`. A
+        // `Node` wrapper would split the id onto a wrapper level, leaving the
+        // Placeholders as grandchildren that the `>` selector can't reach.
         AppRoot::new().with_child(
             VerticalScroll::new()
                 .with_child(
-                    Node::new(
-                        Horizontal::new()
-                            .with_child(Placeholder::new(""))
-                            .with_child(Placeholder::new(""))
-                            .with_child(Placeholder::new("")),
-                    )
-                    .id("top"),
+                    Horizontal::new()
+                        .id("top")
+                        .with_child(Placeholder::new(""))
+                        .with_child(Placeholder::new(""))
+                        .with_child(Placeholder::new("")),
                 )
                 .with_child(
-                    Node::new(
-                        Horizontal::new()
-                            .with_child(Placeholder::new(""))
-                            .with_child(Placeholder::new(""))
-                            .with_child(Placeholder::new("")),
-                    )
-                    .id("middle"),
+                    Horizontal::new()
+                        .id("middle")
+                        .with_child(Placeholder::new(""))
+                        .with_child(Placeholder::new(""))
+                        .with_child(Placeholder::new("")),
                 )
                 .with_child(
-                    Node::new(
-                        Horizontal::new()
-                            .with_child(Placeholder::new(""))
-                            .with_child(Placeholder::new(""))
-                            .with_child(Placeholder::new("")),
-                    )
-                    .id("bot"),
+                    Horizontal::new()
+                        .id("bot")
+                        .with_child(Placeholder::new(""))
+                        .with_child(Placeholder::new(""))
+                        .with_child(Placeholder::new("")),
                 ),
         )
     }

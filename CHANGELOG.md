@@ -7,6 +7,26 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-24 (fix(layout/render): visibility inheritance + grid keyline spans)
+
+- **`visibility` is now inherited (Python `DOMNode.visible`)** — a node with no own
+  `visibility` rule inherits its ancestors' effective visibility, while an explicit
+  rule overrides it. So a `visibility: hidden` container hides its descendants, but a
+  descendant with an explicit `visibility: visible` (`#bot > Placeholder`) shows again.
+  Implemented as a top-down effective-visibility thread in
+  `apply_display_visibility_to_tree`.
+- **`visibility: hidden` no longer drops descendants from layout** — only `display: none`
+  removes a node from layout. A `visibility: hidden` node keeps its space AND its
+  descendants are still positioned, so a `visibility: visible` descendant of a hidden
+  container gets a real rect and paints (visibility is a paint-time concern in
+  `render_tree_node`, not a layout-time one). Fixes the `visibility_containers` demo.
+- **Grid keylines honour `column-span` / `row-span`** — grid keylines are now drawn as a
+  rectangle perimeter per visible child (mirroring Python `layout.py::render_keyline`'s
+  `Canvas`/`Rectangle` model) instead of a cross-product of every column/row boundary. A
+  spanned cell draws one region boundary with no spurious interior dividers, and a
+  `visibility: hidden` cell contributes no keyline of its own. Fixes the `keyline` grid
+  structure (remaining `Placeholder` id-label rendering is a separate widget gap).
+
 ### 2026-06-24 (feat(pilot): App::run_test + in-process Pilot headless test harness)
 
 - **`run_test()` / `Pilot`** — an in-process, headless test harness mirroring Python

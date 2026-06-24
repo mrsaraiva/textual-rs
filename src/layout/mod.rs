@@ -217,7 +217,9 @@ pub fn resolve_layout(
             let Some(child_node) = tree.get(child) else {
                 continue;
             };
-            if !child_node.display || child_node.visibility != crate::style::Visibility::Visible {
+            // Only `display:none` removes from layout; `visibility:hidden` keeps
+            // its space and still positions descendants (paint-time concern).
+            if !child_node.display {
                 continue;
             }
             let rect = child_node.content_rect;
@@ -404,11 +406,19 @@ pub fn resolve_layout(
 
     // Recurse into all laid-out descendants so every node receives
     // layout/content rectangles, not only one level under `node`.
+    //
+    // NOTE: only `display:none` removes a node from layout. A
+    // `visibility:hidden` node STILL participates in layout (its space is
+    // preserved) and its descendants must still be positioned — otherwise a
+    // `visibility:visible` descendant of a hidden container (Python
+    // `#bot { visibility:hidden }` + `#bot > Placeholder { visibility:visible }`)
+    // would get a zero rect and never render. Visibility is a PAINT-time concern
+    // (see `render_tree_node`'s `should_render`), not a layout-time one.
     for child in children {
         let Some(child_node) = tree.get(child) else {
             continue;
         };
-        if !child_node.display || child_node.visibility != crate::style::Visibility::Visible {
+        if !child_node.display {
             continue;
         }
         let rect = child_node.content_rect;
@@ -1880,6 +1890,58 @@ mod tests {
         assert_layout_rect(&tree, visible, 0, 0, 80, 10);
         // Hidden child's rects should remain at ZERO (never touched by layout).
         assert_layout_rect(&tree, hidden, 0, 0, 0, 0);
+    }
+
+    #[test]
+    fn visibility_inherits_to_descendants_with_explicit_override() {
+        // Mirrors Python `DOMNode.visible`: a `visibility:hidden` container hides
+        // its descendants by inheritance, but a descendant with an explicit
+        // `visibility:visible` re-shows (e.g. `#bot { visibility:hidden }` +
+        // `#bot > Placeholder { visibility:visible }`).
+        use crate::style::Visibility;
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(LayoutTestWidget::boxed("Screen"));
+
+        let hidden_parent = tree.mount(
+            root,
+            LayoutTestWidget::boxed_with_style("Hidden", {
+                let mut s = Style::new();
+                s.visibility = Some(Visibility::Hidden);
+                s
+            }),
+        );
+        // Inherits hidden (no own rule).
+        let inherits = tree.mount(hidden_parent, LayoutTestWidget::boxed("Inherits"));
+        // Explicit visible overrides inherited hidden.
+        let override_visible = tree.mount(
+            hidden_parent,
+            LayoutTestWidget::boxed_with_style("Override", {
+                let mut s = Style::new();
+                s.visibility = Some(Visibility::Visible);
+                s
+            }),
+        );
+        // A sibling under the visible root stays visible.
+        let sibling = tree.mount(root, LayoutTestWidget::boxed("Sibling"));
+
+        let _guard = crate::css::set_style_context(crate::css::StyleSheet::parse(""));
+        crate::css::apply_display_visibility_to_tree(&mut tree);
+
+        assert_eq!(
+            tree.get(hidden_parent).unwrap().visibility,
+            Visibility::Hidden
+        );
+        assert_eq!(
+            tree.get(inherits).unwrap().visibility,
+            Visibility::Hidden,
+            "child with no own rule inherits parent's hidden visibility"
+        );
+        assert_eq!(
+            tree.get(override_visible).unwrap().visibility,
+            Visibility::Visible,
+            "explicit visibility:visible overrides inherited hidden"
+        );
+        assert_eq!(tree.get(sibling).unwrap().visibility, Visibility::Visible);
     }
 
     #[test]

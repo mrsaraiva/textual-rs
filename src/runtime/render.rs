@@ -1671,7 +1671,13 @@ fn paint_keylines(
             KeylineType::Heavy => ('━', '┃'),
             KeylineType::Double => ('═', '║'),
         };
-        paint_grid_keylines(
+        // Python (`layout.py::render_keyline`) draws a `Rectangle` per VISIBLE
+        // child, inset by 1 cell into the surrounding gutter, and combines the
+        // overlapping line segments into junction characters. A `column-span` /
+        // `row-span` child is a SINGLE bigger region, so no interior divider is
+        // drawn through it — unlike a cross-product of every column/row boundary,
+        // which would bleed a lower row's cell edge up through a spanned cell.
+        paint_grid_keyline_rectangles(
             tree,
             &child_ids,
             parent_rect,
@@ -1681,7 +1687,6 @@ fn paint_keylines(
             keyline.keyline_type,
             h_char,
             v_char,
-            None, // Grid: derive positions from child rects
         );
         return;
     }
@@ -1834,6 +1839,143 @@ fn keyline_junction_char(
                 }
             }
         },
+    }
+}
+
+/// Rasterise grid keylines by drawing a rectangle perimeter per VISIBLE child,
+/// inset by 1 cell into the surrounding gutter, and combining overlapping line
+/// segments into junction characters.  This mirrors Python's
+/// `layout.py::render_keyline` (a `Rectangle` per `widget.region` expanded by
+/// `(-1,-1)` / `+2`), so a `column-span` / `row-span` child draws ONE region
+/// boundary instead of internal dividers, and a `visibility:hidden` cell
+/// contributes no keyline of its own (its neighbours still bound the gutter).
+#[allow(clippy::too_many_arguments)]
+fn paint_grid_keyline_rectangles(
+    tree: &WidgetTree,
+    child_ids: &[NodeId],
+    parent_rect: crate::widget_tree::Rect,
+    ctx: TreeRenderCtx,
+    frame: &mut FrameBuffer,
+    line_style: rich_rs::Style,
+    keyline_type: KeylineType,
+    h_char: char,
+    v_char: char,
+) {
+    use std::collections::HashMap;
+
+    let frame_w = frame.width as i32;
+    let frame_h = frame.height as i32;
+    let parent_x0 = i32::from(parent_rect.x0) + ctx.origin_x;
+    let parent_y0 = i32::from(parent_rect.y0) + ctx.origin_y;
+    let parent_x1 = (i32::from(parent_rect.x1) + ctx.origin_x).saturating_sub(1);
+    let parent_y1 = (i32::from(parent_rect.y1) + ctx.origin_y).saturating_sub(1);
+    if parent_x0 > parent_x1 || parent_y0 > parent_y1 {
+        return;
+    }
+
+    // Per-cell accumulated direction bits (up/down/left/right) in frame coords.
+    // Each rectangle edge ORs the directions of the line passing through a cell;
+    // overlapping rectangles in the shared gutter naturally form T/cross junctions.
+    #[derive(Default, Clone, Copy)]
+    struct Dir {
+        up: bool,
+        down: bool,
+        left: bool,
+        right: bool,
+    }
+    let mut cells: HashMap<(i32, i32), Dir> = HashMap::new();
+
+    let mark = |cells: &mut HashMap<(i32, i32), Dir>,
+                x: i32,
+                y: i32,
+                up: bool,
+                down: bool,
+                left: bool,
+                right: bool| {
+        if x < parent_x0 || x > parent_x1 || y < parent_y0 || y > parent_y1 {
+            return;
+        }
+        let e = cells.entry((x, y)).or_default();
+        e.up |= up;
+        e.down |= down;
+        e.left |= left;
+        e.right |= right;
+    };
+
+    for child_id in child_ids {
+        let Some(child) = tree.get(*child_id) else {
+            continue;
+        };
+        // Python: `if widget.visible` — display:none and visibility:hidden cells
+        // contribute no rectangle of their own.
+        if !child.display || child.visibility != crate::style::Visibility::Visible {
+            continue;
+        }
+        let rect = child.layout_rect;
+        // Rectangle inset 1 cell into the gutter: spans columns [x0-1 ..= x1],
+        // rows [y0-1 ..= y1] in frame coordinates (x1/y1 are exclusive edges).
+        let rx0 = i32::from(rect.x0) + ctx.origin_x - 1;
+        let ry0 = i32::from(rect.y0) + ctx.origin_y - 1;
+        let rx1 = i32::from(rect.x1) + ctx.origin_x;
+        let ry1 = i32::from(rect.y1) + ctx.origin_y;
+        if rx1 <= rx0 || ry1 <= ry0 {
+            continue;
+        }
+        // Top + bottom horizontal edges (each cell carries left/right unless it is
+        // the line's own endpoint, but corners also get the perpendicular dir).
+        for x in rx0..=rx1 {
+            let left = x > rx0;
+            let right = x < rx1;
+            // top edge: also has `down` at the corners so the vertical edge joins.
+            mark(&mut cells, x, ry0, false, false, left, right);
+            mark(&mut cells, x, ry1, false, false, left, right);
+        }
+        // Left + right vertical edges.
+        for y in ry0..=ry1 {
+            let up = y > ry0;
+            let down = y < ry1;
+            mark(&mut cells, rx0, y, up, down, false, false);
+            mark(&mut cells, rx1, y, up, down, false, false);
+        }
+        // Corners: ensure both legs are present (a corner cell sits on both a
+        // horizontal and a vertical edge of THIS rectangle).
+        mark(&mut cells, rx0, ry0, false, true, false, true); // top-left ┌
+        mark(&mut cells, rx1, ry0, false, true, true, false); // top-right ┐
+        mark(&mut cells, rx0, ry1, true, false, false, true); // bottom-left └
+        mark(&mut cells, rx1, ry1, true, false, true, false); // bottom-right ┘
+    }
+
+    for ((x, y), dir) in cells {
+        if x < 0
+            || y < 0
+            || x >= frame_w
+            || y >= frame_h
+            || x < ctx.clip.x0
+            || y < ctx.clip.y0
+            || x >= ctx.clip.x1
+            || y >= ctx.clip.y1
+        {
+            continue;
+        }
+        let ch = keyline_junction_char(
+            keyline_type,
+            dir.up,
+            dir.down,
+            dir.left,
+            dir.right,
+            h_char,
+            v_char,
+        );
+        let cell = frame.get_mut(x as usize, y as usize);
+        cell.text = ch.to_string();
+        let existing_bg = cell.style.and_then(|s| s.bgcolor);
+        let merged = if let Some(bg) = existing_bg {
+            line_style.with_bgcolor(bg)
+        } else {
+            line_style
+        };
+        cell.style = Some(merged);
+        cell.continuation = false;
     }
 }
 
@@ -3407,6 +3549,86 @@ mod tests {
         let children = tree.children(root).to_vec();
         let sorted = sort_children_by_layer(&tree, root, &children);
         assert_eq!(sorted, vec![a, b, c]);
+    }
+
+    #[test]
+    fn grid_keyline_spanned_cell_has_no_interior_divider() {
+        // A grid keyline draws a rectangle per child; a child that spans two
+        // columns is ONE region, so no vertical divider should appear inside it,
+        // even though a NARROW cell beneath it ends at the inner column boundary.
+        use crate::widget_tree::{Rect, WidgetTree};
+        use crate::widgets::{AppRoot, Label};
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(Box::new(AppRoot::new()));
+
+        // Wide child spans columns 0..1 (x in [0,78)), top row (y in [0,10)).
+        let wide = tree.mount(root, Box::new(Label::new("wide")));
+        // Narrow child below, only the left column (x in [0,38)), bottom row.
+        let narrow = tree.mount(root, Box::new(Label::new("narrow")));
+
+        if let Some(n) = tree.get_mut(wide) {
+            n.layout_rect = Rect {
+                x0: 1,
+                y0: 1,
+                x1: 78,
+                y1: 10,
+            };
+        }
+        if let Some(n) = tree.get_mut(narrow) {
+            n.layout_rect = Rect {
+                x0: 1,
+                y0: 11,
+                x1: 38,
+                y1: 19,
+            };
+        }
+
+        let parent_rect = Rect {
+            x0: 0,
+            y0: 0,
+            x1: 80,
+            y1: 20,
+        };
+        let mut frame = FrameBuffer::new(80, 20, None);
+        let ctx = TreeRenderCtx {
+            origin_x: 0,
+            origin_y: 0,
+            clip: ClipRect::for_frame(&frame),
+        };
+        let line_style = rich_rs::Style::new();
+        let child_ids = vec![wide, narrow];
+        paint_grid_keyline_rectangles(
+            &tree,
+            &child_ids,
+            parent_rect,
+            ctx,
+            &mut frame,
+            line_style,
+            KeylineType::Heavy,
+            '━',
+            '┃',
+        );
+
+        // The narrow cell's right edge sits at x=38 (rect.x1). Its vertical line
+        // spans only the narrow cell's gutter rows (y in [10..19]). It must NOT
+        // bleed up into the wide cell's interior row (y=5).
+        let interior = &frame.get(38, 5).text;
+        assert!(
+            interior.trim().is_empty(),
+            "no interior keyline divider inside the spanned cell at (38,5), got {interior:?}"
+        );
+        // But the narrow cell DOES get its own right-edge vertical at x=38, y~14.
+        let narrow_edge = &frame.get(38, 14).text;
+        assert!(
+            !narrow_edge.trim().is_empty(),
+            "narrow cell's own right edge should draw a keyline at (38,14)"
+        );
+        // The wide cell's outer-right boundary at x=78 must be present in its rows.
+        let wide_edge = &frame.get(78, 5).text;
+        assert!(
+            !wide_edge.trim().is_empty(),
+            "wide cell's right edge should draw a keyline at (78,5)"
+        );
     }
 
     #[test]
