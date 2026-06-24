@@ -1,21 +1,21 @@
 /// Port of Python Textual `docs/examples/widgets/data_table_sort.py`.
 ///
-/// Demonstrates DataTable sorting:
-/// - `a` sorts by average time (custom key: average of time1/time2 then last name)
-/// - `n` sorts by last name of swimmer (lambda: last word of swimmer name)
-/// - `c` sorts by country name
-/// - `d` sorts by columns only (swimmer then lane, no key)
+/// Demonstrates DataTable sorting with real key functions + multi-column sort,
+/// faithful to Python (no approximations):
+/// - `a` sort by average of the two time columns, then last name (custom key over
+///   the `swimmer`, `time 1`, `time 2` columns) — `sort_by([1,3,4], …)`
+/// - `n` sort by last name of swimmer (lambda over the `swimmer` column)
+/// - `c` sort by country name (the country cell is styled `Content`; the key uses
+///   its plain text)
+/// - `d` multi-column sort by `swimmer` then `lane`, no key — `sort_by_columns`
 ///
-/// NOTE: The Python version uses custom key functions (sort by average time via a
-/// closure, sort by last name via a lambda, multi-column sort). The Rust DataTable
-/// `sort()` API only supports single-column lexicographic sort (column index +
-/// reverse). Fully faithful custom-key and multi-column sorting is a framework gap.
-/// This port uses the best available approximation via `sort(col_index, reverse)`.
-use textual::prelude::*;
+/// Country cells are real styled `Content` (`[italic]`), mirroring Python's
+/// `Text("Singapore", style="italic")`.
 use std::collections::HashSet;
+use textual::prelude::*;
 
+// (lane, swimmer, country, time 1, time 2)
 const ROWS: &[(&str, &str, &str, &str, &str)] = &[
-    ("lane", "swimmer", "country", "time 1", "time 2"),
     ("4", "Joseph Schooling", "Singapore", "50.39", "51.84"),
     ("2", "Michael Phelps", "United States", "50.39", "51.84"),
     ("5", "Chad le Clos", "South Africa", "51.14", "51.73"),
@@ -26,6 +26,13 @@ const ROWS: &[(&str, &str, &str, &str, &str)] = &[
     ("1", "Aleksandr Sadovnikov", "Russia", "51.84", "50.85"),
     ("10", "Darren Burns", "Scotland", "51.84", "51.55"),
 ];
+
+// Column indices (Python uses column keys; the order matches add_columns).
+const COL_LANE: usize = 0;
+const COL_SWIMMER: usize = 1;
+const COL_COUNTRY: usize = 2;
+const COL_TIME1: usize = 3;
+const COL_TIME2: usize = 4;
 
 struct TableApp {
     current_sorts: HashSet<String>,
@@ -38,6 +45,7 @@ impl TableApp {
         }
     }
 
+    /// Mirror Python `sort_reverse`: toggle ascending/descending per sort type.
     fn sort_reverse(&mut self, sort_type: &str) -> bool {
         if self.current_sorts.contains(sort_type) {
             self.current_sorts.remove(sort_type);
@@ -61,53 +69,74 @@ impl TextualApp for TableApp {
 
     fn compose(&mut self) -> AppRoot {
         let mut table = DataTable::empty();
-        let header = ROWS[0];
-        table.add_columns(&[header.0, header.1, header.2, header.3, header.4]);
-        for row in &ROWS[1..] {
-            table.add_row(vec![row.0, row.1, row.2, row.3, row.4]);
+        table.add_columns(["lane", "swimmer", "country", "time 1", "time 2"]);
+        for &(lane, swimmer, country, t1, t2) in ROWS {
+            table.add_row_cells(vec![
+                DataTableCell::text(lane),
+                DataTableCell::text(swimmer),
+                // Python: Text("…", style="italic") — a real styled Content cell.
+                DataTableCell::markup(format!("[italic]{country}")),
+                DataTableCell::text(t1),
+                DataTableCell::text(t2),
+            ]);
         }
-        AppRoot::new()
-            .with_child(table)
-            .with_child(Footer::new())
+        AppRoot::new().with_child(table).with_child(Footer::new())
     }
 
     fn on_key_with_app(&mut self, app: &mut App, key: &KeyEventData, ctx: &mut EventCtx) {
         match key.name() {
             "a" => {
-                // Sort by average time then last name.
-                // Framework gap: custom key sort not supported; approximate with time 1 (col 3).
+                // Sort by average of time1/time2, then last name. The key receives
+                // [swimmer, time 1, time 2] (the selected columns' plain text).
                 let reverse = self.sort_reverse("time");
                 let _ = app.with_query_one_mut_as::<DataTable, _>("DataTable", |table| {
-                    table.sort(3, reverse);
+                    table.sort_by(&[COL_SWIMMER, COL_TIME1, COL_TIME2], reverse, |vals| {
+                        let name = vals.first().copied().unwrap_or("");
+                        let scores: Vec<f64> = vals[1..]
+                            .iter()
+                            .filter_map(|s| s.trim().parse::<f64>().ok())
+                            .collect();
+                        let avg = if scores.is_empty() {
+                            0.0
+                        } else {
+                            scores.iter().sum::<f64>() / scores.len() as f64
+                        };
+                        let last = name.split_whitespace().last().unwrap_or("").to_string();
+                        SortKey::tuple([SortKey::number(avg), SortKey::str(last)])
+                    });
                 });
                 ctx.set_handled();
                 ctx.request_repaint();
             }
             "n" => {
-                // Sort by last name of swimmer.
-                // Framework gap: last-name sort not supported; approximate with swimmer col (col 1) lexicographic.
+                // Sort by last name of swimmer (lambda over the swimmer column).
                 let reverse = self.sort_reverse("swimmer");
                 let _ = app.with_query_one_mut_as::<DataTable, _>("DataTable", |table| {
-                    table.sort(1, reverse);
+                    table.sort_by(&[COL_SWIMMER], reverse, |vals| {
+                        let name = vals.first().copied().unwrap_or("");
+                        SortKey::str(name.split_whitespace().last().unwrap_or(""))
+                    });
                 });
                 ctx.set_handled();
                 ctx.request_repaint();
             }
             "c" => {
-                // Sort by country.
+                // Sort by country (the country cell is styled Content; the key uses
+                // its plain text, mirroring Python `lambda country: country.plain`).
                 let reverse = self.sort_reverse("country");
                 let _ = app.with_query_one_mut_as::<DataTable, _>("DataTable", |table| {
-                    table.sort(2, reverse);
+                    table.sort_by(&[COL_COUNTRY], reverse, |vals| {
+                        SortKey::str(vals.first().copied().unwrap_or(""))
+                    });
                 });
                 ctx.set_handled();
                 ctx.request_repaint();
             }
             "d" => {
-                // Sort by columns (swimmer + lane) — no key.
-                // Framework gap: multi-column sort not supported; approximate with swimmer (col 1).
+                // Multi-column sort by swimmer then lane (no key).
                 let reverse = self.sort_reverse("columns");
                 let _ = app.with_query_one_mut_as::<DataTable, _>("DataTable", |table| {
-                    table.sort(1, reverse);
+                    table.sort_by_columns(&[COL_SWIMMER, COL_LANE], reverse);
                 });
                 ctx.set_handled();
                 ctx.request_repaint();

@@ -78,7 +78,7 @@ pub use core::{
 };
 pub(crate) use core::apply_child_decl_meta;
 pub(crate) use data_table::DATA_TABLE_HSCROLLBAR_ID;
-pub use data_table::{CellJustify, CursorType, DataTable};
+pub use data_table::{Cell, CellJustify, CursorType, DataTable, SortKey};
 pub use delegate::{delegate_renderable, delegate_widget_method, delegate_widget_to};
 pub use directory_tree::DirectoryTree;
 pub use footer::{Footer, FooterBinding, FooterKey, FooterLabel};

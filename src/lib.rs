@@ -85,7 +85,8 @@ pub mod prelude {
     };
     pub use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
     pub use crate::signal::{Signal, SignalResponse};
-    pub use crate::style::{Color, Style, Theme};
+    pub use crate::content::Content;
+    pub use crate::style::{Color, Style, TextAlign, Theme};
     pub use crate::theme::{NamedTheme, available_theme_names, get_theme, register_theme};
     pub use textual_macros::Reactive;
     pub use crate::textual_app::{
@@ -99,7 +100,8 @@ pub mod prelude {
     };
     pub use crate::widget_tree::{LifecycleEvent, QueryError, WidgetNode, WidgetTree};
     pub use crate::widgets::{
-        AppRoot, BindingDecl, BindingsTable, Button, ButtonVariant, CellJustify, Center,
+        AppRoot, BindingDecl, BindingsTable, Button, ButtonVariant,
+        Cell as DataTableCell, CellJustify, Center,
         CenterMiddle, Checkbox, Collapsible, CollapsibleTitle, CommandPalette, CommandPaletteScreen,
         Constrained,
         Container, ContentSwitcher, CursorType, DataTable, Digits, DirectoryTree, Dock, Footer,
@@ -112,7 +114,7 @@ pub mod prelude {
         Overlay, PaletteCommand, Panel, Placeholder, PlaceholderVariant, Pretty, ProgressBar,
         RadioButton, RadioSet, RichLog, Right, Row, RowAlign, Rule, RuleOrientation, ScrollBar,
         ScrollBarCorner, ScrollBarRender, ScrollDirectionMessage, ScrollTo, ScrollView,
-        ScrollableContainer, Select, Selection, SelectionList, SelectionListString, Spacer,
+        ScrollableContainer, Select, Selection, SelectionList, SelectionListString, SortKey, Spacer,
         Sparkline, Static, StyleChangeKind, Styled, SuggestFromList, Suggester, SummaryFunction,
         Switch, SystemModalScreen, TabPane, TabbedContent, Tabs, TextArea, TextAreaCursor,
         TextAreaSelection, TextAreaTheme, Toast, ToastSeverity, Tooltip, Tree, TreeNode, Vertical,
