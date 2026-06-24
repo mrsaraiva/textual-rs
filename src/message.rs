@@ -480,6 +480,19 @@ crate::impl_message!(AppBell);
 pub struct AppChangeTheme;
 crate::impl_message!(AppChangeTheme);
 
+/// Advance to the next theme in the app's configured theme cycle
+/// (Python `action_cycle_theme` over `cycle([...])`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AppCycleTheme;
+crate::impl_message!(AppCycleTheme);
+
+/// Activate a named theme directly (Python `App.theme = name`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AppSetTheme {
+    pub name: String,
+}
+crate::impl_message!(AppSetTheme);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AppCommandPalette;
 crate::impl_message!(AppCommandPalette);

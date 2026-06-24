@@ -7,6 +7,30 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-23 (feat(theme): named theme catalog/registry + cycling)
+
+- **Named theme registry** (`src/theme.rs`): a faithful port of Python Textual's
+  `textual/theme.py` (`Theme`, `BUILTIN_THEMES`) plus the design-token generator from
+  `textual/design.py` (`ColorSystem._generate`). All 20 Python built-in themes are ported
+  with their exact color values (`textual-dark`, `textual-light`, `nord`, `gruvbox`,
+  `tokyo-night`, `catppuccin-*`, `dracula`, `monokai`, `flexoki`, `solarized-{light,dark}`,
+  `rose-pine{,-moon,-dawn}`, `atom-one-{dark,light}`, `ansi-{dark,light}`). The generator
+  derives every semantic token (`$text-error`, `$primary-muted`, `$surface-active`,
+  `$scrollbar`, shades, …) per theme using Python's exact algorithms (LAB lighten/darken,
+  truncating channel blends, `tint`/`__add__`), verified hex-for-hex against Python.
+- **App theme API** (`App::register_theme` / `available_themes` / `theme_name` /
+  `set_theme_by_name` / `set_theme_cycle` / `cycle_theme` / `action_cycle_theme`): mirrors
+  Python `App.register_theme` / `available_themes` / `App.theme = name` / `action_cycle_theme`.
+  Activating a non-default named theme swaps the active design-token map so every `$`-token
+  resolves from that theme and re-colors the UI; the hand-tuned `textual-dark` static path is
+  preserved as the default (zero golden regression). New `cycle_theme` / `set_theme` app
+  actions (`AppCycleTheme` / `AppSetTheme` messages) wire CSS/binding action strings to the
+  runtime.
+- **`todo_app` doc example rewired** to faithfully reproduce Python: Ctrl+T now cycles the
+  exact Python named-theme list `[nord, gruvbox, tokyo-night, textual-dark, solarized-light]`
+  (was a `toggle_dark` workaround) and applies `nord` on mount. Added the `hatch` Screen rule
+  from the Python source.
+
 ### 2026-06-23 (fix(layout): exact cumulative-floor fr distribution + per-layer dock isolation)
 
 - **Exact cumulative-floor flow sizing** (`layout_resolve_1d_exact`): the vertical/horizontal

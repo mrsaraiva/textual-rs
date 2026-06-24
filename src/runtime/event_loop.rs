@@ -776,6 +776,21 @@ fn split_runtime_control_messages(
             if app.action_change_theme() {
                 pass.repaint_requested = true;
             }
+        } else if event.is::<crate::message::AppCycleTheme>() {
+            if app.action_cycle_theme() {
+                pass.repaint_requested = true;
+                pass.invalidation
+                    .merge(crate::event::InvalidationFlags::layout());
+            }
+        } else if let Some(m) = event.downcast_ref::<crate::message::AppSetTheme>() {
+            let name = m.name.clone();
+            if app.set_theme_by_name(&name) {
+                pass.repaint_requested = true;
+                pass.invalidation
+                    .merge(crate::event::InvalidationFlags::layout());
+            } else {
+                debug_input(&format!("[runtime] app.set_theme unknown theme={name:?}"));
+            }
         } else if event.is::<crate::message::AppCommandPalette>() {
             // Python parity: action_command_palette opens UI by dispatching
             // the command-palette action, not by emitting lifecycle messages
