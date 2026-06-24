@@ -233,13 +233,15 @@ fn generate_tokens(theme: &NamedTheme) -> HashMap<String, Color> {
         ("accent", accent),
     ];
 
-    let luminosity_step = spread / 2.0;
+    // f64 throughout the luminosity arithmetic so the delta fed into the LAB
+    // lighten/darken is byte-exact with Python (`spread / 2`, `n * step` in f64).
+    let luminosity_step = spread as f64 / 2.0;
     let dark_shades = ["primary-background", "secondary-background"];
 
     for (name, color) in shade_colors {
         let is_dark_shade = dark && dark_shades.contains(&name);
         for n in -NUMBER_OF_SHADES..=NUMBER_OF_SHADES {
-            let luminosity_delta = n as f32 * luminosity_step;
+            let luminosity_delta = n as f64 * luminosity_step;
             let key = shade_key(name, n);
             if is_dark_shade {
                 if let Some(v) = var.get(key.as_str()) {
@@ -252,7 +254,7 @@ fn generate_tokens(theme: &NamedTheme) -> HashMap<String, Color> {
                 let shade_color = blend_alpha(
                     dark_background,
                     Color::rgb(255, 255, 255),
-                    spread + luminosity_delta,
+                    (spread as f64 + luminosity_delta) as f32,
                     1.0,
                 )
                 .clamped();
@@ -319,7 +321,7 @@ fn generate_tokens(theme: &NamedTheme) -> HashMap<String, Color> {
         darken_lab(surface, 0.025).clamped()
     });
     insert_or_var(&mut colors, &var, "surface-active", || {
-        lighten_lab(surface, spread / 2.5).clamped()
+        lighten_lab(surface, spread as f64 / 2.5).clamped()
     });
 
     // Scrollbars: `background-darken-1 + primary.with_alpha(0.4/0.5)`.
