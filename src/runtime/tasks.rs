@@ -355,6 +355,114 @@ pub(crate) fn drain_call_from_thread_jobs() -> Vec<CallFromThreadJob> {
     queue.drain(..).collect()
 }
 
+// ── push_screen_wait: worker-suspending screen push ──────────────────────
+//
+// Mirrors Python Textual `App.push_screen_wait(screen)`:
+//
+//     result = await self.push_screen_wait(QuestionScreen(...))
+//
+// which (via `push_screen(..., wait_for_dismiss=True)`) pushes a screen and
+// suspends the calling `@work` worker on an `asyncio.Future`. The future is
+// resolved by the screen's result callback when the screen dismisses with a
+// value, and the worker resumes with that value.
+//
+// Rust mapping: a threaded worker (the `tasks`/`worker` subsystem) calls this
+// from inside its job closure. We coordinate with the UI thread exactly the way
+// `call_from_thread` does — post the push onto the UI thread, where it runs with
+// `&mut App` — but instead of completing immediately, the pushed screen's result
+// callback ferries the eventual `ScreenResult` back over a oneshot channel. The
+// worker blocks on that channel until the screen dismisses, then resumes with
+// the result (the analogue of awaiting the future).
+
+use crate::screen::{Screen, ScreenResult};
+
+/// Errors that prevent a [`crate::runtime::App::push_screen_wait`] from
+/// suspending the calling worker on a screen result.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PushScreenWaitError {
+    /// No event loop is running to mount/drive the screen.
+    NotRunning,
+    /// Called on the UI/event-loop thread instead of a worker thread.
+    ///
+    /// Mirrors Python's `NoActiveWorker`: `push_screen_wait` may only be awaited
+    /// from inside a worker, never on the app thread (it would deadlock the loop
+    /// it is waiting on).
+    NoActiveWorker,
+    /// The app shut down before the screen was dismissed.
+    Disconnected,
+}
+
+impl std::fmt::Display for PushScreenWaitError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NotRunning => write!(f, "App is not running"),
+            Self::NoActiveWorker => write!(
+                f,
+                "push_screen_wait must be called from a worker thread, not the app thread"
+            ),
+            Self::Disconnected => write!(f, "App shut down before the screen was dismissed"),
+        }
+    }
+}
+
+impl std::error::Error for PushScreenWaitError {}
+
+/// Push `screen` onto the screen stack from a worker thread and block until the
+/// screen is dismissed, returning the dismiss [`ScreenResult`].
+///
+/// The push runs on the UI thread (via the `call_from_thread` queue) with a
+/// result callback that ships the `ScreenResult` back over a oneshot channel.
+/// This (worker) thread then blocks on that channel until the screen dismisses
+/// — mirroring Python `await self.push_screen_wait(screen)` suspending a worker
+/// on the screen-result future.
+///
+/// Returns `Err` without pushing if no app is running or if called on the UI
+/// thread, and `Err(Disconnected)` if the app shuts down before dismissal.
+pub(crate) fn push_screen_wait(
+    screen: Box<dyn Screen>,
+) -> Result<ScreenResult, PushScreenWaitError> {
+    if !ui_thread_running() {
+        return Err(PushScreenWaitError::NotRunning);
+    }
+    // Python raises `NoActiveWorker` when `wait_for_dismiss` is requested outside
+    // a worker. On the UI thread, blocking on dismissal would deadlock the loop
+    // that must drain the dismissal — so reject it the same way.
+    if is_ui_thread() {
+        return Err(PushScreenWaitError::NoActiveWorker);
+    }
+
+    // Oneshot channel carrying the eventual dismiss result from the UI thread
+    // (where the screen callback fires) back to this worker thread.
+    let (result_tx, result_rx) = mpsc::channel::<ScreenResult>();
+
+    // Post the push onto the UI thread. `push_screen_with_callback` registers a
+    // callback the runtime invokes when the screen is dismissed (popped); that
+    // callback forwards the result over our channel.
+    let push = move |app: &mut crate::runtime::App| {
+        app.push_screen_with_callback(
+            screen,
+            Box::new(move |result: ScreenResult| {
+                // Worker may already be gone (app shutdown / detached); ignore.
+                let _ = result_tx.send(result);
+            }),
+        );
+    };
+
+    // `call_from_thread` itself blocks only until the push has run on the UI
+    // thread (fast); the screen lifetime is governed by the dismissal channel.
+    call_from_thread(push).map_err(|err| match err {
+        CallFromThreadError::NotRunning => PushScreenWaitError::NotRunning,
+        CallFromThreadError::SameThread => PushScreenWaitError::NoActiveWorker,
+        CallFromThreadError::Disconnected => PushScreenWaitError::Disconnected,
+    })?;
+
+    // Suspend the worker until the screen is dismissed (the callback sends), or
+    // the app shuts down (callback dropped → channel closed → Disconnected).
+    result_rx
+        .recv()
+        .map_err(|_| PushScreenWaitError::Disconnected)
+}
+
 fn execute_request(request: AsyncTaskRequest) -> AsyncTaskResult {
     match request {
         AsyncTaskRequest::ReadDirectory { path, show_hidden } => {
@@ -621,5 +729,161 @@ mod tests {
 
         let messages = wait_for_messages(&mut runtime);
         assert!(messages.is_empty());
+    }
+
+    // ── push_screen_wait ──────────────────────────────────────────────
+
+    use super::{PushScreenWaitError, push_screen_wait};
+    use crate::message::ButtonPressed;
+    use crate::screen::{Screen, ScreenMessageCtx, ScreenResult};
+    use crate::widgets::Widget;
+
+    /// A screen mirroring Python `QuestionScreen(Screen[bool])`: a press of the
+    /// `#yes` button dismisses with `true`, any other with `false`.
+    struct AnswerScreen;
+
+    impl Screen for AnswerScreen {
+        fn name(&self) -> &str {
+            "AnswerScreen"
+        }
+
+        fn compose(&self) -> Box<dyn Widget> {
+            struct Body;
+            impl Widget for Body {
+                fn render(
+                    &self,
+                    _c: &rich_rs::Console,
+                    _o: &rich_rs::ConsoleOptions,
+                ) -> rich_rs::Segments {
+                    rich_rs::Segments::new()
+                }
+                fn style_type(&self) -> &'static str {
+                    "AnswerScreenBody"
+                }
+            }
+            Box::new(Body)
+        }
+
+        fn on_button_pressed(
+            &mut self,
+            pressed: &ButtonPressed,
+            _control: crate::node_id::NodeId,
+            ctx: &mut ScreenMessageCtx,
+        ) {
+            ctx.dismiss(pressed.button_id.as_deref() == Some("yes"));
+        }
+    }
+
+    /// `push_screen_wait` outside a running app errors without blocking.
+    #[test]
+    fn push_screen_wait_not_running_errors() {
+        let _guard = BRIDGE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        unregister_ui_thread();
+        assert!(!ui_thread_running());
+        let result = push_screen_wait(Box::new(AnswerScreen));
+        assert!(matches!(result, Err(PushScreenWaitError::NotRunning)));
+    }
+
+    /// Called on the UI thread itself, `push_screen_wait` is rejected as
+    /// `NoActiveWorker` (Python parity) rather than deadlocking.
+    #[test]
+    fn push_screen_wait_on_ui_thread_is_rejected() {
+        let _guard = BRIDGE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        register_ui_thread();
+        assert!(is_ui_thread());
+        let result = push_screen_wait(Box::new(AnswerScreen));
+        assert!(matches!(result, Err(PushScreenWaitError::NoActiveWorker)));
+        unregister_ui_thread();
+    }
+
+    /// End-to-end: a worker thread calls `push_screen_wait`, the UI thread drives
+    /// the push (via the call_from_thread queue) and then a button press on the
+    /// screen dismisses it with a value; the worker must resume with that value.
+    ///
+    /// This plays the role of the event loop on the test (UI) thread: it drains
+    /// the call_from_thread queue (running the push with `&mut App`), then
+    /// dispatches a real `ButtonPressed` into the active screen tree — exercising
+    /// `Screen::on_button_pressed` → `ctx.dismiss(..)` — and drains screen
+    /// dismissals, which pops the screen and fires the result callback that
+    /// resumes the worker.
+    #[test]
+    fn push_screen_wait_resumes_worker_with_dismiss_value() {
+        let _guard = BRIDGE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+
+        let mut app = crate::runtime::App::new().expect("app should initialize");
+        register_ui_thread();
+        assert!(ui_thread_running());
+
+        // Worker thread: push the screen and suspend on its dismissal. The
+        // returned ScreenResult is mapped to the bool the test asserts on.
+        let (started_tx, started_rx) = mpsc::channel::<()>();
+        let worker = std::thread::spawn(move || {
+            let _ = started_tx.send(());
+            let result = push_screen_wait(Box::new(AnswerScreen))?;
+            Ok::<bool, PushScreenWaitError>(match result {
+                ScreenResult::Value(v) => *v.downcast::<bool>().unwrap_or_default(),
+                ScreenResult::Dismissed => false,
+            })
+        });
+
+        started_rx.recv().expect("worker started");
+
+        // Phase 1: drain the call_from_thread queue until the push has run on the
+        // UI thread (the screen is now on the stack).
+        let mut pushed = false;
+        for _ in 0..2000 {
+            for job in drain_call_from_thread_jobs() {
+                job(&mut app);
+            }
+            if app.screen_count() == 1 {
+                pushed = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        assert!(pushed, "worker's push_screen_wait should mount the screen");
+        // The worker is now suspended on the dismissal; it has not finished.
+        assert!(!worker.is_finished(), "worker must block until dismissed");
+
+        // Phase 2: simulate a #yes button press routed into the active screen
+        // tree. The screen's on_button_pressed stages a dismissal; draining it
+        // pops the screen and fires the callback that resumes the worker.
+        let yes = crate::node_id::node_id_from_ffi(7);
+        let message = crate::message::MessageEvent::new(
+            yes,
+            ButtonPressed {
+                description: "Yes".into(),
+                button_id: Some("yes".into()),
+            },
+        )
+        .with_control(yes);
+        {
+            let tree = app
+                .active_widget_tree_mut()
+                .expect("active screen tree should exist");
+            let _ = crate::runtime::dispatch_message_queue_tree(tree, vec![message]);
+        }
+        app.drain_screen_dismissals();
+        assert_eq!(
+            app.screen_count(),
+            0,
+            "screen should be popped after dismiss"
+        );
+
+        // Phase 3: the worker resumes with the dismiss value.
+        let value = {
+            let mut got = None;
+            for _ in 0..2000 {
+                if worker.is_finished() {
+                    got = Some(worker.join().expect("worker joined"));
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            got.expect("worker resumed after dismissal")
+        };
+        assert_eq!(value, Ok(true), "worker resumes with the dismiss value");
+
+        unregister_ui_thread();
     }
 }

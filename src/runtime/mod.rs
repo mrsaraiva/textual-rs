@@ -58,6 +58,7 @@ use std::time::{Duration, Instant};
 
 use tasks::AsyncTaskRuntime;
 pub use tasks::CallFromThreadError;
+pub use tasks::PushScreenWaitError;
 use timers::{TimerCallback, TimerRuntime};
 use types::{
     AppNotification, BindingHintEntry, DEFAULT_NOTIFICATION_TIMEOUT, HitTestMap, StylesheetReload,
@@ -2524,6 +2525,51 @@ impl App {
     /// want to branch instead of receiving [`CallFromThreadError::SameThread`].
     pub fn is_ui_thread() -> bool {
         tasks::is_ui_thread()
+    }
+
+    /// Push a screen from a worker thread and suspend the worker until the
+    /// screen is dismissed, returning the dismiss [`crate::screen::ScreenResult`].
+    ///
+    /// This is the Rust equivalent of Python Textual
+    /// [`App.push_screen_wait`](https://textual.textualize.io/api/app/#textual.app.App.push_screen_wait):
+    ///
+    /// ```python
+    /// result = await self.push_screen_wait(QuestionScreen("Do you like Textual?"))
+    /// ```
+    ///
+    /// In Python this is awaited from inside a `@work` worker; the worker
+    /// suspends on the screen-result future and resumes with the dismiss value.
+    /// Here it is called from a threaded worker job (the `request_worker_task` /
+    /// `request_exclusive_worker_task` subsystem): the push is marshalled onto
+    /// the UI thread via the same bridge as [`App::call_from_thread`], and the
+    /// calling (worker) thread blocks until the screen dismisses with a result.
+    ///
+    /// Like Python this is an *associated function* (no `&self`): a worker
+    /// thread must not hold an `App` reference. The app is supplied to the push
+    /// on the UI thread. Typical usage:
+    ///
+    /// ```ignore
+    /// // Inside `ctx.request_worker_task(...)`:
+    /// match App::push_screen_wait(Box::new(QuestionScreen::new("Do you like Textual?"))) {
+    ///     Ok(ScreenResult::Value(v)) if *v.downcast::<bool>().unwrap() => {
+    ///         App::call_from_thread(|app| app.notify("Good answer!", "", ToastSeverity::Information, None))?;
+    ///     }
+    ///     _ => { /* dismissed / "no" */ }
+    /// }
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// - [`PushScreenWaitError::NotRunning`] if no event loop is running.
+    /// - [`PushScreenWaitError::NoActiveWorker`] if called on the UI thread
+    ///   itself (would deadlock the loop it waits on); mirrors Python's
+    ///   `NoActiveWorker`.
+    /// - [`PushScreenWaitError::Disconnected`] if the app shut down before the
+    ///   screen was dismissed.
+    pub fn push_screen_wait(
+        screen: Box<dyn crate::screen::Screen>,
+    ) -> std::result::Result<crate::screen::ScreenResult, PushScreenWaitError> {
+        tasks::push_screen_wait(screen)
     }
 
     /// Typed `query_one` upgrade: selector must match exactly one node whose

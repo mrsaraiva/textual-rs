@@ -1,14 +1,21 @@
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU8, Ordering};
+//! Port of Python `docs/examples/guide/screens/questions01.py`.
+//!
+//! Demonstrates `App::push_screen_wait` — the Rust analogue of Python's
+//! `await self.push_screen_wait(QuestionScreen(...))`. A background worker
+//! (Python `@work`) pushes a `QuestionScreen` and suspends until the screen is
+//! dismissed with a `bool`, then notifies based on the answer.
+//!
+//! Faithful mapping:
+//! - `QuestionScreen` owns its dismiss handlers (`on_button_pressed` →
+//!   `ctx.dismiss(true/false)`), mirroring Python's `@on(Button.Pressed, "#yes")`
+//!   `self.dismiss(True)` / `#no` `self.dismiss(False)`.
+//! - `on_mount` spawns a worker (Python `@work async def on_mount`) that calls
+//!   `App::push_screen_wait(...)` and branches on the returned result, posting
+//!   the notification back onto the UI thread via `App::call_from_thread`.
 
 use rich_rs::Segments;
 use textual::compose;
 use textual::prelude::*;
-
-// Represents the answer state communicated from the screen callback to the app.
-const ANSWER_NONE: u8 = 0;
-const ANSWER_YES: u8 = 1;
-const ANSWER_NO: u8 = 2;
 
 // ---------------------------------------------------------------------------
 // QuestionScreen root widget
@@ -48,6 +55,10 @@ impl Widget for QuestionScreenRoot {
 // QuestionScreen
 // ---------------------------------------------------------------------------
 
+/// Python `class QuestionScreen(Screen[bool])`.
+///
+/// The screen owns the dismiss decision: a press of `#yes` dismisses with
+/// `true`, `#no` with `false` (Python's `handle_yes`/`handle_no`).
 struct QuestionScreen {
     question: String,
 }
@@ -75,140 +86,125 @@ impl Screen for QuestionScreen {
             "/examples/shared/questions01.tcss"
         ))
     }
+
+    fn on_button_pressed(
+        &mut self,
+        pressed: &ButtonPressed,
+        _control: NodeId,
+        ctx: &mut ScreenMessageCtx,
+    ) {
+        match pressed.button_id.as_deref() {
+            Some("yes") => ctx.dismiss(true), // Python: self.dismiss(True)
+            Some("no") => ctx.dismiss(false), // Python: self.dismiss(False)
+            _ => {}
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
 // QuestionsApp
 // ---------------------------------------------------------------------------
 
-struct QuestionsApp {
-    /// Shared answer slot: set by the screen-result callback, read in on_message.
-    answer: Arc<AtomicU8>,
-}
-
-impl Default for QuestionsApp {
-    fn default() -> Self {
-        Self {
-            answer: Arc::new(AtomicU8::new(ANSWER_NONE)),
-        }
-    }
-}
+struct QuestionsApp;
 
 impl TextualApp for QuestionsApp {
-    fn on_mount_with_app(&mut self, app: &mut App, _ctx: &mut EventCtx) {
-        let answer = self.answer.clone();
-        app.push_screen_with_callback(
-            Box::new(QuestionScreen::new("Do you like Textual?")),
-            Box::new(move |result| match result {
-                ScreenResult::Value(val) => {
-                    if let Ok(yes) = val.downcast::<bool>() {
-                        answer.store(if *yes { ANSWER_YES } else { ANSWER_NO }, Ordering::SeqCst);
-                    }
+    /// Python:
+    /// ```python
+    /// @work
+    /// async def on_mount(self) -> None:
+    ///     if await self.push_screen_wait(QuestionScreen("Do you like Textual?")):
+    ///         self.notify("Good answer!")
+    ///     else:
+    ///         self.notify(":-(", severity="error")
+    /// ```
+    ///
+    /// Rust: spawn a worker that pushes the screen and suspends on the result.
+    /// `App::push_screen_wait` blocks the worker until the screen dismisses; the
+    /// returned `bool` selects the notification, posted back onto the UI thread.
+    fn on_mount_with_app(&mut self, _app: &mut App, ctx: &mut EventCtx) {
+        ctx.request_worker_task(Some("questions"), |_token| {
+            let result =
+                App::push_screen_wait(Box::new(QuestionScreen::new("Do you like Textual?")))
+                    .map_err(|e| e.to_string())?;
+
+            let liked = match result {
+                ScreenResult::Value(value) => *value.downcast::<bool>().unwrap_or_default(),
+                ScreenResult::Dismissed => false,
+            };
+
+            App::call_from_thread(move |app| {
+                if liked {
+                    app.notify("Good answer!", "", ToastSeverity::Information, None);
+                } else {
+                    app.notify(":-(", "", ToastSeverity::Error, None);
                 }
-                ScreenResult::Dismissed => {
-                    answer.store(ANSWER_NONE, Ordering::SeqCst);
-                }
-            }),
-        );
+            })
+            .map_err(|e| e.to_string())?;
+            Ok(())
+        });
     }
 
     fn compose(&mut self) -> AppRoot {
-        // Main screen is empty; the question screen is pushed on mount.
+        // Main screen is empty; the question screen is pushed from the worker.
         AppRoot::new()
-    }
-
-    fn on_message_with_app(&mut self, app: &mut App, event: &MessageEvent, ctx: &mut EventCtx) {
-        // Only handle ButtonPressed while the question screen is active.
-        if event.downcast_ref::<ButtonPressed>().is_none() || app.screen_count() == 0 {
-            return;
-        }
-
-        let msg = event.downcast_ref::<ButtonPressed>().unwrap();
-        let button_id = msg.button_id.as_deref();
-
-        if button_id == Some("yes") {
-            let _ = app.dismiss_screen(ScreenResult::Value(Box::new(true)));
-            // Callback fires synchronously inside dismiss_screen; read result now.
-            let answer = self.answer.swap(ANSWER_NONE, Ordering::SeqCst);
-            if answer == ANSWER_YES {
-                app.notify("Good answer!", "", ToastSeverity::Information, None);
-            }
-            ctx.request_layout_invalidation();
-            ctx.set_handled();
-        } else if button_id == Some("no") {
-            let _ = app.dismiss_screen(ScreenResult::Value(Box::new(false)));
-            let answer = self.answer.swap(ANSWER_NONE, Ordering::SeqCst);
-            if answer == ANSWER_NO {
-                app.notify(":-(", "", ToastSeverity::Error, None);
-            }
-            ctx.request_layout_invalidation();
-            ctx.set_handled();
-        }
     }
 }
 
 fn main() -> Result<()> {
-    run_sync(QuestionsApp::default())
+    run_sync(QuestionsApp)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// The screen dismisses with `true` when `#yes` is pressed (Python
+    /// `handle_yes` → `self.dismiss(True)`). Verified by driving a
+    /// `ButtonPressed("#yes")` through a `ScreenMessageCtx` and inspecting the
+    /// staged dismissal.
     #[test]
-    fn questions01_yes_button_dismisses_with_true() {
-        let mut definition = QuestionsApp::default();
-        let mut app = App::new().expect("app should initialize");
-
-        // Simulate on_mount_with_app pushing the screen.
+    fn question_screen_yes_dismisses_with_true() {
+        let mut screen = QuestionScreen::new("Do you like Textual?");
+        let slot = std::sync::Mutex::new(None);
         let mut ctx = EventCtx::default();
-        definition.on_mount_with_app(&mut app, &mut ctx);
-        assert_eq!(app.screen_count(), 1, "question screen should be on the stack");
+        let mut screen_ctx = ScreenMessageCtx::for_test(&mut ctx, &slot);
 
-        // Find the Yes button in the screen.
-        let yes_id = app
-            .query_one("#yes")
-            .expect("yes button should exist in the question screen");
-
-        // Simulate ButtonPressed from the Yes button.
-        let msg_event = MessageEvent::new(
-            yes_id,
-            ButtonPressed {
-                description: "Yes".to_string(),
-                button_id: Some("yes".to_string()),
+        screen.on_button_pressed(
+            &ButtonPressed {
+                description: "Yes".into(),
+                button_id: Some("yes".into()),
             },
+            node_id_from_ffi(1),
+            &mut screen_ctx,
         );
-        let mut msg_ctx = EventCtx::default();
-        definition.on_message_with_app(&mut app, &msg_event, &mut msg_ctx);
 
-        assert!(msg_ctx.handled(), "yes button press should be handled");
-        assert_eq!(app.screen_count(), 0, "screen should be dismissed after yes");
+        let staged = slot.lock().unwrap().take().expect("yes should dismiss");
+        match staged {
+            ScreenResult::Value(v) => assert!(*v.downcast::<bool>().unwrap()),
+            _ => panic!("expected Value(true)"),
+        }
     }
 
     #[test]
-    fn questions01_no_button_dismisses_screen() {
-        let mut definition = QuestionsApp::default();
-        let mut app = App::new().expect("app should initialize");
-
+    fn question_screen_no_dismisses_with_false() {
+        let mut screen = QuestionScreen::new("Do you like Textual?");
+        let slot = std::sync::Mutex::new(None);
         let mut ctx = EventCtx::default();
-        definition.on_mount_with_app(&mut app, &mut ctx);
-        assert_eq!(app.screen_count(), 1);
+        let mut screen_ctx = ScreenMessageCtx::for_test(&mut ctx, &slot);
 
-        let no_id = app
-            .query_one("#no")
-            .expect("no button should exist in the question screen");
-
-        let msg_event = MessageEvent::new(
-            no_id,
-            ButtonPressed {
-                description: "No".to_string(),
-                button_id: Some("no".to_string()),
+        screen.on_button_pressed(
+            &ButtonPressed {
+                description: "No".into(),
+                button_id: Some("no".into()),
             },
+            node_id_from_ffi(2),
+            &mut screen_ctx,
         );
-        let mut msg_ctx = EventCtx::default();
-        definition.on_message_with_app(&mut app, &msg_event, &mut msg_ctx);
 
-        assert!(msg_ctx.handled(), "no button press should be handled");
-        assert_eq!(app.screen_count(), 0, "screen should be dismissed after no");
+        let staged = slot.lock().unwrap().take().expect("no should dismiss");
+        match staged {
+            ScreenResult::Value(v) => assert!(!*v.downcast::<bool>().unwrap()),
+            _ => panic!("expected Value(false)"),
+        }
     }
 }
