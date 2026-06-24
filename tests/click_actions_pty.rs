@@ -232,10 +232,11 @@ fn click_at_click_span_fires_action_and_changes_background() {
 // cell `@click` meta and dispatches via the runtime).  Their additional concern
 // — an unnamespaced action resolving to the *widget's own* `action_<name>` —
 // is covered deterministically by the `action::resolve_action` unit tests and
-// each example's own `execute_action` test.  A full-PTY assertion for hello05
-// is currently blocked by a *pre-existing, unrelated* render bug: the
-// `Hello(Static)` wrapper widget (hello04/05/06) renders an empty content box
-// (its inner `Static` text does not paint).  That wrapper-delegation render gap
-// predates and is independent of the action subsystem; see the task report
-// `deferred` note.  The actions03 PTY case above is the load-bearing
-// end-to-end proof of the `@click` → hit-test → dispatch → mutate chain.
+// each example's own `execute_action` test.  The `Hello(Static)` wrapper
+// (hello04/05/06) previously rendered an empty content box because extracted
+// arena-tree children never received `on_mount()` (where the inner `Static`
+// content is set); that lifecycle gap is now fixed (the runtime fires
+// `on_mount()` per mounted node via `WidgetTree::fire_mount_callbacks`), and
+// `tests/wrapped_static_mount_render.rs` covers the wrapped-`Static` render.
+// The actions03 PTY case above remains the load-bearing end-to-end proof of the
+// `@click` → hit-test → dispatch → mutate chain.

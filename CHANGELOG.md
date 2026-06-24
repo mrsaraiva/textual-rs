@@ -71,6 +71,22 @@ until the API stabilizes.
 - **Verification test:** new `directory_tree_filter_applies_on_async_lazy_subdir_load` expands a
   subdirectory (spawning an async `ReadDirectory`), delivers an async result containing both a kept
   file and a dotfile, and asserts the dotfile never reaches the rendered tree while the kept file does.
+### 2026-06-23 (fix(runtime): fire `on_mount()` on arena-tree children)
+
+- **Extracted tree children now receive `on_mount()`.** Children declared via `compose()` /
+  `with_child()` are extracted out of their parent widget and re-homed as arena-tree nodes. The
+  tree-build path drained the initial `Mount` lifecycle events and discarded them, so those nodes
+  never had `on_mount()` called — only the synthetic root and widgets that still hold their children
+  as struct fields (which container widgets deliberately skip in tree mode). A widget that populates
+  its content in `on_mount` (the `Hello(Static)` wrapper pattern: an inner `Static` updated on mount,
+  with `render()` delegated to it) therefore rendered an **empty content box**. `build_widget_tree`
+  and `build_widget_tree_from_root` now call the new `WidgetTree::fire_mount_callbacks(root_stub)`,
+  which invokes `on_mount()` on every freshly-mounted node (in mount order, skipping the root stub).
+  This was **not** a render-delegation bug — content set in `new()` always painted; the gap was the
+  missing per-node `on_mount()`. Fixes the `docs/examples/guide/widgets/hello04`, `hello05`, and
+  `hello06` demos (multilingual greeting now paints on startup).
+- Added `tests/wrapped_static_mount_render.rs` (positive: wrapped-`Static` content set in `on_mount`
+  paints; negative control: skipping `fire_mount_callbacks` reproduces the empty box).
 
 ### 2026-06-23 (feat(reactive): field-to-field `data_bind` reactive binding)
 
