@@ -1,22 +1,18 @@
 /// Port of Python Textual `docs/examples/guide/widgets/hello05.py`.
 ///
-/// Demonstrates a custom widget that exposes a named action (`action_next_word`)
-/// which cycles through a list of greetings and updates the displayed content.
-/// The Python original uses `[@click='next_word']` markup to make the greeting
-/// text itself a clickable link that triggers the action; in this Rust port
-/// clicking anywhere on the widget triggers the same action (the `[@click=...]`
-/// inline-action-link markup is not yet implemented in the Label/Static renderer).
+/// Demonstrates a custom widget that exposes a named action (`next_word`) which
+/// cycles through a list of greetings and updates the displayed content.  The
+/// greeting text itself is a `[@click='next_word']…[/]` action-link: clicking
+/// the word fires the widget-scoped `next_word` action.  The unnamespaced
+/// action resolves to the first widget on the bubble path whose action registry
+/// declares it — here, the `Hello` widget itself.
 ///
 /// Python features used:
 ///   - `class Hello(Static)` → custom widget wrapping `Static`
 ///   - `on_mount()` → `Widget::on_mount()`
-///   - `action_next_word()` → called from `on_mount` and from click handler
+///   - `action_next_word()` → exposed via `action_registry` / `execute_action`
 ///   - `self.update(f"[@click='next_word']{hello}[/], [b]World[/b]!")` → `Static::update()`
 ///   - `CSS_PATH = "hello05.tcss"` → `const CSS` loaded via `configure`
-///
-/// Framework gap: `[@click='action_name']...[/]` inline action-link markup is not
-/// yet supported in Label/Static rendering; clicking anywhere on the widget is
-/// used as the functional equivalent.
 use textual::prelude::*;
 
 const CSS: &str = r##"
@@ -62,20 +58,26 @@ impl Hello {
     }
 
     /// Mirrors Python `action_next_word`: cycles to the next greeting and
-    /// updates the widget content.  In Python the content includes
-    /// `[@click='next_word']` markup that makes the word itself a clickable
-    /// link; here the greeting is rendered as plain bold text since the
-    /// `[@click=...]` markup link is not yet supported.
+    /// updates the widget content.  The new content wraps the greeting in a
+    /// `[@click='next_word']…[/]` action-link so clicking the word fires this
+    /// same action again.
     fn action_next_word(&mut self) {
         let hello = HELLOS[self.index % HELLOS.len()];
         // Python: f"[@click='next_word']{hello}[/], [b]World[/b]!"
-        // Framework gap: [@click='next_word'] markup not supported; render
-        // the greeting as bold to preserve visual emphasis.
         self.inner
-            .update(format!("[b]{hello}[/b], [b]World[/b]!"));
+            .update(format!("[@click='next_word']{hello}[/], [b]World[/b]!"));
         self.index += 1;
     }
 }
+
+/// Action registry for the `Hello` widget — declares the `next_word` action so
+/// the runtime can resolve an unnamespaced `[@click='next_word']` click to it.
+const HELLO_ACTIONS: &[ActionDecl] = &[ActionDecl {
+    name: "next_word",
+    namespace: "",
+    description: "Show the next greeting",
+    default_binding: None,
+}];
 
 impl Widget for Hello {
     fn style_type(&self) -> &'static str {
@@ -108,12 +110,20 @@ impl Widget for Hello {
         self.action_next_word();
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
-        if let Event::Click(_) = event {
+    /// Declare the widget-scoped `next_word` action so unnamespaced
+    /// `[@click='next_word']` clicks resolve here (Python `Hello.action_next_word`).
+    fn action_registry(&self) -> &[ActionDecl] {
+        HELLO_ACTIONS
+    }
+
+    fn execute_action(&mut self, action: &ParsedAction, ctx: &mut EventCtx) -> bool {
+        if action.name == "next_word" {
             self.action_next_word();
             ctx.request_repaint();
             ctx.set_handled();
+            return true;
         }
+        false
     }
 
     fn take_node_seed(&mut self) -> NodeSeed {

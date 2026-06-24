@@ -136,6 +136,12 @@ pub struct Span {
     pub end: usize,
     /// Style for this span — either a deferred raw tag string or a concrete Style.
     pub span_style: SpanStyle,
+    /// Non-visual key/value metadata carried by this span (e.g. `@click=action`,
+    /// `link=url`).  Mirrors how Python stores `@click` inside `Style._meta`;
+    /// here it rides alongside the span so it survives style resolution and
+    /// reaches segment emission, where it is stamped into the segment's
+    /// `StyleMeta` for runtime hit-testing / action dispatch.
+    pub meta: Vec<(String, String)>,
 }
 
 impl Span {
@@ -145,6 +151,7 @@ impl Span {
             start,
             end,
             span_style: SpanStyle::Parsed(style),
+            meta: Vec::new(),
         }
     }
 
@@ -154,6 +161,22 @@ impl Span {
             start,
             end,
             span_style: SpanStyle::Raw(raw.into()),
+            meta: Vec::new(),
+        }
+    }
+
+    /// Create a new `Span` with a raw tag body and attached metadata.
+    pub fn new_raw_with_meta(
+        start: usize,
+        end: usize,
+        raw: impl Into<String>,
+        meta: Vec<(String, String)>,
+    ) -> Self {
+        Self {
+            start,
+            end,
+            span_style: SpanStyle::Raw(raw.into()),
+            meta,
         }
     }
 
@@ -177,6 +200,7 @@ impl Span {
             start,
             end,
             span_style: self.span_style.clone(),
+            meta: self.meta.clone(),
         }
     }
 
@@ -186,6 +210,7 @@ impl Span {
             start: self.start,
             end: self.end + cells,
             span_style: self.span_style.clone(),
+            meta: self.meta.clone(),
         }
     }
 
@@ -194,6 +219,7 @@ impl Span {
             start,
             end,
             span_style: self.span_style.clone(),
+            meta: self.meta.clone(),
         }
     }
 }
@@ -306,7 +332,7 @@ impl Content {
 
         let spans: Vec<Span> = raw_spans
             .into_iter()
-            .map(|rs| Span::new_raw(rs.start, rs.end, rs.raw_tag))
+            .map(|rs| Span::new_raw_with_meta(rs.start, rs.end, rs.raw_tag, rs.meta))
             .collect();
 
         Self::new_uncached(text, spans)
@@ -358,7 +384,7 @@ impl Content {
 
         let spans: Vec<Span> = raw_spans
             .into_iter()
-            .map(|rs| Span::new_raw(rs.start, rs.end, rs.raw_tag))
+            .map(|rs| Span::new_raw_with_meta(rs.start, rs.end, rs.raw_tag, rs.meta))
             .collect();
 
         Self::new_uncached(text, spans)
@@ -444,6 +470,7 @@ impl Content {
                             start: span.start + offset,
                             end: span.end + offset,
                             span_style: span.span_style.clone(),
+                            meta: span.meta.clone(),
                         });
                     }
                     position += c.text.len();
@@ -539,6 +566,7 @@ impl Content {
                 start: span.start,
                 end: span.end,
                 span_style: SpanStyle::Parsed(span.span_style.resolve_with(&parse_fn)),
+                meta: span.meta.clone(),
             })
             .collect();
         let out = Self::new_uncached(self.text.clone(), resolved);
@@ -562,6 +590,7 @@ impl Content {
                 start: span.start + offset,
                 end: span.end + offset,
                 span_style: span.span_style.clone(),
+                meta: span.meta.clone(),
             });
         }
         let mut text = self.text.clone();
@@ -1319,6 +1348,11 @@ fn emit_rendered_segments(
                 // Base = visual_style.  Overlay span styles in order (lowest idx first
                 // for determinism; Python uses a stack so last-opened wins).
                 let mut effective = visual_style.clone();
+                // Collect non-visual span metadata (e.g. `@click=action`,
+                // `link=url`) active over this run so it can be stamped onto the
+                // produced segment's `StyleMeta`.  Last-opened span wins for a
+                // given key (matches Python `Style.__add__` meta merge order).
+                let mut run_meta: Vec<(String, String)> = Vec::new();
                 // Add span styles in order of their span index.
                 let mut active_sorted = active.clone();
                 active_sorted.sort_unstable();
@@ -1338,13 +1372,20 @@ fn emit_rendered_segments(
                         }
                     };
                     effective = effective.combine(&span_style);
+                    for (k, v) in &span.meta {
+                        run_meta.retain(|(ek, _)| ek != k);
+                        run_meta.push((k.clone(), v.clone()));
+                    }
                 }
 
                 // Apply full style to ALL content runs — including whitespace.
                 // Python's Content.render() + _FormattedLine.to_strip uses
                 // (style + text_style).rich_style for every run without any
                 // has_glyph discrimination.  C1 seam 1 fix.
-                let seg = make_segment(run, &effective, visual_style);
+                let mut seg = make_segment(run, &effective, visual_style);
+                if !run_meta.is_empty() {
+                    attach_span_meta(&mut seg, &run_meta);
+                }
                 out.push(seg);
             }
         }
@@ -1352,6 +1393,30 @@ fn emit_rendered_segments(
         pos = next_offset;
         i = j;
     }
+}
+
+/// Attach non-visual span metadata (e.g. `@click=action`, `link=url`) to a
+/// segment's [`rich_rs::StyleMeta`].
+///
+/// Mirrors how Python carries `@click` inside `Style._meta`: the metadata rides
+/// on the rendered segment so it survives blitting into the `FrameBuffer` cell,
+/// where the runtime can hit-test a click and dispatch the named action
+/// (`app._broker_event` / `widget._on_click` in Python).  Each pair becomes a
+/// string-valued `MetaValue` keyed by the markup attribute name.
+fn attach_span_meta(seg: &mut rich_rs::Segment, meta: &[(String, String)]) {
+    use rich_rs::{MetaValue, StyleMeta};
+    let mut map = seg
+        .meta
+        .as_ref()
+        .and_then(|m| m.meta.as_ref())
+        .map(|m| (**m).clone())
+        .unwrap_or_default();
+    for (k, v) in meta {
+        map.insert(k.clone(), MetaValue::str(v.as_str()));
+    }
+    let mut style_meta = seg.meta.take().unwrap_or_else(StyleMeta::new);
+    style_meta.meta = Some(std::sync::Arc::new(map));
+    seg.meta = Some(style_meta);
 }
 
 /// Build a `rich_rs::Segment` for a **content** text run applying the **full**
@@ -3123,4 +3188,96 @@ mod tests {
             text
         );
     }
+
+    // --- @click meta survives parse → resolve → render_strips -----------------
+
+    /// Read the string value of a segment-meta key, if present.
+    fn seg_meta_str(seg: &rich_rs::Segment, key: &str) -> Option<String> {
+        seg.meta
+            .as_ref()
+            .and_then(|m| m.meta.as_ref())
+            .and_then(|map| map.get(key))
+            .and_then(|v| match v {
+                rich_rs::MetaValue::Str(s) => Some(s.to_string()),
+                _ => None,
+            })
+    }
+
+    #[test]
+    fn render_strips_stamps_click_action_meta() {
+        // A `[@click=action]` span must bake the action string into the
+        // rendered segment's meta so the runtime can hit-test and dispatch it.
+        let c = Content::from_markup("[@click=app.bell]Ring[/]");
+        // The span carries the @click meta even before resolution.
+        let click_span = c
+            .spans()
+            .iter()
+            .find(|s| s.meta.iter().any(|(k, _)| k == "@click"));
+        assert!(click_span.is_some(), "span should carry @click meta");
+
+        let strips = c.render_strips(
+            20,
+            None,
+            &Style::new(),
+            crate::style::TextAlign::Left,
+            "fold",
+            false,
+            0,
+            null_resolver,
+        );
+        assert_eq!(strips.len(), 1);
+        // Some segment over the "Ring" glyphs must carry @click=app.bell.
+        let found = strips[0]
+            .iter()
+            .find_map(|seg| seg_meta_str(seg, "@click"));
+        assert_eq!(found.as_deref(), Some("app.bell"));
+    }
+
+    #[test]
+    fn render_strips_click_meta_only_covers_clickable_span() {
+        // Text outside the @click span must NOT carry the meta.
+        let c = Content::from_markup("plain [@click=do_it]link[/] tail");
+        let strips = c.render_strips(
+            40,
+            None,
+            &Style::new(),
+            crate::style::TextAlign::Left,
+            "fold",
+            false,
+            0,
+            null_resolver,
+        );
+        let strip = &strips[0];
+        // Reconstruct (text, has_click) per segment and assert the clickable
+        // run is exactly "link".
+        let mut clickable = String::new();
+        for seg in strip {
+            if seg_meta_str(seg, "@click").as_deref() == Some("do_it") {
+                clickable.push_str(seg.text.as_ref());
+            }
+        }
+        assert_eq!(clickable, "link");
+    }
+
+    #[test]
+    fn click_action_meta_survives_arguments_with_spaces() {
+        // Action args with quoted, comma+space-separated values must be kept
+        // intact in the @click meta (paren-aware tokenizing).
+        let c = Content::from_markup("[@click=set_background('cyan')]Cyan[/]");
+        let strips = c.render_strips(
+            20,
+            None,
+            &Style::new(),
+            crate::style::TextAlign::Left,
+            "fold",
+            false,
+            0,
+            null_resolver,
+        );
+        let found = strips[0]
+            .iter()
+            .find_map(|seg| seg_meta_str(seg, "@click"));
+        assert_eq!(found.as_deref(), Some("set_background('cyan')"));
+    }
 }
+

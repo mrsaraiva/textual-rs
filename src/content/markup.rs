@@ -303,8 +303,8 @@ pub(crate) struct RawSpan {
     /// Raw tag body, deferred for render-time resolution.
     pub raw_tag: String,
     /// Non-visual metadata (link=url, @click=action, ...).
-    /// Populated by the parser; consumed in Phase B/C when link-click handling is wired.
-    #[allow(dead_code)]
+    /// Populated by the parser and carried onto `content::Span::meta`, where it
+    /// is stamped into rendered segment `StyleMeta` for `@click` hit-testing.
     pub meta: Vec<(String, String)>,
 }
 
@@ -647,13 +647,51 @@ fn contains_literal_text(tag_body: &str) -> bool {
 /// Extract meta key-value pairs from a raw tag body string for metadata-only tags
 /// (e.g. `link=url`, `@click=action`).  This is used when building `RawSpan.meta`
 /// so that metadata survives span manipulation even before render-time resolution.
+///
+/// Mirrors Python `markup.parse_style`'s key/value reader: the value after a
+/// `key=` token runs until the next top-level whitespace, but whitespace and
+/// commas *inside* parentheses are kept (so `@click=set('a', 'b')` is read as a
+/// single value).  This is essential for `@click` actions that carry arguments.
 fn extract_meta_only(raw_tag: &str) -> Vec<(String, String)> {
     let mut meta = Vec::new();
-    for token in raw_tag.split_whitespace() {
-        if let Some(eq) = token.find('=') {
-            let key = &token[..eq];
-            let value = token[eq + 1..].trim_matches('"').trim_matches('\'');
+    let bytes = raw_tag.as_bytes();
+    let mut i = 0usize;
+    while i < bytes.len() {
+        // Skip leading whitespace.
+        while i < bytes.len() && bytes[i].is_ascii_whitespace() {
+            i += 1;
+        }
+        if i >= bytes.len() {
+            break;
+        }
+        // Read a token up to the next top-level whitespace.
+        let token_start = i;
+        let mut eq_pos: Option<usize> = None;
+        let mut depth = 0i32;
+        let mut in_quote: Option<u8> = None;
+        while i < bytes.len() {
+            let b = bytes[i];
+            match in_quote {
+                Some(q) if b == q => in_quote = None,
+                Some(_) => {}
+                None => match b {
+                    b'\'' | b'"' => in_quote = Some(b),
+                    b'(' | b'[' | b'{' => depth += 1,
+                    b')' | b']' | b'}' => depth -= 1,
+                    b'=' if eq_pos.is_none() => eq_pos = Some(i),
+                    _ if b.is_ascii_whitespace() && depth <= 0 => break,
+                    _ => {}
+                },
+            }
+            i += 1;
+        }
+        let token = &raw_tag[token_start..i];
+        if let Some(rel_eq) = eq_pos {
+            let key = &raw_tag[token_start..rel_eq];
+            let value = raw_tag[rel_eq + 1..i].trim_matches('"').trim_matches('\'');
             meta.push((key.to_string(), value.to_string()));
+        } else {
+            let _ = token;
         }
     }
     meta

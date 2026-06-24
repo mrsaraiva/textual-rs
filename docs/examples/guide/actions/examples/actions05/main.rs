@@ -1,34 +1,32 @@
 /// Port of Python Textual `docs/examples/guide/actions/actions05.py`.
 ///
-/// Demonstrates widget-scoped action dispatch via `[@click=...]` Rich markup
-/// and app-level bindings for background colour changes.
+/// Demonstrates the action **namespace chain** (widget → screen → app):
+/// - Each `ColorSwitcher` (a `Static` subclass) declares its own
+///   `set_background` action.  Its `[@click=set_background('cyan')]` links are
+///   *unnamespaced*, so they resolve to the nearest handler on the bubble path
+///   — the clicked `ColorSwitcher` itself — and tint only that panel.
+/// - The app-level key bindings `r`/`g`/`b` use the same `set_background` action
+///   name, but with no focused widget declaring it they resolve up to the app,
+///   whose `set_background` tints the whole screen.
 ///
-/// Python features ported:
-/// - App-level BINDINGS (r/g/b) → `set_background('red'/'green'/'blue')` change
-///   the *screen* background colour via `on_app_action_str`.
-/// - Two `ColorSwitcher` (Static-based) panels stacked in a 1-fr grid layout,
-///   each showing the same action-link text.
-///
-/// Framework gaps (not yet available in textual-rs):
-/// - `[@click=action('arg')]` Rich markup inline action dispatch: Python Textual
-///   renders these as clickable links that fire `action_set_background(color)`
-///   on the widget that owns the text.  The Rust Label/Static pipeline parses
-///   Rich markup styles but does not yet attach `@click` metadata to arbitrary
-///   markup spans or route those clicks as widget-level actions.  The text is
-///   shown verbatim (without the `[@click=...]` tags) so the visual resembles
-///   the Python output; click interactions are absent.
-/// - Per-widget `action_set_background`: in Python `ColorSwitcher` is a `Static`
-///   subclass with its own action method that targets only that widget's
-///   background.  Rust has no equivalent widget-action dispatch mechanism yet.
+/// Python:
+/// ```python
+/// class ColorSwitcher(Static):
+///     def action_set_background(self, color: str) -> None:
+///         self.styles.background = color
+/// class ActionsApp(App):
+///     BINDINGS = [("r", "set_background('red')", "Red"), ...]
+///     def action_set_background(self, color: str) -> None:
+///         self.screen.styles.background = color
+/// ```
 use textual::prelude::*;
+use textual::style::Color;
 
-/// Text content equivalent to the Python TEXT variable, minus the
-/// `[@click=…]` markup wrappers that are not yet supported.
 const TEXT: &str = "\
 [b]Set your background[/b]
-Cyan
-Magenta
-Yellow";
+[@click=set_background('cyan')]Cyan[/]
+[@click=set_background('magenta')]Magenta[/]
+[@click=set_background('yellow')]Yellow[/]";
 
 const CSS: &str = r#"
 Screen {
@@ -43,6 +41,89 @@ ColorSwitcher {
     margin: 2 4;
 }
 "#;
+
+/// `ColorSwitcher` — a `Static` subclass that owns a `set_background` action
+/// changing only *its own* background.  Mirrors Python's
+/// `class ColorSwitcher(Static)`.
+struct ColorSwitcher {
+    inner: Static,
+    bg: Option<Color>,
+}
+
+impl ColorSwitcher {
+    fn new() -> Self {
+        Self {
+            inner: Static::new(TEXT),
+            bg: None,
+        }
+    }
+}
+
+const COLOR_SWITCHER_ACTIONS: &[ActionDecl] = &[ActionDecl {
+    name: "set_background",
+    namespace: "",
+    description: "Set this panel's background",
+    default_binding: None,
+}];
+
+impl Widget for ColorSwitcher {
+    fn style_type(&self) -> &'static str {
+        "ColorSwitcher"
+    }
+
+    fn render(
+        &self,
+        console: &rich_rs::Console,
+        options: &rich_rs::ConsoleOptions,
+    ) -> rich_rs::Segments {
+        self.inner.render(console, options)
+    }
+
+    fn on_layout(&mut self, width: u16, height: u16) {
+        self.inner.on_layout(width, height);
+    }
+
+    fn layout_height(&self) -> Option<usize> {
+        self.inner.layout_height()
+    }
+
+    fn content_width(&self) -> Option<usize> {
+        self.inner.content_width()
+    }
+
+    /// Inject this panel's chosen background as inline style (highest CSS
+    /// specificity), mirroring Python `self.styles.background = color`.
+    fn style(&self) -> Option<Style> {
+        let mut style = self.inner.style().unwrap_or_default();
+        if let Some(bg) = self.bg {
+            style.bg = Some(bg);
+        }
+        Some(style)
+    }
+
+    fn action_registry(&self) -> &[ActionDecl] {
+        COLOR_SWITCHER_ACTIONS
+    }
+
+    fn execute_action(&mut self, action: &ParsedAction, ctx: &mut EventCtx) -> bool {
+        if action.name == "set_background" {
+            if let Some(color_name) = action.arguments.first() {
+                if let Some(color) = textual::style::parse_color_like(color_name) {
+                    self.bg = Some(color);
+                    ctx.request_style_invalidation();
+                    ctx.request_repaint();
+                    ctx.set_handled();
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    fn take_node_seed(&mut self) -> NodeSeed {
+        self.inner.take_node_seed()
+    }
+}
 
 struct ActionsApp;
 
@@ -62,14 +143,14 @@ impl TextualApp for ActionsApp {
 
     fn compose(&mut self) -> AppRoot {
         AppRoot::new()
-            .with_child(Static::new(TEXT).class("ColorSwitcher"))
-            .with_child(Static::new(TEXT).class("ColorSwitcher"))
+            .with_child(ColorSwitcher::new())
+            .with_child(ColorSwitcher::new())
             .with_child(Footer::new())
     }
 
-    /// Handle the custom `set_background` action from the declarative bindings.
+    /// App-level `set_background` (key bindings): tints the whole screen.
     ///
-    /// Python: `def action_set_background(self, color: str) -> None: self.screen.styles.background = color`
+    /// Python: `def action_set_background(self, color): self.screen.styles.background = color`
     fn on_app_action_str(&mut self, app: &mut App, action: &str, ctx: &mut EventCtx) {
         if let Some(parsed) = parse_action(action) {
             if parsed.name == "set_background" {
@@ -104,7 +185,24 @@ mod tests {
     #[test]
     fn bindings_declared() {
         let app = ActionsApp;
-        let bindings = app.bindings();
-        assert_eq!(bindings.len(), 3);
+        assert_eq!(app.bindings().len(), 3);
+    }
+
+    #[test]
+    fn text_carries_widget_scoped_click_actions() {
+        // Unnamespaced @click actions resolve to the ColorSwitcher widget.
+        assert!(TEXT.contains("[@click=set_background('cyan')]"));
+        assert!(TEXT.contains("[@click=set_background('magenta')]"));
+        assert!(TEXT.contains("[@click=set_background('yellow')]"));
+    }
+
+    #[test]
+    fn color_switcher_set_background_action_sets_bg() {
+        let mut cs = ColorSwitcher::new();
+        assert!(cs.bg.is_none());
+        let action = parse_action("set_background('cyan')").unwrap();
+        let mut ctx = EventCtx::default();
+        assert!(cs.execute_action(&action, &mut ctx));
+        assert!(cs.bg.is_some());
     }
 }

@@ -203,6 +203,148 @@ fn execute_action_with_dispatch_target(
     widget.execute_action(action, ctx)
 }
 
+/// Run a string action through the full Python-faithful dispatch chain and merge
+/// the resulting effects into `pass`.
+///
+/// This is the single shared entry point for *every* string-action source:
+/// `[@click=...]` span clicks, `App::run_action(...)`, and the
+/// [`ActionDispatchRequested`](crate::message::ActionDispatchRequested) message
+/// posted by widgets (links, buttons with `action=`, etc.).
+///
+/// Resolution mirrors `App.run_action` / `_dispatch_action` in Python:
+/// 1. Parse the action string (`namespace.name(args)`).
+/// 2. Resolve the target by walking `sender → ancestors → root` against each
+///    node's `action_namespace` / `action_registry`
+///    ([`crate::action::resolve_action`]).
+/// 3. Gate the resolved target with `check_action` (skip on `Some(false)`/`None`).
+/// 4. Dispatch to the resolved widget; if nothing resolved, fall back to the app
+///    root, then to the app's custom-action hook (`on_app_unhandled_action`),
+///    which is how user-defined `action_<name>` methods run.
+///
+/// `default_namespace` is the node that owns the action when no explicit
+/// namespace is given (the clicked widget for `@click`, the message sender for
+/// `ActionDispatchRequested`).
+///
+/// Returns `true` if the action was handled.
+fn dispatch_action_string(
+    app: &mut App,
+    root: &mut dyn Widget,
+    action_str: &str,
+    default_namespace: NodeId,
+    pass: &mut RuntimeMessagePass,
+) -> bool {
+    let Some(parsed) = crate::action::parse_action(action_str) else {
+        debug_input(&format!(
+            "[runtime] action dispatch ignored invalid action={action_str:?}"
+        ));
+        return false;
+    };
+
+    // --- Widget-tree resolution (focused/sender → root) ---
+    if let Some(tree_mut) = app.active_widget_tree_mut() {
+        let resolve_from = if tree_mut.contains(default_namespace) {
+            Some(default_namespace)
+        } else {
+            focused_node_id_tree(tree_mut).or_else(|| tree_mut.root())
+        };
+
+        let resolved = {
+            let tree_ref = &*tree_mut;
+            resolve_from.and_then(|start| {
+                crate::action::resolve_action(&parsed, tree_ref, start, |nid| {
+                    tree_ref
+                        .get(nid)
+                        .map(|node| (node.widget.action_namespace(), node.widget.action_registry()))
+                })
+            })
+        };
+
+        if let Some(ra) = resolved
+            && let Some(node) = tree_mut.get_mut(ra.node)
+        {
+            // check_action gating (Python `action_target.check_action`).
+            let gate = node.widget.check_action(&parsed.name, &parsed.arguments);
+            if gate != Some(true) {
+                debug_input(&format!(
+                    "[runtime] action gated by check_action action={action_str:?} gate={gate:?}"
+                ));
+                return false;
+            }
+            let mut ctx = EventCtx::default();
+            let handled =
+                execute_action_with_dispatch_target(&mut *node.widget, &parsed, &mut ctx, ra.node);
+            let mut outcome = DispatchOutcome {
+                handled: handled || ctx.handled(),
+                repaint_requested: ctx.repaint_requested(),
+                invalidation: ctx.invalidation(),
+                stop_requested: ctx.stop_requested(),
+                messages: ctx.take_messages(),
+                animation_requests: ctx.take_animation_requests(),
+                worker_requests: ctx.take_worker_requests(),
+                recompose_nodes: ctx.take_recompose_nodes(),
+                default_prevented: false,
+                class_ops: ctx.take_class_ops(),
+            };
+            let handled = outcome.handled;
+            merge_outcome_into_runtime_pass(pass, &mut outcome);
+            if handled {
+                return true;
+            }
+        }
+    }
+
+    // --- App-root dispatch (built-in app actions) ---
+    {
+        let mut ctx = EventCtx::default();
+        let handled =
+            execute_action_with_dispatch_target(root, &parsed, &mut ctx, NodeId::default());
+        let mut outcome = DispatchOutcome {
+            handled: handled || ctx.handled(),
+            repaint_requested: ctx.repaint_requested(),
+            invalidation: ctx.invalidation(),
+            stop_requested: ctx.stop_requested(),
+            messages: ctx.take_messages(),
+            animation_requests: ctx.take_animation_requests(),
+            worker_requests: ctx.take_worker_requests(),
+            recompose_nodes: ctx.take_recompose_nodes(),
+            default_prevented: false,
+            class_ops: ctx.take_class_ops(),
+        };
+        let handled = outcome.handled;
+        merge_outcome_into_runtime_pass(pass, &mut outcome);
+        if handled {
+            return true;
+        }
+    }
+
+    // --- App custom-action fallback (user `action_<name>` methods) ---
+    {
+        let mut ctx = EventCtx::default();
+        root.on_app_unhandled_action(app, action_str, &mut ctx);
+        if ctx.handled() {
+            let mut outcome = DispatchOutcome {
+                handled: true,
+                repaint_requested: ctx.repaint_requested(),
+                invalidation: ctx.invalidation(),
+                stop_requested: ctx.stop_requested(),
+                messages: ctx.take_messages(),
+                animation_requests: ctx.take_animation_requests(),
+                worker_requests: ctx.take_worker_requests(),
+                recompose_nodes: ctx.take_recompose_nodes(),
+                default_prevented: false,
+                class_ops: ctx.take_class_ops(),
+            };
+            merge_outcome_into_runtime_pass(pass, &mut outcome);
+            return true;
+        }
+    }
+
+    debug_input(&format!(
+        "[runtime] action dispatch unresolved action={action_str:?}"
+    ));
+    false
+}
+
 fn dispatch_simulated_key_like_input(
     app: &mut App,
     root: &mut dyn Widget,
@@ -947,89 +1089,7 @@ fn split_runtime_control_messages(
             }
         } else if let Some(m) = event.downcast_ref::<crate::message::ActionDispatchRequested>() {
             let action = m.action.clone();
-            let Some(parsed) = crate::action::parse_action(&action) else {
-                debug_input(&format!(
-                    "[runtime] action dispatch ignored invalid action={action:?}"
-                ));
-                continue;
-            };
-
-            let mut dispatched = false;
-
-            if let Some(tree_mut) = app.active_widget_tree_mut() {
-                let resolve_from = if tree_mut.contains(event.sender) {
-                    Some(event.sender)
-                } else {
-                    focused_node_id_tree(tree_mut).or_else(|| tree_mut.root())
-                };
-
-                let resolved = {
-                    let tree_ref = &*tree_mut;
-                    resolve_from.and_then(|start| {
-                        crate::action::resolve_action(&parsed, tree_ref, start, |nid| {
-                            tree_ref.get(nid).map(|node| {
-                                (
-                                    node.widget.action_namespace(),
-                                    node.widget.action_registry(),
-                                )
-                            })
-                        })
-                    })
-                };
-
-                if let Some(ra) = resolved
-                    && let Some(node) = tree_mut.get_mut(ra.node)
-                {
-                    let mut ctx = EventCtx::default();
-                    let handled = execute_action_with_dispatch_target(
-                        &mut *node.widget,
-                        &parsed,
-                        &mut ctx,
-                        ra.node,
-                    );
-                    let mut outcome = DispatchOutcome {
-                        handled: handled || ctx.handled(),
-                        repaint_requested: ctx.repaint_requested(),
-                        invalidation: ctx.invalidation(),
-                        stop_requested: ctx.stop_requested(),
-                        messages: ctx.take_messages(),
-                        animation_requests: ctx.take_animation_requests(),
-                        worker_requests: ctx.take_worker_requests(),
-                        recompose_nodes: ctx.take_recompose_nodes(),
-                        default_prevented: false,
-                        class_ops: ctx.take_class_ops(),
-                    };
-                    merge_outcome_into_runtime_pass(&mut pass, &mut outcome);
-                    dispatched = outcome.handled;
-                }
-            }
-
-            if !dispatched {
-                let mut ctx = EventCtx::default();
-                let handled =
-                    execute_action_with_dispatch_target(root, &parsed, &mut ctx, NodeId::default());
-                let mut outcome = DispatchOutcome {
-                    handled: handled || ctx.handled(),
-                    repaint_requested: ctx.repaint_requested(),
-                    invalidation: ctx.invalidation(),
-                    stop_requested: ctx.stop_requested(),
-                    messages: ctx.take_messages(),
-                    animation_requests: ctx.take_animation_requests(),
-                    worker_requests: ctx.take_worker_requests(),
-                    recompose_nodes: ctx.take_recompose_nodes(),
-                    default_prevented: false,
-                    class_ops: ctx.take_class_ops(),
-                };
-                merge_outcome_into_runtime_pass(&mut pass, &mut outcome);
-                dispatched = outcome.handled;
-            }
-
-            if !dispatched {
-                debug_input(&format!(
-                    "[runtime] action dispatch unresolved action={action:?} sender={}",
-                    crate::node_id::node_id_to_ffi(event.sender)
-                ));
-            }
+            dispatch_action_string(app, root, &action, event.sender, &mut pass);
         } else {
             pass.deliver.push(event);
         }
@@ -3331,11 +3391,39 @@ impl App {
                                         click_target,
                                         &click_event,
                                     );
+                                    let click_stopped = click_outcome.stop_requested;
                                     self.absorb_outcome(
                                         &mut click_outcome,
                                         &mut pending_invalidation,
                                         InvalidationScope::Global,
                                     );
+
+                                    // `@click` action-link routing (Python
+                                    // `widget._on_click` → `app._broker_event`):
+                                    // consult the style meta at the clicked cell.
+                                    // If a `[@click=...]` span baked an action
+                                    // string there, dispatch it with the clicked
+                                    // widget as the default action namespace.
+                                    if !click_stopped {
+                                        if let Some(action) =
+                                            self.click_action_at(mouse.column, mouse.row)
+                                        {
+                                            let msg = MessageEvent::new(
+                                                click_target,
+                                                crate::message::ActionDispatchRequested { action },
+                                            );
+                                            let mut action_outcome = self
+                                                .dispatch_message_queue_with_runtime(
+                                                    root,
+                                                    vec![msg],
+                                                );
+                                            self.absorb_outcome(
+                                                &mut action_outcome,
+                                                &mut pending_invalidation,
+                                                InvalidationScope::Global,
+                                            );
+                                        }
+                                    }
                                 }
                                 let mut msg_outcome = self
                                     .dispatch_message_queue_with_runtime(root, outcome.messages);

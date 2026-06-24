@@ -480,6 +480,19 @@ pub trait Widget: Send + Sync + Any {
     fn execute_action(&mut self, _action: &ParsedAction, _ctx: &mut EventCtx) -> bool {
         false
     }
+    /// Gate whether an action may run on this widget (its action namespace).
+    ///
+    /// Mirrors Python `DOMNode.check_action`:
+    /// - `Some(true)` — action is enabled (default).
+    /// - `Some(false)` — action is hidden / not runnable.
+    /// - `None` — action is disabled (shown dimmed in footer, not runnable).
+    ///
+    /// The runtime consults this on the *resolved* action target before
+    /// dispatch, so a `[@click=...]` span or `run_action(...)` call is gated the
+    /// same way a key binding is.
+    fn check_action(&self, _action: &str, _parameters: &[String]) -> Option<bool> {
+        Some(true)
+    }
     /// Optional focused HELP markup exposed to framework-level help panels.
     fn help_markup(&self) -> Option<&str> {
         None

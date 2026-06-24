@@ -596,6 +596,13 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
         APP_ACTIONS
     }
 
+    fn check_action(&self, action: &str, parameters: &[String]) -> Option<bool> {
+        self.app
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .check_action(action, parameters)
+    }
+
     fn execute_action(&mut self, action: &ParsedAction, ctx: &mut EventCtx) -> bool {
         fn selector_and_class(action: &ParsedAction) -> Option<(&str, &str)> {
             if action.arguments.len() != 2 {

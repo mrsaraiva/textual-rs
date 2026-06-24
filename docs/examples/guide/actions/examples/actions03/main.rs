@@ -1,54 +1,79 @@
 /// Port of Python Textual `docs/examples/guide/actions/actions03.py`.
 ///
-/// Demonstrates `action_set_background`: clicking a color label changes the
-/// screen background.
+/// Demonstrates `@click` action-link routing: clicking a colour name in a
+/// single `Static` changes the screen background.  The colour names are wrapped
+/// in `[@click=app.set_background('red')]…[/]` markup; clicking a span fires the
+/// named action, which is resolved against the app namespace and handled by the
+/// app's custom `set_background` action.
 ///
-/// Python uses `[@click=app.set_background('red')]` markup inside a single
-/// `Static` widget. Custom `app.*` actions dispatched from `@click` markup
-/// have no `TextualApp` hook in the current framework (framework gap: the
-/// `ActionDispatchRequested` path for unknown `app.*` names does not fall back
-/// to `on_app_action_str` or `on_action_with_app`).
-///
-/// This port preserves the interactive behavior (click → background changes)
-/// using `Button` widgets and `on_message_with_app` / `ButtonPressed`.
+/// Python:
+/// ```python
+/// TEXT = """
+/// [b]Set your background[/b]
+/// [@click=app.set_background('red')]Red[/]
+/// [@click=app.set_background('green')]Green[/]
+/// [@click=app.set_background('blue')]Blue[/]
+/// """
+/// class ActionsApp(App):
+///     def compose(self) -> ComposeResult:
+///         yield Static(TEXT)
+///     def action_set_background(self, color: str) -> None:
+///         self.screen.styles.background = color
+/// ```
 use textual::prelude::*;
+
+const TEXT: &str = "\
+[b]Set your background[/b]
+[@click=app.set_background('red')]Red[/]
+[@click=app.set_background('green')]Green[/]
+[@click=app.set_background('blue')]Blue[/]";
 
 struct ActionsApp;
 
-impl ActionsApp {
-    fn set_background(&self, color: &str, app: &mut App, ctx: &mut EventCtx) {
-        if let Some(c) = textual::style::parse_color_like(color) {
-            if let Ok(q) = app.query_mut("Screen") {
-                q.set_styles(|styles| styles.set_bg(c));
-            }
-            ctx.request_repaint();
-        }
-    }
-}
-
 impl TextualApp for ActionsApp {
     fn compose(&mut self) -> AppRoot {
-        AppRoot::new()
-            .with_child(Static::new("[b]Set your background[/b]"))
-            .with_child(Button::new("Red").id("red"))
-            .with_child(Button::new("Green").id("green"))
-            .with_child(Button::new("Blue").id("blue"))
+        AppRoot::new().with_child(Static::new(TEXT))
     }
 
-    fn on_message_with_app(&mut self, app: &mut App, message: &MessageEvent, ctx: &mut EventCtx) {
-        if let Some(m) = message.downcast_ref::<ButtonPressed>() {
-            let color = match m.button_id.as_deref() {
-                Some("red") => "red",
-                Some("green") => "green",
-                Some("blue") => "blue",
-                _ => return,
-            };
-            self.set_background(color, app, ctx);
-            ctx.set_handled();
+    /// Handle the custom `app.set_background` action fired by the `@click`
+    /// links.  Mirrors Python `action_set_background(self, color)`.
+    fn on_app_action_str(&mut self, app: &mut App, action: &str, ctx: &mut EventCtx) {
+        if let Some(parsed) = parse_action(action) {
+            if parsed.name == "set_background" {
+                if let Some(color_name) = parsed.arguments.first() {
+                    if let Some(color) = textual::style::parse_color_like(color_name) {
+                        let _ = app.query_mut("Screen").map(|q| {
+                            q.set_styles(|styles| styles.set_bg(color));
+                        });
+                        ctx.set_handled();
+                        ctx.request_repaint();
+                    }
+                }
+            }
         }
     }
 }
 
 fn main() -> textual::Result<()> {
     run_sync(ActionsApp)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn app_composes_without_panic() {
+        let mut app = ActionsApp;
+        let _root = app.compose();
+    }
+
+    #[test]
+    fn text_carries_click_actions() {
+        // The colour names must be wrapped in @click action-link markup so the
+        // runtime can route clicks to `app.set_background`.
+        assert!(TEXT.contains("[@click=app.set_background('red')]"));
+        assert!(TEXT.contains("[@click=app.set_background('green')]"));
+        assert!(TEXT.contains("[@click=app.set_background('blue')]"));
+    }
 }

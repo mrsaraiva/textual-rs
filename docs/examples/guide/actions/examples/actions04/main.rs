@@ -1,31 +1,24 @@
 /// Port of Python Textual `docs/examples/guide/actions/actions04.py`.
 ///
-/// Demonstrates app-level action dispatch via key bindings.
+/// Demonstrates app-level action dispatch via key bindings **and** `@click`
+/// action-links.
 ///
 /// Python features ported:
-/// - A `Static` widget showing a bold heading and colour labels.
+/// - A `Static` widget showing a bold heading and clickable colour labels.
+/// - `[@click=set_background('red')]` markup links: clicking a colour fires the
+///   `set_background` action, resolved widget → screen → app (no explicit
+///   namespace) and handled by `on_app_action_str`.
 /// - App-level BINDINGS (r/g/b) → `set_background('red'/'green'/'blue')` change
-///   the screen background colour via `on_app_action_str`.
-///
-/// Framework gaps (not yet available in textual-rs):
-/// - `[@click=app.set_background('red')]` Rich markup inline action links:
-///   Python Textual renders the colour names as clickable links that fire the
-///   `set_background` action when clicked.  The Rust Label/Static pipeline
-///   parses Rich markup styles but does not yet attach `@click` metadata to
-///   arbitrary markup spans or route those clicks as app-level actions.  The
-///   colour labels are therefore displayed as plain text (no link decoration)
-///   and click interactions are absent.  The keyboard bindings (r/g/b) are
-///   fully functional.
+///   the screen background colour via the same handler.
 use textual::prelude::*;
 
-/// Mirrors the Python TEXT variable, with the `[@click=...]` wrappers omitted
-/// because inline action links are not yet supported by the Rust Label/Static
-/// rendering pipeline.
+/// Mirrors the Python TEXT variable, including the `[@click=...]` action-link
+/// wrappers (now routed by the runtime's `@click` hit-test → dispatch).
 const TEXT: &str = "\
 [b]Set your background[/b]
-Red
-Green
-Blue";
+[@click=set_background('red')]Red[/]
+[@click=set_background('green')]Green[/]
+[@click=set_background('blue')]Blue[/]";
 
 struct ActionsApp;
 

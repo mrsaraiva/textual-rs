@@ -650,6 +650,20 @@ impl EventCtx {
         self.post_message_boxed(Box::new(message));
     }
 
+    /// Run a string action (`"namespace.name(args)"`).
+    ///
+    /// Mirrors Python `Widget.run_action` / `MessagePump.run_action`: posts an
+    /// [`ActionDispatchRequested`](crate::message::ActionDispatchRequested)
+    /// message whose sender is this handler's widget, so the runtime resolves
+    /// the action against the `widget → screen → app` namespace chain (with
+    /// `check_action` gating) and dispatches it.  Use this from a widget event
+    /// handler to trigger an action by name without hard-coding the mutation.
+    pub fn run_action(&mut self, action: impl Into<String>) {
+        self.post_message(crate::message::ActionDispatchRequested {
+            action: action.into(),
+        });
+    }
+
     pub fn post_message_boxed(&mut self, message: Box<dyn Message>) {
         debug_message(&format!(
             "[post_message] sender={} payload={message:?}",

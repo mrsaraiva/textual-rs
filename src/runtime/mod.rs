@@ -1195,6 +1195,27 @@ impl App {
         Ok(())
     }
 
+    /// Run a string action (`"namespace.name(args)"`) against the live tree.
+    ///
+    /// Mirrors Python `App.run_action`: the action is resolved against the
+    /// `focused-widget → screen → app` namespace chain (with `check_action`
+    /// gating) and dispatched to the matching `action_<name>` handler.  The call
+    /// is queued onto the runtime message bus and processed on the next event
+    /// loop pass (so effects compose with the normal dispatch/repaint cycle).
+    ///
+    /// This is the app-level convenience wrapper; widget handlers should prefer
+    /// [`EventCtx::run_action`](crate::event::EventCtx::run_action), which routes
+    /// with the handler's widget as the default namespace.
+    pub fn run_action(&mut self, action: impl Into<String>) {
+        let sender = Self::runtime_message_sender();
+        self.pending_app_messages.push(MessageEvent::new(
+            sender,
+            crate::message::ActionDispatchRequested {
+                action: action.into(),
+            },
+        ));
+    }
+
     /// Apply `add_class` to all nodes matching `selector`.
     ///
     /// Returns the number of matched nodes.
@@ -3125,6 +3146,33 @@ impl App {
         }
 
         Some(target)
+    }
+
+    /// Read the `@click` action string stamped into the rendered cell at a
+    /// screen coordinate, if any.
+    ///
+    /// Mirrors Python's `App._broker_event` path: a click first consults the
+    /// style meta at the clicked cell (`get_style_at`) and, if a `@click`
+    /// handler is present in that meta, dispatches the named action.  Here the
+    /// action string was baked into the cell's `StyleMeta` by the content
+    /// renderer (`content::attach_span_meta`) at render time, so any widget that
+    /// renders `[@click=...]` markup participates without per-widget wiring.
+    pub(crate) fn click_action_at(&self, x: u16, y: u16) -> Option<String> {
+        let x = x as usize;
+        let y = y as usize;
+        if x >= self.frame.width || y >= self.frame.height {
+            return None;
+        }
+        let cell = self.frame.get(x, y);
+        cell.meta
+            .as_ref()
+            .and_then(|m| m.meta.as_ref())
+            .and_then(|map| map.get("@click"))
+            .and_then(|value| match value {
+                MetaValue::Str(s) => Some(s.to_string()),
+                _ => None,
+            })
+            .filter(|s| !s.is_empty())
     }
 
     fn widget_at_auto(&self, x: u16, y: u16) -> Option<NodeId> {

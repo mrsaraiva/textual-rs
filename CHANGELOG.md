@@ -7,6 +7,34 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-23 (feat(action): `@click` action-link routing + `run_action(str)` + namespaced dispatch)
+
+- **`@click` action-link routing (super-keystone).** `[@click=action]` markup is now live, not
+  dead metadata. The content renderer bakes the parsed `@click` action string into each rendered
+  segment's `StyleMeta` (mirroring Python's `Style._meta`), so it survives blitting into the frame
+  buffer. On a click, the runtime reads the `@click` meta at the clicked cell (mirroring Python
+  `widget._on_click` → `app._broker_event` → `get_style_at`) and dispatches the named action. Works
+  for **any** widget that renders `@click` markup (Label/Static and future), with no per-widget
+  wiring. Action argument parsing is parenthesis-aware, so `@click=set('a', 'b')` keeps its full
+  value.
+- **`App::run_action(str)` + `EventCtx::run_action(str)`** (Python parity: `App.run_action` /
+  `Widget.run_action`). Run an action by name from app or widget code instead of inlining the
+  mutation; both route through the unified runtime dispatch chain.
+- **Namespaced action resolution + `check_action` gating.** A unified runtime dispatcher resolves
+  every string action (from `@click`, `run_action`, key bindings, or `ActionDispatchRequested`)
+  against the `widget → screen → app` namespace chain, gates the resolved target with
+  `Widget::check_action` (new trait method; the app adapter delegates to `TextualApp::check_action`),
+  and falls back to the app's custom `action_<name>` hook for unknown actions. The previously
+  missing custom-action fallback in the `ActionDispatchRequested` path is now wired.
+- **Demo ports rewired to real action dispatch** (no more inlined mutation / "framework gap"
+  workarounds): `guide/actions` `actions02` (now uses `App::run_action`), `actions03`/`actions04`
+  (real `[@click=app.set_background(...)]` links), `actions05` (widget-scoped `ColorSwitcher` action
+  via the namespace chain); `guide/widgets` `hello05` (widget-scoped `[@click='next_word']`).
+  `content01` and `hello06` already carried the `@click` markup and now route for real.
+- **Verification:** `tests/click_actions_pty.rs` drives the real `actions03` example in a PTY,
+  sends an SGR mouse click on a `[@click=...]` span, and asserts the screen background actually
+  changed — proving the full input → hit-test → dispatch → mutate chain.
+
 ### 2026-06-23 (feat(style): public component-class style API — `get_component_rich_style`)
 
 - **Public component-class style API** (Python parity: `Widget.COMPONENT_CLASSES` /
