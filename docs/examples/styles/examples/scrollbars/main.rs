@@ -42,11 +42,11 @@ impl TextualApp for ScrollbarApp {
                         .with_child(Label::new(repeated_text.clone())),
                 )
                 .with_child(
-                    Node::new(
-                        ScrollableContainer::new()
-                            .with_child(Label::new(repeated_text)),
-                    )
-                    .class("right"),
+                    // Python puts `classes="right"` on the ScrollableContainer
+                    // itself, so the `.right` scrollbar-* tokens reach the bar.
+                    ScrollableContainer::new()
+                        .class("right")
+                        .with_child(Label::new(repeated_text)),
                 ),
         )
     }

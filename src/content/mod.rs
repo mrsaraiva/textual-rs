@@ -985,9 +985,16 @@ impl Content {
         for logical_line in logical_lines {
             if no_wrap {
                 if fold {
-                    // Hard-fold at inner_width.
-                    let offsets =
-                        rich_rs::divide_line(logical_line.plain(), inner_width.max(1), true);
+                    // Hard char-fold at `width`, NOT word-wrap. Python
+                    // (`_wrap_and_format`, no_wrap + overflow="fold") computes
+                    // `cuts = list(range(0, line.cell_length, width))[1:]` and
+                    // `line.divide(cuts)` — a flush cell-width chop at every
+                    // multiple of `width`, which produces MORE/different lines
+                    // than `divide_line`'s word-boundary breaks. `divide` slices
+                    // by codepoint, matching Python's `text[start:end]`.
+                    let cut_width = inner_width.max(1);
+                    let cell_length = rich_rs::cell_len(logical_line.plain());
+                    let offsets: Vec<usize> = (cut_width..cell_length).step_by(cut_width).collect();
                     let pieces = logical_line.divide(&offsets);
                     let num_pieces = pieces.len();
                     for (i, piece) in pieces.into_iter().enumerate() {
