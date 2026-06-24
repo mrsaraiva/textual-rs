@@ -155,7 +155,25 @@ pub struct ButtonPressed {
     /// Mirrors Python's `Button.Pressed.button.id`.
     pub button_id: Option<String>,
 }
-crate::impl_message!(ButtonPressed);
+
+// Manual `Message` impl (instead of `impl_message!`) so `ButtonPressed` can
+// expose its control identity for `@on(Button.Pressed, "#id")`-style routing,
+// mirroring Python's `Button.Pressed.control` / `.button.id`.
+impl Message for ButtonPressed {
+    fn as_any(&self) -> &dyn ::std::any::Any {
+        self
+    }
+    fn clone_box(&self) -> ::std::boxed::Box<dyn Message> {
+        ::std::boxed::Box::new(::std::clone::Clone::clone(self))
+    }
+    fn control_meta(&self) -> Option<crate::routing::ControlMeta> {
+        let mut meta = crate::routing::ControlMeta::default().type_named("Button");
+        if let Some(id) = &self.button_id {
+            meta.id = Some(id.clone());
+        }
+        Some(meta)
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct CheckboxChanged {
@@ -840,6 +858,18 @@ pub trait Message: std::any::Any + Send + Sync + std::fmt::Debug + 'static {
     /// Mirrors Python Textual's `Message.can_replace`. Default: `false`.
     fn can_replace(&self, _pending: &dyn Message) -> bool {
         false
+    }
+
+    /// Identity (`#id`, `.class`, `Type`) of the widget this message originated
+    /// from — its "control", in Python terms.
+    ///
+    /// Used by [`crate::routing::MessageRouter`] (the `@on(Message, selector)`
+    /// analogue) to filter handlers by CSS selector, exactly as Python matches a
+    /// selector against `message.control`. Messages that don't identify a
+    /// control return `None` (the default), in which case only selector-less
+    /// (`@on(Message)`) handlers run for them.
+    fn control_meta(&self) -> Option<crate::routing::ControlMeta> {
+        None
     }
 }
 
