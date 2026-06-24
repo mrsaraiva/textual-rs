@@ -7,6 +7,31 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-24 (fix(widgets): word-wrap Static height + Placeholder height:auto)
+
+- **`Static` intrinsic height now counts real word-wrapped lines.**
+  `Static::intrinsic_height` routed line counting through a naive
+  `cell_len.div_ceil(width)` char-count, which under-counts a paragraph that wraps at
+  word boundaries (real wrapping produces MORE lines), so a padded/narrow `Static`
+  clipped its wrapped tail. It now uses the shared word-wrap line counter
+  (`widgets::text::intrinsic_wrapped_height`, the same Rich-wrap path Label uses), so
+  wrapped text sizes to its true line count. Fixes
+  `docs/examples/guide/styles/padding02`.
+- **New `Widget::auto_content_height()` hook (height counterpart of
+  `auto_content_width`).** Lets a widget report an intrinsic content height for
+  `height: auto` sizing while still returning `None` from `layout_height()` so an
+  UNSET height flex-fills the container (Python's box model). Consulted by
+  `measure_intrinsic_content_height`, symmetric with the existing
+  `auto_content_width` path in `measure_intrinsic_content_width`.
+- **`Placeholder` now shrinks to its label under `height: auto`.** It implements
+  `auto_content_height()` (1 line for the default/size variants; wrapped lorem-ipsum
+  for the text variant) while keeping `layout_height() == None` for the unset-height
+  fill case (the `how-to/layout05` Tweet stack). Fixes
+  `docs/examples/styles/padding_all`, whose example was also rewired to put the `id`
+  on each `Placeholder` directly (Python `Placeholder(label, id=...)`) so the `#pN`
+  padding rules and the `Placeholder { width:auto; height:auto }` rule resolve on the
+  same node instead of a transparent `Node` wrapper.
+
 ### 2026-06-24 (feat(screen): App::push_screen_wait — worker-suspending screen push)
 
 - **`App::push_screen_wait(screen)`** — the Rust analogue of Python Textual's

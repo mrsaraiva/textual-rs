@@ -299,7 +299,32 @@ impl Widget for Placeholder {
     }
 
     fn layout_height(&self) -> Option<usize> {
+        // UNSET height must flex-fill the container (Python: a bare Placeholder
+        // with no `height` rule fills its column — see the layout05 Tweet stack).
+        // So report no intrinsic height here; `height: auto` sizing goes through
+        // `auto_content_height()` instead.
         None
+    }
+
+    /// Intrinsic content height for `height: auto` sizing (Python parity).
+    ///
+    /// Python `Placeholder.render()` returns a renderable whose line count the
+    /// box model uses when `height: auto`. For the default/size variants that's a
+    /// single line (e.g. `"#p1"` / `"30 x 5"`); the text variant wraps the lorem
+    /// ipsum at the current width. We mirror that here so a `Placeholder` with
+    /// `height: auto` shrinks to its label height (e.g. `padding_all`'s `#p1`
+    /// becomes 1 row, not the full grid cell), while an UNSET height still fills
+    /// (guarded by `layout_height() == None`).
+    fn auto_content_height(&self) -> Option<usize> {
+        let width = self.last_width.max(1);
+        let text = self.render_text(width, self.last_height.max(1));
+        let lines = match self.variant {
+            // Default and size are always a single rendered line.
+            PlaceholderVariant::Default | PlaceholderVariant::Size => 1,
+            // Text wraps at the current width — count the wrapped lines.
+            PlaceholderVariant::Text => word_wrap(&text, width).len().max(1),
+        };
+        Some(lines)
     }
 
     fn style_type(&self) -> &'static str {
@@ -609,6 +634,51 @@ mod tests {
             None,
             "Placeholder with unset width must not leak a content-width hint \
              (would collapse flex-fill to content-width)"
+        );
+    }
+
+    /// Python parity (`height: auto` shrink-to-content):
+    /// A `Placeholder` with an explicit `height: auto` rule must report its
+    /// label's line count via `auto_content_height()` so the box model shrinks to
+    /// content. The default/size variants are a single line; the text variant
+    /// wraps the lorem ipsum. Without this, `docs/examples/styles/padding_all`'s
+    /// `#p1` fills the whole grid cell (14 rows) and `content-align: center
+    /// middle` shifts the label to the middle row instead of row 0.
+    #[test]
+    fn auto_content_height_returns_label_line_count() {
+        // Default variant: a single rendered line regardless of width.
+        let mut ph = Placeholder::new("no padding");
+        Widget::on_layout(&mut ph, 10, 14);
+        assert_eq!(
+            Widget::auto_content_height(&ph),
+            Some(1),
+            "`height: auto` default-variant Placeholder must shrink to 1 row"
+        );
+
+        // Size variant: the "W x H" string is also a single line.
+        let mut ph = Placeholder::new("x").with_variant(PlaceholderVariant::Size);
+        Widget::on_layout(&mut ph, 20, 5);
+        assert_eq!(Widget::auto_content_height(&ph), Some(1));
+
+        // Text variant: lorem ipsum wraps to many lines at a narrow width.
+        let mut ph = Placeholder::new("y").with_variant(PlaceholderVariant::Text);
+        Widget::on_layout(&mut ph, 20, 10);
+        assert!(
+            Widget::auto_content_height(&ph).unwrap() > 1,
+            "text-variant Placeholder must wrap to more than one row"
+        );
+    }
+
+    /// The UNSET-height case must still report `None` from BOTH `layout_height()`
+    /// (so an unset height flex-fills the container — the layout05 Tweet stack)
+    /// — `auto_content_height()` is the only opt-in path for `height: auto`.
+    #[test]
+    fn layout_height_stays_none_for_unset_height_flex_fill() {
+        let ph = Placeholder::new("#Tweet1");
+        assert_eq!(
+            Widget::layout_height(&ph),
+            None,
+            "Placeholder unset height must stay None so it flex-fills"
         );
     }
 }

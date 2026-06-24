@@ -110,6 +110,19 @@ impl Static {
     /// Returns a `Node` (same as before) so that class-based CSS descendant
     /// rules (`#questions .button { ... }`) continue to apply to the wrapper
     /// and the Rust layout tree structure stays compatible with nesting01/02.
+    ///
+    /// DEFERRED(display-clear): making this SEED-BASED (the class on the Static's
+    /// own node, like Python `Static(classes=...)`) is the faithful fix for
+    /// `docs/examples/styles/display` (`Static.remove { display:none }`). It was
+    /// implemented and cleared `display`, but regressed `nesting01`/`nesting02`:
+    /// putting the button styles (`margin: 1 2`, border, padding) on the leaf
+    /// Static instead of a wrapper Node shifts the `align: center middle` block
+    /// down by 2 rows (the button's vertical margin). That is a real
+    /// margin-vs-`apply_parent_align` centering bug in the layout engine that the
+    /// Node wrapper happened to mask; the seed-based class only EXPOSES it.
+    /// Fixing it requires layout work (`apply_parent_align` / Horizontal child
+    /// margin in the centered block) outside this cluster's scope. Re-land the
+    /// seed-based `class()` together with that layout fix.
     pub fn class(self, value: impl Into<String>) -> Node {
         Node::new(self).class(value)
     }
@@ -183,22 +196,11 @@ impl Static {
     }
 
     fn intrinsic_height(&self) -> usize {
-        let width = self.layout_width;
-        let mut lines = 0usize;
-        for line in self.text.lines() {
-            if self.wrap && width > 0 {
-                let len = rich_rs::cell_len(line);
-                lines += len.div_ceil(width).max(1);
-            } else {
-                lines += 1;
-            }
-        }
-        // `str::lines()` omits a trailing newline. Python Rich counts a trailing
-        // `\n` as an additional (blank) line — match that behavior.
-        if self.text.ends_with('\n') {
-            lines += 1;
-        }
-        lines.max(1)
+        // Route through the shared word-wrap line counter (same path as Label):
+        // a naive `cell_len.div_ceil(width)` char-count under-counts because real
+        // wrapping breaks at WORD boundaries, so wide paragraphs produce MORE
+        // lines and the wrapped tail would get clipped (padding02).
+        crate::widgets::text::intrinsic_wrapped_height(&self.text, self.layout_width, self.wrap)
     }
 
     fn intrinsic_content_width(&self) -> usize {
@@ -357,6 +359,29 @@ mod tests {
         widget.update_rich(text);
         assert_eq!(widget.layout_height(), Some(3));
     }
+
+    /// `intrinsic_height` must count REAL word-wrapped lines, not a
+    /// `cell_len.div_ceil(width)` char-count. A paragraph longer than the width
+    /// breaks at word boundaries and produces MORE lines than the char-count
+    /// estimate, so the old estimate under-counted and clipped the wrapped tail
+    /// (`docs/examples/guide/styles/padding02`).
+    #[test]
+    fn static_intrinsic_height_uses_real_word_wrap() {
+        let mut widget = Static::new(
+            "Fear is the little-death that brings total obliteration.",
+        );
+        // Content width 22 (padding02: width 30 - padding 4*2).
+        Widget::on_layout(&mut widget, 22, 0);
+        let h = widget.intrinsic_height();
+        // Word-wrapping "Fear is the little-death that brings total
+        // obliteration." at 22 cells yields 4 lines (Rich word-wrap). The naive
+        // char-count estimate `56.div_ceil(22)` = 3 would clip a line.
+        assert!(
+            h >= 4,
+            "word-wrapped height should be >= 4 lines, got {h} (char-count \
+             estimate would under-count to 3)"
+        );
+    }
 }
 
 impl Widget for Static {
@@ -397,23 +422,16 @@ impl Widget for Static {
         match &self.content {
             StaticContent::Plain => Some(self.intrinsic_height().saturating_add(chrome)),
             StaticContent::Content(content) => {
-                // Approximate height from the content's plain-text line count,
-                // accounting for soft-wrap at the current layout width.
+                // Word-wrap-aware height from the content's plain text (same
+                // shared counter as the Plain path), so wrapped pre-built Content
+                // sizes to its real line count rather than the char-count estimate.
                 let plain = content.plain();
-                let width = self.layout_width;
-                let mut lines = 0usize;
-                for line in plain.lines() {
-                    if self.wrap && width > 0 {
-                        let len = rich_rs::cell_len(line);
-                        lines += len.div_ceil(width).max(1);
-                    } else {
-                        lines += 1;
-                    }
-                }
-                if plain.ends_with('\n') {
-                    lines += 1;
-                }
-                Some(lines.max(1).saturating_add(chrome))
+                let lines = crate::widgets::text::intrinsic_wrapped_height(
+                    &plain,
+                    self.layout_width,
+                    self.wrap,
+                );
+                Some(lines.saturating_add(chrome))
             }
             StaticContent::Rich(text) => {
                 let line_count = text.plain_text().lines().count().max(1);

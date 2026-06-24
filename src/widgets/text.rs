@@ -464,7 +464,7 @@ fn rendered_markdown_height(markup: &str, width: usize) -> usize {
     count_rendered_lines(rendered)
 }
 
-fn rendered_plain_height(text: &str, width: usize) -> usize {
+pub(crate) fn rendered_plain_height(text: &str, width: usize) -> usize {
     let console = Console::new();
     let mut options = console.options().clone();
     options.size = (width.max(1), 1);
@@ -472,6 +472,32 @@ fn rendered_plain_height(text: &str, width: usize) -> usize {
     options.max_height = 1;
     let rendered = Text::plain(text.to_string()).render(&console, &options);
     count_rendered_lines(rendered)
+}
+
+/// Word-wrap-aware intrinsic line count for a `Static`/`Label`-style plain text
+/// body, shared so widgets don't re-implement (and under-count) wrapping.
+///
+/// When `wrap` is enabled and `width > 0`, this routes through the real Rich
+/// word-wrap line counter (`rendered_plain_height`) instead of a naive
+/// `cell_len.div_ceil(width)` char-count — a paragraph wider than `width` breaks
+/// at WORD boundaries, producing MORE lines than the char-count estimate, so the
+/// char-count under-counts and the wrapped tail gets clipped (padding02).
+///
+/// A trailing `\n` is counted as one extra blank row to match Python Rich, which
+/// `rendered_plain_height` (via `count_rendered_lines`) would otherwise pop.
+pub(crate) fn intrinsic_wrapped_height(text: &str, width: usize, wrap: bool) -> usize {
+    let mut lines = if wrap && width > 0 {
+        rendered_plain_height(text, width)
+    } else {
+        // No wrap (or unknown width): count hard line breaks only.
+        text.lines().count().max(1)
+    };
+    // `str::lines()` / `count_rendered_lines` both drop a trailing newline's
+    // blank row; Python Rich keeps it.
+    if text.ends_with('\n') {
+        lines += 1;
+    }
+    lines.max(1)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

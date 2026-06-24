@@ -62,16 +62,22 @@ impl TextualApp for PaddingAllApp {
     }
 
     fn compose(&mut self) -> AppRoot {
+        // Put the id on each Placeholder directly (Python
+        // `Placeholder("no padding", id="p1")`) so the `#pN` padding rules and
+        // the `Placeholder { width:auto; height:auto }` rule resolve on the SAME
+        // node. A transparent `Node` wrapper would split type/id across two nodes,
+        // defeating auto-sizing (the wrapper flex-fills the grid cell) and moving
+        // the `#pN` padding onto the wrapper instead of the placeholder.
         AppRoot::new().with_child(
             Grid::new(4, 2)
-                .with_child(Node::new(Placeholder::new("no padding")).id("p1"))
-                .with_child(Node::new(Placeholder::new("padding: 1")).id("p2"))
-                .with_child(Node::new(Placeholder::new("padding: 1 5")).id("p3"))
-                .with_child(Node::new(Placeholder::new("padding: 1 1 2 6")).id("p4"))
-                .with_child(Node::new(Placeholder::new("padding-top: 4")).id("p5"))
-                .with_child(Node::new(Placeholder::new("padding-right: 3")).id("p6"))
-                .with_child(Node::new(Placeholder::new("padding-bottom: 4")).id("p7"))
-                .with_child(Node::new(Placeholder::new("padding-left: 3")).id("p8")),
+                .with_child(Placeholder::new("no padding").id("p1"))
+                .with_child(Placeholder::new("padding: 1").id("p2"))
+                .with_child(Placeholder::new("padding: 1 5").id("p3"))
+                .with_child(Placeholder::new("padding: 1 1 2 6").id("p4"))
+                .with_child(Placeholder::new("padding-top: 4").id("p5"))
+                .with_child(Placeholder::new("padding-right: 3").id("p6"))
+                .with_child(Placeholder::new("padding-bottom: 4").id("p7"))
+                .with_child(Placeholder::new("padding-left: 3").id("p8")),
         )
     }
 }

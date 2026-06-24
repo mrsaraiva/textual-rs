@@ -39,13 +39,20 @@ impl TextualApp for KeylineApp {
     }
 
     fn compose(&mut self) -> AppRoot {
+        // id/class go on each Placeholder directly (Python
+        // `Placeholder(id="foo")` / `Placeholder(classes="hidden")`) so the
+        // `#foo`/`#bar`/`#baz` span rules AND the `Placeholder { height: 1fr }`
+        // rule resolve on the SAME node, and the default label derives from the
+        // id (`#foo`) — matching Python's `label or f"#{id}"`. A transparent
+        // `Node` wrapper would split id/type across two nodes, leaving the
+        // Placeholder label empty (rendering literal "Placeholder").
         AppRoot::new().with_child(
             Grid::new(3, 3)
-                .with_child(Node::new(Placeholder::new("")).id("foo"))
-                .with_child(Node::new(Placeholder::new("")).id("bar"))
+                .with_child(Placeholder::new("").id("foo"))
+                .with_child(Placeholder::new("").id("bar"))
                 .with_child(Placeholder::new(""))
-                .with_child(Node::new(Placeholder::new("")).class("hidden"))
-                .with_child(Node::new(Placeholder::new("")).id("baz")),
+                .with_child(Placeholder::new("").class("hidden"))
+                .with_child(Placeholder::new("").id("baz")),
         )
     }
 }

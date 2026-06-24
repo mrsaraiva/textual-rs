@@ -755,6 +755,19 @@ pub trait Widget: Send + Sync + Any {
     fn layout_height(&self) -> Option<usize> {
         None
     }
+    /// Intrinsic content height used specifically for `height: auto` measurement
+    /// (the height counterpart of [`auto_content_width`](Self::auto_content_width)).
+    ///
+    /// Defaults to `layout_height()` (the OUTER height). Widgets whose `height:
+    /// auto` should shrink-to-content but whose UNSET height must still flex-fill
+    /// (Python's container-fill default) override this WITHOUT reporting a
+    /// `layout_height()` hint — so a bare instance (unset height) fills, while an
+    /// explicit `height: auto` (or an auto wrapper measuring it) sizes to content.
+    /// Example: `Placeholder` (unset height fills the column for the layout05
+    /// Tweet stack; `height: auto` shrinks to the label's line count).
+    fn auto_content_height(&self) -> Option<usize> {
+        self.layout_height()
+    }
     /// Behavior-derived style contribution (e.g. a widget computing `grid_rows`
     /// from its content model). User/inline styles live on the node record.
     fn style(&self) -> Option<Style> {

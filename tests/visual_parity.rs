@@ -176,6 +176,22 @@ const PASSING: &[&str] = &[
     //  (3) example rewired: id on the Horizontal itself (`Horizontal::new().id`)
     //      instead of a `Node` wrapper, so `#bot > Placeholder` resolves.
     "visibility_containers",
+    // Promoted after the widget-render cluster (cycle 9 "widgetrender"):
+    //  - padding02: `Static::intrinsic_height` routes through the shared
+    //    word-wrap line counter (`text::intrinsic_wrapped_height`) instead of a
+    //    naive `cell_len.div_ceil(width)` char-count, so wrapped paragraphs size
+    //    to their real (larger) line count and no longer clip the tail.
+    //  - padding_all: example rewired to put `id` on each `Placeholder` directly
+    //    (Python `Placeholder(label, id=...)`) so the `#pN` padding rules AND the
+    //    `Placeholder { width:auto; height:auto }` rule resolve on the SAME node;
+    //    plus a new `Widget::auto_content_height()` hook (height counterpart of
+    //    `auto_content_width`) lets a `height:auto` Placeholder shrink to its
+    //    label's line count while an UNSET height still flex-fills the container.
+    //  - display: DEFERRED — the faithful fix (seed-based `Static::class()`)
+    //    cleared it but regressed nesting01/02's `align: center middle` by 2 rows
+    //    (a margin-vs-`apply_parent_align` layout bug the Node wrapper masked).
+    //    See `Static::class` doc-comment; re-land with the layout fix.
+    "padding02", "padding_all",
 ];
 
 struct StyledCase {

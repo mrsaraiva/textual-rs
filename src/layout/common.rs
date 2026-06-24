@@ -732,9 +732,14 @@ pub(crate) fn measure_intrinsic_content_height(
     avail_content_h: u16,
 ) -> Option<u16> {
     let node_ref = tree.get(node)?;
+    // Prefer the widget's own report. Use `auto_content_height()` (which defaults
+    // to `layout_height()`) so widgets that shrink-to-content under `height: auto`
+    // but flex-fill when the height is UNSET (Placeholder) measure correctly here
+    // without leaking a fill-default height hint elsewhere — symmetric with the
+    // `auto_content_width()` path in `measure_intrinsic_content_width`.
     if let Some(h) = node_ref
         .widget
-        .layout_height()
+        .auto_content_height()
         .and_then(|h| u16::try_from(h).ok())
     {
         return Some(h);
