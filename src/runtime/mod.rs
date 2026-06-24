@@ -955,7 +955,29 @@ impl App {
     ///
     /// Called at the start of each background-message pass in the event loop.
     pub(super) fn drain_pending_app_messages(&mut self) -> Vec<MessageEvent> {
+        // Apply any screen dismissal staged by the active screen's handler
+        // (`ctx.dismiss(..)`) before draining queued app messages. This keeps
+        // screen teardown on the single runtime control path: the screen
+        // handler stages a result, and the runtime pops + invokes the callback
+        // here on the next loop pass.
+        self.drain_screen_dismissals();
         std::mem::take(&mut self.pending_app_messages)
+    }
+
+    /// Pop the active screen if its handler staged a dismissal via
+    /// `ScreenMessageCtx::dismiss(..)`. The staged [`ScreenResult`] becomes the
+    /// pending result so the screen's callback receives the handler's value.
+    pub(super) fn drain_screen_dismissals(&mut self) {
+        while let Some(result) = self.screen_stack.take_active_dismissal() {
+            // dismiss_screen sets the pending result, pops, and invokes the
+            // registered callback with the value.
+            if !self.dismiss_screen(result) {
+                break;
+            }
+            // The active tree changed; force a relayout + full repaint so the
+            // screen below is re-rendered on this frame.
+            self.pending_force_relayout = true;
+        }
     }
 
     /// Configure runtime pseudo-class state used by CSS selectors.
@@ -3166,6 +3188,8 @@ impl App {
         self.dispatch_screen_lifecycle_event(Event::ScreenSuspend);
         self.screen_stack.push(screen);
         let _ = self.focus_first_in_active_tree();
+        // The active tree changed; force a relayout + full repaint.
+        self.pending_force_relayout = true;
     }
 
     /// Push a screen onto the screen stack with a result callback.
@@ -3180,6 +3204,8 @@ impl App {
         self.dispatch_screen_lifecycle_event(Event::ScreenSuspend);
         self.screen_stack.push_with_callback(screen, callback);
         let _ = self.focus_first_in_active_tree();
+        // The active tree changed; force a relayout + full repaint.
+        self.pending_force_relayout = true;
     }
 
     /// Dismiss the topmost screen with an optional result value.
@@ -3212,6 +3238,8 @@ impl App {
                 self.current_mode = None;
             }
             self.dispatch_screen_lifecycle_event(Event::ScreenResume);
+            // The active tree changed; force a relayout + full repaint.
+            self.pending_force_relayout = true;
             result
         })
     }
@@ -3222,12 +3250,12 @@ impl App {
     }
 
     /// Get the title from the active screen (if it defines one).
-    pub fn active_screen_title(&self) -> Option<&str> {
+    pub fn active_screen_title(&self) -> Option<String> {
         self.screen_stack.active_title()
     }
 
     /// Get the sub-title from the active screen (if it defines one).
-    pub fn active_screen_sub_title(&self) -> Option<&str> {
+    pub fn active_screen_sub_title(&self) -> Option<String> {
         self.screen_stack.active_sub_title()
     }
 

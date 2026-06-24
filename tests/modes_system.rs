@@ -100,7 +100,7 @@ fn mode_switch_pops_old_and_pushes_new() {
 
     // Verify we can pop the help screen
     let (popped, _, _) = stack.pop().unwrap();
-    assert_eq!(popped.name(), "HelpScreen");
+    assert_eq!(popped.lock().unwrap().name(), "HelpScreen");
 
     // Push settings screen
     let settings_screen = NamedScreen::boxed("SettingsScreen");
@@ -109,7 +109,7 @@ fn mode_switch_pops_old_and_pushes_new() {
 
     // Verify settings screen is on top
     let (popped, _, _) = stack.pop().unwrap();
-    assert_eq!(popped.name(), "SettingsScreen");
+    assert_eq!(popped.lock().unwrap().name(), "SettingsScreen");
 }
 
 /// Mode switch does not affect non-mode screens below.
@@ -127,17 +127,17 @@ fn mode_switch_preserves_base_screens() {
 
     // Switch mode: pop ModeA, push ModeB
     let (popped, _, _) = stack.pop().unwrap();
-    assert_eq!(popped.name(), "ModeA");
+    assert_eq!(popped.lock().unwrap().name(), "ModeA");
     stack.push(NamedScreen::boxed("ModeB"));
     assert_eq!(stack.len(), 2);
 
     // Pop ModeB, base screen should still be there.
     let (popped, _, _) = stack.pop().unwrap();
-    assert_eq!(popped.name(), "ModeB");
+    assert_eq!(popped.lock().unwrap().name(), "ModeB");
     assert_eq!(stack.len(), 1);
 
     let (popped, _, _) = stack.pop().unwrap();
-    assert_eq!(popped.name(), "BaseScreen");
+    assert_eq!(popped.lock().unwrap().name(), "BaseScreen");
 }
 
 /// Switching to the same mode is a no-op (tested via current_mode tracking).
@@ -227,7 +227,7 @@ fn command_palette_screen_on_stack() {
     assert_eq!(stack.len(), 1);
 
     let (popped, _, _) = stack.pop().unwrap();
-    assert_eq!(popped.name(), "CommandPaletteScreen");
+    assert_eq!(popped.lock().unwrap().name(), "CommandPaletteScreen");
 }
 
 /// CommandPaletteScreen can be pushed and popped.
@@ -239,11 +239,11 @@ fn command_palette_screen_push_pop() {
     assert_eq!(stack.len(), 2);
 
     let (screen, _result, _) = stack.pop().unwrap();
-    assert_eq!(screen.name(), "CommandPaletteScreen");
+    assert_eq!(screen.lock().unwrap().name(), "CommandPaletteScreen");
     assert_eq!(stack.len(), 1);
 
     let (base, _, _) = stack.pop().unwrap();
-    assert_eq!(base.name(), "Base");
+    assert_eq!(base.lock().unwrap().name(), "Base");
 }
 
 /// Mode factory for CommandPaletteScreen.

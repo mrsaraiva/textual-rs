@@ -16,8 +16,8 @@ impl Widget for QuitDialogRoot {
             Grid::new(2, 2)
                 .id("dialog")
                 .with_child(Label::new("Are you sure you want to quit?").with_id("question"))
-                .with_child(Button::error("Quit").with_action("app.quit"))
-                .with_child(Button::primary("Cancel").with_action("app.pop_screen"))
+                .with_child(Button::error("Quit").id("quit"))
+                .with_child(Button::primary("Cancel").id("cancel"))
         ]
     }
 
@@ -26,6 +26,9 @@ impl Widget for QuitDialogRoot {
     }
 }
 
+/// Screen with a dialog to quit. Mirrors Python `modal01.py`'s `QuitScreen`:
+/// the screen owns its own `on_button_pressed` handler (it is a DOM node, not a
+/// compose-only container).
 struct QuitScreen;
 
 impl Screen for QuitScreen {
@@ -46,6 +49,20 @@ impl Screen for QuitScreen {
 
     fn is_modal(&self) -> bool {
         false
+    }
+
+    fn on_button_pressed(
+        &mut self,
+        pressed: &ButtonPressed,
+        _control: NodeId,
+        ctx: &mut ScreenMessageCtx,
+    ) {
+        // Python: if event.button.id == "quit": self.app.exit() else self.app.pop_screen()
+        if pressed.button_id.as_deref() == Some("quit") {
+            ctx.exit();
+        } else {
+            ctx.dismiss_none();
+        }
     }
 }
 
@@ -76,6 +93,23 @@ fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    fn press(screen: &mut QuitScreen, button_id: &str) -> (Option<ScreenResult>, bool) {
+        let slot: Mutex<Option<ScreenResult>> = Mutex::new(None);
+        let mut ctx = EventCtx::default();
+        let mut screen_ctx = ScreenMessageCtx::for_test(&mut ctx, &slot);
+        screen.on_button_pressed(
+            &ButtonPressed {
+                description: button_id.into(),
+                button_id: Some(button_id.into()),
+            },
+            NodeId::default(),
+            &mut screen_ctx,
+        );
+        let staged = slot.lock().unwrap().take();
+        (staged, ctx.stop_requested())
+    }
 
     #[test]
     fn modal01_screen_is_non_modal() {
@@ -94,5 +128,21 @@ mod tests {
         assert_eq!(app.screen_count(), 0);
         assert!(app.action_push_screen("quit"));
         assert_eq!(app.screen_count(), 1);
+    }
+
+    #[test]
+    fn modal01_cancel_button_dismisses_screen_via_handler() {
+        let mut screen = QuitScreen;
+        let (staged, stop) = press(&mut screen, "cancel");
+        assert!(matches!(staged, Some(ScreenResult::Dismissed)));
+        assert!(!stop);
+    }
+
+    #[test]
+    fn modal01_quit_button_requests_exit() {
+        let mut screen = QuitScreen;
+        let (staged, stop) = press(&mut screen, "quit");
+        assert!(stop, "quit should request app stop");
+        assert!(staged.is_none(), "quit exits rather than dismissing");
     }
 }
