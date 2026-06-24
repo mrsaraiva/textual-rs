@@ -7,30 +7,32 @@
 /// - A `VerticalScroll` showing span information via `Pretty` (id="spans-container") — F2 toggle
 /// - `Footer` with F1/F2 binding hints
 ///
-/// ## Implemented
-/// - Markup rendering: `rich_rs::Text::from_markup(&text, false)` + `Static::update_rich(text)`
-///   renders the editor markup into #results (on error, `-error` class applied to container).
-/// - Span listing: parsed `Text::spans()` are formatted and shown via `Pretty::update_str`.
-/// - JSON validation: naive bracket/brace balance check (see note below) toggles `-bad-json`.
-/// - Border titles: `Static::with_border_title("Output")` and `Pretty::with_border_title("Spans")`
-///   are set on #results and #spans respectively.
-/// - Auto-focus: `app.query_mut("#editor").focus()` is called in `on_mount_with_app`.
+/// ## Template-variable substitution (the playground's core feature)
+/// Python's `MarkupPlayground` is built around
+/// `Content.from_markup(text, **variables)`, where the variables come from the
+/// JSON editor and are substituted into the markup via `string.Template`'s
+/// `safe_substitute` (over `$name` / `${name}`) **before** tag parsing.
 ///
-/// ## Framework gaps (genuine blockers)
-/// - `Content::from_markup()` with variable substitution: rich-rs offers `Text::from_markup`
-///   (parsing + rendering) and `Span` (span list) but no unified Content type that performs
-///   named variable substitution in one call (Python: `Content.from_markup(text, **vars)`).
-///   The variables TextArea values are parsed but not yet threaded into the markup renderer.
-/// - `TextArea` border_title: `TextArea` has no `with_border_title` / `set_border_title`
-///   (confirmed absent in src/widgets/text_area.rs), so the editor's 'Markup' title and
-///   variables' 'Variables (JSON)' title cannot be reproduced yet.
-/// - JSON parsing (serde_json): `serde_json` is not declared in this crate's Cargo.toml
-///   (it is available in the top-level workspace but not the docs/examples workspace).
-///   A naive bracket-balance heuristic is used instead; it correctly flags obviously
-///   malformed text and accepts well-formed objects/arrays.
-/// - `@on(Message, "#selector")` declarative routing: Rust stores NodeIds at mount time
-///   and compares `message.sender`. Functional but not declarative.
-use rich_rs::Text;
+/// This Rust port now reproduces that faithfully:
+/// - The variables `TextArea` is parsed as JSON (`serde_json`) into a string map.
+/// - `Content::from_markup_with_vars(text, &vars)` performs the same
+///   `safe_substitute` over **text tokens only** (tag bodies like `[$primary]`
+///   are left intact), exactly like Python.
+/// - The resulting `Content` (with variables already substituted) is rendered by
+///   `Static::update_content(content)` — a value that carries its own spans, so a
+///   variable value containing literal `[red]` is shown verbatim, not re-parsed
+///   as markup (matching Python).
+/// - The `Content.spans` list is shown in the `#spans` `Pretty` panel.
+///
+/// ## Remaining smaller gaps (not core to this feature)
+/// - `TextArea` border_title: `TextArea` has no `with_border_title` /
+///   `set_border_title`, so the editor's 'Markup' and variables' 'Variables (JSON)'
+///   titles are not reproduced yet.
+/// - `@on(Message, "#selector")` declarative routing: Rust stores NodeIds at mount
+///   time and compares `message.sender`. Functional but not declarative.
+use std::collections::HashMap;
+
+use textual::content::{Content, SpanStyle};
 use textual::prelude::*;
 
 const CSS: &str = r##"
@@ -103,6 +105,9 @@ struct PlaygroundApp {
     editor_id: Option<NodeId>,
     /// NodeId of the #variables TextArea, resolved at mount time.
     variables_id: Option<NodeId>,
+    /// Current template variables (last successfully-parsed JSON object).
+    /// Mirrors Python `MarkupPlayground.variables` (a reactive dict).
+    variables: HashMap<String, String>,
 }
 
 impl PlaygroundApp {
@@ -112,130 +117,92 @@ impl PlaygroundApp {
             show_spans: false,
             editor_id: None,
             variables_id: None,
+            variables: HashMap::new(),
         }
     }
 
-    /// Naive JSON validity heuristic (used because serde_json is not in this
-    /// crate's Cargo.toml).
+    /// Parse the JSON variables text into a `{name: value-string}` map.
     ///
-    /// Returns `true` when the text is either empty (treated as an empty
-    /// variables object) or appears to be a structurally balanced JSON object
-    /// or array.  This correctly flags obviously malformed input and accepts
-    /// well-formed JSON, but does NOT catch all semantic errors (e.g. duplicate
-    /// keys or non-string keys without quotes).
-    fn looks_like_valid_json(text: &str) -> bool {
+    /// Mirrors Python `json.loads(text)` followed by `**variables` expansion:
+    /// each top-level key becomes a template variable. JSON values are converted
+    /// to the string form that `safe_substitute` would interpolate (string values
+    /// use their raw contents; other JSON scalars/containers use their JSON text).
+    ///
+    /// Returns `Err` when the text is not a valid JSON object (Python flags this
+    /// by adding the `-bad-json` class and clearing the variables).
+    fn parse_variables(text: &str) -> std::result::Result<HashMap<String, String>, ()> {
         let trimmed = text.trim();
         if trimmed.is_empty() {
-            return true;
+            // Empty editor → empty variables (Python's reactive default is `{}`).
+            return Ok(HashMap::new());
         }
-        // Must start and end with matching brackets.
-        let (open, close) = match trimmed.chars().next() {
-            Some('{') => ('{', '}'),
-            Some('[') => ('[', ']'),
-            _ => return false,
+        let value: serde_json::Value = serde_json::from_str(trimmed).map_err(|_| ())?;
+        let serde_json::Value::Object(map) = value else {
+            // Python passes the parsed object via `**variables`; a non-object
+            // (array / scalar) cannot be expanded as keyword arguments.
+            return Err(());
         };
-        if trimmed.chars().last() != Some(close) {
-            return false;
+        let mut vars = HashMap::with_capacity(map.len());
+        for (key, val) in map {
+            let s = match val {
+                serde_json::Value::String(s) => s,
+                other => other.to_string(),
+            };
+            vars.insert(key, s);
         }
-        // Check bracket/brace balance across the whole string.
-        let mut depth: i32 = 0;
-        let mut in_string = false;
-        let mut escape = false;
-        for ch in trimmed.chars() {
-            if escape {
-                escape = false;
-                continue;
-            }
-            if in_string {
-                match ch {
-                    '\\' => escape = true,
-                    '"' => in_string = false,
-                    _ => {}
-                }
-                continue;
-            }
-            match ch {
-                '"' => in_string = true,
-                c if c == open => depth += 1,
-                c if c == close => {
-                    depth -= 1;
-                    if depth < 0 {
-                        return false;
-                    }
-                }
-                _ => {}
-            }
-        }
-        depth == 0
+        Ok(vars)
     }
 
-    /// Format a span list from a parsed `Text` into a human-readable string
-    /// suitable for the `Pretty` widget.
-    ///
-    /// Mirrors Python's `content.spans` accessor which returns a list of
-    /// `rich.text.Span` objects (each with start, end, style).
-    fn format_spans(text: &Text) -> String {
-        let spans = text.spans();
+    /// Format the `Content.spans` list into a human-readable string for the
+    /// `Pretty` widget, mirroring Python's `content.spans` (a list of
+    /// `Span(start, end, style)` repr).
+    fn format_spans(content: &Content) -> String {
+        let spans = content.spans();
         if spans.is_empty() {
             return "[]".to_string();
         }
         let mut parts = Vec::with_capacity(spans.len());
         for span in spans {
+            let style_repr = match &span.span_style {
+                SpanStyle::Raw(raw) => format!("{raw:?}"),
+                SpanStyle::Parsed(style) => format!("{style:?}"),
+            };
             parts.push(format!(
-                "Span({}, {}, {:?})",
-                span.start,
-                span.end,
-                span.style
+                "Span({}, {}, {})",
+                span.start, span.end, style_repr
             ));
         }
         format!("[{}]", parts.join(", "))
     }
 
-    /// Update the results panel from the current editor text.
+    /// Update the results panel from the current editor text + variables.
     ///
-    /// Parses the markup with `rich_rs::Text::from_markup`, renders it into
-    /// `#results` via `Static::update_rich`, and populates `#spans` with the
-    /// span list.  On parse error the `-error` class is added to
-    /// `#results-container`.
-    fn update_results(app: &mut App, ctx: &mut EventCtx) {
-        // Read editor text.
+    /// Mirrors Python `MarkupPlayground.update_markup`:
+    /// `content = Content.from_markup(editor.text, **self.variables)` then
+    /// `results.update(content)` and `spans.update(content.spans)`.
+    fn update_results(app: &mut App, ctx: &mut EventCtx, variables: &HashMap<String, String>) {
         let text = app
             .with_query_one_mut_as::<TextArea, _>("#editor", |ta| ta.text())
             .ok()
             .unwrap_or_default();
 
-        match Text::from_markup(&text, false) {
-            Ok(rich_text) => {
-                // Build span representation before consuming rich_text.
-                let spans_str = Self::format_spans(&rich_text);
+        // Build Content with template-variable substitution. Substitution applies
+        // to text tokens only; tag bodies (`[$primary]`) are left intact, and a
+        // variable value containing literal brackets is NOT re-parsed as markup.
+        let content = Content::from_markup_with_vars(&text, variables);
+        let spans_str = Self::format_spans(&content);
 
-                // Render parsed markup into #results.
-                let _ = app.with_query_one_mut_as::<Static, _>("#results", |s| {
-                    s.update_rich(rich_text);
-                });
+        let _ = app.with_query_one_mut_as::<Static, _>("#results", |s| {
+            s.update_content(content.clone());
+        });
+        let _ = app.with_query_one_mut_as::<Pretty, _>("#spans", |p| {
+            p.update_str(spans_str);
+        });
 
-                // Populate #spans with the span list.
-                let _ = app.with_query_one_mut_as::<Pretty, _>("#spans", |p| {
-                    p.update_str(spans_str);
-                });
-
-                // Clear error class — markup is valid.
-                if let Ok(q) = app.query_mut("#results-container") {
-                    q.remove_class("-error");
-                }
-            }
-            Err(_) => {
-                // Markup parse error: show raw text and mark container as errored.
-                let _ = app.with_query_one_mut_as::<Static, _>("#results", |s| {
-                    s.update(text.clone());
-                });
-                let _ = app.with_query_one_mut_as::<Pretty, _>("#spans", |p| {
-                    p.update_str("[]".to_string());
-                });
-                if let Ok(q) = app.query_mut("#results-container") {
-                    q.add_class("-error");
-                }
-            }
+        // Our markup parser is total (never errors), matching Textual's behaviour
+        // for well-formed-enough input; clear any error class.
+        if let Ok(q) = app.query_mut("#results-container") {
+            q.remove_class("-error");
         }
 
         ctx.request_repaint();
@@ -262,17 +229,10 @@ impl TextualApp for PlaygroundApp {
     fn compose(&mut self) -> AppRoot {
         // Top row: editor + variables.
         let top_row = HorizontalGroup::new()
-            .with_child(
-                Node::new(TextArea::new("").with_soft_wrap(false)).id("editor"),
-            )
-            .with_child(
-                Node::new(TextArea::new("").with_language("json")).id("variables"),
-            );
+            .with_child(Node::new(TextArea::new("").with_soft_wrap(false)).id("editor"))
+            .with_child(Node::new(TextArea::new("").with_language("json")).id("variables"));
 
         // Bottom row: results + spans.
-        // Static gets border title "Output"; Pretty gets border title "Spans".
-        // Note: TextArea has no with_border_title, so editor/variables titles
-        // ('Markup' / 'Variables (JSON)') cannot be set until that API exists.
         let results_scroll = Node::new(
             VerticalScroll::new()
                 .with_child(Static::new("").with_border_title("Output").id("results")),
@@ -280,8 +240,11 @@ impl TextualApp for PlaygroundApp {
         .id("results-container");
 
         let spans_scroll = Node::new(
-            VerticalScroll::new()
-                .with_child(Pretty::from_debug_str("[]").with_border_title("Spans").id("spans")),
+            VerticalScroll::new().with_child(
+                Pretty::from_debug_str("[]")
+                    .with_border_title("Spans")
+                    .id("spans"),
+            ),
         )
         .id("spans-container");
 
@@ -314,42 +277,44 @@ impl TextualApp for PlaygroundApp {
         }
 
         // Run initial markup update.
-        Self::update_results(app, ctx);
+        let vars = self.variables.clone();
+        Self::update_results(app, ctx, &vars);
     }
 
-    fn on_message_with_app(
-        &mut self,
-        app: &mut App,
-        message: &MessageEvent,
-        ctx: &mut EventCtx,
-    ) {
-        if let Some(_changed) = message.downcast_ref::<TextAreaChanged>() {
+    fn on_message_with_app(&mut self, app: &mut App, message: &MessageEvent, ctx: &mut EventCtx) {
+        if message.downcast_ref::<TextAreaChanged>().is_some() {
             let sender = message.sender;
 
             if Some(sender) == self.editor_id {
                 // Editor content changed → re-render markup results.
-                Self::update_results(app, ctx);
+                let vars = self.variables.clone();
+                Self::update_results(app, ctx, &vars);
             } else if Some(sender) == self.variables_id {
-                // Variables JSON changed → validate JSON and toggle -bad-json class,
-                // then re-render (variable substitution into markup is a confirmed
-                // gap: Content::from_markup() with named variables does not exist in
-                // rich-rs; full variable threading is deferred).
+                // Variables JSON changed → parse JSON, toggle -bad-json class,
+                // update the stored variables, then re-render with substitution.
                 let vars_text = app
                     .with_query_one_mut_as::<TextArea, _>("#variables", |ta| ta.text())
                     .ok()
                     .unwrap_or_default();
 
-                let json_ok = Self::looks_like_valid_json(&vars_text);
-                if let Ok(q) = app.query_mut("#variables") {
-                    if json_ok {
-                        q.remove_class("-bad-json");
-                    } else {
-                        q.add_class("-bad-json");
+                match Self::parse_variables(&vars_text) {
+                    Ok(vars) => {
+                        if let Ok(q) = app.query_mut("#variables") {
+                            q.remove_class("-bad-json");
+                        }
+                        self.variables = vars;
+                    }
+                    Err(()) => {
+                        if let Ok(q) = app.query_mut("#variables") {
+                            q.add_class("-bad-json");
+                        }
+                        // Python sets `self.variables = {}` on bad JSON.
+                        self.variables = HashMap::new();
                     }
                 }
 
-                // Re-render results with the (un-substituted) markup.
-                Self::update_results(app, ctx);
+                let vars = self.variables.clone();
+                Self::update_results(app, ctx, &vars);
             }
         }
     }
@@ -393,50 +358,86 @@ mod tests {
     fn has_f1_f2_bindings() {
         let app = PlaygroundApp::new();
         let bindings = app.bindings();
-        assert!(
-            bindings.iter().any(|b| b.key == "f1"),
-            "missing f1 binding"
-        );
-        assert!(
-            bindings.iter().any(|b| b.key == "f2"),
-            "missing f2 binding"
-        );
+        assert!(bindings.iter().any(|b| b.key == "f1"), "missing f1 binding");
+        assert!(bindings.iter().any(|b| b.key == "f2"), "missing f2 binding");
     }
 
     #[test]
     fn initial_state() {
         let app = PlaygroundApp::new();
-        assert!(app.show_variables, "variables panel should default to visible");
+        assert!(
+            app.show_variables,
+            "variables panel should default to visible"
+        );
         assert!(!app.show_spans, "spans panel should default to hidden");
         assert!(app.editor_id.is_none(), "editor_id not set until mount");
+        assert!(app.variables.is_empty(), "variables default empty");
     }
 
     #[test]
-    fn json_heuristic_accepts_valid() {
-        assert!(PlaygroundApp::looks_like_valid_json(""));
-        assert!(PlaygroundApp::looks_like_valid_json("{}"));
-        assert!(PlaygroundApp::looks_like_valid_json(r#"{"key": "value"}"#));
-        assert!(PlaygroundApp::looks_like_valid_json(r#"{"a": 1, "b": [1, 2]}"#));
-        assert!(PlaygroundApp::looks_like_valid_json("[]"));
+    fn parse_variables_accepts_object() {
+        let vars = PlaygroundApp::parse_variables(r#"{"name": "Will", "age": 42}"#).unwrap();
+        assert_eq!(vars.get("name").map(String::as_str), Some("Will"));
+        // Non-string JSON values are stringified (Python str()-equivalent here is
+        // the JSON scalar text).
+        assert_eq!(vars.get("age").map(String::as_str), Some("42"));
     }
 
     #[test]
-    fn json_heuristic_rejects_invalid() {
-        assert!(!PlaygroundApp::looks_like_valid_json("not json"));
-        assert!(!PlaygroundApp::looks_like_valid_json("{unclosed"));
-        assert!(!PlaygroundApp::looks_like_valid_json(r#"{"key": "value""#));
+    fn parse_variables_empty_is_ok() {
+        assert!(PlaygroundApp::parse_variables("").unwrap().is_empty());
+        assert!(PlaygroundApp::parse_variables("   ").unwrap().is_empty());
     }
 
     #[test]
-    fn format_spans_empty() {
-        let text = Text::plain("hello");
-        let result = PlaygroundApp::format_spans(&text);
-        assert_eq!(result, "[]");
+    fn parse_variables_rejects_invalid_and_non_objects() {
+        assert!(PlaygroundApp::parse_variables("not json").is_err());
+        assert!(PlaygroundApp::parse_variables("{unclosed").is_err());
+        assert!(PlaygroundApp::parse_variables("[1, 2, 3]").is_err());
+        assert!(PlaygroundApp::parse_variables("42").is_err());
     }
 
+    /// The core feature: `$name` in the markup text is replaced by the variable,
+    /// faithfully mirroring Python `Content.from_markup("Hello, [b]$name[/b]!", name="Will")`.
     #[test]
-    fn markup_parses_plain_text() {
-        let text = Text::from_markup("Hello World", false).unwrap();
-        assert_eq!(text.plain_text(), "Hello World");
+    fn from_markup_with_vars_substitutes_in_text() {
+        let mut vars = HashMap::new();
+        vars.insert("name".to_string(), "Will".to_string());
+        let content = Content::from_markup_with_vars("Hello, [b]$name[/b]!", &vars);
+        assert_eq!(content.plain(), "Hello, Will!");
+        // The `[b]` tag span survives substitution and covers the substituted name.
+        assert_eq!(content.spans().len(), 1);
+        assert_eq!(content.spans()[0].start, 7);
+        assert_eq!(content.spans()[0].end, 11); // "Will"
+    }
+
+    /// Faithful to Python: a variable VALUE containing markup-like brackets is
+    /// inserted as literal text, NOT re-parsed as a tag.
+    #[test]
+    fn variable_value_with_brackets_is_literal() {
+        let mut vars = HashMap::new();
+        vars.insert("x".to_string(), "[red]BIG[/red]".to_string());
+        let content = Content::from_markup_with_vars("Hello $x world", &vars);
+        assert_eq!(content.plain(), "Hello [red]BIG[/red] world");
+        assert!(
+            content.spans().is_empty(),
+            "value brackets must not become spans"
+        );
+    }
+
+    /// Tag bodies are NOT substituted (only text tokens), matching Python.
+    #[test]
+    fn tag_bodies_are_not_substituted() {
+        let mut vars = HashMap::new();
+        vars.insert("primary".to_string(), "red".to_string());
+        // `[$primary]` is a tag body → left intact; only the text `$primary` is subbed.
+        let content = Content::from_markup_with_vars("[$primary]$primary[/]", &vars);
+        assert_eq!(content.plain(), "red");
+        assert_eq!(content.spans().len(), 1);
+        // Raw tag body remains `$primary` (deferred theme-token resolution).
+        match &content.spans()[0].span_style {
+            SpanStyle::Raw(raw) => assert_eq!(raw, "$primary"),
+            other => panic!("expected raw span, got {other:?}"),
+        }
     }
 }

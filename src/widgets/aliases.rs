@@ -13,10 +13,7 @@ fn tag_segment_no_text_style(seg: &mut Segment) {
         .as_ref()
         .map(|m| (**m).clone())
         .unwrap_or_default();
-    map.insert(
-        "textual:no_text_style".to_string(),
-        MetaValue::Bool(true),
-    );
+    map.insert("textual:no_text_style".to_string(), MetaValue::Bool(true));
     meta.meta = Some(Arc::new(map));
     seg.meta = Some(meta);
 }
@@ -25,6 +22,10 @@ fn tag_segment_no_text_style(seg: &mut Segment) {
 enum StaticContent {
     /// Plain or markup string rendered directly via `Content::render_strips`.
     Plain,
+    /// Pre-built [`Content`] (e.g. markup with template variables already
+    /// substituted via `Content::from_markup_with_vars`). Mirrors Python
+    /// `Static.update(content)` where `content` is a `Content`/`Visual`.
+    Content(crate::content::Content),
     /// Pre-rendered rich text (e.g. syntax-highlighted code).
     Rich(Text),
 }
@@ -138,6 +139,19 @@ impl Static {
         self.content = StaticContent::Rich(text);
     }
 
+    /// Replace content with a pre-built [`Content`] value.
+    ///
+    /// Use this to display markup whose template variables were already
+    /// substituted (e.g. `Content::from_markup_with_vars(...)`), so the Static
+    /// renders the exact spans/text of that `Content` instead of re-parsing a
+    /// string. Theme-token resolution, alignment and link styling go through the
+    /// same render path as plain markup.
+    ///
+    /// Mirrors Python `Static.update(content)` where `content` is a `Content`.
+    pub fn update_content(&mut self, content: crate::content::Content) {
+        self.content = StaticContent::Content(content);
+    }
+
     /// Clear all content (show empty widget).
     ///
     /// Mirrors Python `Static.update("")`.
@@ -195,6 +209,105 @@ impl Static {
             .unwrap_or(0)
             .max(1)
     }
+
+    /// Render a `Content` value to `Segments`, shared by the `Plain` (string)
+    /// and `Content` (pre-built) paths so both go through identical
+    /// alignment/background/theme-token/link resolution.
+    ///
+    /// `apply_link_style` mirrors the `markup` flag: only markup-derived content
+    /// gets `[@click=...]` link styling overlaid.
+    fn render_content(
+        &self,
+        content: &crate::content::Content,
+        options: &ConsoleOptions,
+        apply_link_style: bool,
+    ) -> Segments {
+        let width = options.size.0.max(1);
+
+        // Get the widget's resolved visual style (pushed by render_widget_with_meta
+        // onto the style stack before calling render()).
+        let visual_style = crate::css::current_self_style().unwrap_or_default();
+
+        // Determine text alignment from resolved CSS.
+        let text_align = visual_style
+            .text_align
+            .unwrap_or(crate::style::TextAlign::Left);
+
+        // Build the effective background: flatten the widget's own bg over the
+        // composited ancestor background so transparent-bg statics still get the
+        // correct surface color baked into every segment.
+        let parent_bg = crate::css::current_ancestor_composited_background().unwrap_or_else(|| {
+            crate::style::parse_color_like("$background")
+                .unwrap_or(crate::style::Color::rgb(0, 0, 0))
+        });
+        let effective_bg = visual_style
+            .bg
+            .map(|c| c.flatten_over(parent_bg))
+            .unwrap_or(parent_bg);
+
+        // Construct the render-time visual style: always has an explicit bg so
+        // make_segment never falls back to black.
+        let mut render_style = visual_style.clone();
+        render_style.bg = Some(effective_bg);
+
+        let mut content = content.clone();
+
+        // Apply link-* CSS styling to `[@click=...]` markup spans.
+        if apply_link_style {
+            if let Some(link_span_style) =
+                crate::widgets::text::compute_link_span_style(&render_style, effective_bg)
+            {
+                let link_ranges: Vec<(usize, usize)> = content
+                    .spans()
+                    .iter()
+                    .filter(|span| {
+                        matches!(&span.span_style, crate::content::SpanStyle::Raw(raw)
+                            if raw.starts_with("@click=") || raw == "@click")
+                    })
+                    .map(|span| (span.start, span.end))
+                    .collect();
+                for (start, end) in link_ranges {
+                    content = content.stylize(link_span_style.clone(), start, end);
+                }
+            }
+        }
+
+        // Resolve theme tokens in span styles using parse_tag_style, which calls
+        // parse_color_like internally and handles $primary/$surface etc.
+        let resolve_fn = |raw: &str| {
+            crate::content::markup::parse_tag_style(raw)
+                .map(|t| t.style)
+                .unwrap_or_default()
+        };
+
+        let strips = content.render_strips(
+            width,
+            None,
+            &render_style,
+            text_align,
+            "fold",
+            false,
+            0,
+            resolve_fn,
+        );
+
+        let mut segments = Segments::new();
+        let n_strips = strips.len();
+        let n_trailing_empty = strips.iter().rev().take_while(|s| s.is_empty()).count();
+        for (i, strip) in strips.into_iter().enumerate() {
+            for mut seg in strip {
+                tag_segment_no_text_style(&mut seg);
+                segments.push(seg);
+            }
+            if i + 1 < n_strips {
+                segments.push(Segment::line());
+            }
+        }
+        for _ in 0..n_trailing_empty {
+            segments.push(Segment::line());
+        }
+        segments
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -250,130 +363,19 @@ impl Widget for Static {
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         match &self.content {
             StaticContent::Plain => {
-                let width = options.size.0.max(1);
-
-                // Get the widget's resolved visual style (pushed by render_widget_with_meta
-                // onto the style stack before calling render()).
-                let visual_style = crate::css::current_self_style().unwrap_or_default();
-
-                // Determine text alignment from resolved CSS.
-                let text_align = visual_style
-                    .text_align
-                    .unwrap_or(crate::style::TextAlign::Left);
-
-                // Build the effective background: flatten the widget's own bg over the
-                // composited ancestor background so transparent-bg statics still get the
-                // correct surface color baked into every segment.
-                //
-                // Use current_ancestor_composited_background() which excludes the current
-                // widget's own style from the composite. This matches what
-                // apply_style_to_segments sees when it runs AFTER render() returns (at
-                // which point the current widget's style has been popped from the stack).
-                let parent_bg =
-                    crate::css::current_ancestor_composited_background().unwrap_or_else(|| {
-                        crate::style::parse_color_like("$background")
-                            .unwrap_or(crate::style::Color::rgb(0, 0, 0))
-                    });
-                let effective_bg = visual_style
-                    .bg
-                    .map(|c| c.flatten_over(parent_bg))
-                    .unwrap_or(parent_bg);
-
-                // Construct the render-time visual style: always has an explicit bg so
-                // make_segment never falls back to black. fg/attrs come from the resolved
-                // style (same source as apply_style_to_segments would use).
-                let mut render_style = visual_style.clone();
-                render_style.bg = Some(effective_bg);
-
-                // Build Content from the static text.
-                let mut content = if self.markup {
+                // Build Content from the static text (markup or plain), then render
+                // through the shared Content path.
+                let content = if self.markup {
                     crate::content::Content::from_markup(&self.text)
                 } else {
                     crate::content::Content::from_text(&self.text)
                 };
-
-                // Apply link-* CSS styling to `[@click=...]` markup spans.
-                //
-                // Python's `widget.link_style` is applied to any segment whose meta
-                // carries `@click` (see `widget.py` `_StyledRenderable.__rich_console__`).
-                // We mirror this: detect spans whose raw_tag starts with `@click=` or
-                // equals `@click`, and overlay the link style computed from the widget's
-                // link-* CSS properties.
-                //
-                // `[link=url]` spans do NOT get link styling — only `@click` spans do.
-                if self.markup {
-                    if let Some(link_span_style) =
-                        crate::widgets::text::compute_link_span_style(&render_style, effective_bg)
-                    {
-                        let link_ranges: Vec<(usize, usize)> = content
-                            .spans()
-                            .iter()
-                            .filter(|span| {
-                                matches!(&span.span_style, crate::content::SpanStyle::Raw(raw)
-                                    if raw.starts_with("@click=") || raw == "@click")
-                            })
-                            .map(|span| (span.start, span.end))
-                            .collect();
-                        for (start, end) in link_ranges {
-                            content = content.stylize(link_span_style.clone(), start, end);
-                        }
-                    }
-                }
-
-                // Resolve theme tokens in span styles using parse_tag_style, which calls
-                // parse_color_like internally and handles $primary/$surface etc.
-                let resolve_fn = |raw: &str| {
-                    crate::content::markup::parse_tag_style(raw)
-                        .map(|t| t.style)
-                        .unwrap_or_default()
-                };
-
-                // Render via Content::render_strips.
-                // - No height cap: let wrap_and_format determine row count.
-                // - overflow="fold": word-wrap (render.rs handles ellipsis/clip for no_wrap).
-                // - no_wrap=false: always word-wrap here; render.rs applies overflow later.
-                // - line_pad=0: handled by render_widget_with_meta.
-                let strips = content.render_strips(
-                    width,
-                    None,
-                    &render_style,
-                    text_align,
-                    "fold",
-                    false,
-                    0,
-                    resolve_fn,
-                );
-
-                // Flatten strips into Segments joined by newlines.
-                // Tag each data segment with textual:no_text_style so apply_style_to_segments
-                // skips re-applying widget CSS text attrs (bold/italic/etc.), which have
-                // already been baked in by render_strips (visual_style + span_style combined).
-                //
-                // `split_and_crop_lines` (used by render_widget_with_meta) treats a
-                // trailing "\n" as ending the CURRENT row without starting a new one, so
-                // a trailing blank line from content (e.g. "text\n") would not produce a
-                // second row in the final lines list. To produce the correct number of
-                // rows we add an extra Segment::line() for every trailing empty strip so
-                // that split_and_crop_lines sees a proper row boundary.
-                let mut segments = Segments::new();
-                let n_strips = strips.len();
-                // Count how many trailing strips are empty (from trailing '\n' in content).
-                let n_trailing_empty = strips.iter().rev().take_while(|s| s.is_empty()).count();
-                for (i, strip) in strips.into_iter().enumerate() {
-                    for mut seg in strip {
-                        tag_segment_no_text_style(&mut seg);
-                        segments.push(seg);
-                    }
-                    if i + 1 < n_strips {
-                        segments.push(Segment::line());
-                    }
-                }
-                // Extra newline tokens for each trailing empty strip: each extra "\n" causes
-                // split_and_crop_lines to emit one blank row, matching Python's line count.
-                for _ in 0..n_trailing_empty {
-                    segments.push(Segment::line());
-                }
-                segments
+                self.render_content(&content, options, self.markup)
+            }
+            StaticContent::Content(content) => {
+                // Pre-built Content (e.g. with template variables substituted).
+                // Treat it like markup output for link styling/resolution purposes.
+                self.render_content(content, options, true)
             }
             StaticContent::Rich(text) => text.render(console, options),
         }
@@ -393,8 +395,25 @@ impl Widget for Static {
         // padding/border chrome). This matches the convention used by flow layout.
         let chrome = crate::widgets::helpers::resolved_vertical_chrome(self);
         match &self.content {
-            StaticContent::Plain => {
-                Some(self.intrinsic_height().saturating_add(chrome))
+            StaticContent::Plain => Some(self.intrinsic_height().saturating_add(chrome)),
+            StaticContent::Content(content) => {
+                // Approximate height from the content's plain-text line count,
+                // accounting for soft-wrap at the current layout width.
+                let plain = content.plain();
+                let width = self.layout_width;
+                let mut lines = 0usize;
+                for line in plain.lines() {
+                    if self.wrap && width > 0 {
+                        let len = rich_rs::cell_len(line);
+                        lines += len.div_ceil(width).max(1);
+                    } else {
+                        lines += 1;
+                    }
+                }
+                if plain.ends_with('\n') {
+                    lines += 1;
+                }
+                Some(lines.max(1).saturating_add(chrome))
             }
             StaticContent::Rich(text) => {
                 let line_count = text.plain_text().lines().count().max(1);

@@ -324,9 +324,27 @@ pub(crate) struct RawSpan {
 /// **Key Python-faithful change vs Phase A**: unknown tag bodies (e.g. "foobar")
 /// are consumed and stored as raw spans — NOT emitted as literal `[foobar]` text.
 pub(crate) fn parse_markup(markup: &str) -> (String, Vec<RawSpan>) {
+    parse_markup_with_vars(markup, None)
+}
+
+/// Parse Textual markup, optionally performing `string.Template`-style variable
+/// substitution over the **text** content (mirroring Python `Content.from_markup`
+/// with `**variables`).
+///
+/// Substitution is applied per text token (the runs of plain text *between* tags),
+/// exactly as Python's `_to_content` applies `process_text` to text tokens only.
+/// Tag bodies (e.g. `[$primary]`) are **not** substituted — matching Python, where
+/// only `token.name == "text"` values pass through `Template(...).safe_substitute`.
+pub(crate) fn parse_markup_with_vars(
+    markup: &str,
+    template_variables: Option<&std::collections::HashMap<String, String>>,
+) -> (String, Vec<RawSpan>) {
     if !markup.contains('[') {
-        // Fast path: no markup at all
-        return (markup.to_string(), Vec::new());
+        // No tags: the whole string is a single text token. Still substitute when
+        // variables are provided (Python falls into `to_content` whenever variables
+        // are present, even with no `[`).
+        let substituted = substitute_text_token(markup, template_variables);
+        return (substituted, Vec::new());
     }
 
     let chars: &[u8] = markup.as_bytes();
@@ -339,17 +357,34 @@ pub(crate) fn parse_markup(markup: &str) -> (String, Vec<RawSpan>) {
     // We store the raw tag body — NOT a parsed Style — mirroring Python exactly.
     let mut style_stack: Vec<(usize, String, String)> = Vec::new();
 
+    // Accumulator for the current contiguous text token. We substitute the whole
+    // run at once when we reach a tag boundary or EOF, matching Python's
+    // token-level `process_text`. This keeps `$name` substitution well-defined
+    // across escaped brackets within a single text run.
+    let mut pending_text = String::new();
+    macro_rules! flush_pending {
+        () => {
+            if !pending_text.is_empty() {
+                let substituted = substitute_text_token(&pending_text, template_variables);
+                text.push_str(&substituted);
+                pending_text.clear();
+            }
+        };
+    }
+
     let mut i = 0;
     while i < len {
-        // Escaped `\[` → emit literal `[`
+        // Escaped `\[` → emit literal `[` (still part of the current text token,
+        // matching Python's `token.value.replace("\\[", "[")` before substitution)
         if chars[i] == b'\\' && i + 1 < len && chars[i + 1] == b'[' {
-            text.push('[');
+            pending_text.push('[');
             i += 2;
             continue;
         }
 
         // Opening `[`
         if chars[i] == b'[' {
+            flush_pending!();
             // Check for closing tag `[/`
             let is_closing = i + 1 < len && chars[i + 1] == b'/';
             let tag_start = if is_closing { i + 2 } else { i + 1 };
@@ -386,8 +421,7 @@ pub(crate) fn parse_markup(markup: &str) -> (String, Vec<RawSpan>) {
                         for rev_idx in 0..stack_len {
                             let stack_idx = stack_len - 1 - rev_idx;
                             if style_stack[stack_idx].2 == norm_closing {
-                                let (tag_pos, raw_tag, _norm) =
-                                    style_stack.remove(stack_idx);
+                                let (tag_pos, raw_tag, _norm) = style_stack.remove(stack_idx);
                                 let current_pos = text.len();
                                 if tag_pos != current_pos {
                                     let meta = extract_meta_only(&raw_tag);
@@ -437,11 +471,14 @@ pub(crate) fn parse_markup(markup: &str) -> (String, Vec<RawSpan>) {
             continue;
         }
 
-        // Regular character
+        // Regular character → accumulate into the current text token.
         let ch = &markup[i..i + char_len_at(markup, i)];
-        text.push_str(ch);
+        pending_text.push_str(ch);
         i += ch.len();
     }
+
+    // Flush any trailing text token before auto-closing spans.
+    flush_pending!();
 
     // Auto-close any unclosed opening tags (Python does this at end-of-input)
     let text_len = text.len();
@@ -463,6 +500,133 @@ pub(crate) fn parse_markup(markup: &str) -> (String, Vec<RawSpan>) {
     spans.sort_by_key(|s| s.start);
 
     (text, spans)
+}
+
+/// Apply `string.Template.safe_substitute` semantics to a single text token.
+///
+/// Mirrors CPython `string.Template` with its default `delimiter = '$'` and
+/// `idpattern = (?a:[_a-z][_a-z0-9]*)` (ASCII, case-insensitive matching):
+///
+/// - `$$` → literal `$` (escape)
+/// - `$name` / `${name}` → replaced by `variables["name"]` when present
+/// - identifier = `[A-Za-z_][A-Za-z0-9_]*` (ASCII only)
+/// - unknown keys are left **unmodified** (safe substitution — no error)
+/// - a `$` not followed by `$`, a valid identifier, or `{ident}` is left as-is
+/// - dict lookup is exact-case (`$name` does not match key `Name`)
+///
+/// When `variables` is `None`, the token is returned unchanged (no allocation
+/// when there is nothing to substitute).
+fn substitute_text_token(
+    token: &str,
+    variables: Option<&std::collections::HashMap<String, String>>,
+) -> String {
+    let Some(variables) = variables else {
+        return token.to_string();
+    };
+    // Fast path: no delimiter present.
+    if !token.contains('$') {
+        return token.to_string();
+    }
+
+    let bytes = token.as_bytes();
+    let len = bytes.len();
+    let mut out = String::with_capacity(token.len());
+    let mut i = 0;
+
+    while i < len {
+        if bytes[i] != b'$' {
+            // Copy a full UTF-8 char.
+            let clen = char_len_at(token, i);
+            out.push_str(&token[i..i + clen]);
+            i += clen;
+            continue;
+        }
+
+        // We have a `$` at position i.
+        if i + 1 >= len {
+            // Trailing `$` → leave as-is.
+            out.push('$');
+            i += 1;
+            continue;
+        }
+
+        let next = bytes[i + 1];
+        if next == b'$' {
+            // `$$` escape → single `$`.
+            out.push('$');
+            i += 2;
+            continue;
+        }
+
+        if next == b'{' {
+            // Braced: `${ident}`.
+            if let Some((ident, after)) = parse_braced_identifier(token, i + 2) {
+                match variables.get(ident) {
+                    Some(value) => out.push_str(value),
+                    None => out.push_str(&token[i..after]), // keep `${ident}` verbatim
+                }
+                i = after;
+                continue;
+            }
+            // Not a valid `${ident}` form → leave `$` literal, continue from `{`.
+            out.push('$');
+            i += 1;
+            continue;
+        }
+
+        // Bare: `$ident`.
+        if is_id_start(next) {
+            let ident_start = i + 1;
+            let mut j = ident_start + 1;
+            while j < len && is_id_continue(bytes[j]) {
+                j += 1;
+            }
+            let ident = &token[ident_start..j];
+            match variables.get(ident) {
+                Some(value) => out.push_str(value),
+                None => out.push_str(&token[i..j]), // keep `$ident` verbatim
+            }
+            i = j;
+            continue;
+        }
+
+        // `$` followed by something that is not `$`, `{`, or an id-start → literal.
+        out.push('$');
+        i += 1;
+    }
+
+    out
+}
+
+/// Parse a braced identifier `ident}` starting at byte index `start` (just after
+/// the `{`). Returns `(ident, index_after_closing_brace)` if the content up to the
+/// next `}` is a valid ASCII identifier, else `None`.
+fn parse_braced_identifier(token: &str, start: usize) -> Option<(&str, usize)> {
+    let bytes = token.as_bytes();
+    let len = bytes.len();
+    if start >= len || !is_id_start(bytes[start]) {
+        return None;
+    }
+    let mut j = start + 1;
+    while j < len && is_id_continue(bytes[j]) {
+        j += 1;
+    }
+    // Must be terminated by `}` immediately after the identifier.
+    if j < len && bytes[j] == b'}' {
+        Some((&token[start..j], j + 1))
+    } else {
+        None
+    }
+}
+
+#[inline]
+fn is_id_start(b: u8) -> bool {
+    b == b'_' || b.is_ascii_alphabetic()
+}
+
+#[inline]
+fn is_id_continue(b: u8) -> bool {
+    b == b'_' || b.is_ascii_alphanumeric()
 }
 
 /// Check whether a tag body contains characters that would cause Python's
@@ -534,6 +698,65 @@ mod tests {
         assert!(spans.is_empty());
     }
 
+    // --- substitute_text_token (string.Template.safe_substitute parity) ---
+
+    fn vmap(pairs: &[(&str, &str)]) -> std::collections::HashMap<String, String> {
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn test_subst_bare_and_braced() {
+        let v = vmap(&[("name", "Will")]);
+        assert_eq!(substitute_text_token("$name", Some(&v)), "Will");
+        assert_eq!(substitute_text_token("${name}", Some(&v)), "Will");
+        assert_eq!(
+            substitute_text_token("a $name b ${name}", Some(&v)),
+            "a Will b Will"
+        );
+    }
+
+    #[test]
+    fn test_subst_dollar_escape() {
+        let v = vmap(&[]);
+        assert_eq!(substitute_text_token("$$5", Some(&v)), "$5");
+        assert_eq!(substitute_text_token("$$$$", Some(&v)), "$$");
+    }
+
+    #[test]
+    fn test_subst_missing_and_invalid() {
+        let v = vmap(&[("1bad", "x"), ("a.b", "y")]);
+        assert_eq!(substitute_text_token("$missing", Some(&v)), "$missing");
+        assert_eq!(substitute_text_token("$1bad", Some(&v)), "$1bad");
+        assert_eq!(substitute_text_token("${a.b}", Some(&v)), "${a.b}");
+        // trailing `$`
+        assert_eq!(substitute_text_token("end$", Some(&v)), "end$");
+        // `$` followed by space
+        assert_eq!(substitute_text_token("$ x", Some(&v)), "$ x");
+    }
+
+    #[test]
+    fn test_subst_underscore_identifier() {
+        let v = vmap(&[("_b", "X")]);
+        assert_eq!(substitute_text_token("a$_b c", Some(&v)), "aX c");
+    }
+
+    #[test]
+    fn test_subst_none_and_no_dollar() {
+        let v = vmap(&[("name", "Will")]);
+        assert_eq!(substitute_text_token("plain text", None), "plain text");
+        assert_eq!(substitute_text_token("plain text", Some(&v)), "plain text");
+    }
+
+    #[test]
+    fn test_subst_non_ascii_identifier_not_matched() {
+        // Python default idpattern is ASCII-only; `$café` is not substituted.
+        let v = vmap(&[("café", "X")]);
+        assert_eq!(substitute_text_token("$café", Some(&v)), "$café");
+    }
+
     #[test]
     fn test_bold_tag() {
         let (text, spans) = parse_markup("[bold]hello[/bold]");
@@ -578,8 +801,14 @@ mod tests {
         assert_eq!(link_meta.unwrap().1, "https://example.com");
         // Resolved visual style should have no fg/underline
         let resolved = parse_tag_style(&spans[0].raw_tag).unwrap();
-        assert!(resolved.style.fg.is_none(), "link tag must not set fg color");
-        assert!(resolved.style.underline.is_none(), "link tag must not set underline");
+        assert!(
+            resolved.style.fg.is_none(),
+            "link tag must not set fg color"
+        );
+        assert!(
+            resolved.style.underline.is_none(),
+            "link tag must not set underline"
+        );
     }
 
     #[test]
@@ -632,7 +861,10 @@ mod tests {
         assert_eq!(spans.len(), 1);
         assert_eq!(spans[0].raw_tag, "red");
         let resolved = parse_tag_style("red").unwrap();
-        assert!(resolved.style.fg.is_some(), "red tag should set fg color after resolve");
+        assert!(
+            resolved.style.fg.is_some(),
+            "red tag should set fg color after resolve"
+        );
     }
 
     /// Python-faithful: unrecognised tag like [foobar] is CONSUMED (not literal text).
@@ -652,7 +884,10 @@ mod tests {
         assert_eq!(spans[0].end, 4);
         // parse_tag_style("foobar") should return Some with null style (unknown token → no-op)
         let resolved = parse_tag_style("foobar");
-        assert!(resolved.is_some(), "parse_tag_style should return Some (had_style=true from consuming foobar)");
+        assert!(
+            resolved.is_some(),
+            "parse_tag_style should return Some (had_style=true from consuming foobar)"
+        );
         let style = resolved.unwrap().style;
         assert!(style.bold.is_none());
         assert!(style.fg.is_none());

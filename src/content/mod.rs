@@ -43,7 +43,7 @@ pub mod markup;
 
 use crate::style::Style;
 use markup::parse_markup;
-use std::cell::OnceCell;
+use std::sync::OnceLock;
 
 // ---------------------------------------------------------------------------
 // SpanStyle — deferred vs pre-resolved style
@@ -211,15 +211,15 @@ impl Span {
 /// `Content` is `Clone` but intended to be treated as logically immutable:
 /// most methods return new `Content` instances rather than mutating in-place.
 ///
-/// `cell_length` is computed lazily via interior mutability (`OnceCell`) so
+/// `cell_length` is computed lazily via interior mutability (`OnceLock`) so
 /// that `&self` accessors work without requiring `&mut self` — mirroring
 /// Python's `@cached_property`.
 #[derive(Debug, Clone)]
 pub struct Content {
     text: String,
     spans: Vec<Span>,
-    /// Cached cell length (lazily computed; interior mutability via OnceCell).
-    cell_length_cache: OnceCell<usize>,
+    /// Cached cell length (lazily computed; interior mutability via OnceLock).
+    cell_length_cache: OnceLock<usize>,
 }
 
 impl PartialEq for Content {
@@ -237,12 +237,12 @@ impl Content {
         Self {
             text,
             spans,
-            cell_length_cache: OnceCell::new(),
+            cell_length_cache: OnceLock::new(),
         }
     }
 
     fn new_with_cell_len(text: String, spans: Vec<Span>, cell_length: Option<usize>) -> Self {
-        let cell_length_cache = OnceCell::new();
+        let cell_length_cache = OnceLock::new();
         if let Some(len) = cell_length {
             let _ = cell_length_cache.set(len);
         }
@@ -312,6 +312,58 @@ impl Content {
         Self::new_uncached(text, spans)
     }
 
+    /// Create content from markup, applying `string.Template`-style variable
+    /// substitution over the text content **before** tag parsing.
+    ///
+    /// Mirrors Python `Content.from_markup(markup, **variables)`: each `$name`
+    /// or `${name}` in the **text** (not in tag bodies) is replaced via
+    /// `string.Template(...).safe_substitute(variables)` — unknown keys are left
+    /// untouched, and `$$` is an escaped literal `$`.
+    ///
+    /// Example (Python parity):
+    /// ```ignore
+    /// let mut vars = std::collections::HashMap::new();
+    /// vars.insert("name".to_string(), "Will".to_string());
+    /// let c = Content::from_markup_with_vars("Hello, [b]$name[/b]!", &vars);
+    /// assert_eq!(c.plain(), "Hello, Will!");
+    /// ```
+    ///
+    /// Substitution faithfully follows Python:
+    /// - Only text tokens are substituted; tag bodies like `[$primary]` are left
+    ///   intact (so theme tokens still resolve at render time).
+    /// - When `variables` is empty and the markup contains no `[`, this is the
+    ///   plain-text fast path (matching Python's `from_markup` early return).
+    pub fn from_markup_with_vars(
+        markup: impl AsRef<str>,
+        variables: &std::collections::HashMap<String, String>,
+    ) -> Self {
+        let markup = markup.as_ref();
+        let markup = strip_control_codes(markup.to_string());
+
+        if markup.is_empty() {
+            return Self::empty();
+        }
+
+        // Python: `if "[" not in markup and not variables: return Content(markup)`
+        if !markup.contains('[') && variables.is_empty() {
+            return Self::from_text(markup);
+        }
+
+        let vars = if variables.is_empty() {
+            None
+        } else {
+            Some(variables)
+        };
+        let (text, raw_spans) = markup::parse_markup_with_vars(&markup, vars);
+
+        let spans: Vec<Span> = raw_spans
+            .into_iter()
+            .map(|rs| Span::new_raw(rs.start, rs.end, rs.raw_tag))
+            .collect();
+
+        Self::new_uncached(text, spans)
+    }
+
     /// Create `Content` from plain text with a single style covering the whole
     /// string.
     ///
@@ -328,11 +380,7 @@ impl Content {
 
     /// Create `Content` from plain text with a single style, providing a
     /// pre-computed cell length to avoid recomputation.
-    pub fn styled_with_cell_len(
-        text: impl Into<String>,
-        style: Style,
-        cell_length: usize,
-    ) -> Self {
+    pub fn styled_with_cell_len(text: impl Into<String>, style: Style, cell_length: usize) -> Self {
         let text = strip_control_codes(text.into());
         if text.is_empty() {
             return Self::empty();
@@ -426,7 +474,7 @@ impl Content {
     ///
     /// Uses `rich_rs::cell_len` which accounts for double-wide Unicode
     /// characters (CJK, emoji).  The result is cached via interior mutability
-    /// (`OnceCell`) — this method takes `&self` (not `&mut self`), mirroring
+    /// (`OnceLock`) — this method takes `&self` (not `&mut self`), mirroring
     /// Python's `@cached_property` on `Content.cell_length`.
     ///
     /// Mirrors Python `Content.cell_length`.
@@ -751,10 +799,7 @@ impl Content {
         let mut inner: Vec<usize> = offsets.to_vec();
         inner.sort_unstable();
         // Clamp offsets to [0, text_len].
-        let inner: Vec<usize> = inner
-            .into_iter()
-            .map(|o| o.min(text_len))
-            .collect();
+        let inner: Vec<usize> = inner.into_iter().map(|o| o.min(text_len)).collect();
 
         let cut_points: Vec<usize> = std::iter::once(0)
             .chain(inner.iter().copied())
@@ -789,7 +834,9 @@ impl Content {
                 let new_start = span.start.saturating_sub(range_start);
                 let new_end = (span_end - range_start).min(range_end - range_start);
                 if new_end > new_start {
-                    pieces[piece_idx].spans.push(span.with_range(new_start, new_end));
+                    pieces[piece_idx]
+                        .spans
+                        .push(span.with_range(new_start, new_end));
                 }
             }
         }
@@ -815,7 +862,7 @@ impl Content {
         let mut search_from = 0;
         while let Some(pos) = self.text[search_from..].find(separator) {
             let abs_pos = search_from + pos;
-            offsets.push(abs_pos);           // start of separator
+            offsets.push(abs_pos); // start of separator
             offsets.push(abs_pos + sep_len); // end of separator
             search_from = abs_pos + sep_len;
         }
@@ -923,8 +970,7 @@ impl Content {
                 }
             } else {
                 // Word-wrap using divide_line.
-                let offsets =
-                    rich_rs::divide_line(logical_line.plain(), inner_width.max(1), fold);
+                let offsets = rich_rs::divide_line(logical_line.plain(), inner_width.max(1), fold);
                 let pieces = logical_line.divide(&offsets);
                 let num_pieces = pieces.len();
 
@@ -1182,8 +1228,7 @@ fn render_justified_line(
     if pad_style.fg.is_none() {
         if let Some(auto) = visual_style.fg_auto {
             if let Some(bg) = visual_style.bg {
-                let contrast =
-                    crate::style::contrast_text(bg).blend_over_float(bg, auto.alpha());
+                let contrast = crate::style::contrast_text(bg).blend_over_float(bg, auto.alpha());
                 pad_style.fg = Some(contrast);
             }
         }
@@ -1319,11 +1364,7 @@ fn emit_rendered_segments(
 ///
 /// - `effective_style` — the merged style (visual_style + span styles) for this run.
 /// - `visual_style`    — the base visual style (bg fallback when effective has none).
-fn make_segment(
-    text: &str,
-    effective_style: &Style,
-    visual_style: &Style,
-) -> rich_rs::Segment {
+fn make_segment(text: &str, effective_style: &Style, visual_style: &Style) -> rich_rs::Segment {
     make_full_segment_with_bg_fallback(text, effective_style, visual_style)
 }
 
@@ -1571,6 +1612,150 @@ mod tests {
         assert!(c.spans().is_empty());
     }
 
+    // --- from_markup_with_vars (string.Template safe_substitute parity) ---
+
+    fn vars(pairs: &[(&str, &str)]) -> std::collections::HashMap<String, String> {
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
+    }
+
+    /// Python: `Content.from_markup("Hello, [b]$name[/b]!", name="Will")`.
+    #[test]
+    fn test_from_markup_with_vars_basic() {
+        let v = vars(&[("name", "Will")]);
+        let c = Content::from_markup_with_vars("Hello, [b]$name[/b]!", &v);
+        assert_eq!(c.plain(), "Hello, Will!");
+        assert_eq!(c.spans().len(), 1);
+        // [b] covers "Will"
+        assert_eq!(c.spans()[0].start, 7);
+        assert_eq!(c.spans()[0].end, 11);
+        assert_eq!(c.spans()[0].span_style, SpanStyle::Raw("b".to_string()));
+    }
+
+    /// `${name}` braced form is substituted too.
+    #[test]
+    fn test_from_markup_with_vars_braced() {
+        let v = vars(&[("name", "Will")]);
+        let c = Content::from_markup_with_vars("Hi ${name} and $name", &v);
+        assert_eq!(c.plain(), "Hi Will and Will");
+    }
+
+    /// `$$` is an escaped literal `$` (Python safe_substitute). Substitution only
+    /// runs when variables are present (Python checks `variables or None`), so we
+    /// pass a non-empty map here; the empty-map plain fast path is covered below.
+    #[test]
+    fn test_from_markup_with_vars_dollar_escape() {
+        let v = vars(&[("unused", "x")]);
+        let c = Content::from_markup_with_vars("cost is $$5", &v);
+        assert_eq!(c.plain(), "cost is $5");
+    }
+
+    /// Empty variables map → no substitution at all (Python parity: `$$` stays).
+    #[test]
+    fn test_from_markup_with_vars_empty_map_no_escape() {
+        let v = vars(&[]);
+        let c = Content::from_markup_with_vars("cost is $$5", &v);
+        assert_eq!(c.plain(), "cost is $$5");
+    }
+
+    /// Unknown keys are left unmodified (safe substitution — no error).
+    #[test]
+    fn test_from_markup_with_vars_missing_key() {
+        let v = vars(&[("present", "x")]);
+        let c = Content::from_markup_with_vars("$missing here", &v);
+        assert_eq!(c.plain(), "$missing here");
+        // `$1bad` — invalid identifier (starts with digit) → left as-is.
+        let c2 = Content::from_markup_with_vars("$1bad", &vars(&[("1bad", "x")]));
+        assert_eq!(c2.plain(), "$1bad");
+        // braced invalid identifier `${a.b}` → left verbatim.
+        let c3 = Content::from_markup_with_vars("${a.b}", &vars(&[("a.b", "x")]));
+        assert_eq!(c3.plain(), "${a.b}");
+    }
+
+    /// Dict lookup is exact-case (`$name` does not match key `Name`).
+    #[test]
+    fn test_from_markup_with_vars_case_sensitive_lookup() {
+        let c = Content::from_markup_with_vars("$name", &vars(&[("Name", "X")]));
+        assert_eq!(c.plain(), "$name");
+        // But the identifier pattern is case-insensitive: `$Name` matches the
+        // pattern and looks up key "Name".
+        let c2 = Content::from_markup_with_vars("$Name", &vars(&[("Name", "X")]));
+        assert_eq!(c2.plain(), "X");
+    }
+
+    /// Critical Python parity: a variable VALUE containing markup-like brackets
+    /// is inserted as LITERAL text, never re-parsed as a tag.
+    #[test]
+    fn test_from_markup_with_vars_value_with_brackets_is_literal() {
+        let v = vars(&[("x", "[red]BIG[/red]")]);
+        let c = Content::from_markup_with_vars("Hello $x world", &v);
+        assert_eq!(c.plain(), "Hello [red]BIG[/red] world");
+        assert!(
+            c.spans().is_empty(),
+            "value brackets must not be re-parsed into spans"
+        );
+    }
+
+    /// Parity: markup tags + a variable value containing brackets. The tag span
+    /// is preserved; the inserted value is literal text (Python parity).
+    #[test]
+    fn test_from_markup_with_vars_tags_plus_bracket_value() {
+        let v = vars(&[("x", "[red]Z[/red]")]);
+        let c = Content::from_markup_with_vars("[b]hi[/b] $x", &v);
+        assert_eq!(c.plain(), "hi [red]Z[/red]");
+        assert_eq!(c.spans().len(), 1);
+        assert_eq!(c.spans()[0].start, 0);
+        assert_eq!(c.spans()[0].end, 2);
+        assert_eq!(c.spans()[0].span_style, SpanStyle::Raw("b".to_string()));
+    }
+
+    /// Tag bodies are NOT substituted; only text tokens. `[$primary]` stays raw.
+    #[test]
+    fn test_from_markup_with_vars_tag_bodies_not_substituted() {
+        let v = vars(&[("primary", "red")]);
+        let c = Content::from_markup_with_vars("[$primary]$primary[/]", &v);
+        // The text token `$primary` is substituted; the tag body `$primary` is not.
+        assert_eq!(c.plain(), "red");
+        assert_eq!(c.spans().len(), 1);
+        assert_eq!(
+            c.spans()[0].span_style,
+            SpanStyle::Raw("$primary".to_string())
+        );
+    }
+
+    /// No-`[` markup with variables still substitutes (Python falls into
+    /// `to_content` whenever variables are present).
+    #[test]
+    fn test_from_markup_with_vars_no_tags() {
+        let v = vars(&[("who", "world")]);
+        let c = Content::from_markup_with_vars("hello $who", &v);
+        assert_eq!(c.plain(), "hello world");
+        assert!(c.spans().is_empty());
+    }
+
+    /// Empty variables map + no `[` → plain-text fast path (no substitution).
+    #[test]
+    fn test_from_markup_with_vars_empty_map_plain() {
+        let v = vars(&[]);
+        let c = Content::from_markup_with_vars("hello $who", &v);
+        // No variables → `$who` left untouched.
+        assert_eq!(c.plain(), "hello $who");
+    }
+
+    /// Substitution shifts span offsets correctly (positions tracked post-subst).
+    #[test]
+    fn test_from_markup_with_vars_span_offsets_after_substitution() {
+        let v = vars(&[("name", "Alexander")]);
+        let c = Content::from_markup_with_vars("$name [b]X[/b]", &v);
+        assert_eq!(c.plain(), "Alexander X");
+        assert_eq!(c.spans().len(), 1);
+        // "X" sits after "Alexander " (10 bytes).
+        assert_eq!(c.spans()[0].start, 10);
+        assert_eq!(c.spans()[0].end, 11);
+    }
+
     #[test]
     fn test_from_markup_bold() {
         let c = Content::from_markup("[bold]hello[/bold]");
@@ -1623,7 +1808,11 @@ mod tests {
     fn test_unknown_tag_consumed_not_literal() {
         let c = Content::from_markup("[foobar]test[/foobar]");
         // Tag is consumed — plain text is just "test"
-        assert_eq!(c.plain(), "test", "unknown tag must be consumed, not emitted as literal");
+        assert_eq!(
+            c.plain(),
+            "test",
+            "unknown tag must be consumed, not emitted as literal"
+        );
         // One span is produced with the raw tag body
         assert_eq!(c.spans().len(), 1);
         assert_eq!(c.spans()[0].start, 0);
@@ -1724,10 +1913,7 @@ mod tests {
     #[test]
     fn test_assemble_content_part() {
         let inner = Content::from_markup("[bold]hi[/bold]");
-        let c = Content::assemble(vec![
-            ContentPart::from("say: "),
-            ContentPart::from(inner),
-        ]);
+        let c = Content::assemble(vec![ContentPart::from("say: "), ContentPart::from(inner)]);
         assert_eq!(c.plain(), "say: hi");
         assert_eq!(c.spans().len(), 1);
         // Span should be offset by len("say: ") = 5
@@ -1735,7 +1921,7 @@ mod tests {
         assert_eq!(c.spans()[0].end, 7);
     }
 
-    // --- cell_length (now &self via OnceCell) ---
+    // --- cell_length (now &self via OnceLock) ---
 
     #[test]
     fn test_cell_length_ascii() {
@@ -2550,7 +2736,11 @@ mod tests {
             0,
             null_resolver,
         );
-        assert_eq!(strips.len(), 3, "should produce 3 rows (1 content + 2 fill)");
+        assert_eq!(
+            strips.len(),
+            3,
+            "should produce 3 rows (1 content + 2 fill)"
+        );
         // Fill rows (index 1 and 2) must carry fg AND bg (full style, not bg-only).
         for fill_row in &strips[1..] {
             for seg in fill_row {
@@ -2652,7 +2842,11 @@ mod tests {
             .find(|s| s.text.contains('h'))
             .expect("no segment containing 'hi'");
         let bold = hi_seg.style.as_ref().and_then(|s| s.bold);
-        assert_eq!(bold, Some(true), "bold span must produce bold=true in segment");
+        assert_eq!(
+            bold,
+            Some(true),
+            "bold span must produce bold=true in segment"
+        );
     }
 
     /// Theme token resolution: a custom resolver maps "$mytoken" to red fg.
@@ -2721,8 +2915,14 @@ mod tests {
         assert_eq!(strips.len(), 1);
         let full_text = strip_text(&strips[0]);
         // The wrapped line is " hi " (4 cells, padded), left-aligned in width=6.
-        assert!(full_text.starts_with(' '), "line_pad left space should be present");
-        assert!(full_text.ends_with(' '), "line_pad right space should be present");
+        assert!(
+            full_text.starts_with(' '),
+            "line_pad left space should be present"
+        );
+        assert!(
+            full_text.ends_with(' '),
+            "line_pad right space should be present"
+        );
         // Content-run spaces (line_pad) carry fg from visual_style (C1 seam 1 fix).
         // The span boundary forces separate segments; look for space-only segments
         // with fg set.
@@ -2735,7 +2935,10 @@ mod tests {
             has_fg_space,
             "line_pad content spaces must carry fg (C1 seam 1); no fg-bearing space found. \
              Segments: {:?}",
-            strips[0].iter().map(|s| (&s.text, s.style.as_ref().and_then(|st| st.color))).collect::<Vec<_>>()
+            strips[0]
+                .iter()
+                .map(|s| (&s.text, s.style.as_ref().and_then(|st| st.color)))
+                .collect::<Vec<_>>()
         );
     }
 
@@ -2864,7 +3067,11 @@ mod tests {
 
         // Fill rows at index 1 and 2.
         for (row_i, fill_row) in strips[1..].iter().enumerate() {
-            assert!(!fill_row.is_empty(), "fill row {} must not be empty", row_i + 1);
+            assert!(
+                !fill_row.is_empty(),
+                "fill row {} must not be empty",
+                row_i + 1
+            );
             for seg in fill_row {
                 // fg must be present (full style, not bg-only).
                 let fg = seg.style.as_ref().and_then(|s| s.color);
