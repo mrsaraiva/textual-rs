@@ -1,9 +1,10 @@
 use crossterm::event::{KeyCode, KeyModifiers};
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
+use crate::content::Content;
 use crate::event::{Action, Event, EventCtx};
 use crate::message::*;
-use crate::style::{Color, parse_color_like};
+use crate::style::{Color, Style, TextAlign, parse_color_like};
 
 use crate::action::ParsedAction;
 use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
@@ -24,6 +25,10 @@ pub enum CursorType {
 ///
 /// Mirrors the `justify` attribute of a Rich `Text` cell in Python Textual
 /// (for example `Text(str(cell), justify="right")`). Default is `Left`.
+///
+/// This is a thin convenience alias over [`TextAlign`]: a `DataTable` cell is now
+/// a styled [`Content`] whose alignment is a `TextAlign`, so `CellJustify` simply
+/// maps onto that.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum CellJustify {
     #[default]
@@ -32,26 +37,176 @@ pub enum CellJustify {
     Center,
 }
 
-impl CellJustify {
-    /// Lay `text` out in `width` cells using this justification, truncating with
-    /// `set_cell_size` when the content is wider than the column.
-    fn render(self, text: &str, width: usize) -> String {
-        let len = rich_rs::cell_len(text);
-        if len >= width {
-            // Truncation (and the trivial exact-fit case) is identical for every
-            // justification: clamp from the left, matching `set_cell_size`.
-            return rich_rs::set_cell_size(text, width);
+impl From<CellJustify> for TextAlign {
+    fn from(j: CellJustify) -> Self {
+        match j {
+            CellJustify::Left => TextAlign::Left,
+            CellJustify::Right => TextAlign::Right,
+            CellJustify::Center => TextAlign::Center,
         }
-        let pad = width - len;
+    }
+}
+
+/// A single `DataTable` cell: a styled [`Content`] (carrying per-cell foreground
+/// color, italic/bold, markup spans, etc.) plus a horizontal alignment.
+///
+/// This replaces the old `String` cell + parallel `cell_justify` vector. Because
+/// a cell is a `Content`, per-cell style and justification fall out of the
+/// content rendering subsystem (`Content::render_strips`) for free — faithful to
+/// Python Textual where a cell may be a `rich.text.Text` with its own `style` and
+/// `justify`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Cell {
+    content: Content,
+    align: TextAlign,
+}
+
+impl Cell {
+    /// Create a left-aligned plain-text cell.
+    pub fn text(text: impl Into<String>) -> Self {
+        Self {
+            content: Content::from_text(text),
+            align: TextAlign::Left,
+        }
+    }
+
+    /// Create a cell from Textual markup (e.g. `"[italic #03AC13]hi"`).
+    pub fn markup(markup: impl AsRef<str>) -> Self {
+        Self {
+            content: Content::from_markup(markup),
+            align: TextAlign::Left,
+        }
+    }
+
+    /// Create a cell from already-built styled [`Content`].
+    pub fn content(content: impl Into<Content>) -> Self {
+        Self {
+            content: content.into(),
+            align: TextAlign::Left,
+        }
+    }
+
+    /// Create a cell whose whole text carries `style`.
+    pub fn styled(text: impl Into<String>, style: Style) -> Self {
+        Self {
+            content: Content::styled(text, style),
+            align: TextAlign::Left,
+        }
+    }
+
+    /// Set the horizontal alignment (builder).
+    pub fn with_align(mut self, align: TextAlign) -> Self {
+        self.align = align;
+        self
+    }
+
+    /// Plain (unstyled) text of the cell.
+    pub fn plain(&self) -> &str {
+        self.content.plain()
+    }
+
+    /// Rendered cell width in terminal cells.
+    pub fn cell_length(&self) -> usize {
+        self.content.cell_length()
+    }
+}
+
+/// A sort key for `DataTable` rows, mirroring Python where a cell may be a
+/// number, a string, or a tuple of them (multi-column sort).
+///
+/// Ordering rules:
+/// - `Number` < `Str` < `Tuple` is never compared cross-variant in practice
+///   (a given sort produces homogeneous keys), but a total order is defined so
+///   `Ord` holds: numbers sort numerically, strings lexicographically, tuples
+///   element-wise (Python tuple ordering).
+#[derive(Debug, Clone, PartialEq)]
+pub enum SortKey {
+    Number(f64),
+    Str(String),
+    Tuple(Vec<SortKey>),
+}
+
+impl SortKey {
+    /// A numeric key.
+    pub fn number(n: f64) -> Self {
+        SortKey::Number(n)
+    }
+
+    /// A string key.
+    pub fn str(s: impl Into<String>) -> Self {
+        SortKey::Str(s.into())
+    }
+
+    /// A tuple key (multi-column / compound).
+    pub fn tuple(parts: impl IntoIterator<Item = SortKey>) -> Self {
+        SortKey::Tuple(parts.into_iter().collect())
+    }
+
+    /// Infer a numeric key from `s` if it parses as a number, else a string key.
+    /// Mirrors Python where numeric cells compare numerically and text cells
+    /// lexicographically.
+    pub fn infer(s: &str) -> Self {
+        match s.trim().parse::<f64>() {
+            Ok(n) => SortKey::Number(n),
+            Err(_) => SortKey::Str(s.to_string()),
+        }
+    }
+
+    /// Variant rank for cross-variant total ordering.
+    fn rank(&self) -> u8 {
         match self {
-            CellJustify::Left => rich_rs::set_cell_size(text, width),
-            CellJustify::Right => format!("{}{}", " ".repeat(pad), text),
-            CellJustify::Center => {
-                let left = pad / 2;
-                let right = pad - left;
-                format!("{}{}{}", " ".repeat(left), text, " ".repeat(right))
-            }
+            SortKey::Number(_) => 0,
+            SortKey::Str(_) => 1,
+            SortKey::Tuple(_) => 2,
         }
+    }
+}
+
+impl Eq for SortKey {}
+
+impl PartialOrd for SortKey {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for SortKey {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        use std::cmp::Ordering;
+        match (self, other) {
+            // total_cmp gives a total order over f64 (NaN-safe), so `Ord` is sound.
+            (SortKey::Number(a), SortKey::Number(b)) => a.total_cmp(b),
+            (SortKey::Str(a), SortKey::Str(b)) => a.cmp(b),
+            (SortKey::Tuple(a), SortKey::Tuple(b)) => {
+                for (x, y) in a.iter().zip(b.iter()) {
+                    match x.cmp(y) {
+                        Ordering::Equal => continue,
+                        non_eq => return non_eq,
+                    }
+                }
+                a.len().cmp(&b.len())
+            }
+            // Cross-variant: order by variant rank for a defined total order.
+            _ => self.rank().cmp(&other.rank()),
+        }
+    }
+}
+
+impl From<String> for Cell {
+    fn from(s: String) -> Self {
+        Cell::text(s)
+    }
+}
+
+impl From<&str> for Cell {
+    fn from(s: &str) -> Self {
+        Cell::text(s)
+    }
+}
+
+impl From<Content> for Cell {
+    fn from(c: Content) -> Self {
+        Cell::content(c)
     }
 }
 
@@ -86,15 +241,13 @@ pub struct DataTable {
     column_keys: Vec<ColumnKey>,
     headers: Vec<String>,
     row_keys: Vec<RowKey>,
-    rows: Vec<Vec<String>>,
+    /// Row data. Each cell is a styled [`Content`] with an alignment (see [`Cell`]),
+    /// replacing the old `Vec<Vec<String>>` + parallel `cell_justify` vector.
+    rows: Vec<Vec<Cell>>,
     /// Optional per-row label (parallel to `rows`). When any row has a label and
     /// `show_row_labels` is set, a non-data label column is rendered as a prefix.
-    row_labels: Vec<Option<String>>,
-    /// Per-cell horizontal justification (parallel to `rows`/cells). Mirrors the
-    /// `justify` attribute of a Rich `Text` cell in Python. Empty rows / missing
-    /// entries default to `CellJustify::Left`. Headers are never justified here
-    /// (they are added as plain strings via `add_column`).
-    cell_justify: Vec<Vec<CellJustify>>,
+    /// Labels are styled [`Content`] (Python `add_row(..., label=Text(...))`).
+    row_labels: Vec<Option<Content>>,
     column_widths: Vec<usize>,
     selected: usize,
     offset: usize,
@@ -132,7 +285,6 @@ impl DataTable {
             row_keys: Vec::new(),
             rows: Vec::new(),
             row_labels: Vec::new(),
-            cell_justify: Vec::new(),
             column_widths: Vec::new(),
             selected: 0,
             offset: 0,
@@ -220,34 +372,44 @@ impl DataTable {
     where
         S: ToString,
     {
-        let key = self.generate_row_key();
-        self.row_keys.push(key.clone());
-        self.rows
-            .push(row.into_iter().map(|value| value.to_string()).collect());
-        self.row_labels.push(None);
-        self.cell_justify.push(Vec::new());
-        self.clamp_indices();
-        self.recompute_column_widths();
-        key
+        self.push_row(
+            row.into_iter().map(|v| Cell::text(v.to_string())).collect(),
+            None,
+        )
+    }
+
+    /// Add a row of pre-built styled [`Cell`]s. This is the Python parity path for
+    /// `add_row(*cells)` where each cell may be a `rich.text.Text` (its own style /
+    /// justify). Plain strings still work via [`Cell::text`] / `Into<Cell>`.
+    pub fn add_row_cells<C>(&mut self, row: Vec<C>) -> RowKey
+    where
+        C: Into<Cell>,
+    {
+        self.push_row(row.into_iter().map(Into::into).collect(), None)
+    }
+
+    /// Add a row of styled cells with a styled row label.
+    pub fn add_row_cells_labeled<C, L>(&mut self, row: Vec<C>, label: L) -> RowKey
+    where
+        C: Into<Cell>,
+        L: Into<Content>,
+    {
+        self.push_row(row.into_iter().map(Into::into).collect(), Some(label.into()))
     }
 
     /// Add a row with a row label (Python `add_row(..., label=…)`). When any row
     /// is labelled and `show_row_labels` is set, a non-data label column is
-    /// rendered as a prefix to the left of the data cells.
+    /// rendered as a prefix to the left of the data cells. The label may be a
+    /// styled [`Content`] (e.g. `Content::from_markup("[italic]1")`).
     pub fn add_row_labeled<S, L>(&mut self, row: Vec<S>, label: L) -> RowKey
     where
         S: ToString,
-        L: Into<String>,
+        L: Into<Content>,
     {
-        let key = self.generate_row_key();
-        self.row_keys.push(key.clone());
-        self.rows
-            .push(row.into_iter().map(|value| value.to_string()).collect());
-        self.row_labels.push(Some(label.into()));
-        self.cell_justify.push(Vec::new());
-        self.clamp_indices();
-        self.recompute_column_widths();
-        key
+        self.push_row(
+            row.into_iter().map(|v| Cell::text(v.to_string())).collect(),
+            Some(label.into()),
+        )
     }
 
     pub fn add_row_with_key<K, S>(&mut self, key: K, row: Vec<S>) -> Option<RowKey>
@@ -259,53 +421,54 @@ impl DataTable {
         if self.row_keys.iter().any(|existing| existing == &key) {
             return None;
         }
-        self.row_keys.push(key.clone());
-        self.rows
-            .push(row.into_iter().map(|value| value.to_string()).collect());
-        self.row_labels.push(None);
-        self.cell_justify.push(Vec::new());
-        self.clamp_indices();
-        self.recompute_column_widths();
+        let cells = row.into_iter().map(|v| Cell::text(v.to_string())).collect();
+        self.push_row_with_key(key.clone(), cells, None);
         Some(key)
     }
 
-    /// Set the horizontal justification of a single data cell. Mirrors building a
-    /// cell from a Rich `Text(..., justify=…)` in Python. Out-of-range rows are
-    /// ignored; the per-row justify vector is grown to fit the column index.
+    /// Shared row-append: pushes a generated key + cells + optional label.
+    fn push_row(&mut self, cells: Vec<Cell>, label: Option<Content>) -> RowKey {
+        let key = self.generate_row_key();
+        self.push_row_with_key(key.clone(), cells, label);
+        key
+    }
+
+    fn push_row_with_key(&mut self, key: RowKey, cells: Vec<Cell>, label: Option<Content>) {
+        self.row_keys.push(key);
+        self.rows.push(cells);
+        self.row_labels.push(label);
+        self.clamp_indices();
+        self.recompute_column_widths();
+    }
+
+    /// Set the horizontal alignment of a single data cell. Mirrors building a
+    /// cell from a Rich `Text(..., justify=…)` in Python. Out-of-range
+    /// rows/columns are ignored.
     pub fn set_cell_justify(&mut self, row: usize, col: usize, justify: CellJustify) {
-        let Some(row_justify) = self.cell_justify.get_mut(row) else {
-            return;
-        };
-        if row_justify.len() <= col {
-            row_justify.resize(col + 1, CellJustify::Left);
+        if let Some(cell) = self.rows.get_mut(row).and_then(|r| r.get_mut(col)) {
+            cell.align = justify.into();
         }
-        row_justify[col] = justify;
     }
 
-    /// Apply one justification to every cell in a data row.
+    /// Apply one alignment to every cell in a data row.
     pub fn set_row_justify(&mut self, row: usize, justify: CellJustify) {
-        let cols = self.headers.len().max(self.rows.get(row).map_or(0, Vec::len));
-        for col in 0..cols {
-            self.set_cell_justify(row, col, justify);
+        if let Some(r) = self.rows.get_mut(row) {
+            for cell in r.iter_mut() {
+                cell.align = justify.into();
+            }
         }
     }
 
-    /// Apply one justification to every data cell currently in the table.
-    /// Headers are unaffected (they are plain strings). This mirrors the common
-    /// Python pattern of wrapping every data cell in `Text(..., justify=…)`.
+    /// Apply one alignment to every data cell currently in the table.
+    /// Headers are unaffected. This mirrors the common Python pattern of wrapping
+    /// every data cell in `Text(..., justify=…)`.
     pub fn set_all_data_cells_justify(&mut self, justify: CellJustify) {
-        for row in 0..self.rows.len() {
-            self.set_row_justify(row, justify);
+        let align: TextAlign = justify.into();
+        for row in self.rows.iter_mut() {
+            for cell in row.iter_mut() {
+                cell.align = align;
+            }
         }
-    }
-
-    /// Justification for a specific data cell (defaults to `Left`).
-    fn cell_justify_at(&self, row: usize, col: usize) -> CellJustify {
-        self.cell_justify
-            .get(row)
-            .and_then(|r| r.get(col))
-            .copied()
-            .unwrap_or_default()
     }
 
     pub fn row_key_at(&self, row: usize) -> Option<&RowKey> {
@@ -530,17 +693,7 @@ impl DataTable {
     /// key doesn't exist in the table.
     pub fn remove_row(&mut self, row_key: &RowKey) -> Option<Vec<String>> {
         let index = self.row_keys.iter().position(|k| k == row_key)?;
-        self.row_keys.remove(index);
-        let row_data = self.rows.remove(index);
-        if index < self.row_labels.len() {
-            self.row_labels.remove(index);
-        }
-        if index < self.cell_justify.len() {
-            self.cell_justify.remove(index);
-        }
-        self.clamp_indices();
-        self.recompute_column_widths();
-        Some(row_data)
+        Some(self.remove_row_at_index(index))
     }
 
     /// Remove a row by index. Returns the row data if the index is valid.
@@ -548,17 +701,19 @@ impl DataTable {
         if index >= self.rows.len() {
             return None;
         }
+        Some(self.remove_row_at_index(index))
+    }
+
+    /// Internal: remove the row at `index` and return its plain-text cells.
+    fn remove_row_at_index(&mut self, index: usize) -> Vec<String> {
         self.row_keys.remove(index);
         let row_data = self.rows.remove(index);
         if index < self.row_labels.len() {
             self.row_labels.remove(index);
         }
-        if index < self.cell_justify.len() {
-            self.cell_justify.remove(index);
-        }
         self.clamp_indices();
         self.recompute_column_widths();
-        Some(row_data)
+        row_data.into_iter().map(|c| c.plain().to_string()).collect()
     }
 
     /// Remove all rows (and optionally all columns).
@@ -566,7 +721,6 @@ impl DataTable {
         self.rows.clear();
         self.row_keys.clear();
         self.row_labels.clear();
-        self.cell_justify.clear();
         self.next_row_key = 0;
         if clear_columns {
             self.headers.clear();
@@ -582,37 +736,83 @@ impl DataTable {
         self.recompute_column_widths();
     }
 
-    /// Sort rows by a given column index. If `reverse` is true, the order is
-    /// descending. Columns are compared lexicographically by cell text.
+    /// Sort rows by a single column index. If `reverse` is true, the order is
+    /// descending. Values are compared as [`SortKey`]s: cells that parse as
+    /// numbers sort numerically (so `"10"` sorts after `"2"`), otherwise
+    /// lexicographically. This matches Python where numeric `CellType`s compare
+    /// numerically.
     pub fn sort(&mut self, column: usize, reverse: bool) {
-        if column >= self.headers.len() || self.rows.is_empty() {
+        self.sort_by_columns(&[column], reverse);
+    }
+
+    /// Multi-column sort (Python `table.sort(*columns)` with no key): rows are
+    /// ordered by the tuple of the given columns' values, each compared as a
+    /// [`SortKey`] (numeric-aware). `reverse` flips the whole order.
+    pub fn sort_by_columns(&mut self, columns: &[usize], reverse: bool) {
+        if self.rows.is_empty() {
             return;
         }
-        // Build index-based permutation so we can reorder row_keys in sync.
+        self.sort_with(reverse, |row| {
+            SortKey::tuple(columns.iter().map(|&c| {
+                SortKey::infer(row.get(c).map(|cell| cell.plain()).unwrap_or(""))
+            }))
+        });
+    }
+
+    /// Key-function sort (Python `table.sort(*columns, key=…, reverse=…)`).
+    ///
+    /// `key_fn` receives the plain-text values of the selected `columns` (in the
+    /// order given) and returns a [`SortKey`]. This is the faithful analogue of
+    /// Python's `key(itemgetter(*columns)(row_data))`: the closure can split a
+    /// name and return its last word, average numeric columns, etc.
+    ///
+    /// If `columns` is empty, the closure receives every column's value.
+    pub fn sort_by<F>(&mut self, columns: &[usize], reverse: bool, key_fn: F)
+    where
+        F: Fn(&[&str]) -> SortKey,
+    {
+        if self.rows.is_empty() {
+            return;
+        }
+        let cols: Vec<usize> = if columns.is_empty() {
+            (0..self.headers.len()).collect()
+        } else {
+            columns.to_vec()
+        };
+        self.sort_with(reverse, |row| {
+            let values: Vec<&str> = cols
+                .iter()
+                .map(|&c| row.get(c).map(|cell| cell.plain()).unwrap_or(""))
+                .collect();
+            key_fn(&values)
+        });
+    }
+
+    /// Internal: stable index permutation sort by a `SortKey`-producing closure.
+    fn sort_with<F>(&mut self, reverse: bool, key_of: F)
+    where
+        F: Fn(&[Cell]) -> SortKey,
+    {
+        let keys: Vec<SortKey> = self.rows.iter().map(|row| key_of(row)).collect();
         let mut indices: Vec<usize> = (0..self.rows.len()).collect();
         indices.sort_by(|&a, &b| {
-            let va = self.rows[a].get(column).map(String::as_str).unwrap_or("");
-            let vb = self.rows[b].get(column).map(String::as_str).unwrap_or("");
-            if reverse { vb.cmp(va) } else { va.cmp(vb) }
+            let ord = keys[a].cmp(&keys[b]);
+            if reverse { ord.reverse() } else { ord }
         });
-        let sorted_rows: Vec<Vec<String>> = indices.iter().map(|&i| self.rows[i].clone()).collect();
-        let sorted_keys: Vec<RowKey> = indices.iter().map(|&i| self.row_keys[i].clone()).collect();
-        self.rows = sorted_rows;
-        self.row_keys = sorted_keys;
+        self.rows = indices.iter().map(|&i| self.rows[i].clone()).collect();
+        self.row_keys = indices.iter().map(|&i| self.row_keys[i].clone()).collect();
         if self.row_labels.len() == indices.len() {
             self.row_labels = indices.iter().map(|&i| self.row_labels[i].clone()).collect();
-        }
-        if self.cell_justify.len() == indices.len() {
-            self.cell_justify = indices.iter().map(|&i| self.cell_justify[i].clone()).collect();
         }
         self.clamp_indices();
     }
 
-    /// Update the value of a specific cell. Returns `true` if the cell existed
-    /// and was updated, `false` if the coordinates are out of bounds.
+    /// Update the value of a specific cell with plain text. Returns `true` if the
+    /// cell existed and was updated, `false` if the coordinates are out of bounds.
+    /// The cell's alignment is preserved; its styling is reset to plain.
     pub fn update_cell(&mut self, row: usize, col: usize, value: impl ToString) -> bool {
         if let Some(cell) = self.rows.get_mut(row).and_then(|r| r.get_mut(col)) {
-            *cell = value.to_string();
+            cell.content = Content::from_text(value.to_string());
             self.recompute_column_widths();
             true
         } else {
@@ -620,17 +820,28 @@ impl DataTable {
         }
     }
 
-    /// Get the value of a specific cell, or `None` if out of bounds.
-    pub fn get_cell(&self, row: usize, col: usize) -> Option<&str> {
-        self.rows
-            .get(row)
-            .and_then(|r| r.get(col))
-            .map(String::as_str)
+    /// Replace a cell with a pre-built styled [`Cell`]. Returns `true` on success.
+    pub fn update_cell_content(&mut self, row: usize, col: usize, new_cell: impl Into<Cell>) -> bool {
+        if let Some(cell) = self.rows.get_mut(row).and_then(|r| r.get_mut(col)) {
+            *cell = new_cell.into();
+            self.recompute_column_widths();
+            true
+        } else {
+            false
+        }
     }
 
-    /// Get all values in a row, or `None` if the row index is out of bounds.
-    pub fn get_row(&self, row: usize) -> Option<&[String]> {
-        self.rows.get(row).map(Vec::as_slice)
+    /// Get the plain text of a specific cell, or `None` if out of bounds.
+    pub fn get_cell(&self, row: usize, col: usize) -> Option<&str> {
+        self.rows.get(row).and_then(|r| r.get(col)).map(Cell::plain)
+    }
+
+    /// Get all plain-text values in a row, or `None` if the row index is out of
+    /// bounds.
+    pub fn get_row(&self, row: usize) -> Option<Vec<String>> {
+        self.rows
+            .get(row)
+            .map(|r| r.iter().map(|c| c.plain().to_string()).collect())
     }
 
     /// Number of rows in the table.
@@ -945,9 +1156,9 @@ impl DataTable {
             .map(|h| rich_rs::cell_len(h).max(1))
             .collect();
         for row in &self.rows {
-            for (idx, value) in row.iter().enumerate() {
+            for (idx, cell) in row.iter().enumerate() {
                 if let Some(w) = widths.get_mut(idx) {
-                    *w = (*w).max(rich_rs::cell_len(value).max(1));
+                    *w = (*w).max(cell.cell_length().max(1));
                 }
             }
         }
@@ -968,8 +1179,8 @@ impl DataTable {
         }
         self.row_labels
             .iter()
-            .filter_map(|l| l.as_deref())
-            .map(rich_rs::cell_len)
+            .filter_map(|l| l.as_ref())
+            .map(Content::cell_length)
             .max()
             .unwrap_or(0)
     }
@@ -1066,7 +1277,6 @@ impl Default for DataTable {
             row_keys: Vec::new(),
             rows: Vec::new(),
             row_labels: Vec::new(),
-            cell_justify: Vec::new(),
             column_widths: Vec::new(),
             selected: 0,
             offset: 0,
@@ -1714,23 +1924,15 @@ impl Widget for DataTable {
             .map(|c| c.flatten_over(row_base))
             .unwrap_or(row_base);
 
-        let header_style = rich_rs::Style::new()
-            .with_bold(true)
-            .with_bgcolor(header_base.to_simple_opaque());
-        let normal_style = rich_rs::Style::new().with_bgcolor(row_base.to_simple_opaque());
-        let fixed_style = rich_rs::Style::new().with_bgcolor(fixed_base.to_simple_opaque());
-        let mut selected_style = rich_rs::Style::new().with_bold(true);
-        if let Some(bg) = cursor_bg {
-            selected_style = selected_style.with_bgcolor(bg.to_simple_opaque());
-        }
-        let mut hover_style = rich_rs::Style::new();
-        if let Some(bg) = hover_bg {
-            hover_style = hover_style.with_bgcolor(bg.to_simple_opaque());
-        }
-        let mut header_hover_style = rich_rs::Style::new().with_bold(true);
-        if let Some(bg) = header_hover_bg {
-            header_hover_style = header_hover_style.with_bgcolor(bg.to_simple_opaque());
-        }
+        // Per-cell visual base = background color + bold flag. The cell's own
+        // foreground/italic/markup spans (carried by its `Content`) are composed
+        // on top of this base by `Content::render_strips`.
+        let header_style = CellVisual::new(header_base, true);
+        let normal_style = CellVisual::new(row_base, false);
+        let fixed_style = CellVisual::new(fixed_base, false);
+        let selected_style = CellVisual::new(cursor_bg.unwrap_or(row_base), true);
+        let hover_style = CellVisual::new(hover_bg.unwrap_or(row_base), false);
+        let header_hover_style = CellVisual::new(header_hover_bg.unwrap_or(header_base), true);
 
         let mut out = Segments::new();
 
@@ -1751,7 +1953,7 @@ impl Widget for DataTable {
             let zebra_bg = parse_color_like("$surface-darken-1")
                 .map(|c| c.flatten_over(row_base))
                 .unwrap_or(row_base);
-            rich_rs::Style::new().with_bgcolor(zebra_bg.to_simple_opaque())
+            CellVisual::new(zebra_bg, false)
         } else {
             normal_style
         };
@@ -1761,16 +1963,19 @@ impl Widget for DataTable {
 
         // Header line (headers use usize::MAX as their row sentinel).
         if self.show_header {
+            let header_cells: Vec<Cell> =
+                self.headers.iter().map(|h| Cell::text(h.clone())).collect();
+            let empty_label = Content::empty();
             emit_row_per_cell(
-                &self.headers,
+                &header_cells,
                 column_widths,
                 &rendered_columns,
                 width,
-                (label_col_width > 0).then_some(("", label_col_width, header_style)),
+                (label_col_width > 0).then_some((&empty_label, label_col_width, header_style)),
                 |col_idx| {
                     let target = (usize::MAX, col_idx);
                     if show_cursor && should_highlight(cursor_coord, target, cursor_type) {
-                        return selected_style.with_bold(true);
+                        return selected_style.bold();
                     }
                     if let Some(hc) = hover_coord
                         && should_highlight(hc, target, cursor_type)
@@ -1778,13 +1983,10 @@ impl Widget for DataTable {
                         return header_hover_style;
                     }
                     if col_idx < self.fixed_columns {
-                        return fixed_style.with_bold(true);
+                        return fixed_style.bold();
                     }
                     header_style
                 },
-                // Headers are plain strings (left-justified), matching Python where
-                // `add_columns` stores the label without a per-cell `justify`.
-                |_col_idx| CellJustify::Left,
                 header_style,
                 &mut out,
             );
@@ -1805,11 +2007,12 @@ impl Widget for DataTable {
             } else {
                 normal_style
             };
+            let empty_label = Content::empty();
             let row_label = self
                 .row_labels
                 .get(row_idx)
-                .and_then(|l| l.as_deref())
-                .unwrap_or("");
+                .and_then(|l| l.as_ref())
+                .unwrap_or(&empty_label);
             emit_row_per_cell(
                 row,
                 column_widths,
@@ -1834,7 +2037,6 @@ impl Widget for DataTable {
                     }
                     base
                 },
-                |col_idx| self.cell_justify_at(row_idx, col_idx),
                 row_base_style,
                 out,
             );
@@ -1967,59 +2169,173 @@ impl Renderable for DataTable {
 /// Visual layout: [1 space][cell][2 spaces][cell][2 spaces]...[cell][fill to total_width]
 const CELL_PADDING: usize = 1;
 
-/// Emit a row where each cell can have a different style determined by
-/// `style_for_col` and a different justification determined by `justify_for_col`.
-#[allow(clippy::too_many_arguments)]
+/// The visual base for a cell run: a background color plus a bold flag. The
+/// cell's own foreground/italic/markup spans are composed on top of this base by
+/// [`Content::render_strips`]. Replaces the old per-cell `rich_rs::Style`.
+#[derive(Debug, Clone, Copy)]
+struct CellVisual {
+    bg: Color,
+    bold: bool,
+}
+
+impl CellVisual {
+    fn new(bg: Color, bold: bool) -> Self {
+        Self { bg, bold }
+    }
+
+    /// Return a copy with bold forced on (header fixed/cursor cells).
+    fn bold(mut self) -> Self {
+        self.bold = true;
+        self
+    }
+
+    /// Build the `crate::style::Style` base used as `visual_style` for
+    /// `Content::render_strips` (bg + bold; the cell's spans add fg/italic).
+    fn to_style(self) -> Style {
+        let mut s = Style::default();
+        s.bg = Some(self.bg);
+        if self.bold {
+            s.bold = Some(true);
+        }
+        s
+    }
+
+    /// A bg-only `rich_rs::Style` for the gap/pad spaces between cells.
+    fn gap_rich(self) -> rich_rs::Style {
+        rich_rs::Style::new().with_bgcolor(self.bg.to_simple_opaque())
+    }
+}
+
+/// Resolve raw markup span styles (theme tokens, `#hex`, `italic`, …) into a
+/// concrete [`Style`]. Shared by every cell render; mirrors the resolver used by
+/// `Static`/`Label` in `aliases.rs`.
+fn resolve_cell_span(raw: &str) -> Style {
+    crate::content::markup::parse_tag_style(raw)
+        .map(|t| t.style)
+        .unwrap_or_default()
+}
+
+/// Render one cell [`Content`] into a single line of `width` cells, composing the
+/// cell's own spans over `visual` (the row/cursor/hover/zebra background). The
+/// cell's `align` controls horizontal justification within the column.
+///
+/// This routes through `Content::render_strips` (the canonical content rendering
+/// path) so per-cell color/italic/markup + justify are handled uniformly —
+/// replacing the old plain-string `CellJustify::render` + bg-only segment.
+fn render_cell_segments(
+    content: &Content,
+    align: TextAlign,
+    width: usize,
+    visual: CellVisual,
+    out: &mut Segments,
+) {
+    if width == 0 {
+        return;
+    }
+    let base = visual.to_style();
+    // Pre-size the content to exactly `width` cells using the cell's alignment
+    // (truncating with `set_cell_size` semantics when too wide, padding with
+    // bg-styled spaces when too narrow). This mirrors the old
+    // `CellJustify::render` while preserving the cell's own styled spans. We then
+    // render with `TextAlign::Left` so `render_strips` does not re-pad. The
+    // resulting line always occupies the full column width, keeping inter-cell
+    // gaps aligned.
+    let sized = size_cell_content(content, align, width);
+    let strips = sized.render_strips(
+        width,
+        Some(1),
+        &base,
+        TextAlign::Left,
+        "ellipsis",
+        true,
+        0,
+        resolve_cell_span,
+    );
+    if let Some(strip) = strips.into_iter().next() {
+        for seg in strip {
+            out.push(seg);
+        }
+    } else {
+        // Defensive: empty content still occupies the column width.
+        out.push(Segment::styled(" ".repeat(width), visual.gap_rich()));
+    }
+}
+
+/// Lay `content` out in exactly `width` cells per `align`, preserving styled
+/// spans. Wider content is truncated from the right (matching `set_cell_size`);
+/// narrower content is padded with unstyled (bg-only) spaces.
+fn size_cell_content(content: &Content, align: TextAlign, width: usize) -> Content {
+    let len = content.cell_length();
+    if len >= width {
+        // Truncate from the left edge (clamp), identical for every alignment —
+        // matches the old `set_cell_size` behaviour.
+        return content.truncate(width, false);
+    }
+    let pad = width - len;
+    match align {
+        TextAlign::Right => content.pad_left(pad),
+        TextAlign::Center => {
+            let left = pad / 2;
+            content.pad(left, pad - left)
+        }
+        // Left / Justify start at the left edge and fill to the right.
+        TextAlign::Left | TextAlign::Justify => content.pad_right(pad),
+    }
+}
+
+/// Emit a row of styled [`Cell`]s. Each cell is rendered via
+/// [`Content::render_strips`] so its color/italic/markup spans compose over the
+/// row background (`style_for_col`) and its alignment is honoured.
 fn emit_row_per_cell(
-    values: &[String],
+    cells: &[Cell],
     column_widths: &[usize],
     rendered_columns: &[usize],
     total_width: usize,
-    // Non-data row-label column rendered as a prefix: (text, width, style).
+    // Non-data row-label column rendered as a prefix: (content, width, visual).
     // `width == 0` means no label column (the common, unlabelled case).
-    label: Option<(&str, usize, rich_rs::Style)>,
-    style_for_col: impl Fn(usize) -> rich_rs::Style,
-    justify_for_col: impl Fn(usize) -> CellJustify,
-    gap_style: rich_rs::Style,
+    label: Option<(&Content, usize, CellVisual)>,
+    style_for_col: impl Fn(usize) -> CellVisual,
+    gap_style: CellVisual,
     out: &mut Segments,
 ) {
+    let gap_rich = gap_style.gap_rich();
     if rendered_columns.is_empty() {
         if total_width > 0 {
-            out.push(Segment::styled(" ".repeat(total_width), gap_style));
+            out.push(Segment::styled(" ".repeat(total_width), gap_rich));
         }
         return;
     }
     let mut used = 0usize;
     // Leading space (left pad of first cell).
-    out.push(Segment::styled(" ".repeat(CELL_PADDING), gap_style));
+    out.push(Segment::styled(" ".repeat(CELL_PADDING), gap_rich));
     used += CELL_PADDING;
-    // Row-label column: padded to its width, then a 2-cell gap to the data
-    // cells (Python renders the label column as a non-data leading column).
-    if let Some((label_text, label_width, label_style)) = label
+    // Row-label column: rendered as a (left-aligned) content cell, then a 2-cell
+    // gap to the data cells (Python renders the label column as a non-data
+    // leading column, and the label may itself be a styled `Text`).
+    if let Some((label_content, label_width, label_visual)) = label
         && label_width > 0
     {
-        out.push(Segment::styled(
-            rich_rs::set_cell_size(label_text, label_width),
-            label_style,
-        ));
-        out.push(Segment::styled("  ", gap_style));
+        render_cell_segments(label_content, TextAlign::Left, label_width, label_visual, out);
+        out.push(Segment::styled("  ", gap_rich));
         used += label_width + 2;
     }
     for (i, col_idx) in rendered_columns.iter().copied().enumerate() {
         let col_w = column_widths.get(col_idx).copied().unwrap_or(0);
         if i > 0 {
             // Inter-cell gap = right pad of previous + left pad of next = 2 spaces.
-            out.push(Segment::styled("  ", gap_style));
+            out.push(Segment::styled("  ", gap_rich));
             used += 2;
         }
-        let val = values.get(col_idx).map(String::as_str).unwrap_or("");
-        let cell_text = justify_for_col(col_idx).render(val, col_w);
-        out.push(Segment::styled(cell_text, style_for_col(col_idx)));
+        let (content, align) = match cells.get(col_idx) {
+            Some(cell) => (&cell.content, cell.align),
+            None => (&Content::empty(), TextAlign::Left),
+        };
+        render_cell_segments(content, align, col_w, style_for_col(col_idx), out);
         used += col_w;
     }
     // Pad remainder to full width (absorbs trailing right-pad of last cell).
     if used < total_width {
-        out.push(Segment::styled(" ".repeat(total_width - used), gap_style));
+        out.push(Segment::styled(" ".repeat(total_width - used), gap_rich));
     }
 }
 

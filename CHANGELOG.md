@@ -7,6 +7,38 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-24 (feat(data_table): renderable Content cells + key-function / multi-column sort)
+
+- **`DataTable` cells are now styled `Content`, not plain `String`.** Each cell is a
+  `Cell { content: Content, align: TextAlign }` (exported as `DataTableCell` in the prelude),
+  rendered through the canonical content subsystem (`Content::render_strips`). Per-cell
+  foreground color, italic/bold, arbitrary markup spans, and horizontal justification now fall
+  out of the content path for free — replacing the old parallel `cell_justify: Vec<Vec<CellJustify>>`
+  emulation vector. This is faithful to Python Textual where a cell may be a `rich.text.Text`
+  with its own `style` and `justify`. New cell constructors: `Cell::text`/`markup`/`content`/
+  `styled` + `with_align`, plus `From<&str>`/`From<String>`/`From<Content>`.
+- **Styled-cell add APIs.** `DataTable::add_row_cells(Vec<C: Into<Cell>>)` and
+  `add_row_cells_labeled` accept pre-built styled cells; `add_row_labeled` now takes an
+  `Into<Content>` label, so row labels are styled `Content` (Python `add_row(..., label=Text(...))`).
+  The existing `add_row`/`add_rows`/`add_columns`/`add_row_with_key` `ToString` paths still work
+  (they wrap each value in a plain `Cell::text`). `update_cell_content` replaces a cell with a
+  styled one.
+- **Key-function and multi-column sort.** New `DataTable::sort_by(columns, reverse, key_fn)` —
+  the closure receives the selected columns' plain text and returns a `SortKey` (numeric/string/
+  tuple), faithful to Python `sort(*columns, key=…, reverse=…)`. `sort_by_columns(columns, reverse)`
+  is the no-key multi-column form. The single-column `sort(column, reverse)` now compares values as
+  `SortKey`s, so numeric columns sort numerically (`"10"` after `"2"`) instead of lexicographically.
+  New `SortKey` type (numbers via `f64::total_cmp`, strings lexicographic, tuples element-wise).
+- **Demos rewired to real fundamentals** (no more "framework gap" approximations):
+  `data_table_renderables` builds italic `#03AC13` right-justified `Content` cells;
+  `data_table_labels` uses a styled `[#B0FC38 italic]` row label; `data_table_sort` uses real
+  key-function sorts (average-of-times-then-last-name, last-name lambda, country plain-text) and a
+  real multi-column sort.
+- New verification tests in `tests/data_table.rs`: a styled cell renders its `#03AC13` fg + italic;
+  numeric-key and key-function single-column sorts order correctly; a custom average-key over
+  multiple columns sorts faithfully; multi-column sort; styled row label renders. No styled-parity
+  regression (72 PASSING held; pty_parity 186/0).
+
 ### 2026-06-24 (fix(color): port LAB conversion exactly to Python's easyrgb f64 form)
 
 - **`rgb_to_lab` / `lab_to_rgb` are now byte-exact to Python Textual.** The RGB↔CIE-L\*a\*b\*
