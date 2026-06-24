@@ -1,13 +1,12 @@
 /// Port of Python Textual `docs/examples/guide/actions/actions07.py`.
 ///
-/// Demonstrates dynamic action checking with `check_action`:
-/// - 'n' / 'p' navigate between 5 pages in a HorizontalScroll
-/// - `check_action` returns `None` (disabled) at the first/last page,
-///   dimming the corresponding footer hint
+/// Demonstrates dynamic action checking with `check_action` returning `None`:
+/// - 'n' / 'p' navigate between 5 pages in a HorizontalScroll.
+/// - `check_action` returns `None` (disabled+hidden) at the first/last page,
+///   dimming the corresponding footer hint.
 ///
-/// Framework gap: no `scroll_visible()` API on App. We approximate by
-/// reading `app.driver().size().width` as the per-page width and calling
-/// `scroll_by_x` on the HorizontalScroll directly.
+/// Python calls `widget.scroll_visible()` to scroll the parent container so
+/// the target child is visible. Rust mirrors this via `app.scroll_visible(node_id)`.
 use textual::prelude::*;
 
 const PAGES_COUNT: i32 = 5;
@@ -67,34 +66,31 @@ impl TextualApp for PagesApp {
     }
 
     fn on_app_action_str(&mut self, app: &mut App, action: &str, ctx: &mut EventCtx) {
-        let page_width = app.driver().size().width as i32;
         match action {
             "next" => {
                 if self.page_no < PAGES_COUNT - 1 {
                     self.page_no += 1;
-                    let _ = app.with_query_one_mut_as::<HorizontalScroll, _>(
-                        "#page-container",
-                        |hs| {
-                            hs.scroll_by_x(page_width);
-                        },
-                    );
-                    ctx.request_repaint();
+                } else {
+                    return;
                 }
             }
             "previous" => {
                 if self.page_no > 0 {
                     self.page_no -= 1;
-                    let _ = app.with_query_one_mut_as::<HorizontalScroll, _>(
-                        "#page-container",
-                        |hs| {
-                            hs.scroll_by_x(-page_width);
-                        },
-                    );
-                    ctx.request_repaint();
+                } else {
+                    return;
                 }
             }
-            _ => {}
+            _ => return,
         }
+
+        // Scroll to make the new page visible — mirrors Python:
+        //   self.query_one(f"#page-{self.page_no}").scroll_visible()
+        if let Ok(page_id) = app.query_one(&format!("#page-{}", self.page_no)) {
+            app.scroll_visible(page_id);
+        }
+
+        ctx.request_repaint();
     }
 }
 

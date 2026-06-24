@@ -2,22 +2,14 @@
 ///
 /// Demonstrates dynamic widget mounting at runtime:
 /// - On any key press, a `Welcome` widget is mounted into the screen.
-/// - The Python original also changes `self.query_one(Button).label = "YES!"`,
-///   updating the close button label inside Welcome.
+/// - The Button inside Welcome is in the arena tree (accessible via `query_one`),
+///   so its label can be changed via `app.with_query_one_mut_as::<Button, _>`.
 ///
 /// Python source:
-///     from textual.app import App
-///     from textual.widgets import Button, Welcome
-///
 ///     class WelcomeApp(App):
 ///         async def on_key(self) -> None:
 ///             await self.mount(Welcome())
 ///             self.query_one(Button).label = "YES!"
-///
-/// Note: In Rust, `Welcome`'s Button is an internal field (not separately
-/// tree-mounted), so it is not reachable via `app.query_one("Button")`.
-/// The Welcome widget is mounted faithfully; the label change is a
-/// best-effort adaptation (Welcome does not expose a public label setter).
 use textual::prelude::*;
 
 struct WelcomeApp {
@@ -45,6 +37,12 @@ impl TextualApp for WelcomeApp {
         if !self.welcome_mounted {
             self.welcome_mounted = true;
             let _ = app.mount(Welcome::new());
+            // Python: self.query_one(Button).label = "YES!"
+            // Welcome's Button is in the arena tree — update it by querying "#close".
+            let mut rctx = ReactiveCtx::new(NodeId::default());
+            let _ = app.with_query_one_mut_as::<Button, _>("#close", |btn| {
+                btn.set_label("YES!".to_string(), &mut rctx);
+            });
             ctx.request_repaint();
         }
     }

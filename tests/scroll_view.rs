@@ -1,4 +1,5 @@
 use rich_rs::Console;
+use textual::node_id::NodeId;
 use textual::prelude::*;
 use textual::render::FrameBuffer;
 
@@ -113,5 +114,19 @@ fn scroll_view_caps_offset_for_stretch_children() {
         lines[0].starts_with("stretch 03"),
         "expected capped offset line, got {:?}",
         lines[0]
+    );
+}
+
+/// Verify `App::scroll_visible` API contract:
+/// - Returns `false` (no-op) when the node is not found in the active tree.
+/// - Verifies the method exists and is callable (compilation check + runtime contract).
+#[test]
+fn app_scroll_visible_returns_false_for_missing_node() {
+    let mut app = App::new().expect("headless App init");
+    // A freshly-created App has no active widget tree, so scroll_visible
+    // must return false without panicking.
+    assert!(
+        !app.scroll_visible(NodeId::default()),
+        "scroll_visible should return false when no tree / node not found"
     );
 }

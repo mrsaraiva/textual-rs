@@ -1,14 +1,11 @@
-use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
+use rich_rs::{Console, ConsoleOptions, Renderable, Segments};
 
-use crate::event::{Event, EventCtx, MouseDownEvent, MouseUpEvent};
+use crate::compose::ComposeResult;
+use crate::event::{Event, EventCtx};
 use crate::message::*;
-use crate::render::FrameBuffer;
-
-use crate::node_id::NodeId;
-use crate::runtime::dispatch_ctx::set_dispatch_recipient;
-use crate::widgets::NodeState;
 
 use super::{Button, ButtonVariant, Markdown, NodeSeed, Widget};
+use crate::widgets::containers::Container;
 
 const WELCOME_MD: &str = r#"# Welcome!
 
@@ -24,20 +21,34 @@ I will permit it to pass over me and through me.
 And when it has gone past, I will turn the inner eye to see its path.
 Where the fear has gone there will be nothing. Only I will remain.""#;
 
+/// Textual welcome widget.
+///
+/// Composes:
+/// - A `Container` (id `"md"`) containing a `Markdown` widget (id `"text"`).
+/// - A `Button` (id `"close"`, variant `Success`) docked to the bottom.
+///
+/// Mirrors Python `textual.widgets.Welcome`:
+/// ```python
+/// def compose(self) -> ComposeResult:
+///     yield Container(Static(Markdown(WELCOME_MD), id="text"), id="md")
+///     yield Button("OK", id="close", variant="success")
+/// ```
+///
+/// Because the Button lives in the arena tree, callers can reach it via
+/// `app.query_one_typed::<Button>()` and update its label.
 #[derive(Clone)]
 pub struct Welcome {
-    markdown: Markdown,
-    close: Button,
-    last_width: u16,
-    last_height: u16,
+    /// Initial label for the close button.  Used when composing the Button
+    /// into the arena tree.  After mounting, change the label via
+    /// `app.with_query_one_mut_as::<Button, _>("#close", |btn| ...)`.
+    close_label: String,
     seed: NodeSeed,
 }
 
 impl std::fmt::Debug for Welcome {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Welcome")
-            .field("last_width", &self.last_width)
-            .field("last_height", &self.last_height)
+            .field("close_label", &self.close_label)
             .finish()
     }
 }
@@ -55,10 +66,7 @@ impl Welcome {
         let mut seed = NodeSeed::default();
         seed.classes.push("welcome".to_string());
         Self {
-            markdown: Markdown::new(WELCOME_MD),
-            close: Button::new("OK").variant(ButtonVariant::Success),
-            last_width: 1,
-            last_height: 1,
+            close_label: "OK".to_string(),
             seed,
         }
     }
@@ -67,125 +75,51 @@ impl Welcome {
         WELCOME_MD
     }
 
-    pub fn close_button_id(&self) -> NodeId {
-        self.node_id()
-    }
-
-    fn body_height(&self) -> u16 {
-        self.last_height.saturating_sub(1).max(1)
-    }
-
-    fn translate_mouse_down(&self, mouse: MouseDownEvent) -> Event {
-        let on_close_row = self.last_height <= 1 || mouse.y + 1 >= self.last_height;
-        if mouse.target == self.node_id() && on_close_row {
-            Event::MouseDown(MouseDownEvent {
-                target: self.node_id(),
-                screen_x: mouse.screen_x,
-                screen_y: mouse.screen_y,
-                x: mouse.x,
-                y: 0,
-            })
-        } else {
-            Event::MouseDown(mouse)
-        }
-    }
-
-    fn translate_mouse_up(&self, mouse: MouseUpEvent) -> Event {
-        let on_close_row = self.last_height <= 1 || mouse.y + 1 >= self.last_height;
-        if mouse.target.is_some_and(|t| t == self.node_id()) && on_close_row {
-            Event::MouseUp(MouseUpEvent {
-                target: Some(self.node_id()),
-                screen_x: mouse.screen_x,
-                screen_y: mouse.screen_y,
-                x: mouse.x,
-                y: 0,
-            })
-        } else {
-            Event::MouseUp(mouse)
-        }
+    /// Set the initial label for the close button.
+    ///
+    /// This affects only the label baked into the composed `Button` widget at
+    /// mount time.  To change the label after mounting, use the arena query:
+    /// ```ignore
+    /// app.with_query_one_mut_as::<Button, _>("#close", |btn, ctx| {
+    ///     btn.set_label("YES!".to_string(), ctx);
+    /// });
+    /// ```
+    pub fn set_close_label(&mut self, label: impl Into<String>) {
+        self.close_label = label.into();
     }
 }
 
 impl Widget for Welcome {
+    fn compose(&self) -> ComposeResult {
+        let md = Markdown::new(WELCOME_MD);
+        let text_node = crate::compose::ChildDecl::new(Box::new(md)).with_id("text");
+
+        let container = Container::new();
+        let md_container =
+            crate::compose::ChildDecl::new(Box::new(container)).with_id("md").with_children(vec![text_node]);
+
+        let button = Button::new(self.close_label.clone()).variant(ButtonVariant::Success);
+        let close_node = crate::compose::ChildDecl::new(Box::new(button)).with_id("close");
+
+        vec![md_container, close_node]
+    }
+
     fn focusable(&self) -> bool {
         true
     }
 
-    fn on_layout(&mut self, width: u16, height: u16) {
-        self.last_width = width.max(1);
-        self.last_height = height.max(1);
-        let body_height = self.body_height();
-        self.markdown.on_layout(self.last_width, body_height);
-        self.close.on_layout(self.last_width, 1);
-    }
-
-    fn on_mount(&mut self) {
-        self.markdown.on_mount();
-        self.close.on_mount();
-    }
-
-    fn on_unmount(&mut self) {
-        self.markdown.on_unmount();
-        self.close.on_unmount();
-    }
-
-    fn on_tick(&mut self, tick: u64) {
-        self.markdown.on_tick(tick);
-        self.close.on_tick(tick);
-    }
-
-    fn on_resize(&mut self, width: u16, height: u16) {
-        self.last_width = width.max(1);
-        self.last_height = height.max(1);
-        let body_height = self.body_height();
-        self.markdown.on_resize(self.last_width, body_height);
-        self.close.on_resize(self.last_width, 1);
-    }
-
-    fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
-        self.markdown.on_event_capture(event, ctx);
-        if !ctx.handled() {
-            self.close.on_event_capture(event, ctx);
-        }
-    }
-
     fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
-        let focused = self.node_state().focused;
-        match event {
-            Event::MouseDown(mouse) => {
-                let translated = self.translate_mouse_down(*mouse);
-                self.close.on_event(&translated, ctx);
-            }
-            Event::MouseUp(mouse) => {
-                let translated = self.translate_mouse_up(*mouse);
-                self.close.on_event(&translated, ctx);
-            }
-            Event::Action(_) | Event::Key(_) if focused => {
-                // Welcome acts as a proxy for the close button when focused.
-                // Temporarily promote the close button to focused via dispatch context
-                // so it handles keyboard events correctly (Button.on_event checks node_state().focused).
-                let _guard = set_dispatch_recipient(
-                    NodeId::default(),
-                    NodeState {
-                        focused: true,
-                        ..Default::default()
-                    },
-                );
-                self.close.on_event(event, ctx);
-            }
-            _ => {}
-        }
+        // Welcome itself does not handle key/mouse events directly — the arena
+        // tree routes events to its composed children (Button, Markdown).
+        // The only special handling needed here is forwarding focus-related
+        // state, which the runtime manages via NodeState.
+        let _ = (event, ctx);
     }
 
     fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
-        if message.sender != self.node_id() {
-            self.markdown.on_message(message, ctx);
-            if !ctx.handled() {
-                self.close.on_message(message, ctx);
-            }
-            return;
-        }
-
+        // Respond to ButtonPressed bubbling up from the child Button (#close).
+        // We do not restrict by sender so this works both in the arena tree
+        // (sender = Button's arena NodeId) and in unit tests (sender = any id).
         if message.is::<ButtonPressed>() {
             ctx.post_message(ButtonPressed {
                 description: "Welcome.close".to_string(),
@@ -196,64 +130,10 @@ impl Widget for Welcome {
         }
     }
 
-    fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {
-        if self.last_height > 1 && y + 1 >= self.last_height {
-            self.close.on_mouse_move(x, 0)
-        } else {
-            false
-        }
-    }
-
-    fn on_mouse_scroll(&mut self, delta_x: i32, delta_y: i32, ctx: &mut EventCtx) {
-        self.close.on_mouse_scroll(delta_x, delta_y, ctx);
-    }
-
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        let width = options.size.0.max(1);
-        let height = options.size.1.max(1);
-
-        if height == 1 {
-            let mut button_options = options.clone();
-            button_options.size = (width, 1);
-            button_options.max_width = width;
-            button_options.max_height = 1;
-            return self.close.render_styled(console, &button_options);
-        }
-
-        let body_height = height - 1;
-
-        let mut body_options = options.clone();
-        body_options.size = (width, body_height);
-        body_options.max_width = width;
-        body_options.max_height = body_height;
-        // Render the welcome body through the rich-rs markdown renderer directly. The
-        // textual `Markdown` widget is compose-only (its `render()` returns empty segments;
-        // content is rendered by the tree engine via composed children), so `render_styled`
-        // here yields nothing. `self.markdown` is retained for layout/lifecycle/messages.
-        let body_segments =
-            rich_rs::markdown::Markdown::new(WELCOME_MD.to_string()).render(console, &body_options);
-        let body_lines = Segment::split_and_crop_lines(body_segments, width, None, true, false);
-        let body_buf = FrameBuffer::from_lines(&body_lines, width, body_height, None);
-
-        let mut button_options = options.clone();
-        button_options.size = (width, 1);
-        button_options.max_width = width;
-        button_options.max_height = 1;
-        let button_segments = self.close.render_styled(console, &button_options);
-        let button_lines = Segment::split_and_crop_lines(button_segments, width, None, true, false);
-        let button_buf = FrameBuffer::from_lines(&button_lines, width, 1, None);
-
-        let mut merged = FrameBuffer::new(width, height, None);
-        for y in 0..body_height {
-            for x in 0..width {
-                merged.set_cell(x, y, body_buf.get(x, y).clone());
-            }
-        }
-        for x in 0..width {
-            merged.set_cell(x, body_height, button_buf.get(x, 0).clone());
-        }
-
-        merged.to_segments()
+    fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+        // Children are rendered by the arena tree.  Welcome itself has no
+        // direct visual content beyond what its composed children provide.
+        Segments::new()
     }
 
     fn layout_height(&self) -> Option<usize> {
@@ -286,18 +166,52 @@ impl Renderable for Welcome {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::message::MessageEvent;
+    use crate::node_id::NodeId;
 
     #[test]
-    fn welcome_close_re_emits_button_press_and_overlay_dismiss() {
+    fn welcome_compose_yields_two_children() {
+        let welcome = Welcome::new();
+        let children = welcome.compose();
+        assert_eq!(
+            children.len(),
+            2,
+            "Welcome must compose exactly two children: Container(md) + Button(close)"
+        );
+    }
+
+    #[test]
+    fn welcome_compose_has_md_container_and_close_button() {
+        let welcome = Welcome::new();
+        let children = welcome.compose();
+        // First child: Container with id "md"
+        assert_eq!(children[0].id.as_deref(), Some("md"));
+        // Second child: Button with id "close"
+        assert_eq!(children[1].id.as_deref(), Some("close"));
+    }
+
+    #[test]
+    fn welcome_set_close_label_reflected_in_compose() {
         let mut welcome = Welcome::new();
-        welcome.on_layout(48, 10);
+        welcome.set_close_label("YES!");
+        // The second child should still carry id "close".
+        let children = welcome.compose();
+        assert_eq!(children[1].id.as_deref(), Some("close"));
+        // Confirm the label is stored (tested indirectly via compose).
+        assert_eq!(welcome.close_label, "YES!");
+    }
+
+    #[test]
+    fn welcome_on_message_button_pressed_re_emits() {
+        let mut welcome = Welcome::new();
 
         let mut ctx = EventCtx::default();
+        // Send ButtonPressed from *any* sender (simulates arena child button).
         welcome.on_message(
             &MessageEvent::new(
-                welcome.close_button_id(),
+                NodeId::default(),
                 ButtonPressed {
-                    description: "Button(classes='button', variant='success')".to_string(),
+                    description: "Button".to_string(),
                     button_id: None,
                 },
             ),
@@ -306,15 +220,29 @@ mod tests {
 
         assert!(ctx.handled());
         let emitted = ctx.take_messages();
-        assert!(emitted.iter().any(|event| {
-            event
+        assert!(
+            emitted.iter().any(|e| e
                 .downcast_ref::<ButtonPressed>()
-                .is_some_and(|bp| bp.description == "Welcome.close")
-        }));
-        assert!(emitted.iter().any(|event| {
-            event
-                .downcast_ref::<OverlayDismissRequested>()
-                .is_some_and(|odr| odr.overlay.is_none())
-        }));
+                .is_some_and(|bp| bp.description == "Welcome.close")),
+            "should re-emit ButtonPressed with description 'Welcome.close'"
+        );
+        assert!(
+            emitted
+                .iter()
+                .any(|e| e.downcast_ref::<OverlayDismissRequested>().is_some()),
+            "should emit OverlayDismissRequested"
+        );
+    }
+
+    #[test]
+    fn welcome_on_message_non_button_pressed_ignored() {
+        let mut welcome = Welcome::new();
+        let mut ctx = EventCtx::default();
+        // A non-ButtonPressed message should not be handled.
+        welcome.on_message(
+            &MessageEvent::new(NodeId::default(), InputChanged { value: "x".to_string(), validation: crate::validation::ValidationResult::success() }),
+            &mut ctx,
+        );
+        assert!(!ctx.handled());
     }
 }

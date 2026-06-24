@@ -468,6 +468,7 @@ Welcome > Markdown {
 
 Welcome > Button {
     width: 100%;
+    dock: bottom;
 }
 
 Tooltip > .tooltip--bubble {
