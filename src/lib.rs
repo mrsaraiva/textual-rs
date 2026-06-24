@@ -41,7 +41,7 @@ pub use keys::KeyEventData;
 pub use node_id::{NodeId, node_id_from_ffi, node_id_to_ffi};
 pub use reactive::ReactiveCtx;
 pub use reactive::ReactiveWidget;
-pub use runtime::{App, DomQuery, DomQueryMut};
+pub use runtime::{App, DomQuery, DomQueryMut, TimerHandle};
 pub use screen::{Screen, ScreenResult, ScreenResultCallback, ScreenStack};
 pub use style::{Color, Style, Theme};
 pub use theme::{NamedTheme, available_theme_names, get_theme, register_theme};
@@ -72,7 +72,7 @@ pub mod prelude {
     pub use crate::message_handlers::{MessageContext, MessageHandlers};
     pub use crate::node_id::{NodeId, node_id_from_ffi, node_id_to_ffi};
     pub use crate::runtime::{
-        App, DispatchOutcome, DomQuery, DomQueryMut, build_widget_tree_from_root,
+        App, DispatchOutcome, DomQuery, DomQueryMut, TimerHandle, build_widget_tree_from_root,
         dispatch_event_to_target_tree, dispatch_event_tree, dispatch_message_queue_tree,
         focused_node_id_tree, render_tree_to_frame, render_tree_to_frame_with_stylesheet,
         run_layout_pass,

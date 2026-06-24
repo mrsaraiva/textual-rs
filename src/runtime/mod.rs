@@ -51,16 +51,24 @@ use std::path::PathBuf;
 #[cfg(unix)]
 use std::process::Command;
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use tasks::AsyncTaskRuntime;
-use timers::OneShotTimerRuntime;
+use timers::{TimerCallback, TimerRuntime};
 use types::{
     AppNotification, BindingHintEntry, DEFAULT_NOTIFICATION_TIMEOUT, HitTestMap, StylesheetReload,
     StylesheetWatcher,
 };
 
 use helpers::{ClickTracker, apply_size, collect_focus_chain_tree, default_action_map};
+
+/// Opaque handle to an app-level timer scheduled via [`App::set_interval`] /
+/// [`App::set_timer`]. Pass it to [`App::stop_timer`], [`App::pause_timer`],
+/// [`App::resume_timer`], or [`App::reset_timer`] to control the timer —
+/// mirroring the methods on Python's returned `Timer` object.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct TimerHandle(u64);
 
 type SuspendProcessFn = fn() -> io::Result<()>;
 type DataBindApplyFn =
@@ -486,7 +494,23 @@ pub struct App {
     selection_drag_active: bool,
     selection_click_state: Option<SelectionClickState>,
     async_tasks: AsyncTaskRuntime,
-    one_shot_timers: OneShotTimerRuntime,
+    timers: TimerRuntime,
+    /// App-level timer callbacks (`set_interval` / `set_timer`), keyed by the
+    /// timer id registered in [`TimerRuntime`]. When the runtime delivers a
+    /// `TimerFired` for one of these ids, the callback is invoked with `&mut App`
+    /// and a fresh `EventCtx`. Mirrors Python's `TimerCallback`.
+    timer_callbacks: HashMap<u64, TimerCallback>,
+    /// Monotonic source of timer ids for app-level `set_interval`/`set_timer`.
+    next_timer_id: u64,
+    /// App-level timer ids whose deadline elapsed this drain but whose callback
+    /// has not yet run. Drained by [`App::run_due_timer_callbacks`] (invoked from
+    /// the adapter's `on_app_timer` hook) so callbacks run in the app's context.
+    pending_timer_fires: Vec<u64>,
+    /// Type-erased handle to the user app struct (`Arc<Mutex<T>>`), set by the
+    /// `TextualApp` adapter at mount time. Lets timer callbacks re-enter the app
+    /// struct via [`App::with_app_struct`] to mutate reactive fields (e.g.
+    /// `self.time = now`), mirroring Python timer callbacks that set `self.<attr>`.
+    app_struct: Option<Arc<Mutex<dyn Any + Send>>>,
     devtools: Option<devtools::DevtoolsRuntime>,
     /// Last resolved CSS style per node, used for automatic style-transition
     /// dispatch (P2-36).
@@ -639,7 +663,13 @@ impl App {
             selection_drag_active: false,
             selection_click_state: None,
             async_tasks: AsyncTaskRuntime::default(),
-            one_shot_timers: OneShotTimerRuntime::default(),
+            timers: TimerRuntime::default(),
+            timer_callbacks: HashMap::new(),
+            // App-level timer ids start high to avoid colliding with
+            // widget-scheduled message-only timer ids (which start at 0).
+            next_timer_id: 1 << 32,
+            pending_timer_fires: Vec::new(),
+            app_struct: None,
             devtools: devtools::DevtoolsRuntime::from_env().ok().flatten(),
             style_snapshot_cache: HashMap::new(),
             pending_query_refresh_nodes: Vec::new(),
@@ -676,6 +706,184 @@ impl App {
     /// dispatches them to `reactive_widget_mut()`.
     pub fn reactive_ctx(&mut self) -> &mut crate::reactive::ReactiveCtx {
         &mut self.app_reactive_ctx
+    }
+
+    // ── Timer API (Python `MessagePump.set_interval` / `set_timer`) ─────────
+    //
+    // App-level timers run a Rust callback on a fixed wall-clock cadence,
+    // scheduled against the event loop's timeout. Returns a [`TimerHandle`] for
+    // pause/resume/reset/stop. A deterministic `advance` path exists for tests
+    // (see `crate::runtime::App::advance_timers`).
+
+    /// Call `callback` at periodic `interval`s — Python `set_interval`.
+    ///
+    /// `repeat = None` repeats forever; `Some(n)` fires at most `n` times. With
+    /// `pause = true` the timer starts paused (resume it via the returned
+    /// [`TimerHandle`]).
+    pub fn set_interval(
+        &mut self,
+        interval: Duration,
+        repeat: Option<u64>,
+        pause: bool,
+        callback: TimerCallback,
+    ) -> TimerHandle {
+        self.set_interval_named(interval, repeat, pause, None, callback)
+    }
+
+    /// Named variant of [`App::set_interval`] (Python `name` argument).
+    pub fn set_interval_named(
+        &mut self,
+        interval: Duration,
+        repeat: Option<u64>,
+        pause: bool,
+        name: Option<String>,
+        callback: TimerCallback,
+    ) -> TimerHandle {
+        let timer_id = self.alloc_timer_id();
+        self.timers
+            .schedule_interval(timer_id, self.runtime_node_id(), interval, repeat, pause, name);
+        self.timer_callbacks.insert(timer_id, callback);
+        TimerHandle(timer_id)
+    }
+
+    /// Call `callback` once after `delay` — Python `set_timer`.
+    pub fn set_timer(&mut self, delay: Duration, callback: TimerCallback) -> TimerHandle {
+        let timer_id = self.alloc_timer_id();
+        self.timers
+            .schedule(timer_id, self.runtime_node_id(), delay);
+        self.timer_callbacks.insert(timer_id, callback);
+        TimerHandle(timer_id)
+    }
+
+    /// Stop and forget a timer (Python `Timer.stop`).
+    pub fn stop_timer(&mut self, handle: TimerHandle) {
+        self.timers.cancel(handle.0);
+        self.timer_callbacks.remove(&handle.0);
+    }
+
+    /// Pause a timer (Python `Timer.pause`).
+    pub fn pause_timer(&mut self, handle: TimerHandle) {
+        self.timers.pause(handle.0);
+    }
+
+    /// Resume a paused timer (Python `Timer.resume`).
+    pub fn resume_timer(&mut self, handle: TimerHandle) {
+        self.timers.resume(handle.0);
+    }
+
+    /// Reset a timer's schedule to start from now (Python `Timer.reset`).
+    pub fn reset_timer(&mut self, handle: TimerHandle) {
+        self.timers.reset(handle.0);
+    }
+
+    /// True while the timer is still registered (not yet fired-out or stopped).
+    pub fn timer_is_active(&self, handle: TimerHandle) -> bool {
+        self.timers.contains(handle.0)
+    }
+
+    fn alloc_timer_id(&mut self) -> u64 {
+        let id = self.next_timer_id;
+        self.next_timer_id += 1;
+        id
+    }
+
+    /// Register the type-erased user app struct so timer callbacks (and other
+    /// runtime callbacks) can re-enter it via [`App::with_app_struct`]. Called by
+    /// the `TextualApp` adapter at mount time.
+    pub fn set_app_struct(&mut self, app_struct: Arc<Mutex<dyn Any + Send>>) {
+        self.app_struct = Some(app_struct);
+    }
+
+    /// Run `f` with mutable access to the user app struct `T` and the runtime
+    /// [`App`]. Returns `None` if no app struct is registered or the downcast to
+    /// `T` fails.
+    ///
+    /// This is the bridge that lets a timer callback mutate the app struct's
+    /// reactive fields (Python `self.time = now`): the app struct's `Arc` is
+    /// cloned out first, then locked while `&mut App` is still available, so both
+    /// borrows coexist. Reactive changes recorded on `app.reactive_ctx()` inside
+    /// `f` are dispatched by the surrounding `on_app_timer` hook.
+    pub fn with_app_struct<T, R>(
+        &mut self,
+        f: impl FnOnce(&mut T, &mut App, &mut EventCtx) -> R,
+        ctx: &mut EventCtx,
+    ) -> Option<R>
+    where
+        T: 'static,
+    {
+        let app_struct = self.app_struct.clone()?;
+        let mut guard = app_struct.lock().unwrap_or_else(|e| e.into_inner());
+        let typed = guard.downcast_mut::<T>()?;
+        Some(f(typed, self, ctx))
+    }
+
+    /// Node id used as the target/sender for app-level timers (the runtime root).
+    fn runtime_node_id(&self) -> NodeId {
+        self.widget_tree
+            .as_ref()
+            .and_then(|tree| tree.root())
+            .unwrap_or_default()
+    }
+
+    /// Drain all timers whose deadline elapsed. App-level timer ids (those with a
+    /// registered callback) are stashed in `pending_timer_fires` for callback
+    /// invocation; widget-targeted timers are returned as `TimerFired` messages.
+    pub(crate) fn drain_ready_timers(&mut self) -> Vec<MessageEvent> {
+        let now = self.timers.now();
+        let fired = self.timers.drain_ready(now);
+        let mut messages = Vec::with_capacity(fired.len());
+        for event in fired {
+            let timer_id = event
+                .downcast_ref::<crate::message::TimerFired>()
+                .map(|m| m.timer_id);
+            match timer_id {
+                Some(id) if self.timer_callbacks.contains_key(&id) => {
+                    self.pending_timer_fires.push(id);
+                }
+                _ => messages.push(event),
+            }
+        }
+        messages
+    }
+
+    /// True if any app-level timer callback is awaiting invocation.
+    pub(crate) fn has_pending_timer_fires(&self) -> bool {
+        !self.pending_timer_fires.is_empty()
+    }
+
+    /// Run the callbacks for every app-level timer that fired this turn.
+    ///
+    /// Each callback is temporarily removed from the registry so it can borrow
+    /// `&mut App`, then reinserted unless the timer has since been stopped. For
+    /// one-shot timers, the `TimerRuntime` already removed the schedule, so the
+    /// callback is dropped after running.
+    pub(crate) fn run_due_timer_callbacks(&mut self, ctx: &mut EventCtx) {
+        let due = std::mem::take(&mut self.pending_timer_fires);
+        for timer_id in due {
+            let Some(mut callback) = self.timer_callbacks.remove(&timer_id) else {
+                continue;
+            };
+            callback(self, ctx);
+            // Reinsert only if the timer is still scheduled (repeating, not
+            // stopped by the callback). One-shot timers are no longer in the
+            // runtime, so the callback is dropped here.
+            if self.timers.contains(timer_id) {
+                self.timer_callbacks.insert(timer_id, callback);
+            }
+        }
+    }
+
+    /// Deterministic test driver: advance the timer clock by `delta`. Only
+    /// affects a manual clock (see [`crate::runtime::App::with_manual_timers`]).
+    #[cfg(test)]
+    pub(crate) fn advance_timers(&mut self, delta: Duration) {
+        self.timers.advance(delta);
+    }
+
+    /// Switch the timer runtime to a deterministic manual clock (tests only).
+    #[cfg(test)]
+    pub(crate) fn use_manual_timer_clock(&mut self) {
+        self.timers = TimerRuntime::manual();
     }
 
     // -----------------------------------------------------------------
@@ -5323,5 +5531,178 @@ mod tests {
     fn app_assign_style_id(tree: &mut WidgetTree, node: NodeId, id: &str) {
         // CSS id is stored in the node record only; no wrapper struct needed.
         tree.set_css_id(node, Some(id.to_string()));
+    }
+
+    // ── App-level timer (set_interval / set_timer) deterministic tests ──────
+    //
+    // These drive the manual clock and drain+run the callback path directly,
+    // asserting exactly how many times a callback fired after N advances —
+    // no wall-clock sleeping, no time-dependent goldens.
+
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    /// Advance the manual clock and run any due app-timer callbacks, returning
+    /// how many callbacks the runtime invoked this step.
+    fn tick_timers(app: &mut App, delta: Duration) -> usize {
+        app.advance_timers(delta);
+        // Drain ready timers: app-callback ids land in `pending_timer_fires`.
+        let _widget_msgs = app.drain_ready_timers();
+        let before = app.pending_timer_fires.len();
+        let mut ctx = crate::event::EventCtx::default();
+        app.run_due_timer_callbacks(&mut ctx);
+        before
+    }
+
+    #[test]
+    fn set_interval_callback_fires_once_per_advance() {
+        let mut app = App::new().expect("app");
+        app.use_manual_timer_clock();
+        let count = Arc::new(AtomicU64::new(0));
+        let c = Arc::clone(&count);
+        app.set_interval(
+            Duration::from_secs(1),
+            None,
+            false,
+            Box::new(move |_app, _ctx| {
+                c.fetch_add(1, Ordering::SeqCst);
+            }),
+        );
+
+        for _ in 0..5 {
+            tick_timers(&mut app, Duration::from_secs(1));
+        }
+        assert_eq!(count.load(Ordering::SeqCst), 5, "callback fires 5 times");
+    }
+
+    #[test]
+    fn set_timer_callback_fires_exactly_once() {
+        let mut app = App::new().expect("app");
+        app.use_manual_timer_clock();
+        let count = Arc::new(AtomicU64::new(0));
+        let c = Arc::clone(&count);
+        let handle = app.set_timer(
+            Duration::from_secs(2),
+            Box::new(move |_app, _ctx| {
+                c.fetch_add(1, Ordering::SeqCst);
+            }),
+        );
+
+        // Before the deadline: no fire.
+        tick_timers(&mut app, Duration::from_secs(1));
+        assert_eq!(count.load(Ordering::SeqCst), 0);
+        // Crossing the deadline: exactly one fire, timer auto-removed.
+        tick_timers(&mut app, Duration::from_secs(1));
+        assert_eq!(count.load(Ordering::SeqCst), 1);
+        assert!(!app.timer_is_active(handle), "one-shot timer is removed");
+        // Further advances never fire again.
+        tick_timers(&mut app, Duration::from_secs(10));
+        assert_eq!(count.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn stop_timer_prevents_further_callbacks() {
+        let mut app = App::new().expect("app");
+        app.use_manual_timer_clock();
+        let count = Arc::new(AtomicU64::new(0));
+        let c = Arc::clone(&count);
+        let handle = app.set_interval(
+            Duration::from_secs(1),
+            None,
+            false,
+            Box::new(move |_app, _ctx| {
+                c.fetch_add(1, Ordering::SeqCst);
+            }),
+        );
+
+        tick_timers(&mut app, Duration::from_secs(1));
+        tick_timers(&mut app, Duration::from_secs(1));
+        assert_eq!(count.load(Ordering::SeqCst), 2);
+        app.stop_timer(handle);
+        tick_timers(&mut app, Duration::from_secs(5));
+        assert_eq!(count.load(Ordering::SeqCst), 2, "stopped timer is silent");
+    }
+
+    #[test]
+    fn pause_and_resume_gate_callbacks() {
+        let mut app = App::new().expect("app");
+        app.use_manual_timer_clock();
+        let count = Arc::new(AtomicU64::new(0));
+        let c = Arc::clone(&count);
+        let handle = app.set_interval(
+            Duration::from_secs(1),
+            None,
+            false,
+            Box::new(move |_app, _ctx| {
+                c.fetch_add(1, Ordering::SeqCst);
+            }),
+        );
+
+        tick_timers(&mut app, Duration::from_secs(1));
+        assert_eq!(count.load(Ordering::SeqCst), 1);
+        app.pause_timer(handle);
+        tick_timers(&mut app, Duration::from_secs(10));
+        assert_eq!(count.load(Ordering::SeqCst), 1, "paused: no fires");
+        app.resume_timer(handle);
+        tick_timers(&mut app, Duration::from_secs(1));
+        assert_eq!(count.load(Ordering::SeqCst), 2, "resumed: fires again");
+    }
+
+    #[test]
+    fn bounded_interval_fires_repeat_times_then_stops() {
+        let mut app = App::new().expect("app");
+        app.use_manual_timer_clock();
+        let count = Arc::new(AtomicU64::new(0));
+        let c = Arc::clone(&count);
+        let handle = app.set_interval(
+            Duration::from_secs(1),
+            Some(3),
+            false,
+            Box::new(move |_app, _ctx| {
+                c.fetch_add(1, Ordering::SeqCst);
+            }),
+        );
+
+        for _ in 0..6 {
+            tick_timers(&mut app, Duration::from_secs(1));
+        }
+        assert_eq!(count.load(Ordering::SeqCst), 3, "fires exactly repeat=3");
+        assert!(!app.timer_is_active(handle));
+    }
+
+    #[test]
+    fn timer_callback_can_mutate_app_struct_via_with_app_struct() {
+        // A callback that reads `&mut T` (the app struct) and bumps a field,
+        // exercising the `with_app_struct` bridge used by reactive-fanout demos.
+        struct FakeAppStruct {
+            value: u64,
+        }
+
+        let mut app = App::new().expect("app");
+        app.use_manual_timer_clock();
+        let app_struct: Arc<Mutex<dyn Any + Send>> =
+            Arc::new(Mutex::new(FakeAppStruct { value: 0 }));
+        let observe = Arc::clone(&app_struct);
+        app.set_app_struct(Arc::clone(&app_struct));
+
+        app.set_interval(
+            Duration::from_secs(1),
+            None,
+            false,
+            Box::new(|app, ctx| {
+                app.with_app_struct::<FakeAppStruct, _>(
+                    |state, _app, _ctx| {
+                        state.value += 1;
+                    },
+                    ctx,
+                );
+            }),
+        );
+
+        for _ in 0..4 {
+            tick_timers(&mut app, Duration::from_secs(1));
+        }
+        let guard = observe.lock().unwrap();
+        let typed = guard.downcast_ref::<FakeAppStruct>().unwrap();
+        assert_eq!(typed.value, 4, "app-struct field bumped once per fire");
     }
 }

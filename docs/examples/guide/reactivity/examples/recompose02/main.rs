@@ -11,11 +11,12 @@
 ///
 /// Rust port (faithful): the app derives `Reactive` with
 /// `#[reactive(recompose)] time` (seconds-since-epoch stands in for `datetime`).
-/// Each second the tick calls `set_time(...)`, which records a recompose change;
-/// the app reactive bridge then re-invokes `compose()` (rebuilding the `Digits`)
-/// via `App::recompose_app` — exactly Python's `recompose=True`. No `watch_time`
-/// is needed: the fresh `compose()` reads the current `time`.
-use std::time::{SystemTime, UNIX_EPOCH};
+/// A real 1-second `set_interval` callback re-enters the app struct and calls
+/// `set_time(...)` (Python's `update_time`), which records a recompose change; the
+/// app reactive bridge then re-invokes `compose()` (rebuilding the `Digits`) —
+/// exactly Python's `recompose=True`. No `watch_time` is needed: the fresh
+/// `compose()` reads the current `time`.
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use textual::prelude::*;
 
 const CSS: &str = r#"
@@ -46,16 +47,16 @@ struct Clock {
     /// Mirrors Python `time = reactive(datetime.now, recompose=True)`.
     #[reactive(recompose)]
     time: u64,
-    last_second: u64,
 }
 
 impl Clock {
     fn new() -> Self {
-        let now = now_secs();
-        Self {
-            time: now,
-            last_second: now,
-        }
+        Self { time: now_secs() }
+    }
+
+    /// Python `update_time`: `self.time = datetime.now()`.
+    fn update_time(&mut self, ctx: &mut ReactiveCtx) {
+        self.set_time(now_secs(), ctx);
     }
 }
 
@@ -74,14 +75,22 @@ impl TextualApp for Clock {
         AppRoot::new().with_child(Digits::new(format_hms(*self.time())))
     }
 
-    fn on_tick_with_app(&mut self, app: &mut App, _tick: u64, ctx: &mut EventCtx) {
-        let secs = now_secs();
-        if secs != self.last_second {
-            self.last_second = secs;
-            // Recompose reactive: the bridge re-invokes compose() to rebuild Digits.
-            self.set_time(secs, app.reactive_ctx());
-            ctx.request_repaint();
-        }
+    fn on_mount_with_app(&mut self, app: &mut App, _ctx: &mut EventCtx) {
+        // Python: self.set_interval(1, self.update_time). The recompose reactive
+        // re-invokes compose() to rebuild the Digits each second.
+        app.set_interval(
+            Duration::from_secs(1),
+            None,
+            false,
+            Box::new(|app, ctx| {
+                app.with_app_struct::<Clock, _>(
+                    |clock, app, _ctx| {
+                        clock.update_time(app.reactive_ctx());
+                    },
+                    ctx,
+                );
+            }),
+        );
     }
 }
 

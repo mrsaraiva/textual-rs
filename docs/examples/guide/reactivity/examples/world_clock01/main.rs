@@ -26,7 +26,7 @@
 /// NOTE: interactive live clock — not promotable to a static snapshot. Timezone
 /// conversion uses fixed UTC offsets (no pytz/DST), as `std` has no tz database.
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use textual::reactive::{RuntimeReactiveEntry, enqueue_runtime_reactive_entry};
 use textual::prelude::*;
 
@@ -140,16 +140,16 @@ impl Widget for WorldClock {
 struct WorldClockApp {
     #[reactive(watch_with_app, init = false)]
     time: u64,
-    last_second: u64,
 }
 
 impl WorldClockApp {
     fn new() -> Self {
-        let now = now_secs();
-        Self {
-            time: now,
-            last_second: now,
-        }
+        Self { time: now_secs() }
+    }
+
+    /// Python `update_time`: `self.time = datetime.now()`.
+    fn update_time(&mut self, ctx: &mut ReactiveCtx) {
+        self.set_time(now_secs(), ctx);
     }
 
     /// Python `watch_time`: push the timestamp to each WorldClock's reactive.
@@ -189,14 +189,25 @@ impl TextualApp for WorldClockApp {
             .with_child(WorldClock::new("Asia/Tokyo", 9 * 3600))
     }
 
-    fn on_tick_with_app(&mut self, app: &mut App, _tick: u64, ctx: &mut EventCtx) {
-        // Python: set_interval(1, update_time) → self.time = datetime.now().
-        let secs = now_secs();
-        if secs != self.last_second {
-            self.last_second = secs;
-            self.set_time(secs, app.reactive_ctx());
-            ctx.request_repaint();
-        }
+    fn on_mount_with_app(&mut self, app: &mut App, _ctx: &mut EventCtx) {
+        // Python on_mount: self.update_time(); self.set_interval(1, self.update_time).
+        // Seed the initial time, then register the repeating timer; each fire
+        // re-enters the app struct and bumps the `time` reactive, whose watcher
+        // fans the timestamp out to each WorldClock child.
+        self.update_time(app.reactive_ctx());
+        app.set_interval(
+            Duration::from_secs(1),
+            None,
+            false,
+            Box::new(|app, ctx| {
+                app.with_app_struct::<WorldClockApp, _>(
+                    |clock_app, app, _ctx| {
+                        clock_app.update_time(app.reactive_ctx());
+                    },
+                    ctx,
+                );
+            }),
+        );
     }
 }
 

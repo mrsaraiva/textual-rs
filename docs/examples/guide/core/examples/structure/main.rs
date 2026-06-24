@@ -4,17 +4,16 @@
 /// The Python example defines a `Clock` widget that displays the current
 /// datetime (formatted with `%c`), refreshed every second.
 ///
-/// Rust port uses a `Label` with `id="clock"`, updated each runtime tick
-/// when the second changes, following the same `on_tick_with_app` pattern
-/// used by the `clock` widget example.
+/// Rust port uses a `Label` with `id="clock"`, refreshed every second by a real
+/// `set_interval` timer — Python's `self.set_interval(1, self.update_time)`. The
+/// timer callback queries the `Label` and updates it (Python's `update_time`).
 ///
-/// Framework gaps:
-/// - No `set_interval` on widgets; `on_tick_with_app` is the Rust equivalent.
+/// Notes:
 /// - Python `strftime("%c")` (locale datetime) is not available in `std`;
 ///   we produce a fixed-format "Weekday Mon DD HH:MM:SS YYYY" string using
 ///   only `std::time::SystemTime` (no external crates).  The content is
 ///   semantically equivalent — a live, updating datetime string.
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use textual::prelude::*;
 
 const CSS: &str = r##"
@@ -81,10 +80,17 @@ fn format_datetime(secs: u64) -> String {
     )
 }
 
-#[derive(Default)]
-struct ClockApp {
-    last_second: u64,
+/// Python `update_time`: set the clock Label to the current datetime.
+fn update_time(app: &mut App, ctx: &mut EventCtx) {
+    let text = format_datetime(epoch_secs());
+    let _ = app.with_query_one_mut_as::<Label, _>("#clock", |label| {
+        label.set_text(text);
+    });
+    ctx.request_repaint();
 }
+
+#[derive(Default)]
+struct ClockApp;
 
 impl TextualApp for ClockApp {
     fn configure(&mut self, app: &mut App) -> textual::Result<()> {
@@ -93,21 +99,17 @@ impl TextualApp for ClockApp {
     }
 
     fn compose(&mut self) -> AppRoot {
-        let secs = epoch_secs();
-        self.last_second = secs;
-        AppRoot::new().with_child(Label::new(format_datetime(secs)).with_id("clock"))
+        AppRoot::new().with_child(Label::new(format_datetime(epoch_secs())).with_id("clock"))
     }
 
-    fn on_tick_with_app(&mut self, app: &mut App, _tick: u64, ctx: &mut EventCtx) {
-        let secs = epoch_secs();
-        if secs != self.last_second {
-            self.last_second = secs;
-            let text = format_datetime(secs);
-            let _ = app.with_query_one_mut_as::<Label, _>("#clock", |label| {
-                label.set_text(text);
-            });
-            ctx.request_repaint();
-        }
+    fn on_mount_with_app(&mut self, app: &mut App, _ctx: &mut EventCtx) {
+        // Python: self.set_interval(1, self.update_time).
+        app.set_interval(
+            Duration::from_secs(1),
+            None,
+            false,
+            Box::new(|app, ctx| update_time(app, ctx)),
+        );
     }
 }
 

@@ -413,6 +413,15 @@ pub trait Widget: Send + Sync + Any {
     /// Runs once per runtime tick after `on_tick` and before `Event::Tick`
     /// dispatch, allowing app wrappers to use query/mutation APIs.
     fn on_app_tick(&mut self, _app: &mut crate::App, _tick: u64, _ctx: &mut EventCtx) {}
+    /// Optional runtime-level app-timer hook.
+    ///
+    /// Invoked by the runtime when one or more app-level timers (registered via
+    /// [`crate::App::set_interval`] / [`crate::App::set_timer`]) are due. App
+    /// wrappers run the registered timer callbacks here and then dispatch the
+    /// app-reactive bridge, so a callback that mutates a reactive field (e.g.
+    /// `self.time = now`) fires its watcher in the same turn — mirroring Python's
+    /// `Timer._tick` invoking the callback in the target's context.
+    fn on_app_timer(&mut self, _app: &mut crate::App, _ctx: &mut EventCtx) {}
     /// Optional runtime-level app mount hook.
     ///
     /// Called once after the widget tree is fully built and mounted, passing

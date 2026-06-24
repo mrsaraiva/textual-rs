@@ -16,7 +16,7 @@
 /// Python's `watch_time`. The 1-second `set_interval` is mirrored by
 /// `on_tick_with_app` detecting second boundaries and calling `set_time(...)`,
 /// which fires the watcher through the app reactive bridge.
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use textual::prelude::*;
 
 const CSS: &str = r#"
@@ -47,17 +47,16 @@ struct Clock {
     /// Mirrors Python `time = reactive(datetime.now, init=False)`.
     #[reactive(watch_with_app, init = false)]
     time: u64,
-    /// Tracks the last applied second so the tick only updates once per second.
-    last_second: u64,
 }
 
 impl Clock {
     fn new() -> Self {
-        let now = now_secs();
-        Self {
-            time: now,
-            last_second: now,
-        }
+        Self { time: now_secs() }
+    }
+
+    /// Python `update_time`: `self.time = datetime.now()`.
+    fn update_time(&mut self, ctx: &mut ReactiveCtx) {
+        self.set_time(now_secs(), ctx);
     }
 
     /// Python `watch_time`: update the Digits display from the current time.
@@ -84,14 +83,23 @@ impl TextualApp for Clock {
         AppRoot::new().with_child(Digits::new(format_hms(*self.time())))
     }
 
-    fn on_tick_with_app(&mut self, app: &mut App, _tick: u64, ctx: &mut EventCtx) {
-        // Python `set_interval(1, update_time)` → `self.time = datetime.now()`.
-        let secs = now_secs();
-        if secs != self.last_second {
-            self.last_second = secs;
-            self.set_time(secs, app.reactive_ctx());
-            ctx.request_repaint();
-        }
+    fn on_mount_with_app(&mut self, app: &mut App, _ctx: &mut EventCtx) {
+        // Python: self.set_interval(1, self.update_time). The timer callback
+        // re-enters the app struct and bumps the `time` reactive, which fires
+        // `watch_time` through the app reactive bridge.
+        app.set_interval(
+            Duration::from_secs(1),
+            None,
+            false,
+            Box::new(|app, ctx| {
+                app.with_app_struct::<Clock, _>(
+                    |clock, app, _ctx| {
+                        clock.update_time(app.reactive_ctx());
+                    },
+                    ctx,
+                );
+            }),
+        );
     }
 }
 

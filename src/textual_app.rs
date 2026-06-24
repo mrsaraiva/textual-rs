@@ -970,7 +970,20 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
         self.dispatch_app_reactive(app, ctx);
     }
 
+    fn on_app_timer(&mut self, app: &mut App, ctx: &mut EventCtx) {
+        // Run due app-level timer callbacks (set_interval / set_timer). Each
+        // callback may mutate reactive fields via `app.reactive_ctx()`; the
+        // app-reactive bridge then fires the corresponding watchers, exactly as
+        // it does after `on_app_tick`.
+        app.run_due_timer_callbacks(ctx);
+        self.dispatch_app_reactive(app, ctx);
+    }
+
     fn on_app_mount(&mut self, app: &mut App, ctx: &mut EventCtx) {
+        // Register the type-erased app struct so timer callbacks (and any other
+        // runtime callback) can re-enter it via `app.with_app_struct::<T>()`.
+        app.set_app_struct(Arc::clone(&self.app) as Arc<Mutex<dyn std::any::Any + Send>>);
+
         // Register check_action callback so the runtime can evaluate
         // binding enabled/disabled state during hint collection.
         let app_ref = Arc::clone(&self.app);

@@ -814,14 +814,14 @@ fn split_runtime_control_messages(
         }
         if let Some(m) = event.downcast_ref::<crate::message::TimerSchedule>() {
             let m = m.clone();
-            if let Some(cancelled) = app.one_shot_timers.schedule(m.timer_id, m.target, m.delay) {
+            if let Some(cancelled) = app.timers.schedule(m.timer_id, m.target, m.delay) {
                 pass.generated.push(cancelled);
             }
             continue;
         }
         if let Some(m) = event.downcast_ref::<crate::message::TimerCancel>() {
             let timer_id = m.timer_id;
-            if let Some(cancelled) = app.one_shot_timers.cancel(timer_id) {
+            if let Some(cancelled) = app.timers.cancel(timer_id) {
                 pass.generated.push(cancelled);
             }
             continue;
@@ -1094,8 +1094,7 @@ fn split_runtime_control_messages(
             pass.deliver.push(event);
         }
     }
-    pass.generated
-        .extend(app.one_shot_timers.drain_ready(Instant::now()));
+    pass.generated.extend(app.drain_ready_timers());
     pass.generated.extend(app.async_tasks.drain_completed());
     pass
 }
@@ -2086,7 +2085,7 @@ impl App {
     fn dispatch_background_runtime_messages(&mut self, root: &mut dyn Widget) -> DispatchOutcome {
         // Drain app-level messages first (set_title/set_sub_title broadcasts).
         let mut queue = self.drain_pending_app_messages();
-        queue.extend(self.one_shot_timers.drain_ready(Instant::now()));
+        queue.extend(self.drain_ready_timers());
         queue.extend(self.async_tasks.drain_completed());
         self.dispatch_message_queue_with_runtime(root, queue)
     }
@@ -2293,8 +2292,8 @@ impl App {
                 .map(|anim_timeout| tick_timeout.min(anim_timeout))
                 .unwrap_or(tick_timeout);
             let timeout = self
-                .one_shot_timers
-                .next_timeout(now)
+                .timers
+                .next_timeout(self.timers.now())
                 .map(|timer_timeout| timeout.min(timer_timeout))
                 .unwrap_or(timeout);
             let poll_started = Instant::now();
@@ -3646,6 +3645,45 @@ impl App {
             );
             if background_outcome.stop_requested {
                 break 'event_loop;
+            }
+
+            // App-level timer callbacks (set_interval / set_timer). The
+            // background drain above stashed any due app-timer ids; invoke their
+            // callbacks now through the adapter's `on_app_timer` hook so reactive
+            // mutations fire their watchers in the same turn.
+            if self.has_pending_timer_fires() {
+                let mut timer_ctx = EventCtx::default();
+                root.on_app_timer(self, &mut timer_ctx);
+                let mut timer_outcome = DispatchOutcome {
+                    handled: timer_ctx.handled(),
+                    repaint_requested: timer_ctx.repaint_requested(),
+                    invalidation: timer_ctx.invalidation(),
+                    stop_requested: timer_ctx.stop_requested(),
+                    messages: timer_ctx.take_messages(),
+                    animation_requests: timer_ctx.take_animation_requests(),
+                    worker_requests: timer_ctx.take_worker_requests(),
+                    recompose_nodes: timer_ctx.take_recompose_nodes(),
+                    default_prevented: false,
+                    class_ops: timer_ctx.take_class_ops(),
+                };
+                self.absorb_outcome(
+                    &mut timer_outcome,
+                    &mut pending_invalidation,
+                    InvalidationScope::Global,
+                );
+                if timer_outcome.stop_requested {
+                    break 'event_loop;
+                }
+                let mut timer_msg_outcome =
+                    self.dispatch_message_queue_with_runtime(root, timer_outcome.messages);
+                self.absorb_outcome(
+                    &mut timer_msg_outcome,
+                    &mut pending_invalidation,
+                    InvalidationScope::Global,
+                );
+                if timer_msg_outcome.stop_requested {
+                    break 'event_loop;
+                }
             }
 
             let phase_started = Instant::now();

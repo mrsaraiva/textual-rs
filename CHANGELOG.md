@@ -7,6 +7,31 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-23 (feat(timer): `set_interval` / `set_timer` scheduling primitive)
+
+- **Real timer subsystem (keystone).** Apps can now self-schedule arbitrary-delay, named,
+  repeating callbacks via `App::set_interval(interval, repeat, pause, callback)` and
+  `App::set_timer(delay, callback)` — Python parity with `MessagePump.set_interval` / `set_timer`.
+  Previously the only periodic hook was a global per-frame `on_tick`; widgets/apps could not
+  register a 1-second `update_clock`-style callback. Returns a `TimerHandle` for
+  `stop_timer` / `pause_timer` / `resume_timer` / `reset_timer` (Python `Timer.stop/pause/resume/reset`).
+- **Faithful `timer.py` semantics.** Timers schedule against the event loop's frame/timeout so
+  callbacks fire at the right wall-clock cadence; the loop timeout is clamped to the soonest timer
+  deadline. Repeating timers fast-forward past missed deadlines (Python `skip` — a stalled loop fires
+  once, not a backlog burst); bounded `repeat` fires exactly N times then auto-removes; paused timers
+  neither advance nor drive the loop timeout and re-anchor on resume.
+- **App-struct bridge for timer callbacks.** `App::with_app_struct::<T>()` lets a timer callback
+  re-enter the user app struct to mutate reactive fields (Python `self.time = now`), firing the
+  watcher/recompose through the app reactive bridge in the same turn. DOM-only callbacks
+  (`update_clock`) just query+update a widget directly.
+- **Deterministic test path.** The timer runtime is driven by a swappable clock; tests advance a
+  manual clock and assert exactly how many times a callback fired after N advances — no wall-clock
+  sleeping, no time-dependent goldens. 18 new behavioral tests (runtime + timer module).
+- **Demo ports rewired to real `set_interval`** (no more `on_tick` second-boundary faking):
+  `widgets/clock`, `guide/reactivity/recompose01`, `recompose02`, `world_clock01`, and
+  `guide/core/structure` now register a real 1-second timer instead of detecting second boundaries
+  in `on_tick_with_app`.
+
 ### 2026-06-23 (feat(action): `@click` action-link routing + `run_action(str)` + namespaced dispatch)
 
 - **`@click` action-link routing (super-keystone).** `[@click=action]` markup is now live, not
