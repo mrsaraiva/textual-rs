@@ -102,7 +102,7 @@ pub use log::Log;
 pub use markdown_viewer::{MarkdownTableOfContents, MarkdownViewer, Navigator};
 pub use masked_input::MaskedInput;
 pub(crate) use option_list::OPTION_LIST_VSCROLLBAR_ID;
-pub use option_list::{OptionItem, OptionList};
+pub use option_list::{OptionContent, OptionId, OptionItem, OptionList};
 pub use placeholder::{Placeholder, PlaceholderVariant};
 pub use pretty::Pretty;
 pub use preview::{preview_root, preview_root_with_bottom, preview_root_with_top_bottom};

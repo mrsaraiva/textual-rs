@@ -7,15 +7,13 @@
 /// Python uses `OptionList(*[self.colony(*row) for row in COLONIES])` where
 /// each `colony()` call produces a `rich.table.Table` (a multi-row renderable).
 ///
-/// In Rust, `OptionItem` only supports `rich_rs::Text` as rich content, and
-/// `render_rich_line` renders exactly one line per item. This is a framework
-/// gap: the Python OptionList accepts arbitrary multi-row renderables whereas
-/// the Rust version is limited to single-line items. We port as faithfully as
-/// possible using `rich_rs::Table` pre-rendered into a multi-line
-/// `rich_rs::Text`, stored as `OptionItem::rich()`.
+/// Rust port uses `OptionItem::renderable()` so the `rich_rs::Table` is
+/// stored as an `Arc<dyn Renderable>` and rendered live at the runtime widget
+/// width, exactly matching the Python path. No pre-rendering at a hardcoded
+/// width is needed anymore.
 ///
 /// CSS is ported from `option_list.tcss`.
-use rich_rs::{Console, ConsoleOptions, Renderable, Table, Text};
+use rich_rs::Table;
 use textual::prelude::*;
 
 const CSS: &str = r#"
@@ -64,39 +62,6 @@ fn colony_table(name: &str, god: &str, population: &str, capital: &str) -> Table
     table
 }
 
-/// Render a `rich_rs::Table` to a multi-line `rich_rs::Text` at the given
-/// width so it can be stored as `OptionItem::rich()` content.
-///
-/// This is necessary because `OptionItem` does not accept arbitrary
-/// `Renderable`s — only `rich_rs::Text`.
-fn table_to_text(table: &Table, width: usize) -> Text {
-    let console = Console::new();
-    let options = ConsoleOptions {
-        size: (width, 40),
-        max_width: width,
-        max_height: 40,
-        ..Default::default()
-    };
-    let segments: Vec<_> = table.render(&console, &options).into_iter().collect();
-
-    // Collect non-control segments into lines split on newline control segments.
-    let mut lines: Vec<String> = Vec::new();
-    let mut current = String::new();
-    for seg in &segments {
-        if seg.is_control() || seg.text == "\n" {
-            lines.push(std::mem::take(&mut current));
-        } else {
-            current.push_str(&seg.text);
-        }
-    }
-    if !current.is_empty() {
-        lines.push(current);
-    }
-
-    let joined = lines.join("\n");
-    Text::plain(joined)
-}
-
 struct OptionListApp;
 
 impl TextualApp for OptionListApp {
@@ -110,19 +75,13 @@ impl TextualApp for OptionListApp {
     }
 
     fn compose(&mut self) -> AppRoot {
-        // Pre-render each colony table at the OptionList content width.
-        // Python renders the tables at the actual widget content width at runtime;
-        // for parity at the 120-col scoreboard size the OptionList is 70% of 120
-        // = 84 columns, minus the `tall` border (2) and `padding: 0 1` (2) and the
-        // vertical scrollbar (1) and the per-option padding gutter (1) → 78 cells.
-        let render_width: usize = 78;
-
+        // Each colony table is stored as an Arc<dyn Renderable> via
+        // OptionItem::renderable(). The OptionList renders it live at the
+        // runtime widget content width — matching Python's path exactly.
         let items: Vec<OptionItem> = COLONIES
             .iter()
             .map(|(name, god, population, capital)| {
-                let table = colony_table(name, god, population, capital);
-                let text = table_to_text(&table, render_width);
-                OptionItem::rich(*name, text)
+                OptionItem::renderable(*name, colony_table(name, god, population, capital))
             })
             .collect();
 
@@ -147,23 +106,39 @@ mod tests {
     }
 
     #[test]
-    fn table_to_text_contains_column_headers() {
+    fn colony_table_contains_column_headers() {
+        use rich_rs::{Console, ConsoleOptions, Renderable};
         let table = colony_table("Caprica", "Apollo", "4.9 Billion", "Caprica City");
-        let text = table_to_text(&table, 80);
-        let plain = text.plain_text();
-        assert!(plain.contains("Patron God"), "missing 'Patron God' header");
-        assert!(plain.contains("Population"), "missing 'Population' header");
-        assert!(plain.contains("Capital City"), "missing 'Capital City' header");
+        let console = Console::new();
+        let opts = ConsoleOptions {
+            size: (80, 40),
+            max_width: 80,
+            max_height: 40,
+            ..Default::default()
+        };
+        let segs: Vec<_> = table.render(&console, &opts).into_iter().collect();
+        let text: String = segs.iter().map(|s| s.text.as_ref()).collect();
+        assert!(text.contains("Patron God"), "missing 'Patron God' header");
+        assert!(text.contains("Population"), "missing 'Population' header");
+        assert!(text.contains("Capital City"), "missing 'Capital City' header");
     }
 
     #[test]
-    fn table_to_text_contains_data() {
+    fn colony_table_contains_data() {
+        use rich_rs::{Console, ConsoleOptions, Renderable};
         let table = colony_table("Caprica", "Apollo", "4.9 Billion", "Caprica City");
-        let text = table_to_text(&table, 80);
-        let plain = text.plain_text();
-        assert!(plain.contains("Apollo"), "missing patron god");
-        assert!(plain.contains("4.9 Billion"), "missing population");
-        assert!(plain.contains("Caprica City"), "missing capital");
+        let console = Console::new();
+        let opts = ConsoleOptions {
+            size: (80, 40),
+            max_width: 80,
+            max_height: 40,
+            ..Default::default()
+        };
+        let segs: Vec<_> = table.render(&console, &opts).into_iter().collect();
+        let text: String = segs.iter().map(|s| s.text.as_ref()).collect();
+        assert!(text.contains("Apollo"), "missing patron god");
+        assert!(text.contains("4.9 Billion"), "missing population");
+        assert!(text.contains("Caprica City"), "missing capital");
     }
 
     #[test]
@@ -178,5 +153,23 @@ mod tests {
         assert_eq!(COLONIES.len(), 12);
         assert_eq!(COLONIES[0].0, "Aerilon");
         assert_eq!(COLONIES[11].0, "Virgon");
+    }
+
+    #[test]
+    fn option_items_use_renderable_content() {
+        let items: Vec<OptionItem> = COLONIES
+            .iter()
+            .map(|(name, god, population, capital)| {
+                OptionItem::renderable(*name, colony_table(name, god, population, capital))
+            })
+            .collect();
+        assert_eq!(items.len(), 12);
+        // Each item should hold a Renderable (not Text) as content.
+        for item in &items {
+            assert!(
+                matches!(item.content(), Some(OptionContent::Renderable(_))),
+                "expected Renderable content variant"
+            );
+        }
     }
 }

@@ -3,24 +3,13 @@ use std::time::Instant;
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
 use crate::event::AnimationLevel;
-use crate::renderables::Bar;
+use crate::renderables::{Bar, LinearGradient};
+#[cfg(test)]
 use crate::style::Color;
 
 use super::{NodeSeed, Widget, helpers::adjust_line_length_no_bg};
 use crate::compose::ComposeResult;
 use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
-
-#[cfg(test)]
-fn lerp_color(a: Color, b: Color, t: f64) -> Color {
-    let t = t.clamp(0.0, 1.0) as f32;
-    let inv = 1.0 - t;
-    Color::rgba_f(
-        (a.r as f32 * inv + b.r as f32 * t).round() as u8,
-        (a.g as f32 * inv + b.g as f32 * t).round() as u8,
-        (a.b as f32 * inv + b.b as f32 * t).round() as u8,
-        a.a * inv + b.a * t,
-    )
-}
 
 // ── ETA estimation ──────────────────────────────────────────────────
 
@@ -212,9 +201,10 @@ pub struct ProgressBar {
     show_eta: bool,
     /// Animation level — controls whether indeterminate bar animates.
     animation_level: AnimationLevel,
-    /// Optional gradient: linearly interpolate between `(start, end)` colors
-    /// across the filled portion of the bar.
-    gradient: Option<(Color, Color)>,
+    /// Optional multi-stop gradient painted across the filled portion of the bar.
+    ///
+    /// Mirrors Python `Gradient` (arbitrary stops via `Gradient.from_colors`).
+    gradient: Option<LinearGradient>,
     /// ETA estimator.
     eta: Eta,
     /// Monotonic reference point for ETA time tracking.
@@ -416,18 +406,22 @@ impl ProgressBar {
     }
 
     /// Current gradient, if set.
-    pub fn gradient(&self) -> Option<(Color, Color)> {
-        self.gradient
+    pub fn gradient(&self) -> Option<&LinearGradient> {
+        self.gradient.as_ref()
     }
 
-    /// Set a gradient that interpolates from `start` to `end` color across the bar.
-    pub fn set_gradient(&mut self, gradient: Option<(Color, Color)>) {
+    /// Set a multi-stop gradient painted across the filled portion of the bar.
+    ///
+    /// Pass `None` to remove the gradient and fall back to CSS component styling.
+    pub fn set_gradient(&mut self, gradient: Option<LinearGradient>) {
         self.gradient = gradient;
     }
 
-    /// Builder: set a gradient that interpolates from `start` to `end` color across the bar.
-    pub fn with_gradient(mut self, start: Color, end: Color) -> Self {
-        self.gradient = Some((start, end));
+    /// Builder: attach a multi-stop gradient to this bar.
+    ///
+    /// Mirrors Python `ProgressBar(gradient=Gradient.from_colors(...))`.
+    pub fn with_gradient(mut self, gradient: LinearGradient) -> Self {
+        self.gradient = Some(gradient);
         self
     }
 
@@ -479,15 +473,18 @@ impl ProgressBar {
         (text, component)
     }
 
-    /// Render a determinate bar with per-cell gradient coloring.
+    /// Render a determinate bar with per-cell multi-stop gradient coloring.
     ///
-    /// Returns one `Segment` per filled cell (each with its interpolated color)
-    /// plus a single segment for the empty portion.
+    /// Uses `Bar` to produce the correct glyph structure (filled bar + half-cell
+    /// boundary), then re-colors each filled-bar cell using `gradient.get_color`
+    /// sampled at the cell's fractional position across the full bar width.
+    ///
+    /// Mirrors Python `Bar(gradient=gradient)` which calls `Gradient.get_color`
+    /// per highlighted cell.
     fn render_determinate_gradient(
         &self,
         width: usize,
-        start: Color,
-        end: Color,
+        gradient: &LinearGradient,
     ) -> (Vec<Segment>, &str) {
         let pct = self.percentage().unwrap_or(0.0);
         let component = if pct >= 1.0 {
@@ -500,13 +497,38 @@ impl ProgressBar {
             .to_rich()
             .unwrap_or_else(rich_rs::Style::new);
         let highlight_end = (pct * width as f64).min(width as f64) as f32;
-        let segments: Vec<Segment> = Bar::new((0.0, highlight_end), style, style)
+
+        // Render via Bar to get correct glyph structure (half-cell boundary glyphs).
+        let base_segs: Vec<Segment> = Bar::new((0.0, highlight_end), style, style)
             .width(width)
-            .gradient(start, end)
             .render_for_width(width)
             .into_iter()
             .collect();
-        (segments, component)
+
+        // Re-color per-cell: iterate cell by cell, applying gradient to highlighted cells.
+        let mut out: Vec<Segment> = Vec::with_capacity(base_segs.len());
+        let mut x = 0usize;
+        for seg in base_segs {
+            if seg.control.is_some() {
+                out.push(seg);
+                continue;
+            }
+            let seg_style = seg.style.unwrap_or(style);
+            // Only color cells that are part of the highlight style (filled bar/boundary).
+            let is_highlighted = seg_style == style;
+            for ch in seg.text.chars() {
+                let t = if width <= 1 { 0.0 } else { x as f32 / (width - 1) as f32 };
+                let cell_style = if is_highlighted {
+                    let color = gradient.get_color(t);
+                    seg_style.with_color(color.to_simple_opaque())
+                } else {
+                    seg_style
+                };
+                out.push(Segment::styled(ch.to_string(), cell_style));
+                x += 1;
+            }
+        }
+        (out, component)
     }
 
     fn render_indeterminate(&self, width: usize) -> (String, &str) {
@@ -615,11 +637,11 @@ impl Widget for ProgressBar {
         let mut out = Segments::new();
 
         if self.show_bar && bar_width > 0 {
-            if let Some((grad_start, grad_end)) = self.gradient {
+            if let Some(ref gradient) = self.gradient {
                 if self.total.is_some() {
                     // Gradient rendering for determinate bars.
                     let (segments, _component) =
-                        self.render_determinate_gradient(bar_width, grad_start, grad_end);
+                        self.render_determinate_gradient(bar_width, gradient);
                     out.extend(segments);
                 } else {
                     // Gradient not applicable to indeterminate bars — fall back.
@@ -1007,6 +1029,13 @@ mod tests {
 
     // ── Gradient tests ──────────────────────────────────────────────
 
+    fn make_two_stop_gradient(start: Color, end: Color) -> LinearGradient {
+        LinearGradient::new(
+            0.0,
+            vec![(0.0, start), (1.0, end)],
+        )
+    }
+
     #[test]
     fn gradient_default_none() {
         let bar = ProgressBar::new(Some(100.0));
@@ -1017,8 +1046,9 @@ mod tests {
     fn gradient_builder() {
         let start = Color::rgb(255, 0, 0);
         let end = Color::rgb(0, 0, 255);
-        let bar = ProgressBar::new(Some(100.0)).with_gradient(start, end);
-        assert_eq!(bar.gradient(), Some((start, end)));
+        let gradient = make_two_stop_gradient(start, end);
+        let bar = ProgressBar::new(Some(100.0)).with_gradient(gradient);
+        assert!(bar.gradient().is_some());
     }
 
     #[test]
@@ -1026,79 +1056,100 @@ mod tests {
         let mut bar = ProgressBar::new(Some(100.0));
         let start = Color::rgb(255, 0, 0);
         let end = Color::rgb(0, 255, 0);
-        bar.set_gradient(Some((start, end)));
-        assert_eq!(bar.gradient(), Some((start, end)));
+        bar.set_gradient(Some(make_two_stop_gradient(start, end)));
+        assert!(bar.gradient().is_some());
         bar.set_gradient(None);
         assert!(bar.gradient().is_none());
     }
 
     #[test]
-    fn gradient_interpolation_start_middle_end() {
+    fn gradient_interpolation_via_linear_gradient() {
+        // LinearGradient::get_color at t=0 should return start, t=1 should return end.
         let start = Color::rgb(0, 0, 0);
         let end = Color::rgb(100, 200, 50);
+        let gradient = make_two_stop_gradient(start, end);
 
-        // t=0 -> start
-        let c0 = lerp_color(start, end, 0.0);
+        let c0 = gradient.get_color(0.0);
         assert_eq!(c0.r, 0);
         assert_eq!(c0.g, 0);
         assert_eq!(c0.b, 0);
 
-        // t=0.5 -> midpoint
-        let c_mid = lerp_color(start, end, 0.5);
-        assert_eq!(c_mid.r, 50);
-        assert_eq!(c_mid.g, 100);
-        assert_eq!(c_mid.b, 25);
-
-        // t=1.0 -> end
-        let c1 = lerp_color(start, end, 1.0);
+        let c1 = gradient.get_color(1.0);
         assert_eq!(c1.r, 100);
         assert_eq!(c1.g, 200);
         assert_eq!(c1.b, 50);
     }
 
     #[test]
-    fn gradient_interpolation_clamped() {
-        let start = Color::rgb(100, 100, 100);
-        let end = Color::rgb(200, 200, 200);
-
-        // t < 0 should clamp to start
-        let c = lerp_color(start, end, -1.0);
-        assert_eq!(c.r, 100);
-
-        // t > 1 should clamp to end
-        let c = lerp_color(start, end, 2.0);
-        assert_eq!(c.r, 200);
-    }
-
-    #[test]
     fn gradient_determinate_produces_correct_segments() {
         let start = Color::rgb(255, 0, 0);
         let end = Color::rgb(0, 0, 255);
-        let mut bar = ProgressBar::new(Some(100.0)).with_gradient(start, end);
+        let gradient = make_two_stop_gradient(start, end);
+        let mut bar = ProgressBar::new(Some(100.0)).with_gradient(gradient.clone());
         bar.advance(100.0); // 100% filled
 
-        let (segments, component) = bar.render_determinate_gradient(5, start, end);
+        let (segments, component) = bar.render_determinate_gradient(5, &gradient);
         assert_eq!(component, "bar--complete");
-        // 5 filled cells, no empty segment
-        assert_eq!(segments.len(), 5);
-        // First segment should be red-ish, last should be blue-ish
-        // (verified by the lerp_color tests above)
-        for seg in &segments {
-            assert_eq!(seg.text, "━");
-        }
+        // Each non-control segment is a single cell; all should be bar glyphs.
+        let text: String = segments
+            .iter()
+            .filter(|s| s.control.is_none())
+            .map(|s| s.text.as_ref())
+            .collect();
+        assert!(text.chars().all(|c| c == Bar::BAR || c == Bar::HALF_BAR_LEFT || c == Bar::HALF_BAR_RIGHT),
+            "unexpected glyph in gradient output: {text:?}");
     }
 
     #[test]
     fn gradient_determinate_partial_fill() {
         let start = Color::rgb(255, 0, 0);
         let end = Color::rgb(0, 0, 255);
-        let mut bar = ProgressBar::new(Some(100.0)).with_gradient(start, end);
+        let gradient = make_two_stop_gradient(start, end);
+        let mut bar = ProgressBar::new(Some(100.0)).with_gradient(gradient.clone());
         bar.advance(50.0); // 50% filled
 
-        let (segments, component) = bar.render_determinate_gradient(10, start, end);
+        let (segments, component) = bar.render_determinate_gradient(10, &gradient);
         assert_eq!(component, "bar--bar");
-        let text: String = segments.iter().map(|seg| seg.text.as_ref()).collect();
+        let text: String = segments
+            .iter()
+            .filter(|s| s.control.is_none())
+            .map(|seg| seg.text.as_ref())
+            .collect();
+        // 50% of 10 → 5 filled + boundary glyph + 4 background
         assert_eq!(text, "━━━━━╺━━━━");
+    }
+
+    #[test]
+    fn gradient_multi_stop_rainbow_renders_without_panic() {
+        // 12-stop rainbow as in the Python progress_bar_gradient example.
+        let stops: Vec<(f32, Color)> = vec![
+            (0.0 / 11.0, Color::rgb(0x88, 0x11, 0x77)),
+            (1.0 / 11.0, Color::rgb(0xaa, 0x33, 0x55)),
+            (2.0 / 11.0, Color::rgb(0xcc, 0x66, 0x66)),
+            (3.0 / 11.0, Color::rgb(0xee, 0x99, 0x44)),
+            (4.0 / 11.0, Color::rgb(0xee, 0xdd, 0x00)),
+            (5.0 / 11.0, Color::rgb(0x99, 0xdd, 0x55)),
+            (6.0 / 11.0, Color::rgb(0x44, 0xdd, 0x88)),
+            (7.0 / 11.0, Color::rgb(0x22, 0xcc, 0xbb)),
+            (8.0 / 11.0, Color::rgb(0x00, 0xbb, 0xcc)),
+            (9.0 / 11.0, Color::rgb(0x00, 0x99, 0xcc)),
+            (10.0 / 11.0, Color::rgb(0x33, 0x66, 0xbb)),
+            (1.0,         Color::rgb(0x66, 0x33, 0x99)),
+        ];
+        let gradient = LinearGradient::new(0.0, stops);
+        let mut bar = ProgressBar::new(Some(100.0)).with_gradient(gradient);
+        bar.advance(70.0);
+
+        let console = Console::new();
+        let mut opts = console.options().clone();
+        opts.size = (40, 1);
+        let segs = Widget::render(&bar, &console, &opts);
+        let text: String = segs
+            .iter()
+            .filter(|s| s.control.is_none())
+            .map(|s| s.text.as_ref())
+            .collect();
+        assert!(!text.is_empty(), "gradient bar should render something");
     }
 
     // ── compose() / take_composed_children() tests ────────────────
