@@ -380,3 +380,107 @@ fn directory_tree_unmount_clears_focus_hover_and_pending_loads() {
     let lines = buf.as_plain_lines();
     assert!(!lines.iter().any(|line| line.contains("leaf.txt")));
 }
+
+/// B-cluster lazy-load verification: a custom `filter_paths` predicate must apply
+/// on the async lazy subdir-load path, not just the initial sync build.
+///
+/// Mirrors Python `FilteredDirectoryTree.filter_paths`, whose filter runs inside
+/// the single `_load_directory` worker used for every load (initial + lazy expand
+/// + reload). Here we expand a subdirectory (spawning an async `ReadDirectory`),
+/// deliver an async result containing BOTH a filtered-out entry and a kept entry,
+/// and assert the filtered entry never reaches the rendered tree.
+#[test]
+fn directory_tree_filter_applies_on_async_lazy_subdir_load() {
+    fn no_dotfiles(path: &std::path::Path) -> bool {
+        path.file_name()
+            .and_then(|name| name.to_str())
+            .map(|name| !name.starts_with('.'))
+            .unwrap_or(true)
+    }
+
+    let temp = TempTreeDir::new("directory-tree-async-filter-render");
+    let nested_dir = temp.path.join("nested");
+    fs::create_dir_all(&nested_dir).expect("create nested dir");
+
+    let mut tree = DirectoryTree::new(&temp.path);
+    // Install a custom path filter (excludes dotfiles), as a FilteredDirectoryTree would.
+    tree.filter_paths(no_dotfiles);
+    tree.on_layout(60, 10);
+
+    // Collapse the auto-expanded "nested" node, then re-expand to force a fresh
+    // async lazy load (the path exercised by real subdir expansion).
+    let mut collapse_ctx = EventCtx::default();
+    tree.on_message(
+        &MessageEvent::new(
+            tree.tree_id(),
+            TreeNodeToggled {
+                index: 1,
+                label: "nested".to_string(),
+                expanded: false,
+            },
+        ),
+        &mut collapse_ctx,
+    );
+
+    let mut expand_ctx = EventCtx::default();
+    tree.on_message(
+        &MessageEvent::new(
+            tree.tree_id(),
+            TreeNodeToggled {
+                index: 1,
+                label: "nested".to_string(),
+                expanded: true,
+            },
+        ),
+        &mut expand_ctx,
+    );
+    assert!(expand_ctx.handled());
+
+    // Task IDs increment from 1 with each spawn. The initial sync build and the
+    // collapse perform no async spawn, so this re-expand is the first spawned task
+    // (id 1). This is the async lazy-load path — the only path exercised by real
+    // subdir expansion.
+    let task_id = 1_u64;
+
+    // Deliver an async result for the lazy load with both a kept file and a
+    // dotfile that the custom filter must exclude.
+    tree.on_message(
+        &MessageEvent::new(
+            NodeId::default(),
+            AsyncTaskCompleted {
+                task_id,
+                target: NodeId::default(),
+                result: AsyncTaskResult::DirectoryEntries {
+                    path: nested_dir.display().to_string(),
+                    entries: vec![
+                        AsyncDirectoryEntry {
+                            path: nested_dir.join("keep.txt").display().to_string(),
+                            label: "keep.txt".to_string(),
+                            is_dir: false,
+                        },
+                        AsyncDirectoryEntry {
+                            path: nested_dir.join(".secret").display().to_string(),
+                            label: ".secret".to_string(),
+                            is_dir: false,
+                        },
+                    ],
+                },
+            },
+        ),
+        &mut EventCtx::default(),
+    );
+
+    let console = Console::new();
+    let options = options_for(&console, 60, 10);
+    let buf = FrameBuffer::from_renderable(&console, &options, &tree, None);
+    let lines = buf.as_plain_lines();
+
+    assert!(
+        lines.iter().any(|line| line.contains("keep.txt")),
+        "kept file must render after async lazy load"
+    );
+    assert!(
+        !lines.iter().any(|line| line.contains(".secret")),
+        "custom filter must exclude the dotfile on the async lazy-load path"
+    );
+}

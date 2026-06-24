@@ -56,6 +56,21 @@ until the API stabilizes.
   its feedback loop is suppressed across a *later* reactive-update cycle (`Handle::update`'s watcher
   emits through a different `EventCtx`), which an app-side `prevent` scope cannot span until `prevent`
   is threaded through `ReactiveCtx`/the reactive-update pipeline (`DEFERRED(byte03-prevent)`).
+### 2026-06-23 (fix(widgets/DirectoryTree): apply `filter_paths` on the async lazy subdir load)
+
+- **`DirectoryTree::filter_paths` now applies on every load path.** The custom path-filter
+  predicate is applied not only to the initial synchronous build and direct `read_children`,
+  but also to the **async lazy subdirectory load** (`AsyncTaskResult::DirectoryEntries` delivered
+  for an expanded subdir). Previously a `DEFERRED` gap meant the filter was bypassed when a subdir
+  was expanded, so excluded entries (e.g. dotfiles) leaked into lazily-loaded subtrees. This matches
+  Python `DirectoryTree.filter_paths`, whose filter runs inside the single `_load_directory` worker
+  used for all loads (initial, lazy expand, reload).
+- **Example rewired:** `docs/examples/widgets/directory_tree_filtered` no longer documents a known
+  gap; expanding a nested directory keeps dotfiles hidden, matching the top-level behavior of
+  Python's `FilteredDirectoryTree`.
+- **Verification test:** new `directory_tree_filter_applies_on_async_lazy_subdir_load` expands a
+  subdirectory (spawning an async `ReadDirectory`), delivers an async result containing both a kept
+  file and a dotfile, and asserts the dotfile never reaches the rendered tree while the kept file does.
 
 ### 2026-06-23 (feat(reactive): field-to-field `data_bind` reactive binding)
 
