@@ -7,6 +7,31 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-24 (fix(text): intrinsic height matches Python Content.get_height exactly)
+
+- **Text/Label/Static intrinsic height now reproduces Python `Content.get_height`
+  exactly** for plain text, internal/trailing blank lines, and word-wrapped
+  paragraphs. `intrinsic_wrapped_height` (the shared `Label`/`Static` line counter)
+  now routes through `Content::wrap_and_format` — the line-for-line port of Python's
+  `_wrap_and_format` — instead of rendering the whole body through Rich and counting
+  segment lines (which mishandled the keepends / trailing-empty-line case and
+  produced a +N over-count). It now matches Python for: `split(allow_blank=True)`
+  semantics (internal blanks kept, a trailing `\n` yields a final blank line:
+  `hello\n` → 2, `a\n\nb` → 3), and WORD-BOUNDARY wrapping via `divide_line` (not a
+  naive `cell_len.div_ceil(width)` char-count). Verified cell-exact against Python
+  `content.py` for the scrollbar-demo body `TEXT * 10` (e.g. width 75 → 71 rows,
+  40 → 111, 10 → 401). New unit tests pin these counts.
+- **`Content::wrap_and_format` no_wrap + overflow:fold now char-folds at `width`**
+  (Python `cuts = range(0, line.cell_length, width)`), a flush cell-width chop,
+  instead of word-wrapping via `divide_line` — fixing the `text-wrap: nowrap` fold
+  line count to match Python.
+- **`docs/examples/styles/scrollbars` example:** the `.right` class is now applied
+  to the `ScrollableContainer` itself (matching Python `classes="right"`), not a
+  `Node` wrapper, so the `scrollbar-background`/`scrollbar-color`/
+  `scrollbar-corner-color` tokens reach the bar. (The remaining scrollbar-demo
+  divergence is horizontal `width: 150%` percentage sizing + horizontal-overflow
+  clipping — a separate layout root, not text height.)
+
 ### 2026-06-24 (fix(scrollbar): track foreground composites over host base surface)
 
 - **Scrollbar track foreground now composites over the host's base background, not

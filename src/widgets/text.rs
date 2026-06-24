@@ -475,27 +475,40 @@ pub(crate) fn rendered_plain_height(text: &str, width: usize) -> usize {
 /// Word-wrap-aware intrinsic line count for a `Static`/`Label`-style plain text
 /// body, shared so widgets don't re-implement (and under-count) wrapping.
 ///
-/// When `wrap` is enabled and `width > 0`, this routes through the real Rich
-/// word-wrap line counter (`rendered_plain_height`) instead of a naive
-/// `cell_len.div_ceil(width)` char-count — a paragraph wider than `width` breaks
-/// at WORD boundaries, producing MORE lines than the char-count estimate, so the
-/// char-count under-counts and the wrapped tail gets clipped (padding02).
+/// This is the EXACT analog of Python `Content.get_height(rules, width)`
+/// (content.py ~595): it splits the text on newlines with
+/// `split(allow_blank=True)` (so internal blanks are kept and a trailing `\n`
+/// yields a final blank line), then word-wraps each logical line via
+/// `divide_line` and sums the resulting line count. We reuse
+/// [`Content::wrap_and_format`], which is the line-for-line port of Python's
+/// `_wrap_and_format`, so the count matches Python for:
+/// - plain single-line and multi-line text,
+/// - internal blank lines (`a\n\nb` -> 3) and trailing newlines (`hello\n` -> 2),
+/// - WORD-WRAPPED paragraphs at a width (word-boundary breaks, NOT a naive
+///   `cell_len.div_ceil(width)` char-count, which under-counts and clips the
+///   wrapped tail).
 ///
-/// A trailing `\n` is counted as one extra blank row to match Python Rich, which
-/// `rendered_plain_height` (via `count_rendered_lines`) would otherwise pop.
+/// `wrap == false` maps to Python's `no_wrap=True` (text-wrap: nowrap): each
+/// logical line is char-folded at `width` (overflow "fold") rather than
+/// word-wrapped. When `width == 0` (unknown layout width) we fall back to the
+/// hard-line-break count, since no wrapping can be computed yet.
 pub(crate) fn intrinsic_wrapped_height(text: &str, width: usize, wrap: bool) -> usize {
-    let mut lines = if wrap && width > 0 {
-        rendered_plain_height(text, width)
-    } else {
-        // No wrap (or unknown width): count hard line breaks only.
-        text.lines().count().max(1)
-    };
-    // `str::lines()` / `count_rendered_lines` both drop a trailing newline's
-    // blank row; Python Rich keeps it.
-    if text.ends_with('\n') {
-        lines += 1;
+    if width == 0 {
+        // Unknown layout width: only hard line breaks are known. Mirror Python's
+        // `split(allow_blank=True)` count (newline count + 1), keeping a trailing
+        // blank line that `str::lines()` would otherwise drop.
+        let mut lines = text.lines().count().max(1);
+        if text.ends_with('\n') {
+            lines += 1;
+        }
+        return lines.max(1);
     }
-    lines.max(1)
+
+    // Exact Python `Content.get_height`: number of formatted (wrapped) lines.
+    crate::content::Content::from_text(text)
+        .wrap_and_format(width, "fold", !wrap, 0)
+        .len()
+        .max(1)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2521,6 +2534,53 @@ mod tests {
     use super::{Label, Markdown, MarkdownTableCell, MarkdownTableContentBlock};
     use crate::widgets::Widget;
     use rich_rs::Console;
+
+    /// The scrollbar-demo body: 7 lines + a trailing newline.
+    const SCROLLBAR_TEXT: &str = "I must not fear.\nFear is the mind-killer.\nFear is the little-death that brings total obliteration.\nI will face my fear.\nI will permit it to pass over me and through me.\nAnd when it has gone past, I will turn the inner eye to see its path.\nWhere the fear has gone there will be nothing. Only I will remain.\n";
+
+    /// `intrinsic_wrapped_height` must reproduce Python `Content.get_height`
+    /// EXACTLY. The expected values below were computed by running Python
+    /// Textual's `Content(text).get_height({}, width)` directly
+    /// (textual/src/textual/content.py).
+    #[test]
+    fn intrinsic_wrapped_height_matches_python_content_get_height() {
+        use super::intrinsic_wrapped_height as h;
+
+        // --- Word-wrapped scrollbar demo body (TEXT * 10). ---
+        // Drives the scrollbar virtual_size / thumb geometry.
+        let text = SCROLLBAR_TEXT.repeat(10);
+        assert_eq!(h(&text, 75, true), 71, "no-wrap width: 70 content + 1 trailing blank");
+        assert_eq!(h(&text, 40, true), 111);
+        assert_eq!(h(&text, 30, true), 131);
+        assert_eq!(h(&text, 25, true), 151);
+        assert_eq!(h(&text, 20, true), 191);
+        assert_eq!(h(&text, 15, true), 251);
+        assert_eq!(h(&text, 10, true), 401);
+
+        // --- Single copy of the demo body. ---
+        assert_eq!(h(SCROLLBAR_TEXT, 75, true), 8, "7 lines + trailing blank");
+        assert_eq!(h(SCROLLBAR_TEXT, 40, true), 12, "two long lines wrap");
+
+        // --- Trailing / internal blank-line semantics (split allow_blank=True). ---
+        assert_eq!(h("hello", 40, true), 1, "no newline -> single line");
+        assert_eq!(h("hello\n", 40, true), 2, "trailing newline keeps a blank line");
+        assert_eq!(h("a\n\nb", 40, true), 3, "internal blank line preserved");
+        assert_eq!(h("a\n\n\n", 40, true), 4, "multiple trailing blanks preserved");
+
+        // --- no_wrap (text-wrap: nowrap) char-fold height. ---
+        assert_eq!(h(SCROLLBAR_TEXT, 75, false), 8, "no_wrap, nothing exceeds width");
+        assert_eq!(h(SCROLLBAR_TEXT, 20, false), 19, "no_wrap char-folds wide lines");
+    }
+
+    #[test]
+    fn intrinsic_wrapped_height_unknown_width_counts_hard_breaks() {
+        use super::intrinsic_wrapped_height as h;
+        // width == 0 means layout width is not yet known: only hard line breaks
+        // are countable, but a trailing newline still adds its blank line.
+        assert_eq!(h(SCROLLBAR_TEXT, 0, true), 8);
+        assert_eq!(h("a\nb\nc", 0, true), 3);
+        assert_eq!(h("a\nb\n", 0, true), 3);
+    }
 
     #[test]
     fn markdown_layout_height_tracks_composed_block_geometry() {
