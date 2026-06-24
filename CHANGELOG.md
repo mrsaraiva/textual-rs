@@ -7,6 +7,33 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-24 (fix(layout): >100% percentage width + horizontal-overflow clipping)
+
+- **An explicit oversized width (e.g. `width: 150%`) on a child of a
+  horizontally-scrollable parent now keeps its RESOLVED width instead of being
+  clamped to the viewport and wrapped.** `layout_vertical` previously applied
+  `base_w.min(explicit_w)` to every explicit width, squeezing a `width: 150%`
+  Label to the container width so its text re-wrapped. It now keeps the full
+  resolved width (1.5x the container content region) whenever the parent allows
+  horizontal overflow, matching Python `_resolve.resolve_box_models` (which calls
+  `_get_box_model` WITHOUT `constrain_width` for vertical/horizontal layouts — only
+  the grid layout constrains). The compositor clips the overflow to the viewport
+  and the horizontal scrollbar scrolls it. Clears `scrollbars` (Label
+  `width: 150%; height: 150%`) and `scrollbar_size` (`width: 200`) to cell-and-RGB
+  exact vs Python.
+- **Scroll hosts now keep child width un-wrapped on a `hidden`-overflow axis too.**
+  A `VerticalScroll` (overflow-x: HIDDEN, overflow-y: auto) is a scroll host that
+  clips its content region; Python re-wraps content only for `overflow: visible`,
+  never for a clipping container. `allow_h_overflow`/`allow_v_overflow` now also
+  fire for `overflow: hidden` when the laid-out node is a scroll host (reports
+  `clips_descendants_to_content`), so a `VerticalScroll`'s auto-width Label stays
+  at its intrinsic width and is clipped horizontally rather than wrapped. Scoped to
+  scroll hosts — a plain `Container` (overflow: hidden, not a scroll host) keeps
+  its historical wrap-to-fit. (The remaining scrollbar-demo divergences —
+  `overflow`, `scrollbar_visibility`, `scrollbar_size2`, `scrollbar_corner_color` —
+  are now isolated to scrollbar thumb/lane rendering + hidden-axis scrollbar
+  suppression, NOT content geometry.)
+
 ### 2026-06-24 (fix(text): intrinsic height matches Python Content.get_height exactly)
 
 - **Text/Label/Static intrinsic height now reproduces Python `Content.get_height`
