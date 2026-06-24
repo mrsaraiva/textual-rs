@@ -4,11 +4,15 @@ use crate::message::{
 };
 use crate::node_id::NodeId;
 use std::collections::HashMap;
+use std::collections::VecDeque;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
+use std::sync::OnceLock;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
+use std::thread::ThreadId;
 
 #[derive(Debug)]
 struct RunningTask {
@@ -167,6 +171,190 @@ impl AsyncTaskRuntime {
     }
 }
 
+// ── call_from_thread: synchronous UI-thread dispatch ─────────────────────
+//
+// Mirrors Python Textual `App.call_from_thread`. A worker thread posts a
+// callable onto a global queue; the UI thread (event loop) drains the queue
+// once per tick, runs each callable with `&mut App`, and signals completion.
+// The worker blocks until its callable has run and its return value is
+// available.
+//
+// Why a global queue (not the `AsyncTaskRuntime`/`WorkerRegistry` mpsc
+// channels): those channels ferry *data* (results) back to the UI thread to
+// be applied later. `call_from_thread` instead ferries *behavior* — an
+// arbitrary closure that must execute *in the app context* (`&mut App`) and
+// return a value synchronously to the caller. Worker jobs run on detached
+// `std::thread` threads, so this queue must be process-global and `Send`.
+
+/// A type-erased unit of UI-thread work posted by a worker thread.
+///
+/// The closure is boxed `FnOnce(&mut crate::runtime::App)`; the original
+/// caller's return value is captured inside the closure and shipped back to
+/// the worker over a oneshot channel before the closure returns.
+type CallFromThreadJob = Box<dyn FnOnce(&mut crate::runtime::App) + Send + 'static>;
+
+/// Process-global bridge for `App::call_from_thread`.
+///
+/// Holds the pending UI-thread jobs and the id of the thread currently running
+/// the event loop (used to reject same-thread calls, matching Python's
+/// `RuntimeError` when `call_from_thread` is invoked on the app thread).
+struct CallFromThreadBridge {
+    queue: Mutex<VecDeque<CallFromThreadJob>>,
+    /// Thread id of the active event loop, or `0` when no app is running.
+    ///
+    /// Stored as the raw `ThreadId` hash so it can live in an atomic; we keep
+    /// the real `ThreadId` alongside in the mutex for exact comparison.
+    ui_thread: Mutex<Option<ThreadId>>,
+    /// `true` while an event loop is running and able to drain the queue.
+    running: AtomicBool,
+    /// Generation counter bumped each time the UI thread (re)registers, so a
+    /// blocked worker can detect app shutdown if needed.
+    generation: AtomicU64,
+}
+
+impl CallFromThreadBridge {
+    fn new() -> Self {
+        Self {
+            queue: Mutex::new(VecDeque::new()),
+            ui_thread: Mutex::new(None),
+            running: AtomicBool::new(false),
+            generation: AtomicU64::new(0),
+        }
+    }
+}
+
+fn call_from_thread_bridge() -> &'static CallFromThreadBridge {
+    static BRIDGE: OnceLock<CallFromThreadBridge> = OnceLock::new();
+    BRIDGE.get_or_init(CallFromThreadBridge::new)
+}
+
+/// Register the calling thread as the UI/event-loop thread.
+///
+/// Called by the event loop at startup. Enables `call_from_thread` and lets it
+/// detect (and reject) calls made from the UI thread itself.
+pub(crate) fn register_ui_thread() {
+    let bridge = call_from_thread_bridge();
+    *bridge
+        .ui_thread
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()) = Some(std::thread::current().id());
+    bridge.generation.fetch_add(1, Ordering::SeqCst);
+    bridge.running.store(true, Ordering::SeqCst);
+}
+
+/// Unregister the UI thread when the event loop exits.
+///
+/// Pending jobs are drained-and-dropped here; the corresponding workers'
+/// oneshot receivers see a disconnected channel and their `call_from_thread`
+/// calls return the configured shutdown result.
+pub(crate) fn unregister_ui_thread() {
+    let bridge = call_from_thread_bridge();
+    bridge.running.store(false, Ordering::SeqCst);
+    *bridge
+        .ui_thread
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()) = None;
+    // Drop any pending jobs so blocked workers unblock (their result senders
+    // are dropped inside the job closures we discard here).
+    bridge
+        .queue
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clear();
+}
+
+/// `true` when the calling thread is the active UI/event-loop thread.
+pub(crate) fn is_ui_thread() -> bool {
+    let bridge = call_from_thread_bridge();
+    matches!(
+        *bridge.ui_thread.lock().unwrap_or_else(|e| e.into_inner()),
+        Some(id) if id == std::thread::current().id()
+    )
+}
+
+/// Whether an event loop is currently registered to drain the queue.
+pub(crate) fn ui_thread_running() -> bool {
+    call_from_thread_bridge().running.load(Ordering::SeqCst)
+}
+
+/// Errors that prevent a [`crate::runtime::App::call_from_thread`] from being
+/// dispatched.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CallFromThreadError {
+    /// No event loop is running to service the callable.
+    NotRunning,
+    /// Called from the UI thread itself (would deadlock).
+    SameThread,
+    /// The app shut down before the callable could run.
+    Disconnected,
+}
+
+impl std::fmt::Display for CallFromThreadError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NotRunning => write!(f, "App is not running"),
+            Self::SameThread => write!(
+                f,
+                "call_from_thread must run in a different thread from the app"
+            ),
+            Self::Disconnected => write!(f, "App shut down before the callable could run"),
+        }
+    }
+}
+
+impl std::error::Error for CallFromThreadError {}
+
+/// Post `job` to the UI thread and block until it has executed there.
+///
+/// The closure runs with `&mut App` on the event-loop thread and its return
+/// value is shipped back to this (worker) thread. Mirrors Python
+/// `App.call_from_thread(callback, *args)` which posts a coroutine onto the
+/// app loop and blocks on the resulting `Future`.
+///
+/// Returns `Err` (without blocking) if no app is running or if called on the
+/// UI thread, and `Err(Disconnected)` if the app shuts down before the job
+/// runs.
+pub(crate) fn call_from_thread<F, R>(job: F) -> Result<R, CallFromThreadError>
+where
+    F: FnOnce(&mut crate::runtime::App) -> R + Send + 'static,
+    R: Send + 'static,
+{
+    let bridge = call_from_thread_bridge();
+    if !ui_thread_running() {
+        return Err(CallFromThreadError::NotRunning);
+    }
+    if is_ui_thread() {
+        return Err(CallFromThreadError::SameThread);
+    }
+
+    let (result_tx, result_rx) = mpsc::channel::<R>();
+    let boxed: CallFromThreadJob = Box::new(move |app: &mut crate::runtime::App| {
+        let value = job(app);
+        // Worker may already be gone (timed out / detached); ignore send error.
+        let _ = result_tx.send(value);
+    });
+
+    bridge
+        .queue
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .push_back(boxed);
+
+    // Block until the UI thread runs the job and sends the result, or until the
+    // app shuts down and drops the job (closing the channel).
+    result_rx.recv().map_err(|_| CallFromThreadError::Disconnected)
+}
+
+/// Drain and return all pending `call_from_thread` jobs.
+///
+/// Invoked by the event loop once per tick. Each returned job must be run with
+/// `&mut App` to unblock its worker.
+pub(crate) fn drain_call_from_thread_jobs() -> Vec<CallFromThreadJob> {
+    let bridge = call_from_thread_bridge();
+    let mut queue = bridge.queue.lock().unwrap_or_else(|e| e.into_inner());
+    queue.drain(..).collect()
+}
+
 fn execute_request(request: AsyncTaskRequest) -> AsyncTaskResult {
     match request {
         AsyncTaskRequest::ReadDirectory { path, show_hidden } => {
@@ -291,6 +479,121 @@ mod tests {
             assert_eq!(m.task_id, 7);
             assert_eq!(m.target, target_id);
         }
+    }
+
+    // ── call_from_thread bridge ───────────────────────────────────────
+
+    use super::{
+        CallFromThreadError, call_from_thread, drain_call_from_thread_jobs, is_ui_thread,
+        register_ui_thread, ui_thread_running, unregister_ui_thread,
+    };
+    use std::sync::Mutex as StdMutex;
+    use std::sync::mpsc;
+
+    /// Serialize bridge tests: the bridge is process-global, so concurrent
+    /// register/unregister from parallel tests would interfere.
+    static BRIDGE_TEST_LOCK: StdMutex<()> = StdMutex::new(());
+
+    #[test]
+    fn call_from_thread_not_running_returns_error_without_blocking() {
+        let _guard = BRIDGE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        // Ensure no app registered.
+        unregister_ui_thread();
+        assert!(!ui_thread_running());
+        let result = call_from_thread(|_app| 7_u32);
+        assert_eq!(result, Err(CallFromThreadError::NotRunning));
+    }
+
+    #[test]
+    fn call_from_thread_same_thread_is_rejected() {
+        let _guard = BRIDGE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        register_ui_thread();
+        assert!(is_ui_thread());
+        // Calling on the UI thread itself must not deadlock; it errors instead.
+        let result = call_from_thread(|_app| 1_u32);
+        assert_eq!(result, Err(CallFromThreadError::SameThread));
+        unregister_ui_thread();
+    }
+
+    #[test]
+    fn call_from_thread_round_trips_value_and_runs_with_app() {
+        let _guard = BRIDGE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+
+        // This thread plays the role of the UI/event-loop thread, holding the
+        // single `&mut App`.
+        let mut app = crate::runtime::App::new().expect("app should initialize");
+        register_ui_thread();
+        assert!(ui_thread_running());
+
+        // A worker thread posts a callable via `call_from_thread` and blocks for
+        // its result. The callable receives `&mut App` and returns a value.
+        let (enqueued_tx, enqueued_rx) = mpsc::channel::<()>();
+        let worker = std::thread::spawn(move || {
+            // Signal that we're about to enqueue, then make the blocking call.
+            // (The signal is best-effort; the real synchronization is the
+            // blocking `recv` inside `call_from_thread`.)
+            let _ = enqueued_tx.send(());
+            // The closure proves it runs *on the UI thread* by asserting
+            // `is_ui_thread()` from inside, and exercises real `&mut App` access.
+            call_from_thread(|app| {
+                assert!(
+                    is_ui_thread(),
+                    "callable must run on the UI/event-loop thread"
+                );
+                // Touch the app to prove `&mut App` access is real.
+                let _ = app.theme_name().to_string();
+                40 + 2_i64
+            })
+        });
+
+        // Wait for the worker to start, then drain+run jobs on this UI thread
+        // until the worker's blocking call has been serviced.
+        enqueued_rx.recv().expect("worker started");
+        let worker_value = {
+            let mut value = None;
+            for _ in 0..2000 {
+                for job in drain_call_from_thread_jobs() {
+                    job(&mut app);
+                }
+                if worker.is_finished() {
+                    value = Some(worker.join().expect("worker joined"));
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            value.expect("worker completed within timeout")
+        };
+
+        assert_eq!(worker_value, Ok(42));
+        unregister_ui_thread();
+    }
+
+    #[test]
+    fn unregister_drops_pending_jobs_and_unblocks_worker() {
+        let _guard = BRIDGE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        register_ui_thread();
+
+        // Worker posts a job but the UI thread never drains it — instead the app
+        // "shuts down" (unregister). The worker must unblock with Disconnected.
+        let worker = std::thread::spawn(move || call_from_thread(|_app| 99_u8));
+
+        // Give the worker a moment to enqueue, then shut down without draining.
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        unregister_ui_thread();
+
+        let result = worker.join().expect("worker joined");
+        // The worker must not block past shutdown. Depending on the exact
+        // interleaving it either enqueued before shutdown (job dropped →
+        // Disconnected) or observed `running == false` first (NotRunning).
+        // Both are non-blocking terminal outcomes; the invariant under test is
+        // "shutdown never leaves a worker blocked forever".
+        assert!(
+            matches!(
+                result,
+                Err(CallFromThreadError::Disconnected) | Err(CallFromThreadError::NotRunning)
+            ),
+            "worker must unblock on shutdown, got {result:?}"
+        );
     }
 
     #[test]

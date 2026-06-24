@@ -56,6 +56,24 @@ fn drain_accumulated_worker_requests() -> Vec<WorkerRequest> {
     WORKER_REQUEST_ACC.with(|cell| std::mem::take(&mut *cell.borrow_mut()))
 }
 
+/// RAII guard that registers the current thread as the UI thread for
+/// `App::call_from_thread` and unregisters it (draining pending jobs) on drop,
+/// covering every event-loop exit path.
+struct CallFromThreadGuard;
+
+impl CallFromThreadGuard {
+    fn register() -> Self {
+        crate::runtime::tasks::register_ui_thread();
+        Self
+    }
+}
+
+impl Drop for CallFromThreadGuard {
+    fn drop(&mut self) {
+        crate::runtime::tasks::unregister_ui_thread();
+    }
+}
+
 /// Push worker requests from an outcome into the thread-local accumulator.
 fn accumulate_worker_requests(outcome: &mut DispatchOutcome) {
     let requests = std::mem::take(&mut outcome.worker_requests);
@@ -2146,6 +2164,13 @@ impl App {
         }
 
         self.start()?;
+
+        // Register this thread as the UI/event-loop thread so worker threads can
+        // post callables via `App::call_from_thread`. The guard unregisters on
+        // every exit path (early return, break, or `?`), draining any pending
+        // jobs so blocked workers unblock.
+        let _call_from_thread_guard = CallFromThreadGuard::register();
+
         root.on_mount();
 
         // Build the arena-based widget tree by extracting children from root.
@@ -3916,6 +3941,18 @@ impl App {
             );
             if animation_outcome.stop_requested {
                 break 'event_loop;
+            }
+
+            // ── Run pending call_from_thread jobs for this tick ──────
+            //
+            // Worker threads posted these via `App::call_from_thread` and are
+            // blocked waiting for them to run. Execute each with `&mut App`
+            // (the closure ships its return value back to the worker). Run
+            // before worker-request processing so a callable that mutates the
+            // tree is reflected in the same tick's invalidation handling.
+            for job in crate::runtime::tasks::drain_call_from_thread_jobs() {
+                job(self);
+                pending_invalidation.request_full_content();
             }
 
             // ── Process accumulated worker requests for this tick ────

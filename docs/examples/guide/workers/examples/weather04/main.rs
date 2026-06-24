@@ -5,14 +5,16 @@
 /// in Python it calls `self.log(event)`; here we emit an eprintln to stderr
 /// (the Rust framework does not yet expose a `log()` / console sink API).
 ///
-/// The rest of the app is identical to weather03:
-/// - Input widget + VerticalScroll/Static layout.
-/// - Exclusive background worker (`@work(exclusive=True)`) that fetches weather.
-/// - Cancel-previous semantics when the user types faster than results arrive.
+/// Python weather04 uses `@work(exclusive=True)` (async, runs on the event
+/// loop), so it updates `weather_widget.update(...)` directly. textual-rs runs
+/// `request_exclusive_worker_task` on a real OS thread, so to update the widget
+/// safely we post the update back onto the UI/event-loop thread with
+/// `App::call_from_thread` — the same primitive Python's threaded weather05 uses
+/// explicitly. This keeps the worker off the app's single-threaded widget state
+/// while preserving weather04's "worker updates the widget" structure.
 ///
 /// When the `http-examples` feature is enabled, fetches real weather from wttr.in.
 /// Without the feature, simulates the fetch with a short delay.
-use std::sync::{Arc, Mutex};
 use textual::prelude::*;
 
 const CSS: &str = r#"
@@ -33,35 +35,42 @@ Static {
 }
 "#;
 
-struct WeatherApp {
-    /// Shared result buffer between the app and the background worker thread.
-    weather_result: Arc<Mutex<Option<String>>>,
-}
+struct WeatherApp;
 
 impl WeatherApp {
     fn new() -> Self {
-        Self {
-            weather_result: Arc::new(Mutex::new(None)),
-        }
+        Self
     }
 
     /// Mirrors Python's `@work(exclusive=True) async def update_weather(city)`.
     ///
     /// Spawns an exclusive background worker.  Any previously running worker
-    /// with the same key is cancelled first (cancel-previous semantics).
-    fn spawn_weather_worker(
-        city: String,
-        result_holder: Arc<Mutex<Option<String>>>,
-        ctx: &mut EventCtx,
-    ) {
+    /// with the same key is cancelled first (cancel-previous semantics). The
+    /// fetched result is applied to the `Static` widget via `App::call_from_thread`,
+    /// posting the update onto the UI thread (Rust runs the worker off-thread,
+    /// where direct widget access would be unsafe).
+    fn spawn_weather_worker(city: String, ctx: &mut EventCtx) {
         ctx.request_exclusive_worker_task("update_weather", Some("weather"), move |token| {
             if city.is_empty() {
-                *result_holder.lock().unwrap_or_else(|e| e.into_inner()) = None;
+                if !token.is_cancelled() {
+                    let _ =
+                        App::call_from_thread(|app| {
+                            let _ = app
+                                .with_query_one_mut_as::<Static, _>("Static", |w| w.clear());
+                        });
+                }
                 return Ok(());
             }
 
             let weather = fetch_weather(&city, &token)?;
-            *result_holder.lock().unwrap_or_else(|e| e.into_inner()) = Some(weather);
+            if !token.is_cancelled() {
+                App::call_from_thread(move |app| {
+                    let _ = app.with_query_one_mut_as::<Static, _>("Static", |w| {
+                        w.update(weather);
+                    });
+                })
+                .map_err(|e| e.to_string())?;
+            }
             Ok(())
         });
     }
@@ -85,36 +94,15 @@ impl TextualApp for WeatherApp {
         _validation: &ValidationResult,
         ctx: &mut EventCtx,
     ) {
-        let city = value.trim().to_string();
-        Self::spawn_weather_worker(city, Arc::clone(&self.weather_result), ctx);
+        Self::spawn_weather_worker(value.trim().to_string(), ctx);
         ctx.request_repaint();
     }
 
-    fn on_message_with_app(
-        &mut self,
-        app: &mut App,
-        message: &MessageEvent,
-        ctx: &mut EventCtx,
-    ) {
+    fn on_message_with_app(&mut self, _app: &mut App, message: &MessageEvent, _ctx: &mut EventCtx) {
         if let Some(w) = message.downcast_ref::<WorkerStateChanged>() {
             // Mirror Python's `on_worker_state_changed`: log the event.
             // Python calls `self.log(event)`; Rust logs to stderr (no console sink yet).
             eprintln!("[worker] id={} state={:?}", w.worker_id, w.state);
-
-            if matches!(w.state, WorkerState::Success) {
-                let weather = {
-                    let mut guard =
-                        self.weather_result.lock().unwrap_or_else(|e| e.into_inner());
-                    guard.take()
-                };
-                let _ = app.with_query_one_mut_as::<Static, _>("Static", |widget| {
-                    match weather {
-                        Some(text) => widget.update(text),
-                        None => widget.clear(),
-                    }
-                });
-                ctx.request_repaint();
-            }
         }
     }
 }
@@ -162,13 +150,6 @@ mod tests {
     }
 
     #[test]
-    fn initial_weather_result_is_none() {
-        let app = WeatherApp::new();
-        let guard = app.weather_result.lock().unwrap();
-        assert!(guard.is_none());
-    }
-
-    #[test]
     fn exclusive_key_matches_python_method_name() {
         // The exclusive key mirrors the Python method name `update_weather`.
         let key = "update_weather";
@@ -176,16 +157,16 @@ mod tests {
     }
 
     #[test]
-    fn worker_result_is_city_specific() {
-        let result: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
-        let holder = Arc::clone(&result);
-        let city = "Paris".to_string();
-        let weather = format!(
-            "Weather for {city}:\n\n  Sunny  72°F (22°C)\n  Wind: 8 mph NW\n  Humidity: 45%"
-        );
-        *holder.lock().unwrap() = Some(weather);
+    fn fetch_weather_is_city_specific() {
+        let token = CancellationToken::new();
+        let weather = fetch_weather("Paris", &token).expect("fetch ok");
+        assert!(weather.contains("Paris"));
+    }
 
-        let guard = result.lock().unwrap();
-        assert!(guard.as_ref().unwrap().contains("Paris"));
+    #[test]
+    fn call_from_thread_without_running_app_reports_not_running() {
+        // Confirms the worker closure does not block when no app is running.
+        let result = App::call_from_thread(|_app| ());
+        assert_eq!(result, Err(CallFromThreadError::NotRunning));
     }
 }
