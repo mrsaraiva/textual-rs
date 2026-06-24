@@ -39,12 +39,10 @@ impl TextualApp for OnDecoratorApp {
             .with_child(Button::new("Quit").id("quit"))
     }
 
-    fn on_message_with_app(
-        &mut self,
-        app: &mut App,
-        message: &MessageEvent,
-        ctx: &mut EventCtx,
-    ) {
+    /// Single handler that branches on `button.id` — the non-`@on` form, exactly
+    /// like Python's `on_button_pressed`. (The selector-routed `@on` variant is
+    /// `on_decorator02`.)
+    fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
         if let Some(bp) = message.downcast_ref::<ButtonPressed>() {
             match bp.button_id.as_deref() {
                 Some("bell") => {
@@ -52,7 +50,8 @@ impl TextualApp for OnDecoratorApp {
                     ctx.set_handled();
                 }
                 Some("toggle-dark") => {
-                    app.action_toggle_dark();
+                    // self.theme = ... — route through the action subsystem.
+                    ctx.run_action("app.toggle_dark");
                     ctx.request_repaint();
                     ctx.set_handled();
                 }
@@ -78,5 +77,32 @@ mod tests {
     fn on_decorator_app_composes_without_panic() {
         let mut app = OnDecoratorApp;
         let _root = app.compose();
+    }
+
+    fn press(id: &str) -> MessageEvent {
+        MessageEvent::new(
+            textual::node_id::node_id_from_ffi(1),
+            ButtonPressed {
+                description: id.into(),
+                button_id: Some(id.into()),
+            },
+        )
+    }
+
+    #[test]
+    fn quit_button_requests_stop() {
+        let mut app = OnDecoratorApp;
+        let mut ctx = EventCtx::default();
+        app.on_message(&press("quit"), &mut ctx);
+        assert!(ctx.stop_requested());
+    }
+
+    #[test]
+    fn bell_button_handled_without_stop() {
+        let mut app = OnDecoratorApp;
+        let mut ctx = EventCtx::default();
+        app.on_message(&press("bell"), &mut ctx);
+        assert!(ctx.handled());
+        assert!(!ctx.stop_requested());
     }
 }

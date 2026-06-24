@@ -23,6 +23,7 @@ pub mod node_id;
 pub mod reactive;
 pub mod render;
 pub mod renderables;
+pub mod routing;
 pub mod runtime;
 pub mod screen;
 pub mod signal;
@@ -71,6 +72,7 @@ pub mod prelude {
     pub use crate::message::*;
     pub use crate::message_handlers::{MessageContext, MessageHandlers};
     pub use crate::node_id::{NodeId, node_id_from_ffi, node_id_to_ffi};
+    pub use crate::routing::{ControlMeta, MessageRouter, Selector, SelectorParseError};
     pub use crate::runtime::{
         App, DispatchOutcome, DomQuery, DomQueryMut, TimerHandle, build_widget_tree_from_root,
         dispatch_event_to_target_tree, dispatch_event_tree, dispatch_message_queue_tree,

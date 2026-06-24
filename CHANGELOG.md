@@ -7,6 +7,34 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-23 (feat(routing): declarative `@on` routing + `prevent` context)
+
+- **Declarative message routing (`@on(Message, selector)`).** New `routing` module with
+  `MessageRouter<S>` — the Rust analogue of Python Textual's `@on` decorator (`textual/_on.py`).
+  Register handlers with `router.on::<M>(selector, handler)` / `on_any::<M>(handler)`, then
+  `router.dispatch(state, event, ctx)` runs every handler whose message type matches *and* whose
+  CSS selector matches the message's control (mirroring Python's `_get_dispatch_methods`). Selectors
+  support `#id`, `.class`, `Type`, compound terms (`Button#save.primary`, `.toggle.dark`) and
+  comma-separated groups (`#quit, #cancel`), parsed by the new `Selector` type. A selector-less
+  (`""` / `Selector::any()`) route matches every control. Control identity is supplied by the new
+  `Message::control_meta()` trait method + `ControlMeta` struct; `ButtonPressed` implements it
+  (`#id` + `Button` type), so `@on(Button.Pressed, "#quit")` routing works end-to-end.
+- **`prevent(MessageType)` context.** `EventCtx::prevent::<M>(|ctx| { ... })` (and
+  `prevent_types(&[TypeId], ...)`) temporarily suppress a message type from being posted for the
+  duration of the closure, mirroring Python's `with self.prevent(M):` (`message_pump.py`
+  `_prevent_message_types_stack` + `post_message`'s `_is_prevented` check). Scopes nest (the active
+  prevented set is the union of the stack). `is_prevented::<M>()`, `pending_message_count()`, and
+  `has_pending_message::<M>()` were added for querying/testing.
+- **Demo ports rewired to real features:** `events/on_decorator02` now routes via `MessageRouter`
+  (`@on(Button.Pressed, "#bell"/"#toggle-dark"/"#quit")`); `events/on_decorator01` keeps the
+  single-handler form and routes the theme toggle through `run_action("app.toggle_dark")`;
+  `events/prevent` clears its `Input` inside `ctx.prevent::<InputChanged>()` so the bell-on-change
+  handler never fires for a programmatic clear (replacing the structural-only note).
+- **Deferred:** `guide/compound/byte03`'s `prevent(BitSwitch.BitChanged)` still uses a bool flag —
+  its feedback loop is suppressed across a *later* reactive-update cycle (`Handle::update`'s watcher
+  emits through a different `EventCtx`), which an app-side `prevent` scope cannot span until `prevent`
+  is threaded through `ReactiveCtx`/the reactive-update pipeline (`DEFERRED(byte03-prevent)`).
+
 ### 2026-06-23 (feat(reactive): field-to-field `data_bind` reactive binding)
 
 - **Field-to-field data binding (keystone).** `App::data_bind_reactive::<W, T>(source, source_field,

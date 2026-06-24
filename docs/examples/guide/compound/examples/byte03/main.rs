@@ -14,8 +14,15 @@
 ///
 /// Framework gaps:
 /// - Python uses `with switch.prevent(BitSwitch.BitChanged)` when updating switches
-///   from the Input watcher to avoid feedback loops. In Rust, a bool flag
-///   (`suppress_bit_changed`) on the app achieves the same suppression.
+///   from the Input watcher to avoid feedback loops. Rust now has a real
+///   `EventCtx::prevent::<M>()` context (see `events/prevent`), but it suppresses
+///   posts within a *single* dispatch's `EventCtx`. Here the switch is updated via
+///   `Handle::update`, whose reactive watcher emits `BitChanged` in a *later*
+///   runtime cycle through a different `EventCtx`, so an app-side `prevent` scope
+///   cannot span it. Faithfully porting this case needs prevent-awareness threaded
+///   through `ReactiveCtx`/the reactive-update pipeline; until then the
+///   `suppress_bit_changed` bool reproduces the same suppression.
+///   DEFERRED(byte03-prevent): wire `prevent` through `ReactiveCtx`/`Handle::update`.
 /// - Python `ByteEditor.validate_value` clamps 0..=255 via `clamp()`. In Rust we
 ///   clamp directly in the `InputChanged` handler.
 use textual::prelude::*;

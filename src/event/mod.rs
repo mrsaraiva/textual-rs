@@ -6,6 +6,7 @@ use crate::node_id::{NodeId, node_id_to_ffi};
 use crate::style::{Color, Scalar, Spacing, Tint};
 use crate::worker::{CancellationToken, WorkerRequest, WorkerRequestPayload};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use std::any::TypeId;
 use std::collections::HashMap;
 use std::time::Duration;
 
@@ -535,6 +536,12 @@ pub struct EventCtx {
     worker_requests: Vec<WorkerRequest>,
     recompose_nodes: Vec<NodeId>,
     class_ops: Vec<(NodeId, ClassOp)>,
+    /// Message types currently suppressed from posting, managed as a stack so
+    /// nested `prevent` scopes compose. Mirrors Python's
+    /// `MessagePump._prevent_message_types_stack` (`message_pump.py`): the active
+    /// prevented set is the union of every entry on the stack. When empty (the
+    /// common case) nothing is suppressed.
+    prevented_stack: Vec<Vec<TypeId>>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -665,12 +672,70 @@ impl EventCtx {
     }
 
     pub fn post_message_boxed(&mut self, message: Box<dyn Message>) {
+        // Honour active `prevent(...)` scopes, mirroring Python's
+        // `MessagePump.post_message` `_is_prevented` check: a prevented message
+        // type is silently dropped (never queued).
+        if self.is_type_prevented(message.as_any().type_id()) {
+            debug_message(&format!(
+                "[post_message] PREVENTED sender={} payload={message:?}",
+                node_id_to_ffi(self.node_id)
+            ));
+            return;
+        }
         debug_message(&format!(
             "[post_message] sender={} payload={message:?}",
             node_id_to_ffi(self.node_id)
         ));
         self.messages
             .push(MessageEvent::from_boxed(self.node_id, message).with_control(self.node_id));
+    }
+
+    /// Whether a concrete message type id is currently suppressed by an active
+    /// `prevent(...)` scope.
+    fn is_type_prevented(&self, type_id: TypeId) -> bool {
+        self.prevented_stack
+            .iter()
+            .any(|frame| frame.contains(&type_id))
+    }
+
+    /// Whether message type `M` is currently prevented from posting.
+    ///
+    /// Mirrors Python `MessagePump._is_prevented`.
+    pub fn is_prevented<M: Message>(&self) -> bool {
+        self.is_type_prevented(TypeId::of::<M>())
+    }
+
+    /// Run `f` with message type `M` prevented from being posted, then restore
+    /// the previous prevention state.
+    ///
+    /// This is the Rust analogue of Python's `with self.prevent(M): ...`
+    /// context manager (`message_pump.py`). Any [`post_message`] for type `M`
+    /// inside `f` is silently dropped, exactly as Python suppresses the queued
+    /// message. Scopes nest: an inner scope adds to the prevented set and pops
+    /// on exit.
+    ///
+    /// ```ignore
+    /// ctx.prevent::<InputChanged, _>(|ctx| {
+    ///     // clear the input without emitting InputChanged
+    /// });
+    /// ```
+    ///
+    /// [`post_message`]: EventCtx::post_message
+    pub fn prevent<M: Message, R>(&mut self, f: impl FnOnce(&mut EventCtx) -> R) -> R {
+        self.prevent_types(&[TypeId::of::<M>()], f)
+    }
+
+    /// Like [`prevent`][EventCtx::prevent] but suppresses several message types
+    /// at once for the duration of `f`.
+    pub fn prevent_types<R>(
+        &mut self,
+        type_ids: &[TypeId],
+        f: impl FnOnce(&mut EventCtx) -> R,
+    ) -> R {
+        self.prevented_stack.push(type_ids.to_vec());
+        let result = f(self);
+        self.prevented_stack.pop();
+        result
     }
 
     pub fn spawn_async_task(&mut self, task_id: u64, target: NodeId, request: AsyncTaskRequest) {
@@ -934,6 +999,18 @@ impl EventCtx {
 
     pub(crate) fn take_messages(&mut self) -> Vec<MessageEvent> {
         std::mem::take(&mut self.messages)
+    }
+
+    /// Number of messages currently queued by this context (not yet drained by
+    /// the runtime). Useful for asserting that a `prevent(...)` scope suppressed
+    /// a post.
+    pub fn pending_message_count(&self) -> usize {
+        self.messages.len()
+    }
+
+    /// Whether a message of type `M` is currently queued in this context.
+    pub fn has_pending_message<M: Message>(&self) -> bool {
+        self.messages.iter().any(|m| m.is::<M>())
     }
 
     pub(crate) fn take_animation_requests(&mut self) -> Vec<AnimationRequest> {
@@ -1523,6 +1600,102 @@ mod tests {
         assert_eq!(reqs.len(), 2);
         assert_eq!(reqs[0].name.as_deref(), Some("a"));
         assert_eq!(reqs[1].name.as_deref(), Some("b"));
+    }
+
+    // ── prevent(MessageType) context ────────────────────────────────────
+
+    #[test]
+    fn prevent_suppresses_message_inside_scope() {
+        let mut ctx = EventCtx::default();
+        ctx.set_node_id(node_id_from_ffi(1));
+
+        ctx.prevent::<crate::message::InputChanged, _>(|ctx| {
+            // This InputChanged must NOT be queued.
+            ctx.post_message(crate::message::InputChanged {
+                value: "x".into(),
+                validation: crate::validation::ValidationResult::success(),
+            });
+            // A different message type is unaffected.
+            ctx.post_message(crate::message::ClearRequested);
+        });
+
+        let messages = ctx.take_messages();
+        assert_eq!(messages.len(), 1, "only the non-prevented message survives");
+        assert!(messages[0].is::<crate::message::ClearRequested>());
+    }
+
+    #[test]
+    fn prevent_restores_after_scope() {
+        let mut ctx = EventCtx::default();
+        ctx.set_node_id(node_id_from_ffi(1));
+
+        ctx.prevent::<crate::message::ClearRequested, _>(|_ctx| {});
+        assert!(!ctx.is_prevented::<crate::message::ClearRequested>());
+        // After the scope, posting works again.
+        ctx.post_message(crate::message::ClearRequested);
+        assert_eq!(ctx.take_messages().len(), 1);
+    }
+
+    #[test]
+    fn prevent_reports_active_type() {
+        let mut ctx = EventCtx::default();
+        ctx.set_node_id(node_id_from_ffi(1));
+        assert!(!ctx.is_prevented::<crate::message::ClearRequested>());
+        ctx.prevent::<crate::message::ClearRequested, _>(|ctx| {
+            assert!(ctx.is_prevented::<crate::message::ClearRequested>());
+            assert!(!ctx.is_prevented::<crate::message::HeaderIconPressed>());
+        });
+    }
+
+    #[test]
+    fn prevent_scopes_nest() {
+        let mut ctx = EventCtx::default();
+        ctx.set_node_id(node_id_from_ffi(1));
+
+        ctx.prevent::<crate::message::ClearRequested, _>(|ctx| {
+            ctx.prevent::<crate::message::HeaderIconPressed, _>(|ctx| {
+                // Both prevented in the inner scope (union of the stack).
+                assert!(ctx.is_prevented::<crate::message::ClearRequested>());
+                assert!(ctx.is_prevented::<crate::message::HeaderIconPressed>());
+                ctx.post_message(crate::message::ClearRequested);
+                ctx.post_message(crate::message::HeaderIconPressed);
+            });
+            // Inner scope popped: HeaderIconPressed is allowed again.
+            assert!(ctx.is_prevented::<crate::message::ClearRequested>());
+            assert!(!ctx.is_prevented::<crate::message::HeaderIconPressed>());
+            ctx.post_message(crate::message::HeaderIconPressed);
+        });
+
+        let messages = ctx.take_messages();
+        assert_eq!(messages.len(), 1);
+        assert!(messages[0].is::<crate::message::HeaderIconPressed>());
+    }
+
+    #[test]
+    fn prevent_returns_closure_value() {
+        let mut ctx = EventCtx::default();
+        ctx.set_node_id(node_id_from_ffi(1));
+        let v = ctx.prevent::<crate::message::ClearRequested, _>(|_ctx| 42);
+        assert_eq!(v, 42);
+    }
+
+    #[test]
+    fn prevent_types_suppresses_multiple() {
+        use std::any::TypeId;
+        let mut ctx = EventCtx::default();
+        ctx.set_node_id(node_id_from_ffi(1));
+        let ids = [
+            TypeId::of::<crate::message::ClearRequested>(),
+            TypeId::of::<crate::message::HeaderIconPressed>(),
+        ];
+        ctx.prevent_types(&ids, |ctx| {
+            ctx.post_message(crate::message::ClearRequested);
+            ctx.post_message(crate::message::HeaderIconPressed);
+            ctx.post_message(crate::message::TabsCleared);
+        });
+        let messages = ctx.take_messages();
+        assert_eq!(messages.len(), 1);
+        assert!(messages[0].is::<crate::message::TabsCleared>());
     }
 
     #[test]
