@@ -12,10 +12,16 @@
 //! - `on_unmount` — called when a screen is popped from the stack.
 
 use crate::css::StyleSheet;
+use crate::event::EventCtx;
+use crate::message::{ButtonPressed, MessageEvent};
+use crate::node_id::NodeId;
 use crate::widget_tree::WidgetTree;
-use crate::widgets::Widget;
+use crate::widgets::{BindingDecl, Widget};
 use rich_rs::{Console, ConsoleOptions, Segments};
 use std::fs;
+use std::sync::{Arc, Mutex};
+
+use crate::event::Event;
 
 // ---------------------------------------------------------------------------
 // Screen trait
@@ -66,7 +72,157 @@ pub trait Screen: Send + Sync {
     fn sub_title(&self) -> Option<&str> {
         None
     }
+
+    // -----------------------------------------------------------------------
+    // Handler surface (Screen as a DOMNode — Python parity)
+    // -----------------------------------------------------------------------
+    //
+    // A `Screen` is the root node of its own widget tree, so it owns the same
+    // event/message/binding surface as a `Widget`. The runtime routes the active
+    // screen's key bindings, events, and bubbled messages into these methods
+    // (via the screen-tree root `ScreenHost`), mirroring Python's
+    // `Screen(Widget)` with `BINDINGS` + `on_*` handlers.
+
+    /// Declarative key bindings owned by this screen.
+    ///
+    /// These are matched along the focused→root chain of the active screen tree
+    /// exactly like widget bindings (the screen root sits at the top of that
+    /// chain), so a screen binding such as `("escape", "dismiss", "Close")`
+    /// fires whenever the screen is active. Mirrors Python `Screen.BINDINGS`.
+    fn bindings(&self) -> Vec<BindingDecl> {
+        Vec::new()
+    }
+
+    /// Handle a raw event routed to the active screen.
+    ///
+    /// Called during the active screen tree's bubble phase (the screen root is
+    /// the last node on the focused→root path). Mirrors Python `Screen.on_*`
+    /// event handlers. Use [`ScreenMessageCtx::dismiss`] to close the screen
+    /// with a result.
+    fn on_event(&mut self, _event: &Event, _ctx: &mut ScreenMessageCtx) {}
+
+    /// Handle a message bubbling up to the active screen.
+    ///
+    /// Called when a message reaches the screen-tree root. The default
+    /// implementation forwards `Button.Pressed` messages to
+    /// [`Screen::on_button_pressed`], mirroring Python's typed-handler dispatch
+    /// (`on_button_pressed`). Override this for custom message handling.
+    fn on_message(&mut self, message: &MessageEvent, ctx: &mut ScreenMessageCtx) {
+        if let Some(pressed) = message.downcast_ref::<ButtonPressed>() {
+            let control = message.control.unwrap_or(message.sender);
+            self.on_button_pressed(pressed, control, ctx);
+        }
+    }
+
+    /// Typed convenience handler for `Button.Pressed` messages reaching the
+    /// screen. `control` is the `NodeId` of the button that was pressed; the
+    /// pressed button's CSS id is available as `pressed.button_id`.
+    ///
+    /// Mirrors Python `Screen.on_button_pressed(self, event)` where
+    /// `event.button.id` selects the action. The common modal pattern is to
+    /// `ctx.dismiss(value)` here.
+    fn on_button_pressed(
+        &mut self,
+        _pressed: &ButtonPressed,
+        _control: NodeId,
+        _ctx: &mut ScreenMessageCtx,
+    ) {
+    }
 }
+
+// ---------------------------------------------------------------------------
+// ScreenMessageCtx
+// ---------------------------------------------------------------------------
+
+/// Context handed to a [`Screen`]'s event/message handlers.
+///
+/// Wraps the underlying [`EventCtx`] (so handlers can `post_message`, request
+/// repaint, set-handled, etc.) and adds screen-scoped controls — most
+/// importantly [`dismiss`](Self::dismiss), which records a result to be
+/// delivered to the screen's result callback when the screen is popped.
+///
+/// `dismiss` does not pop the screen synchronously; instead it stages the
+/// dismissal so the runtime can pop the active screen and invoke its callback
+/// on the next loop pass. This keeps screen teardown on the single runtime
+/// control path (the same way `Screen.dismiss()` in Python schedules an
+/// `AwaitComplete` rather than tearing down mid-handler).
+pub struct ScreenMessageCtx<'a> {
+    ctx: &'a mut EventCtx,
+    dismiss_slot: &'a Mutex<Option<ScreenResult>>,
+}
+
+impl<'a> ScreenMessageCtx<'a> {
+    fn new(ctx: &'a mut EventCtx, dismiss_slot: &'a Mutex<Option<ScreenResult>>) -> Self {
+        Self { ctx, dismiss_slot }
+    }
+
+    /// Construct a `ScreenMessageCtx` directly over an [`EventCtx`] and a
+    /// caller-owned dismissal slot.
+    ///
+    /// Intended for unit tests of `Screen` handlers (e.g. demo `on_button_pressed`
+    /// tests): pass a `&Mutex<Option<ScreenResult>>` and inspect it after the
+    /// handler runs to assert the staged dismissal. The runtime itself uses the
+    /// internal screen-tree wiring, not this constructor.
+    pub fn for_test(
+        ctx: &'a mut EventCtx,
+        dismiss_slot: &'a Mutex<Option<ScreenResult>>,
+    ) -> Self {
+        Self::new(ctx, dismiss_slot)
+    }
+
+    /// Dismiss this screen with a typed result value.
+    ///
+    /// The boxed value is delivered to the callback registered via
+    /// `App::push_screen_with_callback` (or to the awaiter once
+    /// `push_screen_wait` lands), which downcasts it back to the expected type.
+    /// Dismiss typing is dynamic ([`ScreenResult::Value`]), mirroring Python's
+    /// `ModalScreen[T].dismiss(value)` without a generic `Screen<Result = T>`.
+    ///
+    /// For a plain dismissal with no value, use [`dismiss_none`](Self::dismiss_none).
+    pub fn dismiss<T: std::any::Any + Send>(&mut self, value: T) {
+        self.set_dismiss(ScreenResult::Value(Box::new(value)));
+    }
+
+    /// Dismiss this screen without a result value (Python `self.dismiss()`).
+    ///
+    /// The callback receives [`ScreenResult::Dismissed`].
+    pub fn dismiss_none(&mut self) {
+        self.set_dismiss(ScreenResult::Dismissed);
+    }
+
+    /// Dismiss this screen with a pre-built [`ScreenResult`].
+    pub fn dismiss_result(&mut self, result: ScreenResult) {
+        self.set_dismiss(result);
+    }
+
+    fn set_dismiss(&mut self, result: ScreenResult) {
+        if let Ok(mut slot) = self.dismiss_slot.lock() {
+            *slot = Some(result);
+        }
+        self.ctx.set_handled();
+    }
+
+    /// Mark the originating event/message as handled (stops propagation).
+    pub fn set_handled(&mut self) {
+        self.ctx.set_handled();
+    }
+
+    /// Request a repaint of the active screen.
+    pub fn request_repaint(&mut self) {
+        self.ctx.request_repaint();
+    }
+
+    /// Request the app to stop (quit). Equivalent to Python `self.app.exit()`.
+    pub fn exit(&mut self) {
+        self.ctx.request_stop();
+    }
+
+    /// Access the underlying [`EventCtx`] for posting messages / advanced use.
+    pub fn event_ctx(&mut self) -> &mut EventCtx {
+        self.ctx
+    }
+}
+
 
 // ---------------------------------------------------------------------------
 // ScreenResult
@@ -89,20 +245,48 @@ pub type ScreenResultCallback = Box<dyn FnOnce(ScreenResult) + Send>;
 
 const MODAL_SCREEN_ALIASES: &[&str] = &["Screen"];
 
+/// Shared, interior-mutable slot a screen handler writes its dismissal into.
+///
+/// `ScreenHost` (the screen-tree root) and the owning [`ScreenEntry`] both hold
+/// a clone of this `Arc`. Handlers stage the result here; the runtime drains it
+/// (`App::drain_screen_dismissals`) and pops the screen on the next loop pass.
+type DismissSlot = Arc<Mutex<Option<ScreenResult>>>;
+
+/// Handle to a [`Screen`]'s handler surface, shared between the screen-tree
+/// root host and the owning [`ScreenEntry`].
+///
+/// The screen instance is the canonical owner of its BINDINGS and event/message
+/// handlers; sharing it through an `Arc<Mutex<…>>` lets the tree root delegate
+/// dispatch into it without a parallel runtime-only side path.
+type SharedScreen = Arc<Mutex<Box<dyn Screen>>>;
+
 /// Root host widget for pushed screens.
 ///
 /// This preserves canonical Textual CSS typing (`Screen` / `ModalScreen`)
-/// while keeping the screen body as a child subtree.
+/// while keeping the screen body as a child subtree. It is also the node where
+/// the active screen participates as a handler: its `bindings()`,
+/// `on_event()`, and `on_message()` delegate to the owning [`Screen`] impl, so
+/// the existing focused→root tree dispatch (capture/bubble + binding match)
+/// drives screen handlers with no separate dispatch path.
 struct ScreenHost {
     modal: bool,
     child: Option<Box<dyn Widget>>,
+    screen: SharedScreen,
+    dismiss_slot: DismissSlot,
 }
 
 impl ScreenHost {
-    fn new(modal: bool, child: Box<dyn Widget>) -> Self {
+    fn new(
+        modal: bool,
+        child: Box<dyn Widget>,
+        screen: SharedScreen,
+        dismiss_slot: DismissSlot,
+    ) -> Self {
         Self {
             modal,
             child: Some(child),
+            screen,
+            dismiss_slot,
         }
     }
 }
@@ -127,6 +311,27 @@ impl Widget for ScreenHost {
             &[]
         }
     }
+
+    fn bindings(&self) -> Vec<BindingDecl> {
+        self.screen
+            .lock()
+            .map(|screen| screen.bindings())
+            .unwrap_or_default()
+    }
+
+    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        if let Ok(mut screen) = self.screen.lock() {
+            let mut screen_ctx = ScreenMessageCtx::new(ctx, &self.dismiss_slot);
+            screen.on_event(event, &mut screen_ctx);
+        }
+    }
+
+    fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
+        if let Ok(mut screen) = self.screen.lock() {
+            let mut screen_ctx = ScreenMessageCtx::new(ctx, &self.dismiss_slot);
+            screen.on_message(message, &mut screen_ctx);
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -135,7 +340,9 @@ impl Widget for ScreenHost {
 
 /// Internal entry in the screen stack.
 pub(crate) struct ScreenEntry {
-    pub screen: Box<dyn Screen>,
+    /// The screen instance, shared with the screen-tree root (`ScreenHost`) so
+    /// the root can delegate bindings/event/message dispatch into it.
+    pub screen: SharedScreen,
     /// Needs screen switching to swap active tree (no demo uses multiple screens yet).
     #[allow(dead_code)]
     pub widget_tree: WidgetTree,
@@ -146,9 +353,25 @@ pub(crate) struct ScreenEntry {
     result_callback: Option<ScreenResultCallback>,
     /// Pending result set by `dismiss(value)` before the screen is popped.
     pending_result: Option<ScreenResult>,
+    /// Dismiss mailbox shared with the screen-tree root. A screen handler's
+    /// `ctx.dismiss(value)` writes here; the runtime drains it and pops.
+    dismiss_slot: DismissSlot,
     /// If this screen was pushed by `switch_mode`, this holds the mode name.
     /// Used to identify the correct screen when switching/removing modes.
     pub(crate) mode_name: Option<String>,
+}
+
+impl ScreenEntry {
+    /// Take any pending dismissal staged by a screen handler's `ctx.dismiss(..)`.
+    pub(crate) fn take_pending_dismissal(&self) -> Option<ScreenResult> {
+        self.dismiss_slot.lock().ok().and_then(|mut s| s.take())
+    }
+
+    /// Run `f` against the locked screen instance (used for lifecycle hooks and
+    /// title/name accessors).
+    fn with_screen<R>(&self, f: impl FnOnce(&mut dyn Screen) -> R) -> Option<R> {
+        self.screen.lock().ok().map(|mut s| f(&mut **s))
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -210,13 +433,13 @@ impl ScreenStack {
             .iter()
             .position(|e| e.mode_name.as_deref() == Some(mode_name))?;
 
-        let mut entry = self.screens.remove(idx);
-        entry.screen.on_unmount();
+        let entry = self.screens.remove(idx);
+        entry.with_screen(|s| s.on_unmount());
 
         // If we removed the top screen and there's a new top, resume it.
         if idx == self.screens.len() {
             if let Some(new_top) = self.screens.last_mut() {
-                new_top.screen.on_resume();
+                new_top.with_screen(|s| s.on_resume());
             }
         }
 
@@ -236,19 +459,27 @@ impl ScreenStack {
 
     fn push_inner(
         &mut self,
-        mut screen: Box<dyn Screen>,
+        screen: Box<dyn Screen>,
         callback: Option<ScreenResultCallback>,
         mode_name: Option<String>,
     ) {
         // Suspend the currently active screen.
         if let Some(top) = self.screens.last_mut() {
-            top.screen.on_suspend();
+            top.with_screen(|s| s.on_suspend());
         }
 
         // Build the widget tree from the screen's compose output, extracting
         // composed children/declarations into the arena like the app root path.
         let modal = screen.is_modal();
-        let root_widget = Box::new(ScreenHost::new(modal, screen.compose()));
+        let body = screen.compose();
+        let shared: SharedScreen = Arc::new(Mutex::new(screen));
+        let dismiss_slot: DismissSlot = Arc::new(Mutex::new(None));
+        let root_widget = Box::new(ScreenHost::new(
+            modal,
+            body,
+            shared.clone(),
+            dismiss_slot.clone(),
+        ));
         let mut widget_tree = WidgetTree::new();
         let root_id = widget_tree.set_root(root_widget);
         let (extracted_children, child_handle_sinks, child_decl_meta, compose_decls) = widget_tree
@@ -288,20 +519,26 @@ impl ScreenStack {
 
         // Parse the screen's CSS stylesheet (if provided).
         // Accept either inline CSS text or a filesystem path.
-        let stylesheet = screen.css().map(|css| {
-            let css_text = fs::read_to_string(css).unwrap_or_else(|_| css.to_string());
-            StyleSheet::parse(&css_text)
-        });
+        let stylesheet = {
+            let guard = shared.lock().expect("screen lock");
+            guard.css().map(|css| {
+                let css_text = fs::read_to_string(css).unwrap_or_else(|_| css.to_string());
+                StyleSheet::parse(&css_text)
+            })
+        };
 
         // Mount the new screen.
-        screen.on_mount();
+        if let Ok(mut guard) = shared.lock() {
+            guard.on_mount();
+        }
 
         self.screens.push(ScreenEntry {
-            screen,
+            screen: shared,
             widget_tree,
             stylesheet,
             result_callback: callback,
             pending_result: None,
+            dismiss_slot,
             mode_name,
         });
     }
@@ -334,13 +571,13 @@ impl ScreenStack {
     ///   is `Some`.
     ///
     /// Returns `None` if the stack is empty.
-    pub fn pop(&mut self) -> Option<(Box<dyn Screen>, ScreenResult, Option<String>)> {
-        let mut entry = self.screens.pop()?;
-        entry.screen.on_unmount();
+    pub fn pop(&mut self) -> Option<(SharedScreen, ScreenResult, Option<String>)> {
+        let entry = self.screens.pop()?;
+        entry.with_screen(|s| s.on_unmount());
 
         // Resume the screen that is now on top.
         if let Some(new_top) = self.screens.last_mut() {
-            new_top.screen.on_resume();
+            new_top.with_screen(|s| s.on_resume());
         }
 
         // Determine the result: use pending_result if set, otherwise Dismissed.
@@ -394,13 +631,26 @@ impl ScreenStack {
     }
 
     /// Get the title from the topmost screen (if it defines one).
-    pub fn active_title(&self) -> Option<&str> {
-        self.top().and_then(|e| e.screen.title())
+    pub fn active_title(&self) -> Option<String> {
+        self.top()
+            .and_then(|e| e.with_screen(|s| s.title().map(str::to_string)))
+            .flatten()
     }
 
     /// Get the sub-title from the topmost screen (if it defines one).
-    pub fn active_sub_title(&self) -> Option<&str> {
-        self.top().and_then(|e| e.screen.sub_title())
+    pub fn active_sub_title(&self) -> Option<String> {
+        self.top()
+            .and_then(|e| e.with_screen(|s| s.sub_title().map(str::to_string)))
+            .flatten()
+    }
+
+    /// Take any pending dismissal staged by the active screen's handler.
+    ///
+    /// Returns the [`ScreenResult`] a handler set via `ctx.dismiss(..)` since the
+    /// last drain, or `None`. The runtime uses this to pop the active screen and
+    /// deliver the result to its callback on the next loop pass.
+    pub(crate) fn take_active_dismissal(&self) -> Option<ScreenResult> {
+        self.top().and_then(|e| e.take_pending_dismissal())
     }
 }
 
@@ -586,7 +836,7 @@ mod tests {
         assert!(result.is_some());
 
         let (screen, screen_result, _mode) = result.unwrap();
-        assert_eq!(screen.name(), "Main");
+        assert_eq!(screen.lock().unwrap().name(), "Main");
         assert!(matches!(screen_result, ScreenResult::Dismissed));
         assert!(stack.is_empty());
     }
@@ -643,7 +893,7 @@ mod tests {
         stack.push(TestScreen::boxed("Bottom", log.clone()));
         stack.push(TestScreen::boxed("Top", log.clone()));
 
-        assert_eq!(stack.top().unwrap().screen.name(), "Top");
+        assert_eq!(stack.top().unwrap().screen.lock().unwrap().name(), "Top");
     }
 
     #[test]
@@ -654,7 +904,10 @@ mod tests {
         stack.push(TestScreen::boxed("Bottom", log.clone()));
         stack.push(TestScreen::boxed("Top", log.clone()));
 
-        assert_eq!(stack.top_mut().unwrap().screen.name(), "Top");
+        assert_eq!(
+            stack.top_mut().unwrap().screen.lock().unwrap().name(),
+            "Top"
+        );
     }
 
     // -- ScreenResult: Dismissed and Value variants --------------------------
@@ -983,8 +1236,8 @@ mod tests {
             .with_title("Settings")
             .with_sub_title("General");
         stack.push(Box::new(titled));
-        assert_eq!(stack.active_title(), Some("Settings"));
-        assert_eq!(stack.active_sub_title(), Some("General"));
+        assert_eq!(stack.active_title().as_deref(), Some("Settings"));
+        assert_eq!(stack.active_sub_title().as_deref(), Some("General"));
 
         // Pop titled screen — back to base with no title.
         stack.pop();
@@ -1044,6 +1297,200 @@ mod tests {
             child.widget.style_type(),
             "QuitScreen",
             "screen body widget type should remain available for screen-specific selectors"
+        );
+    }
+
+    // =========================================================================
+    // Keystone 1b: Screen-as-Widget handler surface (BINDINGS + on_message +
+    // dismiss-with-result)
+    // =========================================================================
+
+    use crate::message::ButtonPressed;
+    use crate::node_id::NodeId;
+    use crate::runtime::dispatch_message_queue_tree;
+
+    /// A modal QuitScreen mirroring `modal03.py`:
+    /// - owns a `("escape", "dismiss", "Cancel")` binding,
+    /// - dismisses with `true` when a `#quit` button is pressed and `false`
+    ///   otherwise, via its own `on_button_pressed` handler.
+    struct QuitScreen;
+
+    impl Screen for QuitScreen {
+        fn name(&self) -> &str {
+            "QuitScreen"
+        }
+
+        fn compose(&self) -> Box<dyn Widget> {
+            Box::new(StubWidget)
+        }
+
+        fn bindings(&self) -> Vec<BindingDecl> {
+            vec![BindingDecl::new("escape", "dismiss", "Cancel")]
+        }
+
+        fn on_button_pressed(
+            &mut self,
+            pressed: &ButtonPressed,
+            _control: NodeId,
+            ctx: &mut ScreenMessageCtx,
+        ) {
+            if pressed.button_id.as_deref() == Some("quit") {
+                ctx.dismiss(true);
+            } else {
+                ctx.dismiss(false);
+            }
+        }
+    }
+
+    // -- Screen BINDINGS are exposed on the screen-tree root host ------------
+
+    #[test]
+    fn screen_bindings_surface_on_screen_tree_root() {
+        let mut stack = ScreenStack::new();
+        stack.push(Box::new(QuitScreen));
+
+        let entry = stack.top().expect("top screen");
+        let root_id = entry.widget_tree.root().expect("screen tree root");
+        let root = entry.widget_tree.get(root_id).expect("root node");
+
+        let bindings = root.widget.bindings();
+        assert_eq!(bindings.len(), 1, "screen binding should surface on root");
+        assert_eq!(bindings[0].key, "escape");
+        assert_eq!(bindings[0].action, "dismiss");
+    }
+
+    // -- on_button_pressed -> dismiss(value) reaches the callback -----------
+
+    #[test]
+    fn screen_button_press_dismisses_with_value_to_callback() {
+        let mut stack = ScreenStack::new();
+        let received = Arc::new(Mutex::new(Vec::<String>::new()));
+        let cb = received.clone();
+
+        // Push QuitScreen with a callback that records the dismiss value.
+        stack.push_with_callback(
+            Box::new(QuitScreen),
+            Box::new(move |result| {
+                let msg = match result {
+                    ScreenResult::Dismissed => "dismissed".to_string(),
+                    ScreenResult::Value(v) => match v.downcast::<bool>() {
+                        Ok(b) => format!("value:{}", *b),
+                        Err(_) => "value:?".to_string(),
+                    },
+                };
+                cb.lock().unwrap().push(msg);
+            }),
+        );
+
+        // Build a ButtonPressed message from a #quit button and bubble it
+        // through the real screen tree to the screen-tree root, which delegates
+        // to QuitScreen::on_message -> on_button_pressed -> ctx.dismiss(true).
+        let (root_id, quit_button_id) = {
+            let entry = stack.top().expect("top screen");
+            let root_id = entry.widget_tree.root().expect("root");
+            // Sender doesn't need to be in the tree for bubble-to-root; the
+            // bubble path falls back to a depth-first walk that includes root.
+            (root_id, crate::node_id::node_id_from_ffi(424242))
+        };
+
+        let message = MessageEvent::new(
+            quit_button_id,
+            ButtonPressed {
+                description: "Quit".into(),
+                button_id: Some("quit".into()),
+            },
+        )
+        .with_control(quit_button_id);
+
+        {
+            let entry = stack.top_mut().expect("top screen");
+            let _ = dispatch_message_queue_tree(&mut entry.widget_tree, vec![message]);
+        }
+        let _ = root_id;
+
+        // The handler staged a dismissal; drain it and confirm the value.
+        let staged = stack.take_active_dismissal().expect("dismissal staged");
+        assert!(stack.dismiss(staged));
+        stack.pop().expect("screen popped");
+
+        assert_eq!(received.lock().unwrap().as_slice(), &["value:true"]);
+    }
+
+    #[test]
+    fn screen_cancel_button_dismisses_with_false() {
+        let mut stack = ScreenStack::new();
+        let received = Arc::new(Mutex::new(Vec::<String>::new()));
+        let cb = received.clone();
+
+        stack.push_with_callback(
+            Box::new(QuitScreen),
+            Box::new(move |result| {
+                if let ScreenResult::Value(v) = result {
+                    if let Ok(b) = v.downcast::<bool>() {
+                        cb.lock().unwrap().push(format!("value:{}", *b));
+                    }
+                }
+            }),
+        );
+
+        let sender = crate::node_id::node_id_from_ffi(99);
+        let message = MessageEvent::new(
+            sender,
+            ButtonPressed {
+                description: "Cancel".into(),
+                button_id: Some("cancel".into()),
+            },
+        )
+        .with_control(sender);
+
+        {
+            let entry = stack.top_mut().expect("top screen");
+            let _ = dispatch_message_queue_tree(&mut entry.widget_tree, vec![message]);
+        }
+
+        let staged = stack.take_active_dismissal().expect("dismissal staged");
+        assert!(stack.dismiss(staged));
+        stack.pop().expect("screen popped");
+
+        assert_eq!(received.lock().unwrap().as_slice(), &["value:false"]);
+    }
+
+    // -- Screen::on_event handler runs via the tree bubble phase -------------
+
+    #[test]
+    fn screen_on_event_handler_runs_and_can_dismiss() {
+        use crate::runtime::dispatch_event_tree;
+
+        struct EventScreen;
+        impl Screen for EventScreen {
+            fn compose(&self) -> Box<dyn Widget> {
+                Box::new(StubWidget)
+            }
+            fn on_event(&mut self, event: &Event, ctx: &mut ScreenMessageCtx) {
+                if let Event::Key(key) = event {
+                    if key.aliases().iter().any(|a| *a == "escape") {
+                        ctx.dismiss_none();
+                    }
+                }
+            }
+        }
+
+        let mut stack = ScreenStack::new();
+        stack.push(Box::new(EventScreen));
+
+        let esc = crate::keys::KeyEventData::from_crossterm(crossterm::event::KeyEvent::new(
+            crossterm::event::KeyCode::Esc,
+            crossterm::event::KeyModifiers::NONE,
+        ));
+
+        {
+            let entry = stack.top_mut().expect("top screen");
+            let _ = dispatch_event_tree(&mut entry.widget_tree, None, &Event::Key(esc));
+        }
+
+        assert!(
+            stack.take_active_dismissal().is_some(),
+            "Esc routed into Screen::on_event should stage a dismissal"
         );
     }
 }

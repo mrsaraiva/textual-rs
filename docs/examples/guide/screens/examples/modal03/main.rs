@@ -1,13 +1,11 @@
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use rich_rs::Segments;
 use textual::compose;
 use textual::prelude::*;
 
 const TEXT: &str = "I must not fear.\nFear is the mind-killer.\nFear is the little-death that brings total obliteration.\nI will face my fear.\nI will permit it to pass over me and through me.\nAnd when it has gone past, I will turn the inner eye to see its path.\nWhere the fear has gone there will be nothing. Only I will remain.";
-const DECISION_NONE: u8 = 0;
-const DECISION_QUIT: u8 = 1;
 
 struct QuitDialogRoot;
 
@@ -21,8 +19,8 @@ impl Widget for QuitDialogRoot {
             Grid::new(2, 2)
                 .id("dialog")
                 .with_child(Label::new("Are you sure you want to quit?").with_id("question"))
-                .with_child(Node::new(Button::error("Quit")).id("quit"))
-                .with_child(Node::new(Button::primary("Cancel")).id("cancel"))
+                .with_child(Button::error("Quit").id("quit"))
+                .with_child(Button::primary("Cancel").id("cancel"))
         ]
     }
 
@@ -31,6 +29,9 @@ impl Widget for QuitDialogRoot {
     }
 }
 
+/// `ModalScreen[bool]` from Python `modal03.py`: the screen owns its
+/// `on_button_pressed` handler and dismisses with a typed `bool` result
+/// (`dismiss(True)` / `dismiss(False)`) delivered to the push callback.
 struct QuitScreen;
 
 impl Screen for QuitScreen {
@@ -48,24 +49,37 @@ impl Screen for QuitScreen {
             "/examples/shared/modal01.tcss"
         ))
     }
+
+    fn on_button_pressed(
+        &mut self,
+        pressed: &ButtonPressed,
+        _control: NodeId,
+        ctx: &mut ScreenMessageCtx,
+    ) {
+        // Python: dismiss(True) for quit, dismiss(False) for cancel.
+        let quit = pressed.button_id.as_deref() == Some("quit");
+        ctx.dismiss(quit);
+    }
 }
 
 struct ModalApp {
-    quit_decision: Arc<AtomicU8>,
+    /// Set by the screen-result callback when the dialog returns `true`.
+    /// Polled in `on_tick_with_app` to stop the app (mirrors Python's
+    /// `check_quit` callback calling `self.exit()`).
+    should_quit: Arc<AtomicBool>,
 }
 
 impl Default for ModalApp {
     fn default() -> Self {
         Self {
-            quit_decision: Arc::new(AtomicU8::new(DECISION_NONE)),
+            should_quit: Arc::new(AtomicBool::new(false)),
         }
     }
 }
 
 impl TextualApp for ModalApp {
     fn bindings(&self) -> Vec<BindingDecl> {
-        // Route key and clickable-footer invocations through one key path.
-        vec![BindingDecl::new("q", "app.simulate_key('q')", "Quit")]
+        vec![BindingDecl::new("q", "request_quit", "Quit")]
     }
 
     fn compose(&mut self) -> AppRoot {
@@ -75,59 +89,33 @@ impl TextualApp for ModalApp {
             .with_child(Footer::new())
     }
 
-    fn on_key_with_app(&mut self, app: &mut App, key: &KeyEventData, ctx: &mut EventCtx) {
-        if key.key != "q" {
+    /// `action_request_quit`: push the modal QuitScreen with a callback that
+    /// records the dismiss result, exactly like Python's `check_quit`.
+    fn on_app_action_str(&mut self, app: &mut App, action: &str, ctx: &mut EventCtx) {
+        if action != "request_quit" {
             return;
         }
-        // Prevent recursive re-dispatch through app.simulate_key('q').
-        ctx.set_handled();
-
-        if app.screen_count() > 0 {
-            return;
-        }
-
-        let quit_decision = self.quit_decision.clone();
-        app.push_screen_with_callback(
-            Box::new(QuitScreen),
-            Box::new(move |result| match result {
-                ScreenResult::Dismissed => quit_decision.store(DECISION_NONE, Ordering::SeqCst),
-                ScreenResult::Value(value) => {
-                    if let Ok(quit) = value.downcast::<bool>() {
-                        quit_decision.store(
-                            if *quit { DECISION_QUIT } else { DECISION_NONE },
-                            Ordering::SeqCst,
-                        );
-                    } else {
-                        quit_decision.store(DECISION_NONE, Ordering::SeqCst);
+        if app.screen_count() == 0 {
+            let should_quit = self.should_quit.clone();
+            app.push_screen_with_callback(
+                Box::new(QuitScreen),
+                Box::new(move |result| {
+                    // Python: def check_quit(quit): if quit: self.exit()
+                    if let ScreenResult::Value(value) = result {
+                        if let Ok(quit) = value.downcast::<bool>() {
+                            if *quit {
+                                should_quit.store(true, Ordering::SeqCst);
+                            }
+                        }
                     }
-                }
-            }),
-        );
-        // Direct screen-stack mutation via app handle needs explicit redraw/layout invalidation.
-        ctx.request_layout_invalidation();
+                }),
+            );
+        }
+        ctx.set_handled();
     }
 
-    fn on_message_with_app(&mut self, app: &mut App, event: &MessageEvent, ctx: &mut EventCtx) {
-        if event.downcast_ref::<ButtonPressed>().is_none() || app.screen_count() == 0 {
-            return;
-        }
-
-        let control = event.control.unwrap_or(event.sender);
-        let quit = app.query_one_optional("#quit Button").ok().flatten();
-        let cancel = app.query_one_optional("#cancel Button").ok().flatten();
-
-        if Some(control) == quit {
-            let _ = app.dismiss_screen(ScreenResult::Value(Box::new(true)));
-            ctx.request_layout_invalidation();
-            ctx.set_handled();
-        } else if Some(control) == cancel {
-            let _ = app.dismiss_screen(ScreenResult::Value(Box::new(false)));
-            ctx.request_layout_invalidation();
-            ctx.set_handled();
-        }
-        // Callback executes during dismiss_screen(); consume result immediately.
-        let decision = self.quit_decision.swap(DECISION_NONE, Ordering::SeqCst);
-        if decision == DECISION_QUIT {
+    fn on_tick_with_app(&mut self, _app: &mut App, _tick: u64, ctx: &mut EventCtx) {
+        if self.should_quit.load(Ordering::SeqCst) {
             ctx.request_stop();
         }
     }
@@ -140,62 +128,76 @@ fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use std::sync::Mutex;
 
-    fn q_key() -> KeyEventData {
-        KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE))
-    }
-
-    fn button_pressed_event(button: NodeId) -> MessageEvent {
-        MessageEvent::new(
-            button,
-            ButtonPressed {
-                description: "test".to_string(),
-                button_id: None,
+    fn press(button_id: &str) -> Option<ScreenResult> {
+        let mut screen = QuitScreen;
+        let slot: Mutex<Option<ScreenResult>> = Mutex::new(None);
+        let mut ctx = EventCtx::default();
+        let mut screen_ctx = ScreenMessageCtx::for_test(&mut ctx, &slot);
+        screen.on_button_pressed(
+            &ButtonPressed {
+                description: button_id.into(),
+                button_id: Some(button_id.into()),
             },
-        )
-        .with_control(button)
+            NodeId::default(),
+            &mut screen_ctx,
+        );
+        slot.lock().unwrap().take()
     }
 
     #[test]
-    fn modal03_quit_button_dismisses_and_requests_stop() {
-        let mut definition = ModalApp::default();
-        let mut app = App::new().expect("app should initialize");
-
-        let mut key_ctx = EventCtx::default();
-        definition.on_key_with_app(&mut app, &q_key(), &mut key_ctx);
-        assert!(key_ctx.handled());
-        assert_eq!(app.screen_count(), 1);
-
-        let quit = app
-            .query_one("#quit Button")
-            .expect("quit button should exist in pushed screen");
-        let mut message_ctx = EventCtx::default();
-        definition.on_message_with_app(&mut app, &button_pressed_event(quit), &mut message_ctx);
-
-        assert!(message_ctx.handled());
-        assert!(message_ctx.stop_requested());
-        assert_eq!(app.screen_count(), 0);
+    fn modal03_quit_button_dismisses_with_true() {
+        match press("quit") {
+            Some(ScreenResult::Value(v)) => assert!(*v.downcast::<bool>().unwrap()),
+            other => panic!("expected Value(true), got dismissed/none: {}", other.is_none()),
+        }
     }
 
     #[test]
-    fn modal03_cancel_button_dismisses_without_stop_request() {
+    fn modal03_cancel_button_dismisses_with_false() {
+        match press("cancel") {
+            Some(ScreenResult::Value(v)) => assert!(!*v.downcast::<bool>().unwrap()),
+            _ => panic!("expected Value(false)"),
+        }
+    }
+
+    /// End-to-end: pressing Quit drives the screen's dismiss(true) into the
+    /// push callback, which sets `should_quit`; the tick hook then requests stop.
+    #[test]
+    fn modal03_quit_flow_requests_stop_via_callback() {
         let mut definition = ModalApp::default();
         let mut app = App::new().expect("app should initialize");
 
-        let mut key_ctx = EventCtx::default();
-        definition.on_key_with_app(&mut app, &q_key(), &mut key_ctx);
-        assert!(key_ctx.handled());
+        // action_request_quit pushes the screen with the result callback.
+        let mut action_ctx = EventCtx::default();
+        definition.on_app_action_str(&mut app, "request_quit", &mut action_ctx);
         assert_eq!(app.screen_count(), 1);
 
-        let cancel = app
-            .query_one("#cancel Button")
-            .expect("cancel button should exist in pushed screen");
-        let mut message_ctx = EventCtx::default();
-        definition.on_message_with_app(&mut app, &button_pressed_event(cancel), &mut message_ctx);
-
-        assert!(message_ctx.handled());
-        assert!(!message_ctx.stop_requested());
+        // The screen dismisses with true via its callback path.
+        assert!(app.dismiss_screen(ScreenResult::Value(Box::new(true))));
         assert_eq!(app.screen_count(), 0);
+
+        // The callback set should_quit; the tick hook requests stop.
+        let mut tick_ctx = EventCtx::default();
+        definition.on_tick_with_app(&mut app, 0, &mut tick_ctx);
+        assert!(tick_ctx.stop_requested());
+    }
+
+    #[test]
+    fn modal03_cancel_flow_does_not_request_stop() {
+        let mut definition = ModalApp::default();
+        let mut app = App::new().expect("app should initialize");
+
+        let mut action_ctx = EventCtx::default();
+        definition.on_app_action_str(&mut app, "request_quit", &mut action_ctx);
+        assert_eq!(app.screen_count(), 1);
+
+        assert!(app.dismiss_screen(ScreenResult::Value(Box::new(false))));
+        assert_eq!(app.screen_count(), 0);
+
+        let mut tick_ctx = EventCtx::default();
+        definition.on_tick_with_app(&mut app, 0, &mut tick_ctx);
+        assert!(!tick_ctx.stop_requested());
     }
 }

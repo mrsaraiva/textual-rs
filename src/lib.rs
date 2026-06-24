@@ -43,7 +43,7 @@ pub use node_id::{NodeId, node_id_from_ffi, node_id_to_ffi};
 pub use reactive::ReactiveCtx;
 pub use reactive::ReactiveWidget;
 pub use runtime::{App, DomQuery, DomQueryMut, TimerHandle};
-pub use screen::{Screen, ScreenResult, ScreenResultCallback, ScreenStack};
+pub use screen::{Screen, ScreenMessageCtx, ScreenResult, ScreenResultCallback, ScreenStack};
 pub use style::{Color, Style, Theme};
 pub use theme::{NamedTheme, available_theme_names, get_theme, register_theme};
 pub use textual_app::{
@@ -80,7 +80,9 @@ pub mod prelude {
         focused_node_id_tree, render_tree_to_frame, render_tree_to_frame_with_stylesheet,
         run_layout_pass,
     };
-    pub use crate::screen::{Screen, ScreenResult, ScreenResultCallback, ScreenStack};
+    pub use crate::screen::{
+        Screen, ScreenMessageCtx, ScreenResult, ScreenResultCallback, ScreenStack,
+    };
     pub use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
     pub use crate::signal::{Signal, SignalResponse};
     pub use crate::style::{Color, Style, Theme};

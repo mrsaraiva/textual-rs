@@ -7,6 +7,39 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-24 (feat(screen): Screen-as-Widget — BINDINGS + handlers + dismiss-with-result)
+
+- **`Screen` is now a handler-owning DOM node**, mirroring Python Textual's `Screen(Widget)`.
+  The `Screen` trait gained an event/message/binding surface alongside `compose`/lifecycle:
+  - `Screen::bindings() -> Vec<BindingDecl>` — declarative key bindings owned by the screen
+    (Python `Screen.BINDINGS`). These surface on the screen-tree root, so the existing
+    focused→root binding match drives them whenever the screen is active.
+  - `Screen::on_event(&Event, &mut ScreenMessageCtx)` and
+    `Screen::on_message(&MessageEvent, &mut ScreenMessageCtx)` — routed during the active
+    screen tree's capture/bubble dispatch (the screen root sits at the top of that path).
+  - `Screen::on_button_pressed(&ButtonPressed, control, &mut ScreenMessageCtx)` — typed
+    convenience the default `on_message` dispatches `Button.Pressed` to (Python parity).
+- **`ScreenMessageCtx`** — new handler context wrapping `EventCtx` with screen-scoped controls:
+  `dismiss(value)` (dynamic `ScreenResult` — `ctx.dismiss(true)` boxes any `Send + 'static`
+  value, no generic `Screen<Result = T>`), `dismiss_none()`, `dismiss_result(..)`, `exit()`,
+  `set_handled()`, `request_repaint()`. `dismiss` stages the result on a slot the runtime drains
+  and pops on the next loop pass, delivering the value to the `push_screen_with_callback` callback
+  — keeping screen teardown on the single runtime control path (Python schedules an `AwaitComplete`).
+- **No parallel dispatch path:** the screen instance is shared (`Arc<Mutex<dyn Screen>>`) between
+  the screen-stack entry and the screen-tree root host, which delegates `bindings()`/`on_event()`/
+  `on_message()` into it. Existing tree routing (`dispatch_event_tree` / `dispatch_message_queue_tree`
+  / `match_binding_tree`) drives the screen handlers with no event-loop changes. `push_screen` /
+  `pop_screen` / `dismiss_screen` now force a relayout so screen transitions repaint without
+  demo-level invalidation.
+- **modal01 / modal02 / modal03 rewired to the real Screen handlers.** Their `QuitScreen` now owns
+  `on_button_pressed` (modal01/02: `quit → ctx.exit()`, `cancel → ctx.dismiss_none()`; modal03:
+  `ctx.dismiss(bool)` delivered to the push callback, which exits on `true`) instead of routing
+  button presses through app-definition message hooks. Adds verification tests: a modal Screen
+  exposes a binding, handles a `Button.Pressed`, and dismisses with a typed value to the callback
+  (end-to-end through the real tree dispatch), plus per-demo handler tests.
+- Leaves a clean seam for `push_screen_wait` (1l): the dismiss slot + callback flow is the same
+  mechanism a worker-suspending awaiter will consume.
+
 ### 2026-06-24 (fix(color): port LAB conversion exactly to Python's easyrgb f64 form)
 
 - **`rgb_to_lab` / `lab_to_rgb` are now byte-exact to Python Textual.** The RGB↔CIE-L\*a\*b\*
