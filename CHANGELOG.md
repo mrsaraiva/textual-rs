@@ -53,6 +53,29 @@ until the API stabilizes.
   internal unit tests in `src/widgets/welcome.rs` for compose ids + message routing;
   `tests/scroll_view.rs` — `app_scroll_visible_returns_false_for_missing_node` verifies
   method contract.
+### 2026-06-23 (feat(callthread): `App::call_from_thread` — synchronous UI-thread dispatch)
+
+- **`App::call_from_thread(callback)` — post a callable onto the UI thread from a worker.** New
+  primitive mirroring Python Textual's [`App.call_from_thread`](https://textual.textualize.io/api/app/#textual.app.App.call_from_thread).
+  A background worker thread (e.g. from `EventCtx::request_worker_task` /
+  `request_exclusive_worker_task`) posts a closure onto the app's event loop; the loop runs it with
+  exclusive `&mut App` access on the next tick and ships its return value back, blocking the worker
+  until it returns. This replaces the previous `Arc<Mutex<Option<…>>>` result-ferrying workaround in
+  the threaded-worker demos with a faithful, reusable framework primitive. Unlike Python it is an
+  *associated function* (no `&self`): a worker thread does not hold an `App` reference; the app is
+  supplied to the callback on the UI thread instead.
+  - API: `App::call_from_thread<F, R>(callback) -> Result<R, CallFromThreadError>` where
+    `F: FnOnce(&mut App) -> R + Send + 'static`, `R: Send + 'static`; `App::is_ui_thread() -> bool`.
+  - Errors (mirroring Python's `RuntimeError` guards): `CallFromThreadError::NotRunning` (no event
+    loop), `SameThread` (called on the UI thread — would deadlock), `Disconnected` (app shut down
+    before the callable ran). `CallFromThreadError` is re-exported in `textual::prelude`.
+  - Runtime wiring: the event loop registers its thread as the UI thread (RAII guard, unregisters and
+    drains pending jobs on every exit path) and drains the global call-from-thread queue once per tick
+    before processing worker requests.
+  - Demos rewired: `docs/examples/guide/workers/examples/weather04` and `weather05` now use
+    `App::call_from_thread` to apply fetched weather to the `#weather` `Static`, exactly mirroring
+    Python weather05's `self.call_from_thread(weather_widget.update, weather)` (and dropping the
+    shared-mutex result buffer entirely).
 
 ### 2026-06-23 (feat(renderwire): B-cluster renderable wiring — gradient, OptionContent, pretty, rich_log)
 

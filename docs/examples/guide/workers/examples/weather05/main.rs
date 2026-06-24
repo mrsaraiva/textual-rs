@@ -1,7 +1,9 @@
 /// Port of Python Textual `docs/examples/guide/workers/weather05.py`.
 ///
 /// Demonstrates the `@work(exclusive=True, thread=True)` decorator pattern with
-/// explicit thread-pool workers and cooperative cancellation via `get_current_worker()`.
+/// explicit thread-pool workers, cooperative cancellation via
+/// `get_current_worker()`, and — the keystone of this example — posting UI
+/// updates back to the app thread with `App.call_from_thread`.
 ///
 /// Python weather05 differences from weather03/04:
 /// - Uses `urllib` (stdlib) instead of `httpx`/`async` — explicitly threaded.
@@ -9,12 +11,15 @@
 /// - Inside the worker, calls `get_current_worker()` to check `worker.is_cancelled`.
 /// - Uses `self.call_from_thread(widget.update, weather)` to safely post UI updates.
 ///
-/// Rust equivalent:
+/// Rust equivalent (faithful):
 /// - `ctx.request_exclusive_worker_task("update_weather", ...)` provides exclusive
 ///   cancel-previous semantics matching `@work(exclusive=True, thread=True)`.
 /// - `CancellationToken` replaces `get_current_worker().is_cancelled`.
-/// - `Arc<Mutex<Option<String>>>` replaces `call_from_thread` for result passing.
-/// - `on_message_with_app` on `WorkerStateChanged::Success` mirrors the update path.
+/// - `App::call_from_thread(|app| { ... })` is the direct Rust analogue of
+///   `self.call_from_thread(weather_widget.update, weather)`: it posts a closure
+///   onto the UI/event-loop thread, which runs it with `&mut App` access and
+///   blocks the worker until it returns. The closure performs the widget update
+///   exactly where Python's bound method `weather_widget.update` would run.
 ///
 /// Layout (faithful to Python):
 /// - `Input` docked to top, placeholder "Enter a City".
@@ -24,14 +29,10 @@
 /// CSS faithfully mirrors `weather.tcss`.
 ///
 /// Framework gaps:
-/// - FG-workers-call_from_thread: Python `call_from_thread` posts a callable to the UI
-///   thread synchronously. Rust uses `Arc<Mutex<>>` + `WorkerStateChanged` message to
-///   safely transfer the result, which is functionally equivalent.
 /// - FG-workers-rich-text-ansi: Python uses `Text.from_ansi(response_text)` to parse
 ///   ANSI escape codes from the wttr.in response. textual-rs `Static` accepts plain
 ///   `String`; ANSI codes are not parsed. With `http-examples` feature, the raw text
 ///   is displayed as-is.
-use std::sync::{Arc, Mutex};
 use textual::prelude::*;
 
 const CSS: &str = r#"
@@ -53,38 +54,31 @@ Input {
 }
 "#;
 
-struct WeatherApp {
-    /// Shared result buffer between the app and the background worker thread.
-    ///
-    /// Mirrors Python's `call_from_thread(weather_widget.update, weather)` pattern:
-    /// the worker writes the result here, then `WorkerStateChanged::Success` triggers
-    /// the UI update.
-    weather_result: Arc<Mutex<Option<String>>>,
-}
+struct WeatherApp;
 
 impl WeatherApp {
     fn new() -> Self {
-        Self {
-            weather_result: Arc::new(Mutex::new(None)),
-        }
+        Self
     }
 
     /// Mirrors Python's `@work(exclusive=True, thread=True) def update_weather(city)`.
     ///
     /// Spawns an exclusive background worker that cancels any previous in-flight fetch
-    /// for the same city input. The worker checks `token.is_cancelled()` before posting
-    /// results, matching Python's `worker.is_cancelled` guard.
-    fn spawn_weather_worker(
-        city: String,
-        result_holder: Arc<Mutex<Option<String>>>,
-        ctx: &mut EventCtx,
-    ) {
+    /// for the same input. The worker checks `token.is_cancelled()` before posting
+    /// results (Python's `worker.is_cancelled` guard) and, instead of ferrying the
+    /// result back through shared state, posts the widget update straight onto the UI
+    /// thread with `App::call_from_thread` — exactly mirroring Python's
+    /// `self.call_from_thread(weather_widget.update, weather)`.
+    fn spawn_weather_worker(city: String, ctx: &mut EventCtx) {
         ctx.request_exclusive_worker_task("update_weather", Some("weather"), move |token| {
             if city.is_empty() {
                 // No city — blank out the weather display.
-                // Matches Python: `self.call_from_thread(weather_widget.update, "")`
+                // Python: `if not worker.is_cancelled: self.call_from_thread(widget.update, "")`
                 if !token.is_cancelled() {
-                    *result_holder.lock().unwrap_or_else(|e| e.into_inner()) = Some(String::new());
+                    let _ = App::call_from_thread(|app| {
+                        let _ = app
+                            .with_query_one_mut_as::<Static, _>("#weather", |w| w.clear());
+                    });
                 }
                 return Ok(());
             }
@@ -92,9 +86,14 @@ impl WeatherApp {
             // Query the network API (or simulate it without `http-examples` feature).
             let weather = fetch_weather(&city, &token)?;
 
-            // Mirrors Python: `if not worker.is_cancelled: self.call_from_thread(...)`
+            // Python: `if not worker.is_cancelled: self.call_from_thread(widget.update, weather)`
             if !token.is_cancelled() {
-                *result_holder.lock().unwrap_or_else(|e| e.into_inner()) = Some(weather);
+                App::call_from_thread(move |app| {
+                    let _ = app.with_query_one_mut_as::<Static, _>("#weather", |w| {
+                        w.update(weather);
+                    });
+                })
+                .map_err(|e| e.to_string())?;
             }
             Ok(())
         });
@@ -126,41 +125,21 @@ impl TextualApp for WeatherApp {
         _validation: &ValidationResult,
         ctx: &mut EventCtx,
     ) {
-        let city = value.to_string();
-        Self::spawn_weather_worker(city, Arc::clone(&self.weather_result), ctx);
+        Self::spawn_weather_worker(value.to_string(), ctx);
         ctx.request_repaint();
     }
 
     /// Mirrors Python's `def on_worker_state_changed(self, event: Worker.StateChanged)`.
     ///
-    /// In Python this just logs the event. In Rust we also use this to apply the
-    /// worker result to the `#weather` widget when the worker succeeds.
-    fn on_message_with_app(
-        &mut self,
-        app: &mut App,
-        message: &MessageEvent,
-        ctx: &mut EventCtx,
-    ) {
+    /// In Python this just logs the event (`self.log(event)`). The actual widget
+    /// update now happens inside the worker via `call_from_thread`, so this handler
+    /// no longer needs to apply results.
+    fn on_message_with_app(&mut self, _app: &mut App, message: &MessageEvent, _ctx: &mut EventCtx) {
         if let Some(w) = message.downcast_ref::<WorkerStateChanged>() {
-            // Log the state change (Python: `self.log(event)`).
-            eprintln!("[weather05] WorkerStateChanged: worker={:?} state={:?}", w.worker_id, w.state);
-
-            if matches!(w.state, WorkerState::Success) {
-                // Take the result produced by the worker thread.
-                let weather = {
-                    let mut guard =
-                        self.weather_result.lock().unwrap_or_else(|e| e.into_inner());
-                    guard.take()
-                };
-                // Update the #weather Static widget with the result.
-                let _ = app.with_query_one_mut_as::<Static, _>("#weather", |widget| {
-                    match weather {
-                        Some(text) if !text.is_empty() => widget.update(text),
-                        _ => widget.clear(),
-                    }
-                });
-                ctx.request_repaint();
-            }
+            eprintln!(
+                "[weather05] WorkerStateChanged: worker={:?} state={:?}",
+                w.worker_id, w.state
+            );
         }
     }
 }
@@ -218,39 +197,6 @@ mod tests {
     }
 
     #[test]
-    fn initial_weather_result_is_none() {
-        let app = WeatherApp::new();
-        let guard = app.weather_result.lock().unwrap();
-        assert!(guard.is_none());
-    }
-
-    #[test]
-    fn worker_writes_result_for_nonempty_city() {
-        let result: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
-        let holder = Arc::clone(&result);
-        let city = "London".to_string();
-        let weather = format!(
-            "Weather for {city}:\n\n  Sunny  72°F (22°C)\n  Wind: 8 mph NW\n  Humidity: 45%"
-        );
-        *holder.lock().unwrap() = Some(weather);
-
-        let guard = result.lock().unwrap();
-        assert!(guard.is_some());
-        assert!(guard.as_ref().unwrap().contains("London"));
-    }
-
-    #[test]
-    fn worker_clears_result_for_empty_city() {
-        let result: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(Some("old".to_string())));
-        let holder = Arc::clone(&result);
-        // Simulate the empty-city branch writing an empty string.
-        *holder.lock().unwrap() = Some(String::new());
-
-        let guard = result.lock().unwrap();
-        assert_eq!(guard.as_deref(), Some(""));
-    }
-
-    #[test]
     fn exclusive_key_matches_python_method_name() {
         // The exclusive key mirrors the Python method name `update_weather`.
         // This ensures that rapidly calling spawn_weather_worker cancels the previous
@@ -275,5 +221,14 @@ mod tests {
         let result = fetch_weather("Berlin", &token);
         // Even when cancelled, fetch_weather returns Ok (empty or short-circuit).
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn call_from_thread_without_running_app_reports_not_running() {
+        // Outside a running event loop, call_from_thread must not block: it
+        // returns NotRunning immediately. Confirms the worker closure stays
+        // non-blocking when the app is not up.
+        let result = App::call_from_thread(|_app| 42);
+        assert_eq!(result, Err(CallFromThreadError::NotRunning));
     }
 }

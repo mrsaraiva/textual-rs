@@ -55,6 +55,7 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use tasks::AsyncTaskRuntime;
+pub use tasks::CallFromThreadError;
 use timers::{TimerCallback, TimerRuntime};
 use types::{
     AppNotification, BindingHintEntry, DEFAULT_NOTIFICATION_TIMEOUT, HitTestMap, StylesheetReload,
@@ -2440,6 +2441,57 @@ impl App {
             }
         });
         scrolled
+    }
+
+    /// Run a callable on the UI/event-loop thread from a worker thread, and
+    /// return its result.
+    ///
+    /// This is the Rust equivalent of Python Textual
+    /// [`App.call_from_thread`](https://textual.textualize.io/api/app/#textual.app.App.call_from_thread).
+    /// Textual apps are not thread-safe: mutating widgets or app state from a
+    /// background thread is undefined. `call_from_thread` posts `callback` onto
+    /// the app's event loop, where it runs with exclusive `&mut App` access, and
+    /// blocks the calling (worker) thread until the callback returns — handing
+    /// back its return value.
+    ///
+    /// Unlike Python this is an *associated function* (no `&self`): a worker
+    /// thread does not — and must not — hold an `App` reference. The app is
+    /// instead supplied to `callback` on the UI thread. Typical usage from
+    /// inside a `request_worker_task` / `request_exclusive_worker_task` closure:
+    ///
+    /// ```ignore
+    /// App::call_from_thread(move |app| {
+    ///     let _ = app.with_query_one_mut_as::<Static, _>("#weather", |w| w.update(weather));
+    /// })?;
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// - [`CallFromThreadError::NotRunning`] if no event loop is running.
+    /// - [`CallFromThreadError::SameThread`] if called on the UI thread itself
+    ///   (this would deadlock); mirrors Python's `RuntimeError`.
+    /// - [`CallFromThreadError::Disconnected`] if the app shut down before the
+    ///   callback could run.
+    ///
+    /// # Panics
+    ///
+    /// Does not panic; a callable that panics on the UI thread will propagate on
+    /// the UI thread, not here.
+    pub fn call_from_thread<F, R>(callback: F) -> std::result::Result<R, CallFromThreadError>
+    where
+        F: FnOnce(&mut App) -> R + Send + 'static,
+        R: Send + 'static,
+    {
+        tasks::call_from_thread(callback)
+    }
+
+    /// `true` when the calling thread is the active UI/event-loop thread.
+    ///
+    /// Mirrors the guard Python uses (`self._thread_id == threading.get_ident()`)
+    /// to reject `call_from_thread` from the app thread. Exposed for workers that
+    /// want to branch instead of receiving [`CallFromThreadError::SameThread`].
+    pub fn is_ui_thread() -> bool {
+        tasks::is_ui_thread()
     }
 
     /// Typed `query_one` upgrade: selector must match exactly one node whose
