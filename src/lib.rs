@@ -59,7 +59,7 @@ pub mod prelude {
     pub use crate::animation::{Animator, animation_level_from_env};
     pub use crate::compose::{ChildDecl, ComposeResult, WidgetBuilder};
     pub use crate::handle::{Handle, HandleSink, HandleSlot};
-    pub use crate::css::{StyleSelector, StyleSheet, set_style_context};
+    pub use crate::css::{StyleSelector, StyleSheet, resolve_component_style, set_style_context};
     pub use crate::debug::DebugLayout;
     pub use crate::event::{
         Action, ActionMap, AnimationEase, BindingHint, ClassOp, ClickEvent, Event, EventCtx,

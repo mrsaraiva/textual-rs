@@ -29,30 +29,32 @@
 ///     the full widget); a full repaint is requested via returning `true` from
 ///     `on_mouse_move`.
 ///   - Python component classes (`COMPONENT_CLASSES` + `get_component_rich_style`)
-///     let CSS override square colors.  `resolve_component_style` is
-///     `pub(crate)` in `textual` and therefore not accessible from examples.
-///     Colors are hardcoded to the Python DEFAULT_CSS values.
+///     let CSS override square colors.  Rust now exposes the same surface via
+///     [`Widget::component_classes`] + [`Widget::get_component_rich_style`], so
+///     the three square colours come from the CSS below (Python parity, no
+///     hardcoded hex).
 use rich_rs::{Console, ConsoleOptions, Segment, Segments};
 use textual::prelude::*;
 
 // ---------------------------------------------------------------------------
-// CSS
+// CSS — mirrors Python DEFAULT_CSS (component-class colours) + sizing.
 // ---------------------------------------------------------------------------
 
 const CSS: &str = r#"
+CheckerBoard > .checkerboard--white-square {
+    background: #A5BAC9;
+}
+CheckerBoard > .checkerboard--black-square {
+    background: #004578;
+}
+CheckerBoard > .checkerboard--cursor-square {
+    background: darkred;
+}
 CheckerBoard {
     width: 1fr;
     height: 1fr;
 }
 "#;
-
-// ---------------------------------------------------------------------------
-// Helper: build a rich_rs::Style with an RGB background color.
-// ---------------------------------------------------------------------------
-
-fn bg_style(r: u8, g: u8, b: u8) -> rich_rs::Style {
-    rich_rs::Style::new().with_bgcolor(rich_rs::SimpleColor::Rgb { r, g, b })
-}
 
 // ---------------------------------------------------------------------------
 // CheckerBoard widget
@@ -79,29 +81,38 @@ impl CheckerBoard {
 
     /// Return the background style for the square at (col, row).
     ///
-    /// Mirrors Python `get_square_style`:
-    ///   - cursor square → "checkerboard--cursor-square" (darkred)
-    ///   - otherwise     → alternate black/white based on `(col + is_odd) % 2`
+    /// Mirrors Python `render_line` square selection: the cursor square uses
+    /// the `checkerboard--cursor-square` component class, otherwise the
+    /// white/black classes alternate based on `(col + is_odd) % 2`.  All three
+    /// colours are resolved from CSS via `get_component_rich_style` (no
+    /// hardcoded hex), faithfully reproducing Python.
     fn square_style(&self, col: usize, row: usize) -> rich_rs::Style {
-        if self.cursor_col == col && self.cursor_row == row {
-            // "darkred" ≈ #8B0000
-            bg_style(0x8B, 0x00, 0x00)
+        let class = if self.cursor_col == col && self.cursor_row == row {
+            "checkerboard--cursor-square"
         } else {
             let is_odd = row % 2;
             if (col + is_odd) % 2 == 0 {
-                // "checkerboard--white-square": #A5BAC9
-                bg_style(0xA5, 0xBA, 0xC9)
+                "checkerboard--white-square"
             } else {
-                // "checkerboard--black-square": #004578
-                bg_style(0x00, 0x45, 0x78)
+                "checkerboard--black-square"
             }
-        }
+        };
+        self.get_component_rich_style(class).unwrap_or_default()
     }
 }
 
 impl Widget for CheckerBoard {
     fn style_type(&self) -> &'static str {
         "CheckerBoard"
+    }
+
+    /// Python parity: `COMPONENT_CLASSES`.
+    fn component_classes(&self) -> &[&'static str] {
+        &[
+            "checkerboard--white-square",
+            "checkerboard--black-square",
+            "checkerboard--cursor-square",
+        ]
     }
 
     /// Render the full virtual board (all `board_size * 4` rows).
@@ -253,22 +264,40 @@ mod tests {
     }
 
     #[test]
-    fn cursor_at_origin_uses_cursor_style() {
+    fn declares_component_classes() {
+        let board = CheckerBoard::new(4);
+        assert_eq!(
+            board.component_classes(),
+            &[
+                "checkerboard--white-square",
+                "checkerboard--black-square",
+                "checkerboard--cursor-square",
+            ]
+        );
+    }
+
+    #[test]
+    fn cursor_square_uses_css_cursor_colour() {
+        // Component-class colours are now CSS-driven: install the demo CSS so
+        // `square_style` resolves the cursor class (darkred = #8B0000).
+        let _guard = textual::css::set_style_context(textual::css::StyleSheet::parse(CSS));
         let mut board = CheckerBoard::new(4);
         board.cursor_col = 0;
         board.cursor_row = 0;
         let style = board.square_style(0, 0);
-        assert!(style.bgcolor.is_some());
         // Cursor is darkred: r=0x8B, g=0x00, b=0x00
         if let Some(rich_rs::SimpleColor::Rgb { r, g, b }) = style.bgcolor {
             assert_eq!(r, 0x8B);
             assert_eq!(g, 0x00);
             assert_eq!(b, 0x00);
+        } else {
+            panic!("cursor square should resolve to an RGB background, got {:?}", style.bgcolor);
         }
     }
 
     #[test]
     fn checkerboard_alternates_colors() {
+        let _guard = textual::css::set_style_context(textual::css::StyleSheet::parse(CSS));
         let mut board = CheckerBoard::new(4);
         // Move cursor away from (0,0) so it doesn't interfere.
         board.cursor_col = 3;
@@ -276,11 +305,15 @@ mod tests {
         // Row 0, is_odd=0: col 0 → (0+0)%2==0 → white; col 1 → (1+0)%2==1 → black
         let style_white = board.square_style(0, 0);
         let style_black = board.square_style(1, 0);
-        if let (Some(rich_rs::SimpleColor::Rgb { r: rw, .. }), Some(rich_rs::SimpleColor::Rgb { r: rb, .. })) =
-            (style_white.bgcolor, style_black.bgcolor)
-        {
-            assert_eq!(rw, 0xA5); // white square
-            assert_eq!(rb, 0x00); // black square
+        match (style_white.bgcolor, style_black.bgcolor) {
+            (
+                Some(rich_rs::SimpleColor::Rgb { r: rw, .. }),
+                Some(rich_rs::SimpleColor::Rgb { r: rb, .. }),
+            ) => {
+                assert_eq!(rw, 0xA5); // white square (#A5BAC9)
+                assert_eq!(rb, 0x00); // black square (#004578)
+            }
+            other => panic!("expected RGB backgrounds from CSS, got {:?}", other),
         }
     }
 }

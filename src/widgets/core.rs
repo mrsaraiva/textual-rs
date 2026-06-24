@@ -766,6 +766,46 @@ pub trait Widget: Send + Sync + Any {
     fn border_subtitle(&self) -> Option<&str> {
         None
     }
+    /// Component-class names this widget declares (Python `COMPONENT_CLASSES`).
+    ///
+    /// A component class is a sub-element style hook: CSS rules targeting
+    /// `WidgetType .component--name` (or `WidgetType > .component--name`) let
+    /// users/themes restyle internal parts of a custom widget. Declaring the
+    /// class names here documents the public styling surface and mirrors
+    /// Python's `COMPONENT_CLASSES: ClassVar[set[str]]`.
+    ///
+    /// The default is empty. Custom widgets that paint sub-elements via
+    /// [`Widget::get_component_rich_style`] should override this.
+    fn component_classes(&self) -> &[&'static str] {
+        &[]
+    }
+    /// Resolve the CSS [`Style`] for a declared component class.
+    ///
+    /// Mirrors Python `Widget.get_component_styles(name)`: it resolves the
+    /// stylesheet rules for `SelfType .name` against the current style context
+    /// (so the widget's own pseudo-classes / ancestor context apply), combined
+    /// with the widget's own resolved style as the base surface.
+    ///
+    /// This is the canonical, public entry point for custom widgets to read
+    /// component-class colours/attributes from CSS instead of hardcoding them.
+    fn get_component_styles(&self, name: &str) -> Style {
+        crate::css::resolve_component_style(self, &[name])
+    }
+    /// Resolve a declared component class as a ready-to-paint `rich_rs::Style`.
+    ///
+    /// Mirrors Python `Widget.get_component_rich_style(name)`: resolve the
+    /// component-class CSS, then convert to a Rich style (flattening any
+    /// semi-transparent colours over the effective background). Returns `None`
+    /// only when the resolved style carries no paintable attributes (no fg/bg
+    /// and no text attributes) — equivalent to an empty Rich style.
+    ///
+    /// Custom widgets use this directly inside `render` / `render_line`:
+    /// ```ignore
+    /// let white = self.get_component_rich_style("checkerboard--white-square");
+    /// ```
+    fn get_component_rich_style(&self, name: &str) -> Option<rich_rs::Style> {
+        self.get_component_styles(name).to_rich()
+    }
     /// Type-meta-only styled render wrapper for off-tree (non-arena) rendering.
     ///
     /// Children rendered through this path have no DOM identity: the selector
