@@ -7,6 +7,29 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-24 (fix(color): port LAB conversion exactly to Python's easyrgb f64 form)
+
+- **`rgb_to_lab` / `lab_to_rgb` are now byte-exact to Python Textual.** The RGB↔CIE-L\*a\*b\*
+  conversion in `src/style.rs` was the Bruce-Lindbloom `6/29` piecewise form in `f32`; Python
+  Textual's `textual/color.py` uses the easyrgb form (`7.787*t + 16/116`, thresholds `0.008856` /
+  `0.2068930344`, asymmetric `lab_to_rgb` X/Y/Z constants) in `f64`. The conversion is now a faithful
+  `f64` port of the easyrgb form. `lighten_lab` / `darken_lab` take `f64` amounts (so the luminosity
+  step `spread/2 = 0.075` feeds the LAB math without `f32` rounding), drop the non-Python pre-conversion
+  `L` clamp (Python only `.clamped`s the final RGBA), and truncate channels with `int(c*255)` semantics.
+  This removes shade-token drift of up to 42/channel across the `$*-lighten-*` / `$*-darken-*`
+  design tokens.
+- **`textual-dark` base colors corrected.** The static token table stored `accent`/`warning` as
+  `#FEA62B` and `error` as `#B93C5B` — these are Python's *round-tripped* `n==0` shade values, not the
+  source colors. The table now stores the source colors (`#FFA62B`, `#FFA62B`, `#BA3C5B`) so the
+  lighten/darken shades derive correctly, while the BARE `$accent`/`$warning`/`$error`/… design tokens
+  reproduce Python's `color.lighten(0)` LAB round-trip (`#FEA62B`/`#B93C5B`). Tokens derived from
+  `accent.hex` in Python's `_generate` (e.g. `footer-key-foreground`) keep the raw source color,
+  matching Python. All 78 shade tokens (both the `parse_color_like` static path and the
+  `ColorSystem.generate` path in `src/theme.rs`) are now byte-exact to Python's `textual-dark`.
+- New regression tests `style::tests::lab_shade_parity_with_python` (41 LAB lighten/darken cases) and
+  `style::tests::dark_design_tokens_match_python_generate` (bare + shade + derived tokens) lock the
+  parity. No styled-parity regression (72 PASSING held).
+
 ### 2026-06-23 (feat(renderwire): B-cluster renderable wiring — gradient, OptionContent, pretty, rich_log)
 
 - **`LinearGradient` — multi-stop gradient in `ProgressBar`.** `ProgressBar` previously collapsed

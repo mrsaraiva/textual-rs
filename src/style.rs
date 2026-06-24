@@ -528,9 +528,9 @@ fn resolve_textual_dark_token(name: &str) -> Option<Color> {
         // Theme "textual-dark" from Python Textual.
         m.insert("primary", Color::parse("#0178D4").unwrap());
         m.insert("secondary", Color::parse("#004578").unwrap());
-        m.insert("accent", Color::parse("#FEA62B").unwrap());
-        m.insert("warning", Color::parse("#FEA62B").unwrap());
-        m.insert("error", Color::parse("#B93C5B").unwrap());
+        m.insert("accent", Color::parse("#FFA62B").unwrap());
+        m.insert("warning", Color::parse("#FFA62B").unwrap());
+        m.insert("error", Color::parse("#BA3C5B").unwrap());
         m.insert("success", Color::parse("#4EBF71").unwrap());
         m.insert("foreground", Color::parse("#E0E0E0").unwrap());
         // Defaults from `textual/design.py` for dark mode.
@@ -552,6 +552,9 @@ fn resolve_textual_dark_token(name: &str) -> Option<Color> {
         let foreground = m.get("foreground").copied().unwrap();
         let surface = m.get("surface").copied().unwrap();
         let primary = m.get("primary").copied().unwrap();
+        // Python's `_generate` derives tokens like `footer-key-foreground` from
+        // `accent.hex` — the RAW source color (`#FFA62B`), not the round-tripped
+        // `$accent` design token (`#FEA62B`). So derived tokens keep the raw base.
         let accent = m.get("accent").copied().unwrap();
         let contrast = contrast_text(background);
 
@@ -665,7 +668,22 @@ fn resolve_textual_dark_token(name: &str) -> Option<Color> {
     });
 
     // Direct hit.
+    //
+    // For the shade-bearing base colors (primary/secondary/accent/warning/error/
+    // success), Python emits the BARE design token as the `n == 0` shade —
+    // `color.lighten(0)` — which is the LAB round-trip of the source color, NOT
+    // the source color itself. That round-trip is lossy for some hues (e.g.
+    // accent/warning `#FFA62B` -> `#FEA62B`, error `#BA3C5B` -> `#B93C5B`). We
+    // therefore store the ORIGINAL source colors here (so the lighten/darken
+    // shades derive from the right base) and reproduce Python's bare token by
+    // passing the base through `lighten_lab(_, 0.0)`.
     if let Some(color) = base.get(name).copied() {
+        if matches!(
+            name,
+            "primary" | "secondary" | "accent" | "warning" | "error" | "success"
+        ) {
+            return Some(lighten_lab(color, 0.0));
+        }
         return Some(color);
     }
 
@@ -680,8 +698,8 @@ fn resolve_textual_dark_token(name: &str) -> Option<Color> {
     // Textual uses luminosity_spread=0.15 and NUMBER_OF_SHADES=3, so step=0.075.
     if let Some((base_name, kind, n)) = parse_shade(name) {
         let color = base.get(base_name).copied()?;
-        let step = 0.15 / 2.0;
-        let delta = step * (n as f32);
+        let step = 0.15_f64 / 2.0;
+        let delta = step * (n as f64);
         return Some(match kind {
             ShadeKind::Lighten => lighten_lab(color, delta),
             ShadeKind::Darken => darken_lab(color, delta),
@@ -746,22 +764,19 @@ fn blend(a: Color, b: Color, t: f32) -> Color {
     Color::rgba_f(mix(ar, br), mix(ag, bg), mix(ab, bb), alpha)
 }
 
-pub(crate) fn lighten_lab(color: Color, amount: f32) -> Color {
+pub(crate) fn lighten_lab(color: Color, amount: f64) -> Color {
     darken_lab(color, -amount)
 }
 
-pub(crate) fn darken_lab(color: Color, amount: f32) -> Color {
+pub(crate) fn darken_lab(color: Color, amount: f64) -> Color {
+    // Python `Color.darken`: l -= amount*100 (no pre-conversion L clamp);
+    // clamping happens only on the final RGBA via `.clamped`. `amount` is f64 so
+    // the luminosity step (e.g. spread/2 = 0.075) is byte-exact with Python.
     let alpha = color.a;
     let (l, a, b) = rgb_to_lab(color);
-    let mut l = l - amount * 100.0;
-    if l < 0.0 {
-        l = 0.0;
-    } else if l > 100.0 {
-        l = 100.0;
-    }
-    let mut out = lab_to_rgb(l, a, b);
-    out.a = alpha;
-    out
+    let l = l - amount * 100.0;
+    let out = lab_to_rgb(l, a, b, alpha);
+    out.clamped()
 }
 
 pub(crate) fn contrast_text(color: Color) -> Color {
@@ -777,84 +792,104 @@ pub(crate) fn contrast_text(color: Color) -> Color {
     }
 }
 
-fn rgb_to_lab(color: Color) -> (f32, f32, f32) {
-    let (r, g, b) = to_rgb(color);
-    let r = srgb_to_linear(r as f32 / 255.0);
-    let g = srgb_to_linear(g as f32 / 255.0);
-    let b = srgb_to_linear(b as f32 / 255.0);
+/// Convert an RGB color to CIE-L*a*b* via XYZ, byte-exact to Python Textual's
+/// `textual.color.rgb_to_lab` (easyrgb form, f64). Cf. http://www.easyrgb.com/en/math.php.
+fn rgb_to_lab(color: Color) -> (f64, f64, f64) {
+    let (r8, g8, b8) = to_rgb(color);
+    let mut r = r8 as f64 / 255.0;
+    let mut g = g8 as f64 / 255.0;
+    let mut b = b8 as f64 / 255.0;
 
-    let x = r * 0.4124 + g * 0.3576 + b * 0.1805;
-    let y = r * 0.2126 + g * 0.7152 + b * 0.0722;
-    let z = r * 0.0193 + g * 0.1192 + b * 0.9505;
-
-    let (xr, yr, zr) = (x / 0.95047, y / 1.0, z / 1.08883);
-    let fx = lab_f(xr);
-    let fy = lab_f(yr);
-    let fz = lab_f(zr);
-
-    let l = 116.0 * fy - 16.0;
-    let a = 500.0 * (fx - fy);
-    let b = 200.0 * (fy - fz);
-    (l, a, b)
-}
-
-fn lab_to_rgb(l: f32, a: f32, b: f32) -> Color {
-    let fy = (l + 16.0) / 116.0;
-    let fx = fy + a / 500.0;
-    let fz = fy - b / 200.0;
-
-    let xr = lab_f_inv(fx);
-    let yr = lab_f_inv(fy);
-    let zr = lab_f_inv(fz);
-
-    let x = xr * 0.95047;
-    let y = yr * 1.0;
-    let z = zr * 1.08883;
-
-    let r = x * 3.2406 + y * -1.5372 + z * -0.4986;
-    let g = x * -0.9689 + y * 1.8758 + z * 0.0415;
-    let b = x * 0.0557 + y * -0.2040 + z * 1.0570;
-
-    let r = linear_to_srgb(r);
-    let g = linear_to_srgb(g);
-    let b = linear_to_srgb(b);
-
-    let clamp = |v: f32| -> u8 { (v * 255.0).clamp(0.0, 255.0) as u8 };
-    from_rgb(clamp(r), clamp(g), clamp(b))
-}
-
-fn srgb_to_linear(c: f32) -> f32 {
-    if c <= 0.04045 {
-        c / 12.92
+    r = if r > 0.04045 {
+        ((r + 0.055) / 1.055).powf(2.4)
     } else {
-        ((c + 0.055) / 1.055).powf(2.4)
-    }
+        r / 12.92
+    };
+    g = if g > 0.04045 {
+        ((g + 0.055) / 1.055).powf(2.4)
+    } else {
+        g / 12.92
+    };
+    b = if b > 0.04045 {
+        ((b + 0.055) / 1.055).powf(2.4)
+    } else {
+        b / 12.92
+    };
+
+    let mut x = (r * 41.24 + g * 35.76 + b * 18.05) / 95.047;
+    let mut y = (r * 21.26 + g * 71.52 + b * 7.22) / 100.0;
+    let mut z = (r * 1.93 + g * 11.92 + b * 95.05) / 108.883;
+
+    let off = 16.0 / 116.0;
+    x = if x > 0.008856 {
+        x.powf(1.0 / 3.0)
+    } else {
+        7.787 * x + off
+    };
+    y = if y > 0.008856 {
+        y.powf(1.0 / 3.0)
+    } else {
+        7.787 * y + off
+    };
+    z = if z > 0.008856 {
+        z.powf(1.0 / 3.0)
+    } else {
+        7.787 * z + off
+    };
+
+    (116.0 * y - 16.0, 500.0 * (x - y), 200.0 * (y - z))
 }
 
-fn linear_to_srgb(c: f32) -> f32 {
-    if c <= 0.0031308 {
-        c * 12.92
-    } else {
-        1.055 * c.powf(1.0 / 2.4) - 0.055
-    }
-}
+/// Convert a CIE-L*a*b* color back to RGB via XYZ, byte-exact to Python Textual's
+/// `textual.color.lab_to_rgb` (easyrgb form, f64). Result is NOT clamped here —
+/// callers apply `.clamped()`, matching Python's `int(c * 255)` + `.clamped`.
+fn lab_to_rgb(l: f64, a: f64, b: f64, alpha: f32) -> Color {
+    let mut y = (l + 16.0) / 116.0;
+    let mut x = a / 500.0 + y;
+    let mut z = y - b / 200.0;
 
-fn lab_f(t: f32) -> f32 {
-    let delta: f32 = 6.0 / 29.0;
-    if t > delta.powi(3) {
-        t.powf(1.0 / 3.0)
+    let off = 16.0 / 116.0;
+    y = if y > 0.2068930344 {
+        y.powi(3)
     } else {
-        t / (3.0 * delta.powi(2)) + 4.0 / 29.0
-    }
-}
+        (y - off) / 7.787
+    };
+    x = if x > 0.2068930344 {
+        0.95047 * x.powi(3)
+    } else {
+        0.122059 * (x - off)
+    };
+    z = if z > 0.2068930344 {
+        1.08883 * z.powi(3)
+    } else {
+        0.139827 * (z - off)
+    };
 
-fn lab_f_inv(t: f32) -> f32 {
-    let delta: f32 = 6.0 / 29.0;
-    if t > delta {
-        t.powi(3)
+    let mut r = x * 3.2406 + y * -1.5372 + z * -0.4986;
+    let mut g = x * -0.9689 + y * 1.8758 + z * 0.0415;
+    let mut bb = x * 0.0557 + y * -0.2040 + z * 1.0570;
+
+    r = if r > 0.0031308 {
+        1.055 * r.powf(1.0 / 2.4) - 0.055
     } else {
-        3.0 * delta.powi(2) * (t - 4.0 / 29.0)
-    }
+        12.92 * r
+    };
+    g = if g > 0.0031308 {
+        1.055 * g.powf(1.0 / 2.4) - 0.055
+    } else {
+        12.92 * g
+    };
+    bb = if bb > 0.0031308 {
+        1.055 * bb.powf(1.0 / 2.4) - 0.055
+    } else {
+        12.92 * bb
+    };
+
+    // Python: Color(int(r*255), int(g*255), int(b*255), alpha). `int()` truncates
+    // toward zero; Rust's saturating f64->u8 cast matches after truncation for the
+    // in-gamut range, and out-of-range values are corrected by the caller's `.clamped()`.
+    let to_byte = |v: f64| -> u8 { v.trunc().clamp(0.0, 255.0) as u8 };
+    Color::rgba_f(to_byte(r * 255.0), to_byte(g * 255.0), to_byte(bb * 255.0), alpha)
 }
 
 pub(crate) fn blend_colors(a: Color, b: Color, percent: u8) -> Color {
@@ -3300,6 +3335,130 @@ impl Default for Theme {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Byte-exact LAB lighten/darken parity with Python Textual
+    /// (`textual.color.Color.lighten/.darken`, easyrgb f64 form).
+    /// Expected hexes generated from the Python reference; any divergence here
+    /// means the LAB conversion drifted from Python and shade tokens will mismatch.
+    #[test]
+    fn lab_shade_parity_with_python() {
+        fn hex(c: Color) -> String {
+            format!("#{:02X}{:02X}{:02X}", c.r, c.g, c.b)
+        }
+        // (input_hex, amount, expected_hex). amount >= 0 => darken(amount);
+        // amount < 0 => lighten(-amount). Mirrors Color.darken/.lighten.
+        let cases: &[(&str, f64, &str)] = &[
+            ("#004578", 0.10, "#002F5E"),
+            ("#004578", 0.20, "#001A46"),
+            ("#004578", 0.30, "#000030"),
+            ("#004578", -0.10, "#2C5C91"),
+            ("#004578", -0.20, "#4974AC"),
+            ("#0178D4", 0.10, "#005FB7"),
+            ("#0178D4", 0.20, "#00489C"),
+            ("#0178D4", 0.30, "#003282"),
+            ("#0178D4", -0.10, "#4091F0"),
+            ("#0178D4", -0.20, "#64ABFF"),
+            ("#FFA62B", 0.10, "#DF8B00"),
+            ("#FFA62B", 0.20, "#C07100"),
+            ("#FFA62B", 0.30, "#A15900"),
+            ("#FFA62B", -0.10, "#FFC148"),
+            ("#FFA62B", -0.20, "#FFDD64"),
+            ("#BA3C5B", 0.10, "#9C1D43"),
+            ("#BA3C5B", 0.20, "#7F002D"),
+            ("#BA3C5B", 0.30, "#620019"),
+            ("#BA3C5B", -0.10, "#D85773"),
+            ("#BA3C5B", -0.20, "#F6728C"),
+            ("#1E1E1E", 0.10, "#040404"),
+            ("#1E1E1E", 0.20, "#000000"),
+            ("#1E1E1E", -0.10, "#333333"),
+            ("#1E1E1E", -0.20, "#494949"),
+            ("#121212", 0.10, "#000000"),
+            ("#121212", -0.10, "#262626"),
+            ("#121212", -0.20, "#3C3C3C"),
+            ("#E0E0E0", 0.10, "#C4C4C4"),
+            ("#E0E0E0", 0.20, "#A8A8A8"),
+            ("#E0E0E0", 0.30, "#8E8E8E"),
+            ("#E0E0E0", -0.10, "#FCFCFC"),
+            ("#E0E0E0", -0.20, "#FFFFFF"),
+            ("#3465A4", 0.10, "#094D89"),
+            ("#3465A4", 0.20, "#00366F"),
+            ("#3465A4", 0.30, "#002256"),
+            ("#3465A4", -0.10, "#527DBF"),
+            ("#3465A4", -0.20, "#6E97DB"),
+            ("#264F78", 0.10, "#00385F"),
+            ("#264F78", 0.20, "#002347"),
+            ("#264F78", 0.30, "#000C30"),
+            ("#264F78", -0.10, "#416691"),
+            ("#264F78", -0.20, "#5C7FAC"),
+        ];
+        for (input, amount, expected) in cases {
+            let c = parse_color_like(input).expect("parse input hex");
+            let out = if *amount >= 0.0 {
+                darken_lab(c, *amount)
+            } else {
+                lighten_lab(c, -*amount)
+            };
+            assert_eq!(
+                hex(out),
+                *expected,
+                "lab shade {input} {amount:+.2} -> got {} expected {expected}",
+                hex(out)
+            );
+        }
+    }
+
+    /// The resolved `$token` design tokens (bare + lighten/darken shades) for the
+    /// default `textual-dark` theme must be byte-exact to Python Textual's
+    /// `ColorSystem.generate()`. The bare base-color tokens are Python's `n == 0`
+    /// shade (LAB round-trip), so accent/warning resolve to `#FEA62B` and error to
+    /// `#B93C5B` even though the SHADES derive from the un-round-tripped base.
+    #[test]
+    fn dark_design_tokens_match_python_generate() {
+        fn tok(name: &str) -> String {
+            let c = parse_color_like(&format!("${name}"))
+                .unwrap_or_else(|| panic!("token ${name} did not resolve"));
+            format!("#{:02X}{:02X}{:02X}", c.r, c.g, c.b)
+        }
+        // (token, expected hex from Python `cs.generate()`).
+        let cases: &[(&str, &str)] = &[
+            // Bare base colors = Python's n==0 shade (LAB round-trip).
+            ("primary", "#0178D4"),
+            ("secondary", "#004578"),
+            ("accent", "#FEA62B"),
+            ("warning", "#FEA62B"),
+            ("error", "#B93C5B"),
+            ("success", "#4EBF71"),
+            // Shades derive from the ORIGINAL (un-round-tripped) base color.
+            ("accent-darken-1", "#E7920D"),
+            ("accent-darken-2", "#CF7E00"),
+            ("accent-darken-3", "#B86B00"),
+            ("accent-lighten-1", "#FFBA41"),
+            ("accent-lighten-2", "#FFCF56"),
+            ("accent-lighten-3", "#FFE46B"),
+            ("warning-darken-1", "#E7920D"),
+            ("error-darken-1", "#A32549"),
+            ("error-darken-2", "#8D0638"),
+            ("error-darken-3", "#780028"),
+            ("error-lighten-1", "#D0506D"),
+            ("error-lighten-2", "#E76580"),
+            ("error-lighten-3", "#FE7993"),
+            ("primary-darken-1", "#0065BE"),
+            ("primary-darken-2", "#0053AA"),
+            ("primary-darken-3", "#004295"),
+            ("primary-lighten-1", "#368AE9"),
+            ("primary-lighten-2", "#539EFF"),
+            ("primary-lighten-3", "#6DB2FF"),
+            ("secondary-darken-1", "#003465"),
+            ("secondary-lighten-1", "#23568B"),
+            ("success-darken-1", "#36AA5E"),
+            ("success-lighten-1", "#64D484"),
+            ("surface-lighten-1", "#2D2D2D"),
+            ("surface-darken-1", "#0D0D0D"),
+        ];
+        for (name, expected) in cases {
+            assert_eq!(tok(name), *expected, "design token ${name}");
+        }
+    }
 
     #[test]
     fn resolve_scalar_exact_keeps_fraction() {
