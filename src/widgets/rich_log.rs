@@ -436,8 +436,15 @@ impl RichLog {
         self
     }
 
+    /// Write a value as a pretty-printed repr renderable.
+    ///
+    /// Mirrors Python `RichLog.write(Pretty(content))`: the value's `Debug`
+    /// output is fed through the `rich_rs` pretty-printer (syntax highlighting,
+    /// indentation, Python-repr-style string quoting) rather than being written
+    /// as a plain text string.
     pub fn write_debug<T: std::fmt::Debug>(&mut self, value: T) -> &mut Self {
-        self.write(format!("{value:?}"))
+        let pretty = rich_rs::pretty::Pretty::from_str(format!("{value:?}"));
+        self.write_renderable(pretty)
     }
 
     pub fn clear(&mut self) -> &mut Self {

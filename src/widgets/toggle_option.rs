@@ -1,5 +1,7 @@
+use std::sync::Arc;
+
 use crossterm::event::KeyCode;
-use rich_rs::Text;
+use rich_rs::{Renderable, Text};
 
 use crate::event::{Action, Event};
 use crate::node_id::NodeId;
@@ -30,17 +32,52 @@ impl From<&str> for OptionId {
     }
 }
 
+/// Rich content for an `OptionItem` option row.
+///
+/// An option can hold either a [`Text`] value (pre-rendered, cheap to clone,
+/// line count computable from `plain_text()`) or an arbitrary [`Renderable`]
+/// (for tables, diagrams, etc.) that renders live at the runtime widget width.
+///
+/// Matches Python's `OptionListContent = Option | VisualType | None` model where
+/// `VisualType` includes any Rich renderable (tables, panels, …).
+pub enum OptionContent {
+    /// Rich-text content (pre-formed, line count is `plain_text().split('\n').count()`).
+    Text(Text),
+    /// Arbitrary renderable (table, panel, …). Rendered live at runtime width.
+    /// Height is not known until rendered; `OptionList` re-measures on layout.
+    Renderable(Arc<dyn Renderable>),
+}
+
+impl Clone for OptionContent {
+    fn clone(&self) -> Self {
+        match self {
+            Self::Text(t) => Self::Text(t.clone()),
+            Self::Renderable(r) => Self::Renderable(Arc::clone(r)),
+        }
+    }
+}
+
+impl std::fmt::Debug for OptionContent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Text(t) => f.debug_tuple("Text").field(&t.plain_text()).finish(),
+            Self::Renderable(_) => f.write_str("Renderable(..)"),
+        }
+    }
+}
+
 /// Shared option row model used by `OptionList`, `Select`, and `SelectionList`.
 ///
-/// Items can hold either a plain text `prompt` or rich [`Text`] content.
-/// When both are present, rich content takes precedence during rendering
+/// Items can hold either a plain text `prompt` or rich [`OptionContent`].
+/// When content is present, it takes precedence over `prompt` during rendering
 /// while the plain prompt serves as a fallback / accessibility label.
 #[derive(Debug, Clone)]
 pub enum OptionItem {
     Option {
         prompt: String,
-        /// Rich text content. When set, takes precedence over `prompt` during rendering.
-        content: Option<Text>,
+        /// Rich content (Text or arbitrary Renderable).
+        /// When set, takes precedence over `prompt` during rendering.
+        content: Option<OptionContent>,
         id: Option<OptionId>,
         disabled: bool,
     },
@@ -116,7 +153,7 @@ impl OptionItem {
     pub fn rich(label: impl Into<String>, content: Text) -> Self {
         Self::Option {
             prompt: label.into(),
-            content: Some(content),
+            content: Some(OptionContent::Text(content)),
             id: None,
             disabled: false,
         }
@@ -126,7 +163,42 @@ impl OptionItem {
     pub fn rich_with_id(label: impl Into<String>, content: Text, id: impl Into<OptionId>) -> Self {
         Self::Option {
             prompt: label.into(),
-            content: Some(content),
+            content: Some(OptionContent::Text(content)),
+            id: Some(id.into()),
+            disabled: false,
+        }
+    }
+
+    /// Create an option with an arbitrary [`Renderable`] content.
+    ///
+    /// The renderable is rendered live at the runtime widget width (unlike
+    /// `rich()` which uses a fixed-width pre-rendered `Text`). This is the
+    /// correct path for `rich_rs::Table` and other dynamic renderables that
+    /// need to reflow at the actual content width.
+    ///
+    /// Mirrors Python `OptionList(*[Option(table)])` where `table` is a Rich
+    /// `Table` renderable.
+    pub fn renderable(
+        label: impl Into<String>,
+        renderable: impl Renderable + 'static,
+    ) -> Self {
+        Self::Option {
+            prompt: label.into(),
+            content: Some(OptionContent::Renderable(Arc::new(renderable))),
+            id: None,
+            disabled: false,
+        }
+    }
+
+    /// Create a renderable option with a typed id.
+    pub fn renderable_with_id(
+        label: impl Into<String>,
+        renderable: impl Renderable + 'static,
+        id: impl Into<OptionId>,
+    ) -> Self {
+        Self::Option {
+            prompt: label.into(),
+            content: Some(OptionContent::Renderable(Arc::new(renderable))),
             id: Some(id.into()),
             disabled: false,
         }
@@ -138,7 +210,20 @@ impl OptionItem {
             content: ref mut c, ..
         } = self
         {
-            *c = Some(content);
+            *c = Some(OptionContent::Text(content));
+        }
+        self
+    }
+
+    /// Builder: attach a renderable to this option.
+    ///
+    /// The renderable is rendered live at the runtime widget width.
+    pub fn with_renderable(mut self, renderable: impl Renderable + 'static) -> Self {
+        if let Self::Option {
+            content: ref mut c, ..
+        } = self
+        {
+            *c = Some(OptionContent::Renderable(Arc::new(renderable)));
         }
         self
     }
@@ -163,10 +248,18 @@ impl OptionItem {
     }
 
     /// Rich content, if any.
-    pub fn content(&self) -> Option<&Text> {
+    pub fn content(&self) -> Option<&OptionContent> {
         match self {
             Self::Option { content, .. } => content.as_ref(),
             Self::Separator => None,
+        }
+    }
+
+    /// Access the content as `Text`, if it is a `Text` variant.
+    pub fn text_content(&self) -> Option<&Text> {
+        match self.content() {
+            Some(OptionContent::Text(t)) => Some(t),
+            _ => None,
         }
     }
 

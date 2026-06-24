@@ -9,9 +9,13 @@ pub(crate) mod toggle_option;
 
 use super::{NodeSeed, ScrollBar, Widget, helpers::adjust_line_length_no_bg};
 use toggle_option::OptionCursorState;
-pub use toggle_option::{OptionId, OptionItem};
+pub use toggle_option::{OptionContent, OptionId, OptionItem};
 
 pub(crate) const OPTION_LIST_VSCROLLBAR_ID: &str = "__option_list_vscrollbar";
+
+/// Width of the vertical scrollbar (Python `scrollbar-size-vertical` default is 2).
+/// Renderable items must not expand into this zone or the scrollbar will overwrite them.
+const SCROLLBAR_THICKNESS: usize = 2;
 
 /// A scrollable, navigable list of selectable options.
 ///
@@ -25,6 +29,8 @@ pub struct OptionList {
     offset: usize,
     hovered_index: Option<usize>,
     viewport_height: usize,
+    /// Most recent layout width (stored so Renderable item heights can be computed).
+    layout_width: usize,
     scroll_step: usize,
     scrollbar_extracted: bool,
     seed: NodeSeed,
@@ -44,6 +50,7 @@ impl OptionList {
             offset: 0,
             hovered_index: None,
             viewport_height: 1,
+            layout_width: 80,
             scroll_step: 1,
             scrollbar_extracted: false,
             seed,
@@ -97,7 +104,31 @@ impl OptionList {
         let was_empty = self.cursor.highlighted().is_none();
         self.items.push(OptionItem::Option {
             prompt: label.into(),
-            content: Some(content),
+            content: Some(OptionContent::Text(content)),
+            id,
+            disabled,
+        });
+        if was_empty && !disabled {
+            self.cursor.set_highlighted(Some(self.items.len() - 1));
+        }
+    }
+
+    /// Add a selectable option with arbitrary [`Renderable`] content.
+    ///
+    /// The renderable is stored as `Arc<dyn Renderable>` and rendered live at
+    /// the runtime widget width. Use this for `Table`, `Panel`, and other
+    /// multi-row or dynamically-sized renderables.
+    pub fn add_renderable_option(
+        &mut self,
+        label: impl Into<String>,
+        renderable: impl Renderable + 'static,
+        id: Option<OptionId>,
+        disabled: bool,
+    ) {
+        let was_empty = self.cursor.highlighted().is_none();
+        self.items.push(OptionItem::Option {
+            prompt: label.into(),
+            content: Some(OptionContent::Renderable(std::sync::Arc::new(renderable))),
             id,
             disabled,
         });
@@ -241,17 +272,72 @@ impl OptionList {
             .collect()
     }
 
+    /// Render an arbitrary [`Renderable`] option content into display lines,
+    /// applying `line_style` as a base for highlight/hover backgrounds.
+    ///
+    /// Used for `OptionContent::Renderable` items (tables, panels, etc.) where
+    /// the content is rendered live at the runtime `width` rather than being
+    /// pre-rendered into a `Text`.
+    fn render_renderable_lines(
+        &self,
+        renderable: &dyn Renderable,
+        line_style: rich_rs::Style,
+        width: usize,
+        console: &Console,
+        options: &ConsoleOptions,
+    ) -> Vec<Vec<Segment>> {
+        let mut content_options = options.clone();
+        content_options.size = (width, options.size.1.max(40).max(options.size.1));
+        content_options.max_width = width;
+        content_options.max_height = 40;
+
+        let segs: Vec<Segment> = renderable.render(console, &content_options).into_iter().collect();
+        let split = Segment::split_and_crop_lines(segs, width, None, true, false);
+        if split.is_empty() {
+            return vec![adjust_line_length_no_bg(&[], width)];
+        }
+        split
+            .into_iter()
+            .map(|line| {
+                // Apply line_style as base for highlight/hover backgrounds.
+                let styled: Vec<Segment> = line
+                    .into_iter()
+                    .map(|seg| {
+                        if seg.control.is_some() {
+                            return seg;
+                        }
+                        let merged = line_style.combine(&seg.style.unwrap_or_default());
+                        Segment::styled(seg.text.clone(), merged)
+                    })
+                    .collect();
+                adjust_line_length_no_bg(&styled, width)
+            })
+            .collect()
+    }
+
     /// Number of display lines an option occupies.
     ///
-    /// Rich content height is its newline-separated line count (the example pre-renders
-    /// multi-row renderables into a `Text` with embedded newlines, so this is
-    /// width-independent and keeps layout/scrolling consistent with rendering).
-    /// Plain options and separators are a single line.
+    /// For `Text` content, the height is its newline-separated line count
+    /// (width-independent). For `Renderable` content, we render at `layout_width`
+    /// to count lines (matches Python's per-option height measurement). Plain
+    /// options and separators are a single line.
     fn item_height(&self, item: &OptionItem) -> usize {
         match item {
             OptionItem::Separator => 1,
             OptionItem::Option { content, .. } => match content {
-                Some(text) => text.plain_text().split('\n').count().max(1),
+                Some(OptionContent::Text(text)) => text.plain_text().split('\n').count().max(1),
+                Some(OptionContent::Renderable(r)) => {
+                    let console = Console::new();
+                    let width = self.layout_width.max(1);
+                    let options = ConsoleOptions {
+                        size: (width, 40),
+                        max_width: width,
+                        max_height: 40,
+                        ..Default::default()
+                    };
+                    let segs = r.render(&console, &options);
+                    Segment::split_lines(segs).len().max(1)
+                }
                 None => 1,
             },
         }
@@ -271,10 +357,15 @@ impl OptionList {
                 OptionItem::Option {
                     prompt, content, ..
                 } => {
-                    let text_width = if let Some(rich) = content {
-                        rich.cell_len()
-                    } else {
-                        rich_rs::cell_len(prompt)
+                    let text_width = match content {
+                        Some(OptionContent::Text(rich)) => rich.cell_len(),
+                        Some(OptionContent::Renderable(r)) => {
+                            // Measure renderable using rich_rs measure API.
+                            let console = Console::new();
+                            let options = ConsoleOptions::default();
+                            rich_rs::Renderable::measure(r.as_ref(), &console, &options).maximum
+                        }
+                        None => rich_rs::cell_len(prompt),
                     };
                     text_width.saturating_add(2) // 2-char indent
                 }
@@ -484,7 +575,8 @@ impl Widget for OptionList {
         }
     }
 
-    fn on_layout(&mut self, _width: u16, height: u16) {
+    fn on_layout(&mut self, width: u16, height: u16) {
+        self.layout_width = usize::from(width).max(1);
         self.viewport_height = usize::from(height).max(1);
         self.ensure_visible();
     }
@@ -631,6 +723,21 @@ impl Widget for OptionList {
         let height = options.size.1.max(1);
         let mut out = Segments::new();
 
+        // When the vertical scrollbar is visible (content overflows viewport), it
+        // occupies the rightmost SCROLLBAR_THICKNESS columns. Renderable items
+        // (e.g. Tables with expand=True) must be rendered at a narrower width so
+        // they don't bleed into the scrollbar zone — Python uses
+        // `scrollable_content_region.width` which already subtracts the
+        // scrollbar_size_vertical (default 2). Text items use `width` as before
+        // because `adjust_line_length_no_bg` pads with spaces that the scrollbar
+        // overlay naturally overwrites.
+        let scrollbar_visible = self.total_lines() > height;
+        let renderable_width = if scrollbar_visible {
+            width.saturating_sub(SCROLLBAR_THICKNESS)
+        } else {
+            width
+        };
+
         let base_style = crate::css::resolve_component_style(self, &["option-list--option"])
             .to_rich()
             .unwrap_or_else(rich_rs::Style::new);
@@ -692,16 +799,27 @@ impl Widget for OptionList {
                                 .unwrap_or(base_style);
 
                             let lines = rendered_items.entry(index).or_insert_with(|| {
-                                if let Some(rich) = content {
-                                    self.render_rich_lines(rich, style, width, console, options)
-                                } else {
-                                    // Plain text fallback. No hardcoded indent: the
-                                    // `OptionList` default `padding: 0 1` supplies the
-                                    // single-space inset (Python parity).
-                                    vec![adjust_line_length_no_bg(
-                                        &[Segment::styled(prompt.to_string(), style)],
-                                        width,
-                                    )]
+                                match content {
+                                    Some(OptionContent::Text(rich)) => {
+                                        self.render_rich_lines(rich, style, width, console, options)
+                                    }
+                                    Some(OptionContent::Renderable(r)) => {
+                                        // Render at renderable_width (< width when scrollbar
+                                        // is visible) so the table/renderable doesn't bleed
+                                        // into the scrollbar overlay zone. Python uses
+                                        // scrollable_content_region.width which already
+                                        // subtracts scrollbar_size_vertical (default 2).
+                                        self.render_renderable_lines(r.as_ref(), style, renderable_width, console, options)
+                                    }
+                                    None => {
+                                        // Plain text fallback. No hardcoded indent: the
+                                        // `OptionList` default `padding: 0 1` supplies the
+                                        // single-space inset (Python parity).
+                                        vec![adjust_line_length_no_bg(
+                                            &[Segment::styled(prompt.to_string(), style)],
+                                            width,
+                                        )]
+                                    }
                                 }
                             });
                             lines
@@ -1036,7 +1154,7 @@ mod tests {
     fn option_item_with_content_builder() {
         let item = OptionItem::new("Plain").with_content(rich_rs::Text::plain("Rich"));
         assert!(item.content().is_some());
-        assert_eq!(item.content().unwrap().plain_text(), "Rich");
+        assert_eq!(item.text_content().map(|t| t.plain_text()).as_deref(), Some("Rich"));
     }
 
     #[test]

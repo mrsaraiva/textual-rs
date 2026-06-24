@@ -7,6 +7,29 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-23 (feat(renderwire): B-cluster renderable wiring — gradient, OptionContent, pretty, rich_log)
+
+- **`LinearGradient` — multi-stop gradient in `ProgressBar`.** `ProgressBar` previously collapsed
+  the gradient to a 2-stop `(Color, Color)` pair; it now holds a full `LinearGradient` (existing
+  renderable at `src/renderables/gradient.rs`). The 12-stop rainbow demo port now uses the real
+  `LinearGradient` instead of a 2-color approximation. `LinearGradient::get_color()` is now public
+  (renamed from private `sample_color`) matching Python's `Gradient.get_color`. API: `ProgressBar`
+  gains `gradient()`, `set_gradient()`, `with_gradient()` returning/taking `Option<LinearGradient>`.
+- **`OptionContent` — arbitrary Renderables in OptionList items.** `OptionItem` can now hold
+  `OptionContent::Renderable(Arc<dyn Renderable>)` in addition to `OptionContent::Text(Text)`.
+  Tables render live at the runtime widget content width (Python `scrollable_content_region.width`
+  parity — scrollbar-width-aware). API: `OptionItem::renderable(label, r)`,
+  `OptionItem::renderable_with_id(label, r, id)`, `item.content() -> Option<&OptionContent>`,
+  `item.text_content() -> Option<&Text>`. `OptionContent` and `OptionId` are re-exported in
+  `textual::prelude`. The `option_list_tables` example port now uses `OptionItem::renderable`
+  instead of pre-rendering tables to `Text` at hardcoded width 78.
+- **`RichLog::write_debug` — real Pretty path.** `write_debug<T: Debug>` previously wrote a plain
+  text repr; it now writes a `rich_rs::pretty::Pretty` renderable so debug values appear with proper
+  syntax highlighting and Python-repr-style indentation (matching Python's `RichLog.write(value)` via
+  `rich.pretty.Pretty`).
+- **`pretty.rs` — confirmed already correct.** The existing `Pretty::new(&T)` path captures
+  `format!("{:?}", value)` and feeds it to `rich_rs::pretty::Pretty::from_str()`. No changes needed.
+
 ### 2026-06-23 (feat(reactive): field-to-field `data_bind` reactive binding)
 
 - **Field-to-field data binding (keystone).** `App::data_bind_reactive::<W, T>(source, source_field,

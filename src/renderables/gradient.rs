@@ -76,7 +76,7 @@ impl LinearGradient {
     ///
     /// Matches Python `Gradient.get_color`: index into the precomputed
     /// `quality`-step ramp and blend between the two nearest entries.
-    fn sample_color(&self, position: f32) -> Color {
+    pub fn get_color(&self, position: f32) -> Color {
         let position = position.clamp(0.0, 1.0);
         if position <= 0.0 {
             return self.ramp[0];
@@ -153,8 +153,8 @@ impl Renderable for LinearGradient {
 
             if delta_x.abs() < 0.0001 {
                 // Vertical special case: a single uniform run across the row.
-                let top = self.sample_color(x1);
-                let bottom = self.sample_color(x2);
+                let top = self.get_color(x1);
+                let bottom = self.get_color(x2);
                 let style = rich_rs::Style::new()
                     .with_color(top.to_simple_opaque())
                     .with_bgcolor(bottom.to_simple_opaque());
@@ -163,8 +163,8 @@ impl Renderable for LinearGradient {
                 let mut row = Segments::new();
                 for x in 0..width {
                     let xf = x as f32;
-                    let top = self.sample_color(x1 + xf * delta_x);
-                    let bottom = self.sample_color(x2 + xf * delta_x);
+                    let top = self.get_color(x1 + xf * delta_x);
+                    let bottom = self.get_color(x2 + xf * delta_x);
                     let style = rich_rs::Style::new()
                         .with_color(top.to_simple_opaque())
                         .with_bgcolor(bottom.to_simple_opaque());
