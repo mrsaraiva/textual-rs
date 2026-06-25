@@ -7,6 +7,31 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### Interactive functional verification (the 1.0 functional gate)
+
+Static-render parity (85/87 styled, 186/186 PTY) proved demos *look* right but not that
+they *work* — the tutorial stopwatch rendered perfectly while its clock was dead. This
+cycle closes that gap with a functional harness and a sweep that drove every interactive
+demo to a verified-working state.
+
+- **Pilot headless affordances** — `advance_clock` / `advance_ticks` (deterministic
+  timers + on_tick + animator on the manual clock), `hover`/`move_to` (MouseMove),
+  headless worker-pump (`process_worker_requests` + `call_from_thread`), `@click`
+  action-link routing in the headless click path, test seams (headless-safe
+  `suspend`, public `App::is_dark()`). The manual clock is now installed *before*
+  headless startup, so on-mount animations/timers are deterministic under `run_test`.
+- **`interactive_parity` liveness suite** — per-demo `#[test]` probes that run each demo
+  headless, perform its representative interaction, and assert the frame/state actually
+  changes. **139 / 141 interactive demos LIVE** (only `inline01`/`inline02` deferred to
+  1.1 inline mode).
+- **Framework fixes surfaced by the sweep** — binding chain now walks app-root +
+  screen-root bindings (modes/screens); transparent `Node` wrappers collapse so id /
+  messages / `#id` queries resolve to the real widget; reactive flips relayout + repaint
+  (Collapsible body, Checkbox component color); `App::mount` runs full compose+layout;
+  empty-Screen runtime bg composites; `toggle_dark` re-resolves design tokens + repaints;
+  animated opacity composites into the FrameBuffer. Plus tutorial stopwatch ports migrated
+  onto real `set_interval`/reactive (clock ticks from mount).
+
 ### Fixed
 
 - **`how-to/render_compose` gradient rotation is now live under `run_test`** — the

@@ -5,7 +5,10 @@ textual-rs 1.0.0 reproduces the **vast majority** of Python Textual's documented
 Parity is measured by reproducing Python's own documentation examples in Rust:
 - **Styled per-cell-RGB harness** (`tests/visual_parity.rs`): **85 / 87** exact.
 - **Plain-text PTY harness** (`tests/pty_parity.rs`): **186 / 186**.
+- **Interactive functional harness** (Pilot, per-demo `#[test]` liveness probes): **139 / 141 LIVE** — every interactive demo is driven headless (click / key / type / hover / `advance_clock` / worker-pump) and asserted to actually *respond*, not merely render. The 2 non-LIVE are `inline01`/`inline02` (inline render mode → 1.1, below).
 - **Comprehensive demo audit** (309 Python doc examples): ~92% faithful at 1.0.
+
+> **Why a functional harness:** static-render parity can pass while a demo's core feature is dead (the tutorial stopwatch rendered perfectly but its clock never ticked). 1.0 is gated on *functional* verification — if a demo is in the docs, it works.
 
 ## Deferred to 1.1 (feature gaps)
 

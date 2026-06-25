@@ -2867,7 +2867,7 @@ mod tests {
     #[test]
     fn app_reactive_bridge_chained_watcher_changes_are_processed() {
         let app_state = Arc::new(Mutex::new(ChainedReactiveApp::new()));
-        let mut adapter = TextualAppAdapter::new(app_state.clone(), NoopWidget::new());
+        let adapter = TextualAppAdapter::new(app_state.clone(), NoopWidget::new());
         let mut runtime = App::new().expect("runtime init");
         let mut ctx = EventCtx::default();
 
@@ -2932,7 +2932,7 @@ mod tests {
     #[test]
     fn app_reactive_bridge_cycle_guard_terminates() {
         let app_state = Arc::new(Mutex::new(CycleApp::new()));
-        let mut adapter = TextualAppAdapter::new(app_state.clone(), NoopWidget::new());
+        let adapter = TextualAppAdapter::new(app_state.clone(), NoopWidget::new());
         let mut runtime = App::new().expect("runtime init");
         let mut ctx = EventCtx::default();
 
@@ -2988,7 +2988,7 @@ mod tests {
     #[test]
     fn app_reactive_bridge_styles_flag_maps_to_event_ctx() {
         let app_state = Arc::new(Mutex::new(StylesRequestApp::new()));
-        let mut adapter = TextualAppAdapter::new(app_state.clone(), NoopWidget::new());
+        let adapter = TextualAppAdapter::new(app_state.clone(), NoopWidget::new());
         let mut runtime = App::new().expect("runtime init");
         let mut ctx = EventCtx::default();
 
@@ -3007,6 +3007,7 @@ mod tests {
     impl InitOrderApp {
         fn new() -> Self { Self { log: Vec::new() } }
 
+        #[allow(dead_code)] // reactive-setter scaffolding for the init-order watcher test
         fn set_count(&mut self, _val: i32, ctx: &mut ReactiveCtx) {
             use crate::reactive::ReactiveFlags;
             ctx.record_change("count", ReactiveFlags::reactive(), Box::new(0_i32), Box::new(0_i32));
