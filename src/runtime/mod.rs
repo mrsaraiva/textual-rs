@@ -862,6 +862,14 @@ impl App {
         messages
     }
 
+    /// Time until the soonest non-paused timer is due, relative to the timer
+    /// clock's "now". `None` when no timer is pending. Used by the headless
+    /// harness to advance the deterministic clock deadline-by-deadline (mirroring
+    /// the real loop waking per timeout) instead of one large jump.
+    pub(crate) fn next_timer_timeout(&self) -> Option<Duration> {
+        self.timers.next_timeout(self.timers.now())
+    }
+
     /// True if any app-level timer callback is awaiting invocation.
     pub(crate) fn has_pending_timer_fires(&self) -> bool {
         !self.pending_timer_fires.is_empty()
@@ -889,17 +897,34 @@ impl App {
         }
     }
 
-    /// Deterministic test driver: advance the timer clock by `delta`. Only
-    /// affects a manual clock (see [`crate::runtime::App::with_manual_timers`]).
-    #[cfg(test)]
+    /// Deterministic driver: advance the timer clock by `delta`. Only affects a
+    /// manual clock (the headless [`Pilot`] harness installs one; see
+    /// [`App::enable_manual_timer_clock`]). No-op on the wall clock.
     pub(crate) fn advance_timers(&mut self, delta: Duration) {
         self.timers.advance(delta);
     }
 
-    /// Switch the timer runtime to a deterministic manual clock (tests only).
+    /// Replace the timer runtime with a fresh deterministic manual clock,
+    /// discarding any scheduled timers (tests only — see `tick_timers`).
     #[cfg(test)]
     pub(crate) fn use_manual_timer_clock(&mut self) {
         self.timers = TimerRuntime::manual();
+    }
+
+    /// Switch the timer subsystem to a deterministic manual clock **in place**,
+    /// preserving timers already scheduled during startup.
+    ///
+    /// This is the headless-harness seam: [`App::run_test`] / [`Pilot`] call it
+    /// so time-driven demos become deterministic under test, advanced explicitly
+    /// via [`Pilot::advance_clock`]. Idempotent.
+    pub(crate) fn enable_manual_timer_clock(&mut self) {
+        self.timers.switch_to_manual();
+    }
+
+    /// True when the timer subsystem is driven by a deterministic manual clock
+    /// (i.e. inside a headless [`Pilot`] test).
+    pub(crate) fn timer_clock_is_manual(&self) -> bool {
+        self.timers.clock_is_manual()
     }
 
     // -----------------------------------------------------------------

@@ -57,8 +57,8 @@ impl Clock {
     }
 
     /// A deterministic clock starting at offset zero, advanced only by
-    /// [`Clock::advance`]. Used by tests.
-    #[cfg(test)]
+    /// [`Clock::advance`]. Used by tests and the headless [`Pilot`] harness
+    /// (`App::run_test`), where it makes time-driven behavior deterministic.
     pub(crate) fn manual() -> Self {
         Self {
             base: Instant::now(),
@@ -73,8 +73,12 @@ impl Clock {
         }
     }
 
+    /// Whether this clock is manual (deterministic), as opposed to wall-clock.
+    pub(crate) fn is_manual(&self) -> bool {
+        self.manual_offset.is_some()
+    }
+
     /// Advance a manual clock by `delta`. No-op on a wall clock.
-    #[cfg(test)]
     pub(crate) fn advance(&mut self, delta: Duration) {
         if let Some(offset) = self.manual_offset.as_mut() {
             *offset += delta;
@@ -132,7 +136,9 @@ impl Default for TimerRuntime {
 }
 
 impl TimerRuntime {
-    /// Construct a runtime backed by a deterministic manual clock (tests).
+    /// Construct a runtime backed by a deterministic manual clock (lib tests
+    /// drive the clock directly; the headless [`Pilot`] harness instead uses the
+    /// in-place [`TimerRuntime::switch_to_manual`] to preserve startup timers).
     #[cfg(test)]
     pub(crate) fn manual() -> Self {
         Self {
@@ -146,8 +152,43 @@ impl TimerRuntime {
         self.clock.now()
     }
 
-    /// Advance the (manual) clock — deterministic test driver. No-op on wall.
-    #[cfg(test)]
+    /// True if this runtime is driven by a deterministic manual clock.
+    pub(crate) fn clock_is_manual(&self) -> bool {
+        self.clock.is_manual()
+    }
+
+    /// Switch this runtime to a deterministic manual clock **in place**,
+    /// preserving every already-scheduled timer.
+    ///
+    /// Each running timer is re-anchored so the wall-clock time remaining until
+    /// its next fire is carried over to the manual timeline (manual `now` starts
+    /// at offset zero). This lets the headless harness (`App::run_test`) flip to
+    /// deterministic time after startup-scheduled timers already exist, without
+    /// dropping them — unlike a fresh [`TimerRuntime::manual`] which would.
+    ///
+    /// No-op if the clock is already manual.
+    pub(crate) fn switch_to_manual(&mut self) {
+        if self.clock.is_manual() {
+            return;
+        }
+        let old_now = self.clock.now();
+        let manual = Clock::manual();
+        let new_now = manual.now();
+        for timer in self.running.values_mut() {
+            // Preserve "time remaining until next_due" across the swap.
+            let next_due = timer.next_due();
+            let remaining = next_due.saturating_duration_since(old_now);
+            // Re-anchor: start so that next_due == new_now + remaining, with
+            // count reset to 0 (one interval ahead from the new start).
+            timer.start = (new_now + remaining)
+                .checked_sub(timer.interval)
+                .unwrap_or(new_now);
+            timer.count = 0;
+        }
+        self.clock = manual;
+    }
+
+    /// Advance the (manual) clock — deterministic driver. No-op on wall.
     pub(crate) fn advance(&mut self, delta: Duration) {
         self.clock.advance(delta);
     }
@@ -480,6 +521,40 @@ mod tests {
         }
         runtime.advance(Duration::from_millis(2));
         assert!(runtime.drain_ready(runtime.now()).is_empty());
+    }
+
+    #[test]
+    fn switch_to_manual_preserves_scheduled_timers() {
+        // A timer scheduled on the wall clock survives the in-place switch to a
+        // manual clock with its remaining time intact (the Pilot startup case).
+        let mut runtime = TimerRuntime::default();
+        assert!(!runtime.clock_is_manual());
+        let target = node_id_from_ffi(21);
+        runtime.schedule_interval(31, target, Duration::from_secs(1), None, false);
+
+        runtime.switch_to_manual();
+        assert!(runtime.clock_is_manual());
+        assert!(runtime.contains(31), "timer preserved across clock switch");
+
+        // Not yet due immediately after the switch (≈1s remaining).
+        assert!(runtime.drain_ready(runtime.now()).is_empty());
+        // Advancing the manual clock by the interval fires it deterministically.
+        runtime.advance(Duration::from_secs(1));
+        assert_eq!(runtime.drain_ready(runtime.now()).len(), 1);
+    }
+
+    #[test]
+    fn switch_to_manual_is_idempotent() {
+        let mut runtime = TimerRuntime::manual();
+        assert!(runtime.clock_is_manual());
+        let target = node_id_from_ffi(22);
+        runtime.schedule_interval(32, target, Duration::from_secs(1), None, false);
+        runtime.advance(Duration::from_millis(500));
+        // A no-op switch must not disturb the in-flight schedule.
+        runtime.switch_to_manual();
+        assert!(runtime.drain_ready(runtime.now()).is_empty());
+        runtime.advance(Duration::from_millis(500));
+        assert_eq!(runtime.drain_ready(runtime.now()).len(), 1);
     }
 
     #[test]
