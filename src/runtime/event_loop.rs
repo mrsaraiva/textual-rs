@@ -1615,6 +1615,18 @@ fn apply_style_value_to_property(
         ("padding", StyleValue::Spacing(sp)) => style.padding = Some(*sp),
         ("tint", StyleValue::Tint(t)) => style.tint = Some(*t),
         ("background_tint", StyleValue::Tint(t)) => style.background_tint = Some(*t),
+        // `opacity`/`text_opacity` animate as `StyleValue::Float` on a 0.0–100.0
+        // scale (mirroring Python's `Styles.opacity` 0–1 fraction expressed as a
+        // percent here). Round to the `u8` percent the resolved style and the
+        // render-time opacity compositor consume. Without this arm the animator's
+        // per-tick computed opacity would be silently dropped and the rendered
+        // frame would never change.
+        ("opacity", StyleValue::Float(v)) => {
+            style.opacity = Some(v.round().clamp(0.0, 100.0) as u8);
+        }
+        ("text_opacity", StyleValue::Float(v)) => {
+            style.text_opacity = Some(v.round().clamp(0.0, 100.0) as u8);
+        }
         _ => {}
     }
 }

@@ -9,6 +9,24 @@ until the API stabilizes.
 
 ### Fixed
 
+- **Animated widget `opacity` is now live under `run_test`** — three coupled
+  fixes make an on-mount opacity fade (e.g. `guide/animator/animation01`'s 2s
+  `animate_style("opacity", 100 -> 0)`) progress deterministically and visibly:
+  (1) the headless harness installs the deterministic manual timer clock
+  *before* `headless_startup`, so timers/animations scheduled from
+  `on_mount`/`on_mount_with_app` are anchored to the manual timeline and stepped
+  only by `advance_clock`/`advance_ticks` — previously the startup settling pump
+  ran them to completion on the wall clock before the test body (or `Pilot`)
+  gained control; (2) `apply_style_value_to_property` now plumbs the animator's
+  per-tick `opacity`/`text_opacity` (`StyleValue::Float`, 0–100) into the node's
+  inline style, instead of silently dropping it, so the resolved style reflects
+  the fading value each frame; (3) render-time opacity compositing
+  (`apply_widget_opacity_to_segments`) already blends a widget's cells toward the
+  backdrop, so the changed opacity visibly changes rendered cells. The live
+  (non-headless) `run()` path is unaffected (it never enables the manual clock).
+  Flips `guide/animator/animation01`'s liveness probe from DEAD (`#[ignore]`d) to
+  LIVE.
+
 - **`toggle_dark` / theme switching re-resolves design tokens and recolours the
   frame** — `App::action_toggle_dark` now switches the active *registered* theme
   (`textual-dark` <-> `textual-light`), exactly like Python's
