@@ -1114,7 +1114,17 @@ fn split_runtime_control_messages(
             }
         } else if event.is::<crate::message::AppToggleDark>() {
             if app.action_toggle_dark() {
+                // Toggling dark switches the active *registered* theme, which
+                // swaps the design-token map. Token-styled surfaces (Header /
+                // Footer / Screen) bake their blank surface from a seed style
+                // resolved at build/layout time, so a bare repaint keeps the
+                // stale colours. Request the same style/layout invalidation as
+                // `AppSetTheme`/`AppCycleTheme` so every widget re-seeds against
+                // the new tokens and the frame actually recolours (Python's
+                // `_watch_theme` -> `_invalidate_css` + `refresh_css`).
                 pass.repaint_requested = true;
+                pass.invalidation
+                    .merge(crate::event::InvalidationFlags::layout());
             }
         } else if let Some(m) = event.downcast_ref::<crate::message::ActionDispatchRequested>() {
             let action = m.action.clone();
