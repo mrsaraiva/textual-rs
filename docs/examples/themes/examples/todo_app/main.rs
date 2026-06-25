@@ -171,4 +171,35 @@ mod tests {
         // Restore default so global theme state does not leak.
         app.set_theme_by_name("textual-dark");
     }
+
+    /// LIVENESS probe (Pilot, headless): on mount the first theme (nord) is
+    /// applied; pressing the bound `ctrl+t` runs `cycle_theme`, advancing to the
+    /// next named theme and recoloring every `$`-token. Asserted via
+    /// `theme_name()` (the active theme advances through the cycle) and the
+    /// rendered frame (the todo widget's `$error-muted` / `$success-muted` /
+    /// `$primary-muted` backgrounds repaint). Drives the ctrl+t binding through
+    /// the real key → action → theme path.
+    #[test]
+    fn todo_app_ctrl_t_cycles_theme_is_live() {
+        run_test(TodoList, |pilot| {
+            assert_eq!(pilot.app().theme_name(), "nord", "mount applies the first theme (nord)");
+            let nord_frame = pilot.app().frame_fingerprint();
+
+            pilot.press(&["ctrl+t"])?; // cycle_theme -> gruvbox
+            assert_eq!(pilot.app().theme_name(), "gruvbox", "ctrl+t must advance the theme");
+            assert_ne!(
+                nord_frame,
+                pilot.app().frame_fingerprint(),
+                "cycling the theme must recolor the UI (rendered frame changes)"
+            );
+
+            pilot.press(&["ctrl+t"])?; // -> tokyo-night
+            assert_eq!(pilot.app().theme_name(), "tokyo-night", "ctrl+t must keep advancing the theme");
+
+            // Restore the default so global theme state does not leak across tests.
+            pilot.app_mut().set_theme_by_name("textual-dark");
+            Ok(())
+        })
+        .expect("todo_app theme-cycle harness should run");
+    }
 }

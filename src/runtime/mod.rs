@@ -453,6 +453,14 @@ pub struct App {
     headless: bool,
     /// Virtual terminal size used while `headless` is set.
     headless_size: (u16, u16),
+    /// Sticky flag: set once any dispatched outcome under the headless pump
+    /// requested the app to stop (`ctx.request_stop()`). The live loop breaks on
+    /// stop, but the headless pump keeps running so the test body can inspect
+    /// state; this records that a stop *was* requested so Pilot-driven tests can
+    /// assert exit-on-interaction demos (e.g. "press a button to quit") actually
+    /// fired, even though the rendered frame is otherwise unchanged. Read via
+    /// [`App::headless_stop_requested`].
+    headless_stop_requested: bool,
     hit_test: HitTestMap,
     debug_layout: DebugLayout,
     action_map: ActionMap,
@@ -623,6 +631,7 @@ impl App {
             frame,
             headless: false,
             headless_size: (80, 24),
+            headless_stop_requested: false,
             hit_test: HitTestMap::default(),
             debug_layout: DebugLayout::default(),
             action_map: default_action_map(),

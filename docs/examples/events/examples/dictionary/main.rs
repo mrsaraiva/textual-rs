@@ -149,4 +149,56 @@ mod tests {
         let r = simulate_dictionary_response("hello");
         assert!(r.contains("hello"));
     }
+
+    /// LIVENESS probe (Pilot, headless): focus the search `Input` and type a
+    /// word. The keystrokes echo into the input (frame + value change) and drive
+    /// `on_input_changed`, which records the current word (shared state) — the
+    /// trigger for the lookup. This proves the input-driven search front-end is
+    /// live; the asynchronous lookup itself is covered separately (see below).
+    #[test]
+    fn dictionary_typing_drives_lookup_input_is_live() {
+        fn input_value(app: &App) -> Option<String> {
+            app.query_one_typed::<Input>("Input")
+                .ok()
+                .and_then(|h| h.read(app, |i| i.value().to_string()).ok())
+        }
+        let app = DictionaryApp::new();
+        let word = app.current_word.clone();
+        run_test(app, |pilot| {
+            pilot.click("Input")?; // focus
+            assert_eq!(input_value(pilot.app()).as_deref(), Some(""), "input starts empty");
+            pilot.press(&["c", "a", "t"])?;
+            assert_eq!(input_value(pilot.app()).as_deref(), Some("cat"), "typing must echo into the input");
+            // on_input_changed recorded the current word -> the lookup trigger fired.
+            assert_eq!(word.lock().unwrap().as_str(), "cat", "on_input_changed must record the searched word");
+            Ok(())
+        })
+        .expect("dictionary input harness should run");
+    }
+
+    /// LIVENESS probe (Pilot, headless) for the full lookup → result render.
+    ///
+    /// UNCLEAR under the headless harness — `#[ignore]`d. ROOT: the actual
+    /// dictionary lookup runs in a background *worker thread*
+    /// (`ctx.request_exclusive_worker_task(...)`) that sleeps to simulate network
+    /// latency, then posts the result back. The headless pump
+    /// (`runtime/event_loop.rs:4269`) never spawns worker requests
+    /// (`process_worker_requests` runs only in the live loop), so the lookup
+    /// never executes headless and the results pane is never populated. This is a
+    /// harness limitation, not a demo defect (the input front-end above is live).
+    /// TODO: drive worker spawning from the headless pump (or add a Pilot
+    /// worker-step), then assert the results render; drop `#[ignore]`.
+    #[ignore = "UNCLEAR: headless pump does not spawn the worker thread that performs the lookup"]
+    #[test]
+    fn dictionary_lookup_result_is_live() {
+        run_test(DictionaryApp::new(), |pilot| {
+            pilot.click("Input")?;
+            let before = pilot.app().frame_fingerprint();
+            pilot.press(&["c", "a", "t"])?;
+            pilot.pause()?; // would let the worker lookup land + render results
+            assert_ne!(before, pilot.app().frame_fingerprint(), "the lookup result must render");
+            Ok(())
+        })
+        .expect("dictionary lookup harness should run");
+    }
 }

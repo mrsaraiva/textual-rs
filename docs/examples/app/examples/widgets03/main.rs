@@ -43,4 +43,49 @@ mod tests {
         let root = app.compose();
         let _ = root;
     }
+
+    /// SAFE liveness check: pressing a key reaches `on_key_with_app`, which calls
+    /// `app.mount(Welcome::new())` — the `Welcome` node IS inserted into the tree.
+    #[test]
+    fn widgets03_keypress_mounts_welcome_node() {
+        run_test(WelcomeApp, |pilot| {
+            assert!(pilot.app().query_one("Welcome").is_err(), "no Welcome before a key");
+            pilot.press(&["x"])?;
+            assert!(
+                pilot.app().query_one("Welcome").is_ok(),
+                "pressing a key must mount a Welcome node via app.mount"
+            );
+            Ok(())
+        })
+        .expect("widgets03 mount-node harness should run");
+    }
+
+    /// LIVENESS probe (Pilot, headless): pressing a key mounts `Welcome` and its
+    /// OK button (`#close`) should appear and render.
+    ///
+    /// DEAD — `#[ignore]`d. ROOT: `App::mount` / `mount_boxed`
+    /// (`runtime/mod.rs:1203`) inserts the raw widget node but does not run the
+    /// compose+layout+render integration, so `Welcome`'s composed `#close` child
+    /// is absent and the widget never paints (frame stays blank). The module doc
+    /// above already flags the related "Button not in the arena tree" symptom.
+    /// TODO: route `App::mount` through the compose-aware mount path; then drop
+    /// `#[ignore]`.
+    #[ignore = "DEAD: App::mount (mount_boxed) does not compose/lay out/render the mounted widget"]
+    #[test]
+    fn widgets03_keypress_mounts_welcome_is_live() {
+        run_test(WelcomeApp, |pilot| {
+            let empty = pilot.app().frame_fingerprint();
+            assert!(pilot.app().query_one("#close").is_err(), "Welcome not mounted yet");
+
+            pilot.press(&["x"])?;
+            assert_ne!(
+                empty,
+                pilot.app().frame_fingerprint(),
+                "pressing a key must mount Welcome (rendered frame changes)"
+            );
+            assert!(pilot.app().query_one("#close").is_ok(), "Welcome must be mounted after a key");
+            Ok(())
+        })
+        .expect("widgets03 mount-on-key harness should run");
+    }
 }

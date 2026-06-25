@@ -144,4 +144,42 @@ mod tests {
         assert!(SettingsScreen.is_modal());
         assert!(HelpScreen.is_modal());
     }
+
+    /// LIVENESS probe (Pilot, headless): on mount the Dashboard mode is active;
+    /// pressing the bound `s` / `h` keys switches modes (`app.switch_mode(...)`)
+    /// and the rendered frame changes each time (different placeholder content).
+    /// Guards that mode-switch key bindings actually swap the active screen.
+    ///
+    /// DEAD — currently `#[ignore]`d. ROOT: app-level `BINDINGS` are not consulted
+    /// while a screen/mode is active. The key dispatch only matches bindings in
+    /// `App::active_widget_tree()` (the top *screen* tree — `runtime/mod.rs:1051`),
+    /// so the app-root's `s`/`h`/`d` bindings are never in the match chain once a
+    /// mode screen covers the app. `current_mode()` stays "dashboard" after `s`.
+    /// Python keeps App.BINDINGS in the binding chain below the active screen.
+    /// TODO: include app-root bindings in `match_binding_tree` resolution when a
+    /// screen is active; then drop `#[ignore]` — this probe flips to LIVE.
+    #[ignore = "DEAD: app-level bindings not consulted while a mode screen is active"]
+    #[test]
+    fn modes01_switch_mode_is_live() {
+        run_test(ModesApp, |pilot| {
+            let dashboard = pilot.app().frame_fingerprint();
+            assert_eq!(pilot.app().current_mode(), Some("dashboard"));
+
+            pilot.press(&["s"])?; // switch_mode('settings')
+            assert_eq!(pilot.app().current_mode(), Some("settings"), "s must switch mode to settings");
+            let settings = pilot.app().frame_fingerprint();
+            assert_ne!(dashboard, settings, "pressing 's' must switch to Settings");
+
+            pilot.press(&["h"])?; // switch_mode('help')
+            let help = pilot.app().frame_fingerprint();
+            assert_ne!(settings, help, "pressing 'h' must switch to Help");
+
+            pilot.press(&["d"])?; // switch_mode('dashboard')
+            let back = pilot.app().frame_fingerprint();
+            assert_ne!(help, back, "pressing 'd' must switch back to Dashboard");
+            assert_eq!(dashboard, back, "Dashboard frame must match the initial mount");
+            Ok(())
+        })
+        .expect("modes01 switch-mode harness should run");
+    }
 }

@@ -51,3 +51,67 @@ impl TextualApp for WelcomeApp {
 fn main() -> Result<()> {
     run_sync(WelcomeApp::new())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// SAFE liveness check: pressing a key reaches `on_key_with_app`, which calls
+    /// `app.mount(Welcome::new())` — the `Welcome` node IS inserted into the tree.
+    #[test]
+    fn widgets04_keypress_mounts_welcome_node() {
+        run_test(WelcomeApp::new(), |pilot| {
+            assert!(pilot.app().query_one("Welcome").is_err(), "no Welcome before a key");
+            pilot.press(&["k"])?;
+            assert!(
+                pilot.app().query_one("Welcome").is_ok(),
+                "pressing a key must mount a Welcome node via app.mount"
+            );
+            Ok(())
+        })
+        .expect("widgets04 mount-node harness should run");
+    }
+
+    /// LIVENESS probe (Pilot, headless): pressing any key mounts a `Welcome`
+    /// widget AND relabels its (arena-tree) button to "YES!"
+    /// (`app.with_query_one_mut_as::<Button>("#close", ...)`), the full Python
+    /// behavior (`self.query_one(Button).label = "YES!"`).
+    ///
+    /// DEAD — `#[ignore]`d. ROOT: `App::mount` / `mount_boxed`
+    /// (`runtime/mod.rs:1203`) inserts the raw `Welcome` node without running the
+    /// compose+layout+render integration, so `Welcome`'s composed `#close` button
+    /// never enters the arena tree. The relabel's `query_one("#close")` finds
+    /// nothing (no-op) and the widget never paints (frame stays blank). The
+    /// module doc's claim that "Welcome's Button is in the arena tree" does not
+    /// hold for the `App::mount` path.
+    /// TODO: route `App::mount` through the compose-aware mount path so composed
+    /// children build and the relabel + render succeed; then drop `#[ignore]`.
+    #[ignore = "DEAD: App::mount (mount_boxed) does not compose Welcome's #close child, so relabel/render are no-ops"]
+    #[test]
+    fn widgets04_keypress_mounts_and_relabels_is_live() {
+        run_test(WelcomeApp::new(), |pilot| {
+            let empty = pilot.app().frame_fingerprint();
+            assert!(pilot.app().query_one("#close").is_err(), "Welcome not mounted yet");
+
+            pilot.press(&["k"])?;
+            assert_ne!(
+                empty,
+                pilot.app().frame_fingerprint(),
+                "pressing a key must mount Welcome (rendered frame changes)"
+            );
+
+            let label = pilot
+                .app()
+                .query_one_typed::<Button>("#close")
+                .ok()
+                .and_then(|h| h.read(pilot.app(), |b| b.label().to_string()).ok());
+            assert_eq!(
+                label.as_deref(),
+                Some("YES!"),
+                "the mounted Welcome button must be relabeled to YES!"
+            );
+            Ok(())
+        })
+        .expect("widgets04 mount-and-relabel harness should run");
+    }
+}

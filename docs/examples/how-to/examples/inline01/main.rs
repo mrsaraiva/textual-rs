@@ -79,3 +79,39 @@ impl TextualApp for ClockApp {
 fn main() -> textual::Result<()> {
     run_sync(ClockApp::default())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// LIVENESS probe (Pilot, headless): the live clock updates the `Digits`
+    /// readout once per second via the tick hook, so the rendered frame should
+    /// change as time advances.
+    ///
+    /// UNCLEAR under the headless harness — `#[ignore]`d. Two compounding roots:
+    /// (1) `on_tick_with_app` is driven by the *live* event loop's wall-clock
+    /// tick cadence and is NOT invoked by the headless pump —
+    /// `Pilot::advance_clock` fires `set_interval`/`set_timer` callbacks (the
+    /// manual timer clock), not the tick hook; and (2) the displayed time comes
+    /// from wall-clock `SystemTime::now()` rather than the manual test clock, and
+    /// the demo only repaints when the wall-clock second flips
+    /// (`now != self.last_second`), so it cannot be advanced deterministically.
+    /// This is a harness gap for `on_tick`-driven, wall-clock demos, not a demo
+    /// defect. TODO: pump the tick hook under `advance_clock` (and/or derive the
+    /// time from the manual clock); then drop `#[ignore]`.
+    #[ignore = "UNCLEAR: on_tick hook not pumped headless + clock reads wall-clock time"]
+    #[test]
+    fn inline01_clock_ticks_is_live() {
+        run_test(ClockApp::default(), |pilot| {
+            let before = pilot.app().frame_fingerprint();
+            pilot.advance_clock(std::time::Duration::from_secs(2))?;
+            assert_ne!(
+                before,
+                pilot.app().frame_fingerprint(),
+                "the clock readout must update as time advances"
+            );
+            Ok(())
+        })
+        .expect("inline01 clock harness should run");
+    }
+}

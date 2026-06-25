@@ -132,4 +132,48 @@ mod tests {
         assert!(!ctx.handled());
         assert!(!ctx.stop_requested());
     }
+
+    /// LIVENESS probe (Pilot, headless): the declarative `MessageRouter` (the
+    /// `@on(Button.Pressed, selector)` analogue) routes per-button. Clicking
+    /// "Quit" routes through the router to the quit handler and requests app
+    /// stop — the robust, observable proof the click → message → router path
+    /// works. (The Toggle-dark branch is covered, `#[ignore]`d, below.)
+    #[test]
+    fn on_decorator02_router_quit_is_live() {
+        run_test(OnDecoratorApp::new(), |pilot| {
+            assert!(!pilot.app().headless_stop_requested(), "no stop before Quit");
+            pilot.click("#quit")?;
+            assert!(
+                pilot.app().headless_stop_requested(),
+                "routing Quit must request app exit"
+            );
+            Ok(())
+        })
+        .expect("on_decorator02 router quit harness should run");
+    }
+
+    /// LIVENESS probe (Pilot, headless): clicking "Toggle dark" routes to the
+    /// toggle handler (`app.toggle_dark`), which should recolor the UI.
+    ///
+    /// `#[ignore]`d for the same reason as on_decorator01: `app.toggle_dark` has
+    /// no observable frame/state change in this demo headless (no public
+    /// dark-mode accessor; default-styled buttons on a blank screen produce no
+    /// per-cell color change). The quit probe above proves the router path is
+    /// live. TODO: expose a dark-mode accessor or render theme-sensitive chrome;
+    /// then drop `#[ignore]`.
+    #[ignore = "UNCLEAR: app.toggle_dark has no observable frame/state change in this demo headless"]
+    #[test]
+    fn on_decorator02_router_toggle_dark_is_live() {
+        run_test(OnDecoratorApp::new(), |pilot| {
+            let before = pilot.app().frame_fingerprint();
+            pilot.click("#toggle-dark")?;
+            assert_ne!(
+                before,
+                pilot.app().frame_fingerprint(),
+                "routing Toggle dark must recolor the UI (rendered frame changes)"
+            );
+            Ok(())
+        })
+        .expect("on_decorator02 router toggle-dark harness should run");
+    }
 }

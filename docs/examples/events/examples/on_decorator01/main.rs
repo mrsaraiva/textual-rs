@@ -105,4 +105,52 @@ mod tests {
         assert!(ctx.handled());
         assert!(!ctx.stop_requested());
     }
+
+    /// LIVENESS probe (Pilot, headless): the single `on_message` handler branches
+    /// on `button.id`. Clicking "Quit" requests app stop — the robust, observable
+    /// liveness signal that the click → message → handler path works.
+    /// (See `on_decorator01_toggle_dark_recolors_is_live` for the Toggle-dark
+    /// branch, which is `#[ignore]`d because the toggle is not observable here.)
+    #[test]
+    fn on_decorator01_quit_button_is_live() {
+        run_test(OnDecoratorApp, |pilot| {
+            assert!(!pilot.app().headless_stop_requested(), "no stop before Quit");
+            pilot.click("#quit")?;
+            assert!(
+                pilot.app().headless_stop_requested(),
+                "clicking Quit must request app exit"
+            );
+            Ok(())
+        })
+        .expect("on_decorator01 quit harness should run");
+    }
+
+    /// LIVENESS probe (Pilot, headless): clicking "Toggle dark" runs
+    /// `app.toggle_dark`, which should recolor the UI so the rendered frame
+    /// changes.
+    ///
+    /// `#[ignore]`d — the toggle is not observable through the current headless
+    /// harness. ROOT: there is no public dark-mode/theme accessor to assert the
+    /// state flip, and with this demo's default-styled buttons on an otherwise
+    /// blank screen, `app.toggle_dark` produces no per-cell color change in the
+    /// rendered `FrameBuffer` (the fingerprint is unchanged). The action *is*
+    /// dispatched (the quit branch above proves the click→handler path), but its
+    /// visual effect can't be captured here. TODO: expose a public dark-mode
+    /// accessor (or render theme-sensitive chrome) so the toggle is observable;
+    /// then drop `#[ignore]`.
+    #[ignore = "UNCLEAR: app.toggle_dark has no observable frame/state change in this demo headless"]
+    #[test]
+    fn on_decorator01_toggle_dark_recolors_is_live() {
+        run_test(OnDecoratorApp, |pilot| {
+            let before = pilot.app().frame_fingerprint();
+            pilot.click("#toggle-dark")?;
+            assert_ne!(
+                before,
+                pilot.app().frame_fingerprint(),
+                "clicking Toggle dark must recolor the UI (rendered frame changes)"
+            );
+            Ok(())
+        })
+        .expect("on_decorator01 toggle-dark harness should run");
+    }
 }

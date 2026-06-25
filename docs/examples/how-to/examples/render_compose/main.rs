@@ -171,4 +171,37 @@ mod tests {
         let splash = Splash::new();
         assert_eq!(splash.style_type(), "Splash");
     }
+
+    /// LIVENESS probe (Pilot, headless): the `Splash` container is fast-tick
+    /// active (`is_active() == true`); each `on_tick` advances the gradient angle
+    /// (`angle_deg = current_time_secs() * 90.0`), so an animated demo should
+    /// repaint a different gradient frame over time.
+    ///
+    /// UNCLEAR under the headless harness — `#[ignore]`d. Two compounding roots:
+    /// (1) the per-frame `Widget::on_tick` hook is driven by the *live* event
+    /// loop's wall-clock tick cadence (`runtime/event_loop.rs` `last_tick`), and
+    /// is NOT invoked by the headless pump — `Pilot::advance_clock` fires
+    /// `set_interval`/`set_timer` callbacks (the manual timer clock), but not
+    /// `on_tick`; and (2) the angle is derived from wall-clock `SystemTime::now()`
+    /// rather than the manual test clock, so even if ticked it would not advance
+    /// deterministically. Confirmed: `advance_clock(2s)` leaves the frame
+    /// unchanged. This is a harness gap for `on_tick`-animated widgets, not a
+    /// demo defect. TODO: drive `on_tick` from the headless pump under
+    /// `advance_clock` (and/or have the demo derive its angle from the manual
+    /// clock); then drop `#[ignore]`.
+    #[ignore = "UNCLEAR: Widget::on_tick is not pumped headless + angle uses wall-clock time"]
+    #[test]
+    fn render_compose_animation_is_live() {
+        run_test(SplashApp, |pilot| {
+            let before = pilot.app().frame_fingerprint();
+            pilot.advance_clock(std::time::Duration::from_secs(2))?;
+            assert_ne!(
+                before,
+                pilot.app().frame_fingerprint(),
+                "the time-driven gradient must repaint a different frame"
+            );
+            Ok(())
+        })
+        .expect("render_compose animation harness should run");
+    }
 }

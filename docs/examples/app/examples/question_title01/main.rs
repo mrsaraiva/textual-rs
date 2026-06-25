@@ -96,4 +96,21 @@ mod tests {
         let app = MyApp { reply: None };
         assert_eq!(app.title(), "A Question App");
     }
+
+    /// LIVENESS probe (Pilot, headless): clicking a button posts `ButtonPressed`,
+    /// handled by recording the reply and requesting stop (the Python demo exits
+    /// printing the button id). Liveness via `headless_stop_requested()`.
+    #[test]
+    fn question_title01_button_press_exits_is_live() {
+        run_test(MyApp { reply: None }, |pilot| {
+            assert!(!pilot.app().headless_stop_requested(), "no stop before interaction");
+            pilot.click("#yes")?;
+            assert!(
+                pilot.app().headless_stop_requested(),
+                "clicking #yes must fire the handler and request app exit"
+            );
+            Ok(())
+        })
+        .expect("question_title01 button-exit harness should run");
+    }
 }
