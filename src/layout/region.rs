@@ -17,10 +17,14 @@ pub(crate) fn border_spacing(style: &Style) -> (u16, u16, u16, u16) {
 /// A positioned rectangle in terminal cells (x, y, width, height form).
 ///
 /// Complements [`Rect`] (x0/y0/x1/y1 form) used by `WidgetTree` for storage.
+///
+/// The position (`x`/`y`) is **signed** (`i32`) so a region can sit partly
+/// above/left of the viewport (negative origin), mirroring Python's signed
+/// `Region`. Width/height stay unsigned.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Region {
-    pub x: u16,
-    pub y: u16,
+    pub x: i32,
+    pub y: i32,
     pub width: u16,
     pub height: u16,
 }
@@ -33,7 +37,7 @@ impl Region {
         height: 0,
     };
 
-    pub fn new(x: u16, y: u16, width: u16, height: u16) -> Self {
+    pub fn new(x: i32, y: i32, width: u16, height: u16) -> Self {
         Self {
             x,
             y,
@@ -47,8 +51,8 @@ impl Region {
         Rect {
             x0: self.x,
             y0: self.y,
-            x1: self.x.saturating_add(self.width),
-            y1: self.y.saturating_add(self.height),
+            x1: self.x + i32::from(self.width),
+            y1: self.y + i32::from(self.height),
         }
     }
 }

@@ -7,6 +7,33 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-24 (feat(layout): signed placement — negative offsets + `position: absolute`/`relative`)
+
+- **Widget-tree placement coordinates are now SIGNED (`i32`).** `widget_tree::Rect`
+  (`x0/y0/x1/y1`) and the layout `Region` position (`x/y`) changed from `u16` to
+  `i32`, mirroring Python's signed `Region`/`Offset` (`textual/geometry.py`). The CSS
+  `offset` is now applied in signed space (no `saturating_sub` clamp to `0`) across all
+  five layout modules, so a placement with a negative origin (for example
+  `offset: 0 -3`, whose top border sits 3 rows above the viewport) SURVIVES layout and
+  the existing `i32` render clip drops the off-viewport edge instead of the position
+  being destroyed at layout time. Widths/heights (`x1 - x0`) remain non-negative. The
+  hit-test map stays in unsigned screen space (derived from painted cells), so a widget
+  painted partly off-screen is hit-tested only on its visible cells — exactly correct.
+- **`position: absolute` widgets size to their content.** `layout_absolute` now sizes an
+  `auto` width/height absolute widget by its intrinsic content (plus its own chrome)
+  instead of filling the available region — mirroring Python `_get_box_model`. An
+  absolutely-positioned `Label` (default `width: auto`) is now content-sized rather than
+  stretched across the screen.
+- **CSS `offset` is applied AFTER container alignment.** Flow-child offsets are now
+  applied in a post-align pass (`apply_flow_offsets`), matching Python's post-arrange
+  `WidgetPlacement` offset. Previously the offset was folded into the flow position
+  before `apply_parent_align`, so container centering re-centered the offset-shifted box
+  and CANCELLED the displacement. A `position: relative; offset: x y` child is now
+  centered first and THEN shifted.
+- **Clears the `position` styled-parity example; `offset` placement is now exact** (its
+  remaining residual is an unrelated content-align-of-wrapped-text root in the Content
+  render pipeline, not a placement bug).
+
 ### 2026-06-24 (fix(scroll): overflow inline-override + per-id scrollbar CSS + box-model vertical-wrap)
 
 - **`VerticalScroll` / `HorizontalScroll` no longer set overflow inline.** Their

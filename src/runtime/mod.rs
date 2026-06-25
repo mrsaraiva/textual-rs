@@ -3543,11 +3543,13 @@ impl App {
         let tree = self.active_widget_tree()?;
         let node = tree.get(owner)?;
         let rect = node.layout_rect;
-        let width = rect.x1.saturating_sub(rect.x0).max(1);
-        let height = rect.y1.saturating_sub(rect.y0).max(1);
+        let width = i32::from(rect.width().max(1));
+        let height = i32::from(rect.height().max(1));
+        // Anchor is a screen position; clamp the (possibly off-viewport) center
+        // back into the non-negative screen coordinate space.
         Some((
-            rect.x0.saturating_add(width / 2),
-            rect.y0.saturating_add(height / 2),
+            (rect.x0 + width / 2).clamp(0, i32::from(u16::MAX)) as u16,
+            (rect.y0 + height / 2).clamp(0, i32::from(u16::MAX)) as u16,
         ))
     }
 
@@ -3579,18 +3581,18 @@ impl App {
                 .map(|node| {
                     let rect = node.content_rect;
                     (
-                        rect.x0,
-                        rect.y0,
-                        rect.x1.saturating_sub(rect.x0) as usize,
-                        rect.y1.saturating_sub(rect.y0) as usize,
+                        rect.x0.max(0) as usize,
+                        rect.y0.max(0) as usize,
+                        rect.width() as usize,
+                        rect.height() as usize,
                     )
                 })
             else {
                 continue;
             };
 
-            let x = usize::from(x0).min(screen_width.saturating_sub(1));
-            let y = usize::from(y0).min(screen_height.saturating_sub(1));
+            let x = x0.min(screen_width.saturating_sub(1));
+            let y = y0.min(screen_height.saturating_sub(1));
             let max_width = screen_width.saturating_sub(x).max(1);
             let max_height = screen_height.saturating_sub(y).max(1);
             return (

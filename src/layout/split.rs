@@ -307,8 +307,10 @@ pub(crate) fn carve_edge(
     let content_h = layout_h.saturating_sub(chrome_h);
 
     if let Some(node) = tree.get_mut(child) {
-        node.layout_rect = Region::new(layout_x, layout_y, layout_w, layout_h).to_rect();
-        node.content_rect = Region::new(content_x, content_y, content_w, content_h).to_rect();
+        node.layout_rect =
+            Region::new(i32::from(layout_x), i32::from(layout_y), layout_w, layout_h).to_rect();
+        node.content_rect =
+            Region::new(i32::from(content_x), i32::from(content_y), content_w, content_h).to_rect();
     }
 }
 
@@ -327,10 +329,13 @@ pub(crate) fn arrange_split(
     available: Region,
     viewport: (u16, u16),
 ) -> Region {
-    let mut x0 = available.x;
-    let mut y0 = available.y;
-    let mut x1 = available.x.saturating_add(available.width);
-    let mut y1 = available.y.saturating_add(available.height);
+    // Split partitions the screen into non-negative regions (no offset), so the
+    // edge-carving bounds are unsigned. The signed `available.x/y` (which is
+    // non-negative for a split container) is converted at the boundary.
+    let mut x0 = available.x.max(0) as u16;
+    let mut y0 = available.y.max(0) as u16;
+    let mut x1 = x0.saturating_add(available.width);
+    let mut y1 = y0.saturating_add(available.height);
 
     for &child in split_children {
         let style = get_node_style(tree, child);
@@ -350,7 +355,12 @@ pub(crate) fn arrange_split(
         );
     }
 
-    Region::new(x0, y0, x1.saturating_sub(x0), y1.saturating_sub(y0))
+    Region::new(
+        i32::from(x0),
+        i32::from(y0),
+        x1.saturating_sub(x0),
+        y1.saturating_sub(y0),
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -381,8 +391,16 @@ pub(crate) fn layout_absolute(
         let height_is_explicit = style.height.is_some();
         let width_is_explicit = style.width.is_some();
 
-        // Resolve width/height (default to full available minus margin).
+        // Resolve width/height. Mirrors Python `_get_box_model`: an `auto`
+        // dimension shrinks to the child's intrinsic content (plus its own
+        // chrome), NOT the full available region. Only a `None` (unset)
+        // dimension falls back to filling the available region. This makes an
+        // absolutely-positioned `Label` (default `width: auto`) size to its
+        // text instead of stretching across the screen.
         let mut layout_w = match style.width.as_ref() {
+            Some(Scalar::Auto) => measure_intrinsic_content_width(tree, child, viewport)
+                .map(|w| w.saturating_add(chrome_w))
+                .unwrap_or_else(|| available.width.saturating_sub(margin.left + margin.right)),
             Some(s) => {
                 let content_w = resolve_scalar_to_cells(s, available.width, viewport);
                 if box_sizing == BoxSizing::BorderBox && width_is_explicit {
@@ -394,6 +412,20 @@ pub(crate) fn layout_absolute(
             None => available.width.saturating_sub(margin.left + margin.right),
         };
         let mut layout_h = match style.height.as_ref() {
+            Some(Scalar::Auto) => {
+                // `measure_intrinsic_content_height` returns the child's own
+                // OUTER box height for a leaf widget (its `layout_height()`
+                // already includes the widget's border+padding), so chrome is
+                // NOT re-added here (unlike `width`, whose `auto_content_width`
+                // reports pure content). Mirrors Python `_get_box_model` sizing
+                // an auto-height widget to its content box.
+                let avail_content_h = available
+                    .height
+                    .saturating_sub(margin.top + margin.bottom)
+                    .saturating_sub(chrome_h);
+                measure_intrinsic_content_height(tree, child, viewport, avail_content_h)
+                    .unwrap_or_else(|| available.height.saturating_sub(margin.top + margin.bottom))
+            }
             Some(s) => {
                 let content_h = resolve_scalar_to_cells(s, available.height, viewport);
                 if box_sizing == BoxSizing::BorderBox && height_is_explicit {
@@ -443,35 +475,29 @@ pub(crate) fn layout_absolute(
             layout_h = layout_h.min(max_h_outer);
         }
 
-        // Position: at parent origin + margin + offset.
+        // Position: at parent origin + margin + offset. Positions are signed so
+        // a negative offset (`position: absolute; offset: -x -y`) survives to the
+        // render clip instead of being clamped to 0.
         let offset = style.offset.unwrap_or_default();
-        let base_x = available.x.saturating_add(margin.left);
-        let base_y = available.y.saturating_add(margin.top);
+        let base_x = available.x + i32::from(margin.left);
+        let base_y = available.y + i32::from(margin.top);
         let layout_x = {
             let dx = match offset.x {
                 OffsetValue::Cells(c) => c as i32,
                 OffsetValue::Percent(p) => (layout_w as f32 * p / 100.0).round() as i32,
             };
-            if dx >= 0 {
-                base_x.saturating_add(dx as u16)
-            } else {
-                base_x.saturating_sub(dx.unsigned_abs() as u16)
-            }
+            base_x + dx
         };
         let layout_y = {
             let dy = match offset.y {
                 OffsetValue::Cells(c) => c as i32,
                 OffsetValue::Percent(p) => (layout_h as f32 * p / 100.0).round() as i32,
             };
-            if dy >= 0 {
-                base_y.saturating_add(dy as u16)
-            } else {
-                base_y.saturating_sub(dy.unsigned_abs() as u16)
-            }
+            base_y + dy
         };
 
-        let content_x = layout_x.saturating_add(bl + padding.left);
-        let content_y = layout_y.saturating_add(bt + padding.top);
+        let content_x = layout_x + i32::from(bl + padding.left);
+        let content_y = layout_y + i32::from(bt + padding.top);
         let content_w = layout_w.saturating_sub(chrome_w);
         let content_h = layout_h.saturating_sub(chrome_h);
 
