@@ -134,6 +134,18 @@ pub(crate) fn parse_tag_style(tag_body: &str) -> Option<ParsedTag> {
 
         // --- "on" → next color is background ---
         if token == "on" {
+            // Commit any pending color FIRST, in the slot that was active when it
+            // was parsed (foreground unless a previous `on` already switched us).
+            // `on` only redirects the *next* color to the background; it must not
+            // retroactively move an already-parsed color (so `white on black`
+            // assigns fg=white, bg=black, not the reverse).
+            if let Some(c) = pending_color.take() {
+                if is_background {
+                    style = style.bg(c);
+                } else {
+                    style = style.fg(c);
+                }
+            }
             is_background = true;
             had_style = true;
             continue;
@@ -969,6 +981,26 @@ mod tests {
         let resolved = parse_tag_style("on red").unwrap();
         assert!(resolved.style.bg.is_some(), "on <color> should set bg");
         assert!(resolved.style.fg.is_none(), "on <color> must not set fg");
+    }
+
+    #[test]
+    fn test_foreground_on_background_color() {
+        // `white on black` must assign fg=white, bg=black (NOT swapped). The `on`
+        // keyword only redirects the NEXT color to the background; the already-
+        // parsed `white` stays a foreground. Regression for a markup parser bug
+        // that committed the pending color under the post-`on` background flag.
+        let resolved = parse_tag_style("white on black").unwrap();
+        let white = crate::style::Color::rgb(255, 255, 255);
+        let black = crate::style::Color::rgb(0, 0, 0);
+        assert_eq!(resolved.style.fg, Some(white), "white must be foreground");
+        assert_eq!(resolved.style.bg, Some(black), "black must be background");
+
+        // With additional attributes the colors are still not swapped.
+        let resolved = parse_tag_style("r u white on black").unwrap();
+        assert_eq!(resolved.style.fg, Some(white));
+        assert_eq!(resolved.style.bg, Some(black));
+        assert_eq!(resolved.style.reverse, Some(true));
+        assert_eq!(resolved.style.underline, Some(true));
     }
 
     #[test]

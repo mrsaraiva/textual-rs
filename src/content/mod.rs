@@ -1158,6 +1158,31 @@ impl Content {
 
         strips
     }
+
+    /// Render this content as a single line of segments over `base_style`,
+    /// applying any embedded markup span styles on top of the base.
+    ///
+    /// This is the Rust analogue of Python `Content.render_segments(base_style)`
+    /// used by `_border.render_border_label`: there is no wrapping, alignment,
+    /// or height fill — the content is emitted verbatim with each markup span
+    /// layered over the supplied base style (which carries the border-line
+    /// foreground/background and any title-specific overrides).
+    ///
+    /// `resolve_fn` resolves raw span tags (theme tokens like `$primary`) to
+    /// concrete styles, mirroring `render_strips`.
+    pub fn render_label_segments<F>(
+        &self,
+        base_style: &Style,
+        resolve_fn: F,
+    ) -> Vec<rich_rs::Segment>
+    where
+        F: Fn(&str) -> Style,
+    {
+        let resolved = self.resolve_styles(&resolve_fn);
+        let mut segs: Vec<rich_rs::Segment> = Vec::new();
+        emit_rendered_segments(&resolved, base_style, &mut segs);
+        segs
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -3290,4 +3315,3 @@ mod tests {
         assert_eq!(found.as_deref(), Some("set_background('cyan')"));
     }
 }
-

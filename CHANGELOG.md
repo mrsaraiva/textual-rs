@@ -7,6 +7,38 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-24 (feat(border): markup-styled border (sub)titles + ellipsis truncation + grid vcenter)
+
+- **Border title / subtitle now render through the Content markup pipeline.** A
+  new `Content::render_label_segments(base_style, resolve_fn)` (the Rust analogue
+  of Python `Content.render_segments`) emits a single line of segments with each
+  markup span layered over the border-line base style. `overlay_border_text` uses
+  it so embedded tags style the label — `[b red]`, `[reverse]`, `[u][r]…[/]`,
+  `white on black` — instead of rendering the tags literally, matching Python
+  `_border.render_border_label`.
+- **Over-long (sub)titles truncate with an ellipsis (`…`).** The label is built as
+  markup `Content`, truncated via `Content::truncate(width, ellipsis=true)`, padded
+  one blank per present corner, and laid out using Python's exact two-stage edge
+  arithmetic (`render_border_label` gets `width - 2` and reserves `2 * corners`;
+  `render_row` distributes `max(0, width - corners - label_length)` fill around the
+  label per the title alignment).
+- **`align: center middle` no longer mis-centers an id/class-bordered Label by one
+  row.** Root cause: a widget's `layout_height()` bakes its own border/padding by
+  resolving CSS OFF-TREE (`selector_meta_generic`), but a `Label`'s css id/classes
+  were cleared from its seed at mount (`take_node_seed`), so id/class-targeted rules
+  (`#lbl1 { border: vkey }`) were invisible to that resolution and the auto-height
+  box dropped its border rows. `Label` now preserves its id/classes post-mount via a
+  `css_id_cache` / `classes_cache` (the same pattern `Static` already uses) and
+  overrides `style_id()` / `style_classes()`, so off-tree chrome resolution sees the
+  id and the box keeps its full height.
+- **Markup `X on Y` color parsing fixed.** `white on black` previously assigned
+  `fg=black, bg=white` (swapped) because the pending foreground color was committed
+  under the post-`on` background flag. The parser now flushes the pending color as a
+  foreground before `on` switches to background, so `white on black` is
+  `fg=white, bg=black`.
+- Clears `border_sub_title_align_all` (promoted to the styled-parity PASSING set,
+  exact-RGB vs Python).
+
 ### 2026-06-24 (fix(layout): >100% percentage width + horizontal-overflow clipping)
 
 - **An explicit oversized width (e.g. `width: 150%`) on a child of a

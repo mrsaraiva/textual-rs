@@ -23,10 +23,7 @@ fn tag_segment_no_text_style(seg: &mut Segment) {
         .as_ref()
         .map(|m| (**m).clone())
         .unwrap_or_default();
-    map.insert(
-        "textual:no_text_style".to_string(),
-        MetaValue::Bool(true),
-    );
+    map.insert("textual:no_text_style".to_string(), MetaValue::Bool(true));
     meta.meta = Some(Arc::new(map));
     seg.meta = Some(meta);
 }
@@ -67,6 +64,14 @@ pub struct Label {
     border_title: Option<String>,
     border_subtitle: Option<String>,
     seed: NodeSeed,
+    /// Post-mount cache of `seed.css_id` / `seed.classes`. `take_node_seed()`
+    /// moves the seed out of the widget (clearing them), but OFF-TREE CSS
+    /// resolution in `layout_height()` (via `selector_meta_generic`) runs AFTER
+    /// mounting — so without this cache id/class-targeted rules (e.g.
+    /// `#lbl1 { border: vkey }`) are invisible and the auto-height box drops its
+    /// border/padding rows (breaking `align: center middle`). Mirrors `Static`.
+    css_id_cache: Option<String>,
+    classes_cache: Vec<String>,
 }
 
 impl Label {
@@ -91,6 +96,8 @@ impl Label {
             border_title: None,
             border_subtitle: None,
             seed,
+            css_id_cache: None,
+            classes_cache: Vec::new(),
         }
     }
 
@@ -269,9 +276,7 @@ impl Widget for Label {
         //
         // `[link=url]` spans do NOT get link styling — only `@click` spans do.
         if self.markup {
-            if let Some(link_span_style) =
-                compute_link_span_style(&visual_style, effective_bg)
-            {
+            if let Some(link_span_style) = compute_link_span_style(&visual_style, effective_bg) {
                 // Collect @click span ranges first to avoid borrow conflicts.
                 let link_ranges: Vec<(usize, usize)> = content
                     .spans()
@@ -392,7 +397,28 @@ impl Widget for Label {
     }
 
     fn take_node_seed(&mut self) -> NodeSeed {
-        std::mem::take(&mut self.seed)
+        let seed = std::mem::take(&mut self.seed);
+        // Preserve id/classes so off-tree CSS resolution keeps matching after the
+        // seed is taken (see `css_id_cache` field doc).
+        self.css_id_cache = seed.css_id.clone();
+        self.classes_cache = seed.classes.clone();
+        seed
+    }
+
+    fn style_id(&self) -> Option<&str> {
+        if self.seed.css_id.is_some() {
+            self.seed.css_id.as_deref()
+        } else {
+            self.css_id_cache.as_deref()
+        }
+    }
+
+    fn style_classes(&self) -> &[String] {
+        if !self.seed.classes.is_empty() {
+            &self.seed.classes
+        } else {
+            &self.classes_cache
+        }
     }
 }
 
@@ -2549,7 +2575,11 @@ mod tests {
         // --- Word-wrapped scrollbar demo body (TEXT * 10). ---
         // Drives the scrollbar virtual_size / thumb geometry.
         let text = SCROLLBAR_TEXT.repeat(10);
-        assert_eq!(h(&text, 75, true), 71, "no-wrap width: 70 content + 1 trailing blank");
+        assert_eq!(
+            h(&text, 75, true),
+            71,
+            "no-wrap width: 70 content + 1 trailing blank"
+        );
         assert_eq!(h(&text, 40, true), 111);
         assert_eq!(h(&text, 30, true), 131);
         assert_eq!(h(&text, 25, true), 151);
@@ -2563,13 +2593,29 @@ mod tests {
 
         // --- Trailing / internal blank-line semantics (split allow_blank=True). ---
         assert_eq!(h("hello", 40, true), 1, "no newline -> single line");
-        assert_eq!(h("hello\n", 40, true), 2, "trailing newline keeps a blank line");
+        assert_eq!(
+            h("hello\n", 40, true),
+            2,
+            "trailing newline keeps a blank line"
+        );
         assert_eq!(h("a\n\nb", 40, true), 3, "internal blank line preserved");
-        assert_eq!(h("a\n\n\n", 40, true), 4, "multiple trailing blanks preserved");
+        assert_eq!(
+            h("a\n\n\n", 40, true),
+            4,
+            "multiple trailing blanks preserved"
+        );
 
         // --- no_wrap (text-wrap: nowrap) char-fold height. ---
-        assert_eq!(h(SCROLLBAR_TEXT, 75, false), 8, "no_wrap, nothing exceeds width");
-        assert_eq!(h(SCROLLBAR_TEXT, 20, false), 19, "no_wrap char-folds wide lines");
+        assert_eq!(
+            h(SCROLLBAR_TEXT, 75, false),
+            8,
+            "no_wrap, nothing exceeds width"
+        );
+        assert_eq!(
+            h(SCROLLBAR_TEXT, 20, false),
+            19,
+            "no_wrap char-folds wide lines"
+        );
     }
 
     #[test]
@@ -3033,7 +3079,10 @@ I must not fear. Fear is the mind-killer. Fear is the little-death that brings t
         let markup = "# Title\n\n> quote\n\nAfter.\n";
         let children = super::build_markdown_children(markup);
         let types: Vec<&str> = children.iter().map(|c| c.style_type()).collect();
-        assert_eq!(types, vec!["MarkdownH1", "MarkdownBlockQuote", "MarkdownParagraph"]);
+        assert_eq!(
+            types,
+            vec!["MarkdownH1", "MarkdownBlockQuote", "MarkdownParagraph"]
+        );
     }
 
     #[test]
