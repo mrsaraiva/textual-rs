@@ -2322,6 +2322,34 @@ impl App {
         Some(result)
     }
 
+    /// Type-erased sibling of [`with_widget_taken_as`](Self::with_widget_taken_as):
+    /// swap the node's widget box out for a placeholder, run `f` with the boxed
+    /// widget and `&mut App` (so the closure may `query_one`/mutate other nodes
+    /// without a borrow conflict on the taken widget), then restore it.
+    ///
+    /// Used by the runtime reactive phase so a widget's `reactive_dispatch_with_app`
+    /// (`watch_with_app` watchers, which receive `&mut App`) can run for entries
+    /// enqueued via `enqueue_runtime_reactive_entry`, mirroring the `data_bind`
+    /// fan-out path. Returns `None` if the node is absent.
+    pub(crate) fn with_node_widget_taken_dyn<R>(
+        &mut self,
+        node_id: NodeId,
+        f: impl FnOnce(&mut dyn Widget, &mut App) -> R,
+    ) -> Option<R> {
+        let mut taken: Box<dyn Widget> = {
+            let tree = self.active_widget_tree_mut()?;
+            let node = tree.get_mut(node_id)?;
+            std::mem::replace(&mut node.widget, Box::new(crate::widgets::Spacer::new(0)))
+        };
+        let result = f(taken.as_mut(), self);
+        if let Some(tree) = self.active_widget_tree_mut() {
+            if let Some(node) = tree.get_mut(node_id) {
+                node.widget = taken;
+            }
+        }
+        Some(result)
+    }
+
     #[cfg(test)]
     pub(crate) fn set_suspend_process_impl_for_test(&mut self, f: SuspendProcessFn) {
         self.suspend_process_impl = f;

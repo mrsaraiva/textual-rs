@@ -347,4 +347,26 @@ mod tests {
         assert_eq!(bs.bit, 5);
         assert!(!bs.value);
     }
+
+    /// LIVENESS PROBE — toggling a bit Switch must recompute the byte and update
+    /// the `#byte-input` Input (Switch -> Input wiring). We assert the Input text
+    /// itself changed (state, not just frame). A dead demo (unwired SwitchChanged
+    /// / byte not recomputed) leaves the Input empty and fails this gate.
+    #[test]
+    fn liveness_toggling_switch_updates_byte_input() {
+        textual::run_test(ByteInputApp, |pilot| {
+            // Clicking the first switch toggles bit 0 (value 1).
+            pilot.click("#switch-0")?;
+            let text = pilot
+                .app_mut()
+                .with_query_one_mut_as::<Input, _>("#byte-input", |i| i.text().to_string())
+                .unwrap_or_default();
+            assert_eq!(
+                text, "1",
+                "toggling bit 0 must set the byte Input to 1 (got {text:?})"
+            );
+            Ok(())
+        })
+        .unwrap();
+    }
 }

@@ -663,6 +663,13 @@ pub fn take_runtime_reactive_entries() -> Vec<RuntimeReactiveEntry> {
     RUNTIME_REACTIVE_QUEUE.with(|queue| std::mem::take(&mut *queue.borrow_mut()))
 }
 
+/// Whether the runtime reactive queue currently holds any pending entries
+/// (without draining it). Lets the headless pump decide whether the reactive
+/// phase has work to do this iteration.
+pub fn runtime_reactive_queue_is_nonempty() -> bool {
+    RUNTIME_REACTIVE_QUEUE.with(|queue| !queue.borrow().is_empty())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -929,11 +936,7 @@ mod tests {
             dispatch_called: bool,
         }
         impl ReactiveWidget for SimpleWidget {
-            fn reactive_dispatch(
-                &mut self,
-                changes: &[ReactiveChange],
-                _ctx: &mut ReactiveCtx,
-            ) {
+            fn reactive_dispatch(&mut self, changes: &[ReactiveChange], _ctx: &mut ReactiveCtx) {
                 if !changes.is_empty() {
                     self.dispatch_called = true;
                 }
@@ -949,7 +952,9 @@ mod tests {
             new_value: Box::new(1_i32),
         }];
         let mut ctx = ReactiveCtx::new(id);
-        let mut w = SimpleWidget { dispatch_called: false };
+        let mut w = SimpleWidget {
+            dispatch_called: false,
+        };
         w.reactive_dispatch(&changes, &mut ctx);
         assert!(w.dispatch_called);
     }
@@ -1127,7 +1132,10 @@ mod tests {
         app.set_time(5, &mut ctx);
         assert_eq!(*app.time(), 5);
         assert!(ctx.has_changes());
-        assert!(ctx.needs_recompose(), "recompose field must request recompose");
+        assert!(
+            ctx.needs_recompose(),
+            "recompose field must request recompose"
+        );
         assert!(ctx.needs_repaint());
         assert!(ctx.needs_layout());
         // The descriptor must report the recompose flag for init-phase handling.
@@ -1234,12 +1242,7 @@ mod tests {
         fn compute_color(&self) -> (u8, u8, u8) {
             (self.red, self.green, self.blue)
         }
-        fn watch_color(
-            &mut self,
-            _old: &(u8, u8, u8),
-            new: &(u8, u8, u8),
-            _ctx: &mut ReactiveCtx,
-        ) {
+        fn watch_color(&mut self, _old: &(u8, u8, u8), new: &(u8, u8, u8), _ctx: &mut ReactiveCtx) {
             self.observed = Some(*new);
         }
     }

@@ -169,4 +169,37 @@ mod tests {
         let result = App::call_from_thread(|_app| ());
         assert_eq!(result, Err(CallFromThreadError::NotRunning));
     }
+
+    /// LIVENESS PROBE (UNCLEAR under the headless harness — see note).
+    ///
+    /// weather04 is weather03 + an explicit `on_worker_state_changed` handler;
+    /// the exclusive worker fetches and posts the result back onto the UI thread
+    /// via `App::call_from_thread` to update the `Static`.
+    ///
+    /// UNCLEAR ROOT: same as weather02/03 — the headless `Pilot` pump owns no
+    /// `WorkerRegistry`, so the worker never runs (and `call_from_thread`
+    /// requires a live event loop to service the posted closure). The Static
+    /// stays empty. NOT a dead demo; flip this `#[ignore]` once the headless
+    /// harness pumps workers and services `call_from_thread`.
+    #[test]
+    #[ignore = "UNCLEAR: headless Pilot pump does not process background workers or service call_from_thread; worker never runs so the Static never updates"]
+    fn liveness_worker_updates_weather() {
+        textual::run_test(WeatherApp::new(), |pilot| {
+            pilot.click("Input")?;
+            pilot.press(&["L", "o", "n"])?;
+            for _ in 0..5 {
+                pilot.pause()?;
+            }
+            let text = pilot
+                .app_mut()
+                .with_query_one_mut_as::<Static, _>("Static", |s| s.text().to_string())
+                .unwrap_or_default();
+            assert!(
+                !text.is_empty(),
+                "the background worker must populate the weather Static"
+            );
+            Ok(())
+        })
+        .unwrap();
+    }
 }

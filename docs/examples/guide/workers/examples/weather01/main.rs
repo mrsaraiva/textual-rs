@@ -131,4 +131,26 @@ mod tests {
         let result = fetch_weather("Paris");
         assert!(!result.is_empty());
     }
+
+    /// LIVENESS PROBE — the "before workers" baseline fetches synchronously on
+    /// each keystroke (InputChanged) and updates the `Static`. We type a city and
+    /// assert the Static's own text became the (fabricated) weather. A dead demo
+    /// (unwired InputChanged) leaves the Static empty and fails this gate.
+    #[test]
+    fn liveness_typing_city_updates_weather() {
+        textual::run_test(WeatherApp, |pilot| {
+            pilot.click("Input")?;
+            pilot.press(&["L", "o", "n"])?;
+            let text = pilot
+                .app_mut()
+                .with_query_one_mut_as::<Static, _>("Static", |s| s.text().to_string())
+                .unwrap_or_default();
+            assert!(
+                text.contains("Lon"),
+                "typing a city must populate the weather Static (got {text:?})"
+            );
+            Ok(())
+        })
+        .unwrap();
+    }
 }

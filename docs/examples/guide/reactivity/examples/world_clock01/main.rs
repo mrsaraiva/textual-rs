@@ -258,4 +258,34 @@ mod tests {
         app.set_time(*app.time() + 1, &mut ctx);
         assert!(ctx.has_changes());
     }
+
+    /// LIVENESS PROBE — the 1s interval must fire and the App's `watch_time`
+    /// must fan the timestamp out to every WorldClock child, whose own
+    /// `watch_time` updates its Digits. We seed a sentinel app time, flush it
+    /// (so each child's Digits read the sentinel), then advance the clock so a
+    /// live tick re-reads the real wall clock. A dead demo (no timer / fan-out
+    /// or child watch unwired) leaves the frame identical and fails this gate.
+    #[test]
+    fn liveness_interval_tick_updates_world_clocks() {
+        textual::run_test(WorldClockApp::new(), |pilot| {
+            assert!(pilot.clock_is_manual());
+            pilot.app_mut().with_app_struct::<WorldClockApp, _>(
+                |app_struct, app, _ctx| {
+                    app_struct.set_time(0, app.reactive_ctx());
+                },
+                &mut EventCtx::default(),
+            );
+            // Flush the seed (and its fan-out) through the app-reactive bridge.
+            pilot.press(&["space"])?;
+            let before = pilot.app().frame_fingerprint();
+            pilot.advance_clock(Duration::from_secs(1))?;
+            let after = pilot.app().frame_fingerprint();
+            assert_ne!(
+                before, after,
+                "a 1s interval tick must update the world clocks"
+            );
+            Ok(())
+        })
+        .unwrap();
+    }
 }

@@ -150,6 +150,13 @@ impl Static {
         self.content = StaticContent::Plain;
     }
 
+    /// The current plain text content (the value last set via [`new`](Self::new)
+    /// or [`update`](Self::update)). Mirrors reading Python `Static.renderable`
+    /// for the plain-text case; used by tests/Pilot to assert content state.
+    pub fn text(&self) -> &str {
+        &self.text
+    }
+
     /// Replace content with a pre-rendered [`rich_rs::Text`] value.
     ///
     /// Use this to display syntax-highlighted code or other styled content:
@@ -380,9 +387,7 @@ mod tests {
     /// (`docs/examples/guide/styles/padding02`).
     #[test]
     fn static_intrinsic_height_uses_real_word_wrap() {
-        let mut widget = Static::new(
-            "Fear is the little-death that brings total obliteration.",
-        );
+        let mut widget = Static::new("Fear is the little-death that brings total obliteration.");
         // Content width 22 (padding02: width 30 - padding 4*2).
         Widget::on_layout(&mut widget, 22, 0);
         let h = widget.intrinsic_height();

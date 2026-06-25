@@ -114,3 +114,43 @@ impl TextualApp for CompoundApp {
 fn main() -> textual::Result<()> {
     run_sync(CompoundApp)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn compound_app_composes_without_panic() {
+        let mut app = CompoundApp;
+        let _root = app.compose();
+    }
+
+    #[test]
+    fn input_with_label_composes_label_and_input() {
+        let mut w = InputWithLabel::new("First Name");
+        let children = w.inner.take_composed_children();
+        assert_eq!(children.len(), 2);
+    }
+
+    /// LIVENESS PROBE — the compound `InputWithLabel` must delegate focus/input
+    /// to its inner Input: focusing it and typing echoes the text. We assert the
+    /// Input's own text changed (state, not just frame). A dead compound (events
+    /// not forwarded to the inner Input) leaves the text empty and fails.
+    #[test]
+    fn liveness_typing_into_compound_input() {
+        textual::run_test(CompoundApp, |pilot| {
+            pilot.click("Input")?;
+            pilot.press(&["A", "d", "a"])?;
+            let text = pilot
+                .app_mut()
+                .with_query_one_mut_as::<Input, _>("Input", |i| i.text().to_string())
+                .unwrap_or_default();
+            assert_eq!(
+                text, "Ada",
+                "typing into the compound widget must reach its inner Input"
+            );
+            Ok(())
+        })
+        .unwrap();
+    }
+}

@@ -137,4 +137,28 @@ mod tests {
         assert!(ctx.needs_repaint());
         assert!(ctx.needs_layout(), "layout reactive must request layout");
     }
+
+    /// LIVENESS PROBE — typing into the Input must drive the `Name` widget's
+    /// `who` (layout=true) reactive. We assert the widget's own reactive value
+    /// changed (not merely the frame, which the Input echo would dirty on its
+    /// own — an echo false positive we avoid). A dead demo leaves `who`
+    /// unchanged and fails this gate.
+    #[test]
+    fn liveness_typing_relayouts_name_box() {
+        textual::run_test(WatchApp, |pilot| {
+            pilot.click("Input")?;
+            pilot.press(&["A", "l", "i", "c", "e"])?;
+            let nid = pilot.app().query_one("Name").unwrap();
+            let who = pilot
+                .app_mut()
+                .with_widget_mut_as::<Name, _>(nid, |n| n.who().clone())
+                .unwrap_or_default();
+            assert_eq!(
+                who, "Alice",
+                "typing must flow into the Name widget's `who` (layout) reactive"
+            );
+            Ok(())
+        })
+        .unwrap();
+    }
 }

@@ -99,4 +99,23 @@ mod tests {
         let mut app = AnimationApp;
         let _root = app.compose();
     }
+
+    /// LIVENESS PROBE — pressing "2" must apply the eased 50% opacity to `#box`
+    /// via the node-level `query_mut(...).set_styles(...)` path, changing the
+    /// rendered frame. A dead demo (unwired key handler) leaves the frame
+    /// identical and fails this gate.
+    #[test]
+    fn liveness_key_applies_opacity() {
+        textual::run_test(AnimationApp, |pilot| {
+            let before = pilot.app().frame_fingerprint();
+            pilot.press(&["2"])?;
+            let after = pilot.app().frame_fingerprint();
+            assert_ne!(
+                before, after,
+                "pressing 2 must apply the eased opacity to #box"
+            );
+            Ok(())
+        })
+        .unwrap();
+    }
 }
