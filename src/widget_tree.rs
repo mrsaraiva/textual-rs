@@ -15,7 +15,7 @@ use slotmap::SlotMap;
 
 use crate::css::{Combinator, SelectorChain, SelectorMeta, parse_selector_list};
 use crate::node_id::NodeId;
-use crate::style::Visibility;
+use crate::style::{Style, Visibility};
 use crate::widgets::{NodeSeed, NodeState, Widget, WidgetStyles};
 
 // ---------------------------------------------------------------------------
@@ -663,6 +663,36 @@ impl WidgetTree {
     pub fn set_css_id(&mut self, node: NodeId, id: Option<String>) {
         if let Some(n) = self.arena.get_mut(node) {
             n.css_id = id;
+        }
+    }
+
+    /// Apply a collapsed structural wrapper's identity onto `node`'s record.
+    ///
+    /// Used when a transparent wrapper (a bare [`Node`](crate::widgets::Node)) is
+    /// collapsed out of the tree and its single inner child is mounted in its
+    /// place (see
+    /// [`Widget::take_structural_collapse`](crate::widgets::Widget::take_structural_collapse)).
+    /// The id replaces any existing id; classes are merged in; the wrapper's
+    /// inline styles are folded onto the child's existing inline styles.
+    pub fn apply_forwarded_seed(&mut self, node: NodeId, seed: NodeSeed) {
+        if let Some(n) = self.arena.get_mut(node) {
+            if seed.css_id.is_some() {
+                n.css_id = seed.css_id;
+            }
+            for class in seed.classes {
+                n.classes.insert(class);
+            }
+            // Fold the wrapper's inline layout/style onto the child. The child's
+            // own inline style (rare for an inner widget) is preserved as the
+            // base; the wrapper's overrides win where set.
+            let layout = seed.styles.layout;
+            let has_layout = layout.min_width.is_some()
+                || layout.max_width.is_some()
+                || layout.min_height.is_some()
+                || layout.max_height.is_some();
+            if seed.styles.style != Style::default() || has_layout {
+                n.styles = seed.styles;
+            }
         }
     }
 

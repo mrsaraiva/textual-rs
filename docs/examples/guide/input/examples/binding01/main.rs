@@ -156,31 +156,20 @@ mod tests {
         assert!(bindings.iter().any(|b| b.key == "b"), "missing 'b' binding");
     }
 
-    /// LIVENESS PROBE (DEAD — captures expected behavior, currently failing).
+    /// LIVENESS PROBE (LIVE).
     ///
-    /// Pressing the bound key `r`/`g`/`b` *does* fire the binding and mount a
-    /// `Bar` node (the tree mutates: Bar count goes 0 -> 1 -> 3), but the
-    /// rendered frame NEVER changes and the mounted `Bar` has no rendered
-    /// region (`node_screen_rect("Bar") == None`).
+    /// Pressing the bound key `r`/`g`/`b` fires the binding, mounts a `Bar` under
+    /// `#bars`, and the rendered frame changes with the new `Bar` getting a real
+    /// rendered region.
     ///
-    /// ROOT: the demo composes `#bars` as `Node::new(VerticalScroll::new())
-    /// .id("bars")` — so the `#bars` selector resolves to the *Node wrapper*,
-    /// not the `VerticalScroll` itself. `node_screen_rect("#bars") == None`
-    /// (the wrapper has no own surface) while `node_screen_rect("VerticalScroll")
-    /// == Some((0,0,79,22))`. `app.mount_under("#bars", bar)` therefore inserts
-    /// the `Bar` as a child of the structural Node, *outside* the scroll
-    /// viewport's laid-out/rendered subtree, so it is never laid out or drawn.
-    ///
-    /// In Python `binding01.py`, `#bars` IS the `VerticalScroll`, and
-    /// `action_add_bar` mounts the `Bar` directly inside it.
-    ///
-    /// TODO (fix then un-ignore): make the demo mount into the scroll viewport
-    /// (e.g. give the `VerticalScroll` itself the `#bars` id, or mount under
-    /// `"VerticalScroll"`), and/or have `mount_under` on a structural Node
-    /// forward into its scrollable content child. The assertion below is the
-    /// real expected behavior: mounting a Bar must change the rendered frame and
-    /// give the Bar a rendered region.
-    #[ignore = "DEAD: mount_under(#bars) targets a non-rendering Node wrapper; Bar never lays out/renders"]
+    /// ROOT (fixed): the demo composes `#bars` as `Node::new(VerticalScroll::new())
+    /// .id("bars")`. Previously the `#bars` id landed on the transparent `Node`
+    /// wrapper, so `node_screen_rect("#bars") == None` and `mount_under("#bars",
+    /// bar)` inserted the `Bar` as a child of the structural Node — *outside* the
+    /// scroll viewport's laid-out subtree, never drawn. The node-build pipeline
+    /// now collapses the structural `Node` out of the tree and forwards the id to
+    /// the inner `VerticalScroll`, so `#bars` IS the `VerticalScroll` and the bar
+    /// mounts inside the viewport (Python parity: `VerticalScroll(id="bars")`).
     #[test]
     fn liveness_pressing_color_keys_mounts_bars_and_changes_frame() {
         textual::run_test(BindingApp, |pilot| {

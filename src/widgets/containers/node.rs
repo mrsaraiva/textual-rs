@@ -156,6 +156,65 @@ impl Widget for Node {
         std::mem::take(&mut self.seed)
     }
 
+    fn take_structural_collapse(&mut self) -> Option<(Box<dyn Widget>, NodeSeed)> {
+        // Collapse a *purely structural* transparent `Node` OUT of the arena: its
+        // single inner widget is mounted in the wrapper's place and owns the
+        // forwarded id/inline-style. This matches Python, where attaching an id is
+        // a property of one widget (`Placeholder(id="page-0")`,
+        // `HorizontalScroll(id="page-container")`) — never an extra wrapper node.
+        // Keeping the wrapper interposes a `width:auto` (shrink-to-content) layout
+        // layer ABOVE the inner widget, which:
+        //   - drops the inner widget's explicit size (a `width:100vw` page shrinks
+        //     to its text), and
+        //   - prevents a wrapped scroll container from establishing its own scroll
+        //     viewport (so id-targeted mounts / `scroll_visible` land in a node
+        //     with no laid-out region).
+        //
+        // Collapse is gated to wrappers that carry NO CSS CLASS of their own: an
+        // id-only wrapper (or a scroll-host wrapper) is pure targeting and folds
+        // cleanly onto the inner widget. A `.class(..)` wrapper (e.g.
+        // `Static.class("words")` whose class carries `border`/`background`/
+        // `width:auto`, or `Bar.class("red")` carrying a background) is a real
+        // STYLED box: the wrapper is the rendered surface and must stay, so its
+        // class styling is not silently moved onto a differently-rendering inner
+        // widget. (A classed *scroll host* still collapses — it must own its
+        // viewport — and its class travels with the forwarded seed.)
+        //
+        // A `Node` carrying a border title/subtitle is always a styled box and
+        // never collapses.
+        if self.child_extracted {
+            return None;
+        }
+        if self.border_title.is_some() || self.border_subtitle.is_some() {
+            return None;
+        }
+        if self.seed.css_id.is_none() && self.seed.classes.is_empty() {
+            // Nothing to forward; keep the wrapper (may be a style-only stand-in).
+            return None;
+        }
+        let is_scroll_host = self.child.clips_descendants_to_content();
+        if !self.seed.classes.is_empty() && !is_scroll_host {
+            // Classed, non-scroll wrapper: a real styled box — keep it (the class
+            // styling renders on the wrapper, not the inner widget).
+            return None;
+        }
+        self.child_extracted = true;
+        let child = std::mem::replace(&mut self.child, Box::new(Spacer::new(1)));
+        let seed = std::mem::take(&mut self.seed);
+        Some((child, seed))
+    }
+
+    // NOTE: a *classed* non-scroll `Node` wrapper (e.g.
+    // `Node::new(Placeholder).class("box")`) is deliberately NOT collapsed by
+    // `take_structural_collapse` and keeps its own id/classes — it is a real
+    // STYLED box whose class carries layout styling (`width:1fr`/`border`/`bg`)
+    // that must render on the wrapper. Moving that class onto the inner widget
+    // would double-apply the styling and corrupt sizing. The two cases that
+    // genuinely need the INNER widget to own the identity — an id-only wrapper
+    // and a scroll-host wrapper — collapse the wrapper out entirely (so there is
+    // no wrapper to double-apply against). Non-`Node` id-bearing widgets
+    // propagate an externally-declared id via `set_seed_css_id` on their own seed.
+
     fn style_classes(&self) -> &[String] {
         &self.seed.classes
     }

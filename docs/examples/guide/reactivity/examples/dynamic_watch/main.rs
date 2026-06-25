@@ -193,25 +193,22 @@ mod tests {
         assert_eq!(bar.total(), Some(100.0));
     }
 
-    /// LIVENESS PROBE (currently DEAD — see root cause below).
+    /// LIVENESS PROBE (LIVE).
     ///
-    /// Pressing the "+10" button must bump the Counter's `counter` reactive,
-    /// firing BOTH watchers (its Label and the dynamically-watched ProgressBar).
-    /// We assert the *counter value itself* changed (not just the frame, which a
+    /// Pressing the "+10" button bumps the Counter's `counter` reactive, firing
+    /// BOTH watchers (its Label and the dynamically-watched ProgressBar). We
+    /// assert the *counter value itself* changed (not just the frame, which a
     /// focus ring alone would dirty — a false positive we deliberately avoid).
     ///
-    /// ROOT CAUSE (DEAD): the Button id is set via `ChildDecl::with_id("plus-btn")`,
-    /// which stores the id on the child *node*, NOT on the Button widget's own
-    /// `seed.css_id`. So `Button::take_node_seed` caches `css_id = None`, the
-    /// emitted `ButtonPressed.button_id` is `None`, and `Counter::on_message`'s
-    /// `bp.button_id == Some("plus-btn")` check never matches — the counter never
-    /// increments. The fix is in the compose/node-build pipeline (propagate a
-    /// `ChildDecl` id into the boxed widget's seed so id-carrying messages like
-    /// `ButtonPressed` see it), out of scope for this reactive-dispatch sweep.
-    /// Flip this `#[ignore]` once `ChildDecl::with_id` propagates to the widget
-    /// seed (or change the demo to `Button::new("+10").id("plus-btn")`).
+    /// ROOT (fixed): the Button id is set via `ChildDecl::with_id("plus-btn")`,
+    /// which previously stored the id only on the child *node*, not on the Button
+    /// widget's own `seed.css_id` — so `ButtonPressed.button_id` was `None` and
+    /// `Counter::on_message`'s `bp.button_id == Some("plus-btn")` check never
+    /// matched. The node-build pipeline now propagates a `ChildDecl` id into the
+    /// widget's own seed (`Button::set_seed_css_id`), so `ButtonPressed.button_id`
+    /// resolves to `plus-btn` and the counter increments, mirroring Python
+    /// `Button("+10", id="plus-btn")`.
     #[test]
-    #[ignore = "DEAD: ChildDecl::with_id not propagated to Button.css_id -> ButtonPressed.button_id is None -> Counter never increments (compose/node-build pipeline fix needed)"]
     fn liveness_plus_button_updates_label_and_progress() {
         textual::run_test(WatchApp, |pilot| {
             pilot.press(&["tab", "enter"])?;
