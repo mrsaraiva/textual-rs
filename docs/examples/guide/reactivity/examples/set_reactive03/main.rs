@@ -92,4 +92,27 @@ mod tests {
         assert!(ctx.has_changes());
         assert!(ctx.needs_recompose(), "mutate of a recompose reactive must request recompose");
     }
+
+    /// LIVENESS PROBE — submitting a name into the Input must push it onto the
+    /// recompose `names` reactive and `mutate_names`, re-running the app
+    /// `compose()` to yield a new "Hello, {name}" Label. A dead demo (unwired
+    /// InputSubmitted / mutate-recompose not wired) leaves the frame identical
+    /// and fails this gate.
+    #[test]
+    fn liveness_submitting_name_appends_label() {
+        textual::run_test(MultiGreet::default(), |pilot| {
+            // Focus the Input via Tab (this demo ships no CSS, so the Input has
+            // no reliably-hittable rect for a click).
+            pilot.press(&["tab"])?;
+            let before = pilot.app().frame_fingerprint();
+            pilot.press(&["A", "d", "a", "enter"])?;
+            let after = pilot.app().frame_fingerprint();
+            assert_ne!(
+                before, after,
+                "submitting a name must recompose a new greeting Label"
+            );
+            Ok(())
+        })
+        .unwrap();
+    }
 }

@@ -26,6 +26,33 @@ until the API stabilizes.
   exact) and timer-counter (live + exact-via-`advance_clock`) demos, plus a
   deliberately inert demo proving the harness *fails* a non-responsive
   interaction and *passes* a responsive one.
+
+### Fixed
+
+- **Headless (`run_test`/Pilot) now fires app-level timer-callback reactives.**
+  The headless pump invoked `run_due_timer_callbacks` directly, bypassing the
+  root `on_app_timer` hook, so reactive fields mutated inside `set_interval`
+  callbacks (via `app.reactive_ctx()`) never ran their app-level `watch_*`
+  watchers. The pump now routes due timer fires through `on_app_timer` (matching
+  the live event loop), so time-driven clock demos (`recompose01/02`,
+  `world_clock01/02/03`) update under `Pilot::advance_clock`.
+- **Headless (`run_test`/Pilot) now runs the widget-level reactive phase.** The
+  headless pump never drained the runtime reactive queue
+  (`enqueue_runtime_reactive_entry`), so a custom widget bumping its own reactive
+  in `on_message`/`on_button_pressed` enqueued an entry that was never processed
+  — its `watch_*` never fired headless. The pump now runs
+  `run_event_loop_reactive_phase` each pass when the queue is non-empty.
+- **Widget-level `watch_with_app` watchers now fire from the runtime reactive
+  phase.** `process_reactive_entries_for_node` dispatched only the no-app
+  `reactive_dispatch`, silently dropping a widget's `watch_with_app` watchers
+  (which receive `&mut App` to `query_one`/mutate siblings) for entries enqueued
+  via `enqueue_runtime_reactive_entry` — affecting both live and headless runs.
+  It now takes the widget out of the tree (new `App::with_node_widget_taken_dyn`)
+  and dispatches `reactive_dispatch_with_app`, matching the `data_bind` fan-out
+  path and Python widget watchers. Fixes `set_reactive01/02`, `world_clock01`.
+- **`Static::text()`** accessor added (reads the current plain-text content),
+  mirroring reading Python `Static.renderable` for assertions/tests.
+
 ### Changed
 
 - **Stopwatch + progress-bar tutorial demos migrated onto the real timer/reactive

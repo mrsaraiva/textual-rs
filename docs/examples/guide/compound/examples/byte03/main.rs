@@ -417,4 +417,44 @@ mod tests {
         let children = bi.inner.take_composed_children();
         assert_eq!(children.len(), 8);
     }
+
+    /// LIVENESS PROBE (currently DEAD — see root cause below).
+    ///
+    /// Toggling a bit Switch must post `BitChanged`, recompute the byte, and
+    /// update the Input (Switch -> Input wiring). We assert the Input's own text
+    /// changed (state, not just frame — the Switch's own toggle visual would
+    /// dirty the frame regardless, a false positive we avoid).
+    ///
+    /// ROOT CAUSE (DEAD): the Switch toggle itself works (the switch value flips
+    /// to `true`), but the app writes the recomputed byte via
+    /// `app.with_query_one_mut_as::<Input, _>("#byte-input", ...)`, and in this
+    /// demo `#byte-input` is the id of a `Node::new(Input::new())` *wrapper*, not
+    /// the inner `Input`. The typed query therefore matches the `Node` (not an
+    /// `Input`), the downcast fails, and the byte value is never written — the
+    /// Input stays empty. Fix: put the id on the `Input` (or query the inner
+    /// Input), out of scope for this reactive-dispatch sweep. Flip this
+    /// `#[ignore]` once the byte value reaches the Input.
+    #[test]
+    #[ignore = "DEAD: app writes the byte to `#byte-input` which is a Node wrapper, not the inner Input -> typed downcast fails -> Input never updates"]
+    fn liveness_toggling_switch_updates_input() {
+        textual::run_test(ByteInputApp::new(), |pilot| {
+            let initial = pilot
+                .app_mut()
+                .with_query_one_mut_as::<Input, _>("Input", |i| i.text().to_string())
+                .unwrap_or_default();
+            pilot.click("#switch-0")?;
+            pilot.press(&["enter"])?;
+            let text = pilot
+                .app_mut()
+                .with_query_one_mut_as::<Input, _>("Input", |i| i.text().to_string())
+                .unwrap_or_default();
+            assert_ne!(
+                text, initial,
+                "toggling a switch must update the byte Input (initial {initial:?}, got {text:?})"
+            );
+            assert!(!text.is_empty() && text != "0");
+            Ok(())
+        })
+        .unwrap();
+    }
 }

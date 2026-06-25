@@ -199,4 +199,23 @@ mod tests {
         }
         assert_eq!(app.greeting_no, 0);
     }
+
+    /// LIVENESS PROBE — pressing Space (the "greeting" binding) must cycle the
+    /// Greeter's `greeting` reactive, whose watcher rewrites the #greeting Label.
+    /// A dead demo (unwired action / reactive never enqueued) leaves the frame
+    /// identical and fails this gate.
+    #[test]
+    fn liveness_space_cycles_greeting_label() {
+        textual::run_test(NameApp::new(), |pilot| {
+            let before = pilot.app().frame_fingerprint();
+            pilot.press(&["space"])?;
+            let after = pilot.app().frame_fingerprint();
+            assert_ne!(
+                before, after,
+                "pressing space must update the greeting label"
+            );
+            Ok(())
+        })
+        .unwrap();
+    }
 }

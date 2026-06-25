@@ -116,4 +116,35 @@ mod tests {
         assert!(ctx.has_changes());
         assert!(ctx.needs_recompose(), "recompose reactive must request recompose");
     }
+
+    /// LIVENESS PROBE — the 1-second `set_interval` must fire under the manual
+    /// clock and drive the recompose reactive, re-running `compose()` to rebuild
+    /// the Digits from the new time. We seed a sentinel time, flush it (so the
+    /// recompose renders "00:00:00"), then advance the clock so a live tick
+    /// re-reads the real wall clock and recomposes. A dead demo (no timer /
+    /// recompose not wired) leaves the sentinel and fails this gate.
+    #[test]
+    fn liveness_interval_tick_recomposes_digits() {
+        textual::run_test(Clock::new(), |pilot| {
+            assert!(pilot.clock_is_manual());
+            pilot.app_mut().with_app_struct::<Clock, _>(
+                |clock, app, _ctx| {
+                    clock.set_time(0, app.reactive_ctx());
+                },
+                &mut EventCtx::default(),
+            );
+            // Flush the seed via the app-reactive bridge (key press routes through
+            // on_app_key -> dispatch_app_reactive -> recompose).
+            pilot.press(&["space"])?;
+            let before = pilot.app().frame_fingerprint();
+            pilot.advance_clock(Duration::from_secs(1))?;
+            let after = pilot.app().frame_fingerprint();
+            assert_ne!(
+                before, after,
+                "a 1s interval tick must recompose the clock Digits"
+            );
+            Ok(())
+        })
+        .unwrap();
+    }
 }

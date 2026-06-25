@@ -268,4 +268,33 @@ mod tests {
         assert!(ctx.has_changes(), "child time set must record a change");
         assert_eq!(ctx.changes()[0].field_name, "time");
     }
+
+    /// LIVENESS PROBE — the 1s interval bumps `App.time`, which propagates to
+    /// each WorldClock's `time` via the `data_bind` registered in on_mount,
+    /// firing each child's `watch_time` to update its Digits. We seed a sentinel
+    /// app time, flush it (so the binding pushes the sentinel into each child),
+    /// then advance the clock so a live tick re-reads the real wall clock. A
+    /// dead demo (no timer / binding not wired) leaves the frame identical.
+    #[test]
+    fn liveness_interval_tick_databinds_world_clocks() {
+        textual::run_test(WorldClockApp::new(), |pilot| {
+            assert!(pilot.clock_is_manual());
+            pilot.app_mut().with_app_struct::<WorldClockApp, _>(
+                |app_struct, app, _ctx| {
+                    app_struct.set_time(0, app.reactive_ctx());
+                },
+                &mut EventCtx::default(),
+            );
+            pilot.press(&["space"])?;
+            let before = pilot.app().frame_fingerprint();
+            pilot.advance_clock(Duration::from_secs(1))?;
+            let after = pilot.app().frame_fingerprint();
+            assert_ne!(
+                before, after,
+                "a 1s interval tick must data-bind into the world clocks"
+            );
+            Ok(())
+        })
+        .unwrap();
+    }
 }

@@ -4295,7 +4295,15 @@ impl App {
             if self.has_pending_timer_fires() {
                 progressed = true;
                 let mut ctx = EventCtx::default();
-                self.run_due_timer_callbacks(&mut ctx);
+                // Route through the root's `on_app_timer` hook (NOT a bare
+                // `run_due_timer_callbacks`) so app-struct reactive mutations made
+                // inside timer callbacks (e.g. `app.reactive_ctx()` setters in a
+                // `set_interval` closure) flush their watchers via
+                // `dispatch_app_reactive`, exactly as the live event loop does
+                // (see the `root.on_app_timer(...)` call in `run_with`). Without
+                // this, headless/Pilot timer ticks fire the callback but never the
+                // app-level `watch_*`, so time-driven clock demos looked dead.
+                root.on_app_timer(self, &mut ctx);
                 let mut outcome = DispatchOutcome {
                     handled: ctx.handled(),
                     repaint_requested: ctx.repaint_requested(),
@@ -4340,6 +4348,19 @@ impl App {
                 progressed = true;
             }
             self.absorb_outcome(&mut binding_outcome, pending, InvalidationScope::Global);
+
+            // Reactive phase — drain widget-level runtime reactive entries
+            // (those enqueued via `enqueue_runtime_reactive_entry`, e.g. a custom
+            // widget bumping its own reactive in `on_message`/`on_button_pressed`),
+            // running each node's watchers/recompose. The live event loop runs
+            // this every pass (see `run_event_loop_reactive_phase` in `run_with`);
+            // without it here, headless/Pilot dispatch enqueues the entry but
+            // never fires the widget's `watch_*`, so widget-reactive demos looked
+            // dead.
+            if crate::reactive::runtime_reactive_queue_is_nonempty() {
+                progressed = true;
+                self.run_event_loop_reactive_phase(root, pending);
+            }
 
             // Style transitions + display-tree sync + recompositions.
             if pending.flags.style || pending.flags.layout || self.style_snapshot_cache.is_empty() {
@@ -5237,18 +5258,24 @@ impl App {
                 }
             }
 
-            let mut result = if let Some(tree) = self.active_widget_tree_mut() {
-                if let Some(node) = tree.get_mut(node_id) {
-                    entry.run_with_dispatch(|changes, ctx| {
-                        if let Some(reactive_widget) = node.widget.reactive_widget() {
-                            reactive_widget.reactive_dispatch(changes, ctx);
-                        }
-                    })
-                } else {
-                    entry.run_without_dispatch()
-                }
-            } else {
-                entry.run_without_dispatch()
+            // Take the widget out of the tree and dispatch with `&mut App`, so a
+            // widget's `watch_with_app` watchers (which `query_one`/mutate sibling
+            // nodes) run — matching Python widget watchers and the `data_bind`
+            // fan-out path. `reactive_dispatch_with_app` defaults to plain
+            // `reactive_dispatch`, so widgets with only `watch` fields are
+            // unaffected. Previously this path called the no-app `reactive_dispatch`
+            // only, silently dropping widget `watch_with_app` watchers (e.g.
+            // set_reactive01's greeting Label, dynamic_watch's Counter Label).
+            let dispatched = self.with_node_widget_taken_dyn(node_id, |widget, app| {
+                entry.run_with_dispatch(|changes, ctx| {
+                    if let Some(reactive_widget) = widget.reactive_widget() {
+                        reactive_widget.reactive_dispatch_with_app(app, changes, ctx);
+                    }
+                })
+            });
+            let mut result = match dispatched {
+                Some(r) => r,
+                None => entry.run_without_dispatch(),
             };
             repaint_requested |= result.needs_repaint;
             layout_requested |= result.needs_layout;

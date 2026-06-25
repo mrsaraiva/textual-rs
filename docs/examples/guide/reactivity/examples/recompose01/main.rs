@@ -130,4 +130,49 @@ mod tests {
         app.set_time(*app.time() + 1, &mut ctx);
         assert!(ctx.has_changes(), "time change must be recorded");
     }
+
+    /// LIVENESS PROBE — the 1-second `set_interval` must fire under the manual
+    /// clock and drive `watch_time`, which updates the Digits display. We seed a
+    /// known stale time then advance the clock so a tick re-reads `now_secs()`
+    /// and repaints. A dead demo (no timer / unwired watch) leaves the Digits
+    /// frame identical and fails this gate.
+    #[test]
+    fn liveness_interval_tick_updates_digits() {
+        textual::run_test(Clock::new(), |pilot| {
+            assert!(pilot.clock_is_manual());
+            // The demo seeds Digits from the real wall clock at compose time; an
+            // instant test means a tick re-reads the *same* wall second, so the
+            // value wouldn't visibly change. Stamp a sentinel into the Digits
+            // first, so a live interval tick (which overwrites it via watch_time)
+            // is guaranteed to repaint. A dead demo (no timer / unwired watch)
+            // leaves the sentinel in place and fails the gate.
+            // Seed the app's `time` reactive to a stale sentinel (midnight) so the
+            // next interval tick — which sets time to the real `now_secs()` —
+            // produces a genuine value change. An instant test never lets wall
+            // time advance, so without this the tick's set_time(now) would equal
+            // the composed-at-startup value and record no change (masking liveness).
+            pilot.app_mut().with_app_struct::<Clock, _>(
+                |clock, app, _ctx| {
+                    clock.set_time(0, app.reactive_ctx());
+                },
+                &mut EventCtx::default(),
+            );
+            // Flush the seed through the app-reactive bridge (a key press routes
+            // via on_app_key -> dispatch_app_reactive), firing watch_time so the
+            // Digits now read the sentinel "00:00:00".
+            pilot.press(&["space"])?;
+            let before = pilot.app().frame_fingerprint();
+            // A live 1s interval tick re-reads the real wall clock, changing the
+            // displayed time away from the sentinel. A dead demo (no timer /
+            // unwired watch) leaves "00:00:00" in place and fails this gate.
+            pilot.advance_clock(std::time::Duration::from_secs(1))?;
+            let after = pilot.app().frame_fingerprint();
+            assert_ne!(
+                before, after,
+                "a 1s interval tick must update the clock Digits"
+            );
+            Ok(())
+        })
+        .unwrap();
+    }
 }

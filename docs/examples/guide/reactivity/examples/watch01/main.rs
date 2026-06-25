@@ -134,4 +134,37 @@ mod tests {
         assert_eq!(*app.color(), red);
         assert!(ctx.has_changes(), "color change must be recorded");
     }
+
+    /// LIVENESS PROBE (currently DEAD — see root cause below).
+    ///
+    /// Submitting a colour name into the Input must fire the app-level
+    /// `watch_color`, painting the `#new` panel background. We assert the panel's
+    /// *own background* changed (the Input is cleared on submit, so the frame
+    /// alone wouldn't move — there is no echo false positive here).
+    ///
+    /// ROOT CAUSE (DEAD): the InputSubmitted handler + app-level `watch_color`
+    /// fire correctly (`app.color` becomes the parsed colour), but the watcher
+    /// paints via `Static::set_inline_style`, which writes to the widget's
+    /// detached `seed.styles.style` (emptied at mount). A post-mount
+    /// `set_inline_style` on an in-tree widget never reaches the arena node's
+    /// rendered style, so `#new`'s background stays unset. Styling-pipeline gap
+    /// (same as computed01), distinct from this reactive-dispatch sweep. Flip
+    /// this `#[ignore]` once post-mount `set_inline_style` reaches render, or
+    /// switch the watcher to `query_mut(sel).set_styles(...)`.
+    #[test]
+    #[ignore = "DEAD: post-mount Static::set_inline_style writes to the detached widget seed, never reaching the arena node style/render (styling-pipeline fix needed; same gap as computed01)"]
+    fn liveness_submitting_color_repaints_panels() {
+        textual::run_test(WatchApp::new(), |pilot| {
+            pilot.click("Input")?;
+            pilot.press(&["r", "e", "d", "enter"])?;
+            let newnode = pilot.app().query_one("#new").unwrap();
+            let bg = pilot.app().node_explicit_bg(newnode);
+            assert!(
+                bg.is_some(),
+                "submitting a colour must paint the #new panel background"
+            );
+            Ok(())
+        })
+        .unwrap();
+    }
 }

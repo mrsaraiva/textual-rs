@@ -273,4 +273,38 @@ mod tests {
         let mut app = ByteInputApp;
         let _root = app.compose();
     }
+
+    /// LIVENESS PROBE — byte01 is the structural-only first step of the compound
+    /// tutorial: the Switches are NOT wired to the Input (Python byte01.py has no
+    /// message handlers either — wiring arrives in byte02/byte03). But the Switch
+    /// widget itself is interactive. We focus the first Switch and toggle it,
+    /// asserting the Switch's own value flipped — the honest "interaction did
+    /// something" signal.
+    ///
+    /// NOTE: we assert switch *state* (value), not the rendered frame: the Switch
+    /// renders an animated slider whose position advances on ticks, and the
+    /// tick/animation clock does not progress in an instant headless test, so the
+    /// slider visual would not move even though the toggle is fully live. State is
+    /// the robust, animation-independent liveness signal here.
+    #[test]
+    fn liveness_switch_toggles() {
+        textual::run_test(ByteInputApp, |pilot| {
+            let before = pilot
+                .app_mut()
+                .with_query_one_mut_as::<Switch, _>("Switch", |s| s.value())
+                .unwrap_or(false);
+            // Clicking the Switch toggles it.
+            pilot.click("Switch")?;
+            let after = pilot
+                .app_mut()
+                .with_query_one_mut_as::<Switch, _>("Switch", |s| s.value())
+                .unwrap_or(before);
+            assert_ne!(
+                before, after,
+                "toggling a Switch must flip its value"
+            );
+            Ok(())
+        })
+        .unwrap();
+    }
 }

@@ -144,4 +144,28 @@ mod tests {
         assert!(ctx.has_changes());
         assert!(ctx.needs_recompose(), "recompose reactive must request recompose");
     }
+
+    /// LIVENESS PROBE — typing into the Input must drive the `Name` widget's
+    /// `who` (recompose) reactive, re-running its `compose()`. We assert the
+    /// widget's own reactive value changed (not merely the frame, which the
+    /// Input echo would dirty on its own — an echo false positive we avoid). A
+    /// dead demo (recompose not wired) leaves `who` unchanged and fails.
+    #[test]
+    fn liveness_typing_recomposes_name_label() {
+        textual::run_test(WatchApp, |pilot| {
+            pilot.click("Input")?;
+            pilot.press(&["A", "l", "i", "c", "e"])?;
+            let nid = pilot.app().query_one("Name").unwrap();
+            let who = pilot
+                .app_mut()
+                .with_widget_mut_as::<Name, _>(nid, |n| n.who().clone())
+                .unwrap_or_default();
+            assert_eq!(
+                who, "Alice",
+                "typing must flow into the Name widget's `who` (recompose) reactive"
+            );
+            Ok(())
+        })
+        .unwrap();
+    }
 }

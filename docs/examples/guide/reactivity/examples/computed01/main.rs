@@ -156,4 +156,41 @@ mod tests {
         let _ = textual::reactive::run_reactive_phase(&mut app, &mut ctx);
         assert_eq!(*app.color(), Color::rgb(100, 0, 0));
     }
+
+    /// LIVENESS PROBE (currently DEAD — see root cause below).
+    ///
+    /// Typing a channel value into the `#red` Input must drive the computed
+    /// `color` and its `watch_color`, repainting the `#color` swatch background.
+    /// We assert the *swatch's own background* changed (not merely the frame —
+    /// the Input echoing the typed digits dirties the frame on its own, a false
+    /// positive we deliberately avoid).
+    ///
+    /// ROOT CAUSE (DEAD): `watch_color` repaints via `Static::set_inline_style`,
+    /// which writes to the widget's `seed.styles.style`. After mount that seed
+    /// was moved into the arena node (emptied), so a post-mount `set_inline_style`
+    /// on an in-tree widget never reaches the node's rendered style — the swatch
+    /// stays unpainted (`#color` node bg remains `None`). The compute+watch chain
+    /// itself fires (the reactive value is correct); only the inline-style write
+    /// is dropped. This is a styling-pipeline gap (sync widget inline style to the
+    /// node in `with_widget_mut`, or route `set_inline_style` to the node),
+    /// distinct from this reactive-dispatch sweep. The same gap kills `watch01`.
+    /// Flip this `#[ignore]` once post-mount `set_inline_style` reaches render, or
+    /// switch the watcher to the node-level `query_mut(sel).set_styles(...)` path
+    /// (which already works, per the testing/rgb demo).
+    #[test]
+    #[ignore = "DEAD: post-mount Static::set_inline_style writes to the detached widget seed, never reaching the arena node style/render (styling-pipeline fix needed; same gap as watch01)"]
+    fn liveness_typing_red_repaints_swatch() {
+        textual::run_test(ComputedApp::new(), |pilot| {
+            pilot.click("#red")?;
+            pilot.press(&["2", "0", "0"])?;
+            let cnode = pilot.app().query_one("#color").unwrap();
+            let bg = pilot.app().node_explicit_bg(cnode);
+            assert!(
+                bg.is_some(),
+                "typing a channel must paint the #color swatch background"
+            );
+            Ok(())
+        })
+        .unwrap();
+    }
 }
