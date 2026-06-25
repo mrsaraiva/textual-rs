@@ -26,6 +26,8 @@
 //! }).unwrap();
 //! ```
 
+use std::time::Duration;
+
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use crate::Result;
@@ -43,6 +45,12 @@ pub struct Pilot<'a> {
 
 impl<'a> Pilot<'a> {
     pub(crate) fn new(app: &'a mut App, root: &'a mut dyn Widget) -> Self {
+        // Install a deterministic manual clock for the duration of the test so
+        // time-driven behavior is reproducible and explicitly driven by
+        // `advance_clock`, rather than racing the wall clock. Timers scheduled
+        // during `headless_startup` (e.g. from `on_mount`) are preserved
+        // (re-anchored) by the in-place switch.
+        app.enable_manual_timer_clock();
         Self { app, root }
     }
 
@@ -105,6 +113,62 @@ impl<'a> Pilot<'a> {
     /// Alias for [`Pilot::pause`] — wait until the app is idle.
     pub fn wait_for_idle(&mut self) -> Result<()> {
         self.pause()
+    }
+
+    /// Advance the deterministic test clock by `delta`, firing every timer whose
+    /// deadline elapses along the way, pumping the headless loop to idle and
+    /// re-rendering after each fire.
+    ///
+    /// This is the deterministic analogue of Python's `await pilot.pause(delay)`
+    /// (which sleeps real time so wall-clock timers fire). Inside `run_test` the
+    /// timer subsystem runs on a manual clock (installed in [`Pilot::new`]), so
+    /// time-driven demos — clocks, stopwatches, progress timers — become fully
+    /// deterministic with no sleeping and no flakiness.
+    ///
+    /// Crucially, the clock is advanced **deadline-by-deadline**, exactly as the
+    /// real event loop wakes once per timer timeout: a `advance_clock(3s)` over a
+    /// 1s interval fires three discrete ticks (1s, 2s, 3s), not a single
+    /// backlog-collapsed fire. The remaining sub-deadline time is then consumed
+    /// so the clock ends exactly `delta` ahead.
+    pub fn advance_clock(&mut self, delta: Duration) -> Result<()> {
+        let mut remaining = delta;
+        // Bound iterations defensively (a fast interval over a long delta still
+        // terminates; this only guards against a pathological zero-interval).
+        const MAX_STEPS: usize = 1_000_000;
+        // Walk to each timer deadline that falls within `remaining`, advancing
+        // and pumping (which drains ready timers, runs app-level timer
+        // callbacks, processes messages/recompositions, and re-renders — exactly
+        // the housekeeping a live frame performs at each wake).
+        for _ in 0..MAX_STEPS {
+            if remaining.is_zero() {
+                break;
+            }
+            match self.app.next_timer_timeout() {
+                // Advance at least 1ns past a same-instant deadline so a
+                // repeating timer cannot wedge the loop on a zero timeout.
+                Some(step) if step <= remaining => {
+                    let advanced = step.max(Duration::from_nanos(1)).min(remaining);
+                    self.app.advance_timers(advanced);
+                    remaining -= advanced;
+                    self.app.headless_pause(self.root)?;
+                }
+                _ => break,
+            }
+        }
+        // Consume any sub-deadline remainder so the clock ends exactly `delta`
+        // ahead, then pump once more to settle.
+        if !remaining.is_zero() {
+            self.app.advance_timers(remaining);
+            self.app.headless_pause(self.root)?;
+        }
+        Ok(())
+    }
+
+    /// True while the harness is running on the deterministic manual clock
+    /// (always the case inside `run_test`). Lets tests assert the foundation is
+    /// active before relying on [`Pilot::advance_clock`] determinism.
+    pub fn clock_is_manual(&self) -> bool {
+        self.app.timer_clock_is_manual()
     }
 
     /// Resize the virtual terminal and advance to idle.

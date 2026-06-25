@@ -7,6 +7,26 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### Added
+
+- **Deterministic Pilot clock** — inside `App::run_test`, the timer subsystem now
+  runs on a deterministic manual clock (installed at `Pilot` creation, preserving
+  any timers scheduled during startup). New `Pilot::advance_clock(Duration)`
+  advances time deadline-by-deadline — exactly as the real event loop wakes once
+  per timer timeout — firing each due timer, pumping the headless loop, and
+  re-rendering. Time-driven demos (clocks, stopwatches, progress timers) become
+  fully deterministic under test with no sleeping or flakiness. The deterministic
+  analogue of Python's `await pilot.pause(delay)`. `Pilot::pause()` is unchanged.
+- **Interactive-parity harness** (`tests/interactive_parity.rs`) — a runner that
+  proves interactive demos actually *do something*. Each entry is
+  `{ name, build, script, assert }` with two assertion modes: `Liveness`
+  (frame fingerprint must change across the scripted interaction — catches dead
+  demos) and `Exact` (a queried value must equal an expected, deterministic
+  result via `advance_clock`). Seeded with responsive button-counter (live +
+  exact) and timer-counter (live + exact-via-`advance_clock`) demos, plus a
+  deliberately inert demo proving the harness *fails* a non-responsive
+  interaction and *passes* a responsive one.
+
 ## [1.0.0] - 2026-06-24
 
 First stable release. textual-rs is a fundamentals-first Rust port of Python Textual,
