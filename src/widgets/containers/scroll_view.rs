@@ -925,10 +925,9 @@ impl Widget for ScrollView {
         let start = offset.min(lines.len());
         let end = (start + content_viewport_h).min(lines.len());
         let mut slice = lines[start..end]
-            .to_vec()
-            .into_iter()
+            .iter()
             .map(|line| {
-                let cropped = crop_line_horizontal(&line, offset_x, content_viewport_w);
+                let cropped = crop_line_horizontal(line, offset_x, content_viewport_w);
                 adjust_line_length_no_bg(&cropped, content_viewport_w)
             })
             .collect::<Vec<_>>();
@@ -1375,7 +1374,6 @@ impl Widget for ScrollView {
                     self.request_offset_x_animation(before_x, self.offset_x, ctx);
                     self.request_offset_y_animation(before_y, self.offset_y, ctx);
                     ctx.set_handled();
-                    return;
                 }
                 Action::ScrollEnd => {
                     let before_x = self.offset_x;
@@ -1394,7 +1392,6 @@ impl Widget for ScrollView {
                         self.max_offset()
                     ));
                     ctx.set_handled();
-                    return;
                 }
                 Action::ScrollUp => {
                     let before = self.offset_y;
@@ -1407,7 +1404,6 @@ impl Widget for ScrollView {
                         self.max_offset()
                     ));
                     ctx.set_handled();
-                    return;
                 }
                 Action::ScrollDown => {
                     let before = self.offset_y;
@@ -1420,7 +1416,6 @@ impl Widget for ScrollView {
                         self.max_offset()
                     ));
                     ctx.set_handled();
-                    return;
                 }
                 Action::ScrollPageUp => {
                     let before = self.offset_y;
@@ -1435,7 +1430,6 @@ impl Widget for ScrollView {
                         self.max_offset()
                     ));
                     ctx.set_handled();
-                    return;
                 }
                 Action::ScrollPageDown => {
                     let before = self.offset_y;
@@ -1450,7 +1444,6 @@ impl Widget for ScrollView {
                         self.max_offset()
                     ));
                     ctx.set_handled();
-                    return;
                 }
                 Action::ScrollLeft => {
                     let before = self.offset_x;
@@ -1463,7 +1456,6 @@ impl Widget for ScrollView {
                         self.max_offset_x()
                     ));
                     ctx.set_handled();
-                    return;
                 }
                 Action::ScrollRight => {
                     let before = self.offset_x;
@@ -1476,7 +1468,6 @@ impl Widget for ScrollView {
                         self.max_offset_x()
                     ));
                     ctx.set_handled();
-                    return;
                 }
                 Action::ScrollPageLeft => {
                     let before = self.offset_x;
@@ -1491,7 +1482,6 @@ impl Widget for ScrollView {
                         self.max_offset_x()
                     ));
                     ctx.set_handled();
-                    return;
                 }
                 Action::ScrollPageRight => {
                     let before = self.offset_x;
@@ -1506,7 +1496,6 @@ impl Widget for ScrollView {
                         self.max_offset_x()
                     ));
                     ctx.set_handled();
-                    return;
                 }
                 _ => {}
             }
