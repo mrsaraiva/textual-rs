@@ -17,7 +17,7 @@ const CSS: &str = r##"
 }
 
 Placeholder {
-    width: 100%;
+    width: 100vw;
     height: 100%;
 }
 "##;
@@ -90,6 +90,12 @@ impl TextualApp for PagesApp {
             app.scroll_visible(page_id);
         }
 
+        // Mark the action handled so the runtime absorbs the repaint (the app
+        // custom-action fallback only merges effects when the hook signals it
+        // consumed the action; see actions02 for the same pattern). Without this
+        // a pure page scroll — which changes no binding hints — would request a
+        // repaint that is dropped, leaving the frame stale.
+        ctx.set_handled();
         ctx.request_repaint();
     }
 }
@@ -98,29 +104,23 @@ impl TextualApp for PagesApp {
 mod tests {
     use super::*;
 
-    /// LIVENESS PROBE (DEAD — captures expected behavior, currently failing).
+    /// LIVENESS PROBE (LIVE).
     ///
-    /// Pressing 'n' should scroll the `HorizontalScroll` from one full-viewport
-    /// page to the next. The binding fires and `page_no` advances, but the
-    /// **pages never scroll**: the first 'n' changes the frame only because the
-    /// `check_action`-dimmed Footer hint "Previous" appears; the second 'n'
-    /// (page1 -> page2, a pure scroll) yields an IDENTICAL frame (page1 ==
-    /// page2). Page-0 renders at `(0,0,39,9)`, but there is no horizontal
-    /// overflow to scroll through.
-    ///
-    /// ROOT: the demo's CSS sets `Placeholder { width: 100%; height: 100% }`,
-    /// so each page is sized to the *container* width (40), not the *viewport*
-    /// width. The 5 pages therefore do not lay out side-by-side with horizontal
-    /// overflow, so the `HorizontalScroll` has nothing to scroll and
-    /// `scroll_visible(page)` is a no-op. Python's `actions07.py` uses
-    /// `width: 100vw` (full viewport width per page), which creates the overflow
-    /// that makes paging visible. (The Rust port of actions06 uses `100vw` but
-    /// fails for a different reason — a non-rendering Node wrapper.)
-    ///
-    /// TODO (fix then un-ignore): size pages to the viewport (`100vw`) so the
-    /// horizontal scroll has overflow, then a pure page scroll must change the
-    /// rendered frame (asserted below).
-    #[ignore = "DEAD: pages sized 100% (not 100vw) create no horizontal overflow; scroll navigation is invisible"]
+    /// Pressing 'n' scrolls the `HorizontalScroll` from one full-viewport page
+    /// to the next. Two fixes make a pure page scroll (page1 -> page2) change
+    /// the rendered frame:
+    ///   1. Each page is sized `width: 100vw` (full viewport width), so the 5
+    ///      pages lay out side-by-side with horizontal overflow — the CSS engine
+    ///      resolves the `vw` viewport unit against the viewport width, so a 40-
+    ///      col viewport yields a 200-col content strip. (Previously `width:
+    ///      100%` sized each page to the 40-col container, with no overflow to
+    ///      scroll.)
+    ///   2. `action_next`/`action_previous` mark the action handled
+    ///      (`ctx.set_handled()`), so the runtime absorbs the repaint request for
+    ///      a pure scroll that changes no binding hints. (Without it the first
+    ///      'n' still rendered — the footer "Previous" hint appears — but the
+    ///      second 'n', a pure scroll, dropped its repaint and the frame went
+    ///      stale.)
     #[test]
     fn liveness_next_prev_navigation_changes_frame() {
         textual::run_test_sized(PagesApp::new(), 40, 12, |pilot| {

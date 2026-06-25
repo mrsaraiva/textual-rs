@@ -21,6 +21,13 @@ until the API stabilizes.
   Mirrors Python's `Screen.styles.background` driving the screen blank. Flips the
   `guide/actions/actions01` and `guide/actions/actions02` liveness probes from
   DEAD to LIVE.
+- **`guide/actions/actions07` page navigation scrolls** — the demo now sizes each
+  page `width: 100vw` (full viewport width, using the already-supported `vw`
+  viewport unit) so the 5 pages lay out side-by-side with horizontal overflow,
+  and its `next`/`previous` app actions mark themselves handled
+  (`ctx.set_handled()`) so the runtime absorbs the repaint for a pure page scroll
+  that changes no binding hints. A page-to-page scroll now changes the rendered
+  frame; flips the actions07 liveness probe from DEAD to LIVE.
 
 ### Added
 
