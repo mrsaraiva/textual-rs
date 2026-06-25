@@ -4959,7 +4959,27 @@ impl App {
         {
             let mut click_outcome =
                 self.dispatch_event_to_target_auto(root, click_target, &click_event);
+            let click_stopped = click_outcome.stop_requested;
             self.absorb_outcome(&mut click_outcome, pending, InvalidationScope::Global);
+
+            // `@click` action-link routing (mirrors the live loop's
+            // `MouseEventKind::Up` arm): consult the style meta baked into the
+            // clicked cell. If a `[@click=...]` span stamped an action string
+            // there, dispatch it with the clicked widget as the default action
+            // namespace — so headless clicks on action-link spans (actions03's
+            // `app.set_background('red')`) fire the action, not just MouseUp/Click.
+            if !click_stopped
+                && let Some(action) = self.click_action_at(screen_x, screen_y)
+            {
+                let msg = MessageEvent::new(
+                    click_target,
+                    crate::message::ActionDispatchRequested { action },
+                );
+                let mut action_outcome =
+                    self.dispatch_message_queue_with_runtime(root, vec![msg]);
+                self.absorb_outcome(&mut action_outcome, pending, InvalidationScope::Global);
+            }
+
             let mut click_msg_outcome =
                 self.dispatch_message_queue_with_runtime(root, click_outcome.messages);
             self.absorb_outcome(&mut click_msg_outcome, pending, InvalidationScope::Global);

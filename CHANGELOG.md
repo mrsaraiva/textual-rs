@@ -9,6 +9,11 @@ until the API stabilizes.
 
 ### Added
 
+- **`@click` action-link routing in the headless click path** — the headless
+  click path now mirrors the live loop's `@click` routing: after the synthesized
+  Click it consults `App::click_action_at` at the clicked cell and dispatches any
+  baked `[@click=...]` action with the clicked widget as the namespace. Flips the
+  `guide/actions/actions03` liveness probe from UNCLEAR to LIVE.
 - **`Pilot::hover(selector)` / `Pilot::move_to(x, y)`** — headless mouse-move
   injection (Python `pilot.hover` / `pilot.move`). Routes a `MouseMove` through
   the same headless dispatch as click injection: updates hover state (`:hover`,
