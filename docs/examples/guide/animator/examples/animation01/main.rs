@@ -52,34 +52,53 @@ mod tests {
 
     /// LIVENESS PROBE (UNCLEAR under the headless harness — see note).
     ///
-    /// The on-mount opacity animation should progress, changing the rendered
-    /// `#box` over time.
+    /// LIVE: the on-mount opacity animation progresses, changing the rendered
+    /// `#box` over the 2s fade.
     ///
-    /// PARTIALLY UNBLOCKED — still `#[ignore]`d on a distinct rendering gap.
-    ///
-    /// The animator is now anchored to the timer clock (`App::clock_now`), so
-    /// under `run_test` the opacity animation *does* run deterministically with
-    /// `advance_clock` (the pump steps `step_style` to completion). The remaining
-    /// blocker is NOT the clock: the in-memory `FrameBuffer` does not composite a
-    /// widget's animated `opacity` into per-cell colors, so the rendered frame
-    /// fingerprint is unchanged as opacity fades 100→0. This needs opacity
-    /// compositing in the headless render path (a render gap, not a harness
-    /// timing gap). Flip this `#[ignore]` once opacity is composited into the
-    /// frame cells.
+    /// Three fundamentals make this work under `run_test`:
+    /// 1. The deterministic manual clock is installed BEFORE `headless_startup`,
+    ///    so the on-mount `animate_style` is anchored to the manual timeline and
+    ///    stepped only by `advance_clock` — not run to completion by startup's
+    ///    settling pump on the wall clock.
+    /// 2. `apply_style_value_to_property` plumbs the animator's per-tick
+    ///    `opacity` (a `StyleValue::Float`) into the node's inline style, so the
+    ///    resolved style reflects the fading value.
+    /// 3. Render-time opacity compositing (`apply_widget_opacity_to_segments`)
+    ///    blends the widget's cells toward the backdrop, so a changed opacity
+    ///    visibly changes the rendered cells (and the frame fingerprint).
     #[test]
-    #[ignore = "DEFERRED(opacity-compositing): animator now runs on the manual clock (advance_clock steps it), but animated widget opacity is not composited into the in-memory FrameBuffer cells, so the frame fingerprint never changes"]
     fn liveness_opacity_animation_progresses() {
         textual::run_test(AnimationApp, |pilot| {
-            let before = pilot.app().frame_fingerprint();
-            // Pump several animation frames across a span of the 2s animation.
-            for _ in 0..8 {
+            let start = pilot.app().frame_fingerprint();
+
+            // Advance to roughly the middle of the 2s fade.
+            for _ in 0..3 {
                 pilot.advance_clock(std::time::Duration::from_millis(300))?;
                 pilot.pause()?;
             }
-            let after = pilot.app().frame_fingerprint();
+            let mid = pilot.app().frame_fingerprint();
+
+            // Advance well past the end of the 2s animation.
+            for _ in 0..6 {
+                pilot.advance_clock(std::time::Duration::from_millis(300))?;
+                pilot.pause()?;
+            }
+            let end = pilot.app().frame_fingerprint();
+
+            // The fade must visibly change the rendering: the mid-animation frame
+            // differs from the fully-opaque start, and the final (transparent)
+            // frame differs from both.
             assert_ne!(
-                before, after,
-                "the on-mount opacity animation must change the #box rendering"
+                start, mid,
+                "opacity fade must change the #box rendering by mid-animation"
+            );
+            assert_ne!(
+                mid, end,
+                "opacity fade must keep changing the #box rendering through to the end"
+            );
+            assert_ne!(
+                start, end,
+                "the fully-faded #box must differ from the fully-opaque start"
             );
             Ok(())
         })

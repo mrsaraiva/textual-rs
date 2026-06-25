@@ -1263,6 +1263,17 @@ where
     let composed = state.lock().unwrap_or_else(|e| e.into_inner()).compose();
     let mut root = build_textual_app_runtime_root(state.clone(), composed);
 
+    // Install the deterministic manual clock BEFORE startup so timers and
+    // animations scheduled from `on_mount`/`on_mount_with_app` (e.g.
+    // animation01's 2s opacity fade) are anchored to the manual timeline and
+    // stepped only by `advance_clock`/`advance_ticks` — not run to completion on
+    // the wall clock by the `headless_startup` settling pump. Without this, an
+    // on-mount animation would already be finished by the time the test body
+    // (and `Pilot::new`) gains control. The live (non-headless) `run()` path is
+    // unaffected: it never enables the manual clock. `Pilot::new` re-asserts this
+    // idempotently.
+    app.enable_manual_timer_clock();
+
     app.headless_startup(&mut root)?;
 
     let result = {
