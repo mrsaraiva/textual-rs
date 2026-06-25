@@ -105,4 +105,35 @@ mod tests {
     fn separator_variant_is_separator() {
         assert!(matches!(OptionItem::Separator, OptionItem::Separator));
     }
+
+    /// LIVENESS: focus the OptionList and press down to move the highlight off
+    /// the first selectable option. We assert on the observable widget state
+    /// (`highlighted` 0 -> 1) — the true thing navigation mutates. A dead
+    /// OptionList (keys not routed / not focusable) leaves the highlight put.
+    ///
+    /// KNOWN RENDER GAP (DEFERRED): moving the highlight does NOT change the
+    /// rendered frame headlessly — the highlighted-row styling isn't reflected
+    /// in the rendered cells under the Pilot (the `-highlight` pseudo only
+    /// repaints with focus styling live). So `frame_fingerprint` is unchanged
+    /// after `down` even though the highlight index advanced. Navigation is
+    /// live; the highlight re-paint is the gap.
+    #[test]
+    fn liveness_navigate_advances_highlight() {
+        OptionListApp
+            .run_test(|pilot| {
+                let hl = |pilot: &Pilot| -> Option<usize> {
+                    let app = pilot.app();
+                    app.query_one_typed::<OptionList>("OptionList")
+                        .ok()
+                        .and_then(|h| h.read(app, |l| l.highlighted()).ok())
+                        .flatten()
+                };
+                pilot.press(&["tab"])?; // focus the option list
+                assert_eq!(hl(pilot), Some(0), "starts highlighting the first option");
+                pilot.press(&["down"])?;
+                assert_eq!(hl(pilot), Some(1), "down must advance the highlight");
+                Ok(())
+            })
+            .expect("run_test");
+    }
 }

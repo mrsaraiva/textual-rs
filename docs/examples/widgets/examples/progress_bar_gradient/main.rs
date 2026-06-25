@@ -93,4 +93,24 @@ mod tests {
         assert_eq!(c_end.g, 0x33);
         assert_eq!(c_end.b, 0x99);
     }
+
+    /// LIVENESS (startup behaviour): this demo has no user interaction — its one
+    /// behaviour is the `on_mount` setting progress to 70%. Under the headless
+    /// harness we assert the mount hook actually ran by reading the bar's
+    /// observable progress (70.0). A dead mount hook leaves it at 0.
+    #[test]
+    fn liveness_on_mount_sets_progress_to_70() {
+        ProgressApp
+            .run_test(|pilot| {
+                let app = pilot.app();
+                let progress = app
+                    .query_one_typed::<ProgressBar>("ProgressBar")
+                    .ok()
+                    .and_then(|h| h.read(app, |b| b.progress()).ok())
+                    .unwrap_or(-1.0);
+                assert_eq!(progress, 70.0, "on_mount must set progress to 70");
+                Ok(())
+            })
+            .expect("run_test");
+    }
 }

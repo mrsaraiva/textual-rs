@@ -82,4 +82,26 @@ mod tests {
         ]);
         // Multi-root tree is accepted.
     }
+
+    /// LIVENESS: focus the Tree, move the cursor down to highlight a node, then
+    /// press Left to collapse the expanded root ("Dune") — its children
+    /// disappear from the render, so the frame must change. A dead Tree (keys
+    /// unhandled / not focusable) leaves the frame identical.
+    #[test]
+    fn liveness_navigate_and_collapse() {
+        TreeApp
+            .run_test(|pilot| {
+                pilot.press(&["tab"])?; // focus the tree
+                let before = pilot.app().frame_fingerprint();
+                // Highlight the root, then collapse it (Left = collapse_or_parent).
+                pilot.press(&["down", "left"])?;
+                let after = pilot.app().frame_fingerprint();
+                assert_ne!(
+                    before, after,
+                    "navigating/collapsing the tree must change the rendered frame"
+                );
+                Ok(())
+            })
+            .expect("run_test");
+    }
 }

@@ -71,3 +71,29 @@ fn main() -> Result<()> {
     }
     run_sync(TextAreaExtendedApp)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// LIVENESS: focus the AutoParenEditor and type `(`; the custom key hook
+    /// auto-inserts the matching `)` and repositions the cursor — turning an
+    /// empty editor into `()`, so the rendered frame must change. A dead key
+    /// hook (event not intercepted) leaves the frame identical.
+    #[test]
+    fn liveness_auto_paren_insert() {
+        TextAreaExtendedApp
+            .run_test(|pilot| {
+                pilot.press(&["tab"])?; // focus the editor
+                let before = pilot.app().frame_fingerprint();
+                pilot.press(&["("])?;
+                let after = pilot.app().frame_fingerprint();
+                assert_ne!(
+                    before, after,
+                    "typing `(` must auto-insert `()` (frame changes)"
+                );
+                Ok(())
+            })
+            .expect("run_test");
+    }
+}

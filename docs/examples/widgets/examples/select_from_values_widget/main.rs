@@ -63,3 +63,34 @@ impl TextualApp for SelectApp {
 fn main() -> textual::Result<()> {
     run_sync(SelectApp)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn select_app_composes_without_panic() {
+        let mut app = SelectApp;
+        let _root = app.compose();
+    }
+
+    /// LIVENESS: focus the Select and press enter to expand its overlay. The
+    /// option list pops over the screen, changing the rendered frame. A dead
+    /// Select (toggle not routed) leaves the closed control identical.
+    #[test]
+    fn liveness_expand_overlay() {
+        SelectApp
+            .run_test(|pilot| {
+                pilot.press(&["tab"])?;
+                let before = pilot.app().frame_fingerprint();
+                pilot.press(&["enter"])?;
+                let after = pilot.app().frame_fingerprint();
+                assert_ne!(
+                    before, after,
+                    "expanding the Select overlay must change the rendered frame"
+                );
+                Ok(())
+            })
+            .expect("run_test");
+    }
+}

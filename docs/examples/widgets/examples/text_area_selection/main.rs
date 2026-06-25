@@ -29,3 +29,29 @@ fn main() -> Result<()> {
     }
     run_sync(TextAreaSelectionApp)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// LIVENESS: the editor mounts with a multi-line selection. Focusing and
+    /// pressing right collapses/moves the selection cursor, changing the
+    /// rendered highlight — the frame must change. A dead TextArea (keys not
+    /// routed) leaves the frame identical.
+    #[test]
+    fn liveness_move_collapses_selection() {
+        TextAreaSelectionApp
+            .run_test(|pilot| {
+                pilot.press(&["tab"])?; // focus the editor
+                let before = pilot.app().frame_fingerprint();
+                pilot.press(&["right"])?;
+                let after = pilot.app().frame_fingerprint();
+                assert_ne!(
+                    before, after,
+                    "moving the cursor must change the selection highlight (frame changes)"
+                );
+                Ok(())
+            })
+            .expect("run_test");
+    }
+}

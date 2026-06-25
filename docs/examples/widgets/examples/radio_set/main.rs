@@ -133,4 +133,32 @@ mod tests {
         assert_eq!(set.children()[0].label(), "Amanda");
         assert_eq!(set.children()[8].label(), "Ramírez");
     }
+
+    /// LIVENESS: the first RadioSet is focused at mount with "Serenity" (index 3)
+    /// pressed. Navigating down and selecting (enter) moves the pressed button.
+    /// We assert on the observable widget state (`pressed_index` changes off 3)
+    /// — the true thing the interaction mutates. A dead RadioSet (keys not
+    /// routed) leaves the pressed index put.
+    #[test]
+    fn liveness_navigate_and_select() {
+        RadioChoicesApp
+            .run_test(|pilot| {
+                let pressed = |pilot: &Pilot| -> Option<usize> {
+                    let app = pilot.app();
+                    app.query_one_typed::<RadioSet>("RadioSet")
+                        .ok()
+                        .and_then(|h| h.read(app, |r| r.pressed_index()).ok())
+                        .flatten()
+                };
+                assert_eq!(pressed(pilot), Some(3), "Serenity pressed at mount");
+                pilot.press(&["down", "enter"])?;
+                assert_ne!(
+                    pressed(pilot),
+                    Some(3),
+                    "selecting another button must move the pressed index"
+                );
+                Ok(())
+            })
+            .expect("run_test");
+    }
 }

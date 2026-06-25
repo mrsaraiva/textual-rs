@@ -90,4 +90,25 @@ mod tests {
         let selected = sl.selected_values();
         assert_eq!(selected, vec![&0i32, &6i32, &8i32]);
     }
+
+    /// LIVENESS: focus the SelectionList, highlight the first row and press
+    /// space to toggle its checkbox — the checkbox glyph flips, so the rendered
+    /// frame must change. A dead toggle (keys not routed) leaves it identical.
+    #[test]
+    fn liveness_toggle_selection() {
+        SelectionListApp
+            .run_test(|pilot| {
+                pilot.press(&["tab"])?;
+                pilot.press(&["down"])?;
+                let before = pilot.app().frame_fingerprint();
+                pilot.press(&["space"])?;
+                let after = pilot.app().frame_fingerprint();
+                assert_ne!(
+                    before, after,
+                    "toggling a selection must change the rendered frame"
+                );
+                Ok(())
+            })
+            .expect("run_test");
+    }
 }

@@ -140,4 +140,34 @@ mod tests {
         let keys: Vec<&str> = bindings.iter().map(|b| b.key.as_str()).collect();
         assert!(keys.contains(&"s"), "expected 's' binding for swap");
     }
+
+    /// LIVENESS: pressing `s` invokes `action_swap`, replacing the Select's
+    /// options (Dune lines -> Twinkle lines). With `allow_blank=false` the value
+    /// auto-snaps to the new first option, so the closed Select's displayed
+    /// label changes — the frame must change. A dead `s` binding leaves it
+    /// identical.
+    #[test]
+    fn liveness_swap_changes_options() {
+        SelectApp
+            .run_test(|pilot| {
+                let before = pilot.app().frame_fingerprint();
+                pilot.press(&["s"])?;
+                let after = pilot.app().frame_fingerprint();
+                assert_ne!(before, after, "pressing `s` must swap options (frame changes)");
+                // Confirm the underlying value snapped to a new first line.
+                let app = pilot.app();
+                let value = app
+                    .query_one_typed::<Select<String>>("Select")
+                    .ok()
+                    .and_then(|h| h.read(app, |s| s.value().cloned()).ok())
+                    .flatten();
+                assert_eq!(
+                    value.as_deref(),
+                    Some("Twinkle, twinkle, little star,"),
+                    "after swap, value snaps to the new first option"
+                );
+                Ok(())
+            })
+            .expect("run_test");
+    }
 }

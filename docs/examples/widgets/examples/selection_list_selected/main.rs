@@ -137,4 +137,27 @@ mod tests {
         let selected = sl.selected_values();
         assert_eq!(selected, vec![&"alpha".to_string(), &"gamma".to_string()]);
     }
+
+    /// LIVENESS: focus the SelectionList, highlight the first row and press
+    /// space to toggle its checkbox. The checkbox glyph flips AND the linked
+    /// `Pretty` (which mirrors `SelectionList.selected`) updates — so the frame
+    /// must change. A dead toggle / unwired `SelectedChanged` leaves it
+    /// identical.
+    #[test]
+    fn liveness_toggle_updates_selection_and_pretty() {
+        SelectionListApp
+            .run_test(|pilot| {
+                pilot.press(&["tab"])?; // focus the selection list
+                pilot.press(&["down"])?; // highlight first row
+                let before = pilot.app().frame_fingerprint();
+                pilot.press(&["space"])?; // toggle it
+                let after = pilot.app().frame_fingerprint();
+                assert_ne!(
+                    before, after,
+                    "toggling a selection must change the rendered frame"
+                );
+                Ok(())
+            })
+            .expect("run_test");
+    }
 }

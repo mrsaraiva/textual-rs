@@ -100,4 +100,40 @@ mod tests {
         let title = "";
         assert!(title.is_empty());
     }
+
+    /// LIVENESS (startup behaviour): the demo's only behaviour is `on_mount`
+    /// raising four toasts. The toasts compose into the rendered frame, so the
+    /// ToastApp frame must differ from an otherwise-identical app that raises no
+    /// notifications. A dead `notify` path would leave the screen blank
+    /// (identical to the no-toast baseline).
+    #[test]
+    fn liveness_on_mount_raises_visible_toasts() {
+        struct BlankApp;
+        impl TextualApp for BlankApp {
+            fn compose(&mut self) -> AppRoot {
+                AppRoot::new()
+            }
+        }
+
+        let mut toast_fp = 0u64;
+        ToastApp
+            .run_test(|pilot| {
+                toast_fp = pilot.app().frame_fingerprint();
+                Ok(())
+            })
+            .expect("toast run_test");
+
+        let mut blank_fp = 0u64;
+        BlankApp
+            .run_test(|pilot| {
+                blank_fp = pilot.app().frame_fingerprint();
+                Ok(())
+            })
+            .expect("blank run_test");
+
+        assert_ne!(
+            toast_fp, blank_fp,
+            "on_mount toasts must render (frame differs from a no-toast app)"
+        );
+    }
 }
