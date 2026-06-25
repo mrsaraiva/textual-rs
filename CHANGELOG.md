@@ -7,6 +7,38 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-06-24
+
+First stable release. textual-rs is a fundamentals-first Rust port of Python Textual,
+verified against Textual's own documentation examples (the demos *are* the spec).
+
+**Parity at 1.0:** styled per-cell-RGB harness **85/87**, plain-text PTY harness **186/186**,
+~92% of the 309-example comprehensive demo audit faithful. See `KNOWN_GAPS.md` for the
+small set of deferred gaps (inline mode + `App.suspend` → 1.1; `display`/`offset` styled
+edge cases; markdown code-fence highlighting).
+
+**Subsystems built/completed this cycle** (each a real, Python-faithful framework layer —
+not demo emulation):
+
+- **`Content` styled-text subsystem** (`src/content/`) — the unit widgets render: markup
+  (deferred `Style|str`, link=meta-only), `wrap_and_format`, `render_strips` (visual_style +
+  spans + surfaces). Widgets migrated off scattered rich-rs emulation onto it.
+- **Screen-as-Widget** — `Screen` owns `BINDINGS` + `on_event`/`on_message`/`on_button_pressed`
+  + `dismiss(value)` (dynamic `ScreenResult`); `push_screen_wait()` worker-suspending await.
+- **DataTable** renderable `Content` cell model + key-function / multi-column sort.
+- **Pilot headless test harness** — `App::run_test()` → in-process `Pilot` (press/click/pause/
+  wait), unlocking behavioral tests suite-wide.
+- **Timers** (`set_interval`/`set_timer`/`TimerHandle`) + reactive field-to-field `data_bind`.
+- **Action subsystem** — `[@click]` hit-test→dispatch, `run_action(str)`, widget→screen→app
+  namespaced resolution + `check_action` gating.
+- **Named theme registry** (21 built-in themes) + public component-class style API +
+  `Content::from_markup(**vars)` + `call_from_thread`.
+- **Layout**: `u16→i32` signed-placement Rect (negative offsets clip correctly); percentage
+  width >100% + horizontal-overflow clipping; visibility inheritance; scrollbar gutter/
+  visibility/overlay correctness; grid keyline geometry.
+- **Color**: float-alpha `Color`, exact Python LAB/blend, theme-token + opacity double-application.
+- **deps**: rich-rs `1.2.1` (link markup OSC8-only).
+
 ### 2026-06-24 (fix(scroll): scrollbar-visibility reserves the gutter without painting the bar)
 
 - **`scrollbar-visibility` no longer gates scrollbar-lane RESERVATION or forces the
