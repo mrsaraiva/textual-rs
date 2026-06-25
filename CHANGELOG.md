@@ -52,6 +52,25 @@ demo to a verified-working state.
   `#ff0000`), `widgets02` (red vs blue rule) — each proving the harness detects the real
   divergence.
 
+- **Widgets interactive PARITY re-verification (Rust == Python)** — added 30
+  `pty_interactive` cases (one per interactive `docs/examples/widgets` demo) that
+  drive each demo's representative interaction on BOTH real apps and assert Rust
+  *matches* Python on the cell grid (glyph exact + colour; blank-cell fg ignored
+  since invisible, <=2/channel truecolor rounding tolerated). Opposite polarity of
+  the six catch cases. Result: **3 PASS** (`list_view`, `tabbed_content`,
+  `tabbed_content_label_color`), **27 BUG** — each committed
+  `#[ignore = "BUG: <concrete Rust-vs-Python diff>"]` so it is tracked and flips to
+  passing when fixed. Dominant roots surfaced: (1) focused-widget
+  `background-tint: $foreground 5%` not applied on `:focus` (Input/MaskedInput/
+  OptionList/RadioSet/Select show bg `#1e1e1e` vs Python `#272727`); (2) cursor/
+  zebra row-bg blend off in DataTable/Tree (`#0c7dd4` vs `#0178d4`, `#2d3740` vs
+  `#2b3339`); (3) behavioural gaps — `Tabs.add_tab` adds no visible tab,
+  `RadioSet.Changed`->`Label.update` not reflected, `Collapsible` Enter / collapse-
+  all does not toggle, `Pretty` renders lists multi-line vs inline, `switch.tcss`
+  `align: center middle` not honoured (left-aligned), `Checkbox` toggle-slot
+  painted white (`#ffffff`) instead of dark surface, `Log` bg `#121212` vs pure
+  black `#000000`, `Select` overlay content/layout diverges.
+
 ### Fixed
 
 - **`how-to/render_compose` gradient rotation is now live under `run_test`** — the
