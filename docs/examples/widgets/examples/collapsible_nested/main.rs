@@ -36,13 +36,28 @@ mod liveness {
     /// relayout/repaint the body, so the frame does not change. Kept as the
     /// guard that flips to LIVE once that framework gap is fixed.
     #[test]
-    #[ignore = "DEAD: runtime collapse mutates state but does not relayout/repaint body; flip when fixed"]
     fn click_inner_title_reveals_body() {
         run_test(CollapsibleApp, |pilot| {
+            let ids = pilot.app().query("Collapsible").map(|q| q.into_ids()).unwrap_or_default();
+            let inner = ids[1];
+            let collapsed_before = pilot
+                .app_mut()
+                .with_widget_mut_as::<Collapsible, _>(inner, |c| c.is_collapsed())
+                .unwrap_or(true);
             let before = pilot.app().frame_fingerprint();
-            // The inner Collapsible's title is indented one level, on the second row.
-            pilot.click_at(6, 1)?;
+            // The inner Collapsible's title sits inside the outer's expanded body:
+            // row 0 = outer border-top, row 1 = outer title, row 2 = Contents
+            // padding-top, row 3 = inner title (indented by the Contents padding).
+            pilot.click_at(6, 3)?;
             let after = pilot.app().frame_fingerprint();
+            let collapsed_after = pilot
+                .app_mut()
+                .with_widget_mut_as::<Collapsible, _>(inner, |c| c.is_collapsed())
+                .unwrap_or(true);
+            assert_ne!(
+                collapsed_before, collapsed_after,
+                "clicking the inner Collapsible title must toggle its collapsed state"
+            );
             assert_ne!(
                 before, after,
                 "clicking the inner Collapsible title must reveal its body and change the frame"
