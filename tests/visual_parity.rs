@@ -280,6 +280,27 @@ const PASSING: &[&str] = &[
     //    the `align: center middle` off-by-one for id-bordered Labels.
     //  - markup `X on Y` color parse fixed (committed pending fg before `on`).
     "border_sub_title_align_all",
+    // Promoted after the scrollbar-roots pass (c15-scrollroots):
+    //  - OVERFLOW INLINE-OVERRIDE removed: VerticalScroll/HorizontalScroll no longer
+    //    set overflow inline in their constructors. Python declares those overflows
+    //    via DEFAULT_CSS (overridable), mirrored in `css/defaults/containers.rs`, so
+    //    user CSS like `#right { overflow-y: hidden }` now overrides them instead of
+    //    being masked by an INLINE-specificity default. (`overflow` example also fixed
+    //    to carry `id` on the VerticalScroll host directly, like Python, not a Node
+    //    wrapper.)
+    //  - RESOLVE_SCROLLBAR_CSS now reads the host NODE's render-pass style
+    //    (`current_self_style()`), so per-id rules like `#v1 { scrollbar-size: 5 1 }`
+    //    that live on the arena node record are matched — instead of re-resolving
+    //    off-tree against the widget's own (None) `style_id()` and re-reserving the
+    //    default-2 lane (`scrollbar_size2`).
+    //  - BOX-MODEL VERTICAL-WRAP: on a host that allows horizontal overflow, an
+    //    EXPLICIT `width: auto` child (e.g. a Label) is now measured at its full
+    //    unwrapped content width so its auto HEIGHT is not inflated by wrapping to the
+    //    narrow viewport — keeping the virtual content size (and thus scrollbar thumb
+    //    geometry) exact. UNSET-width (1fr fill, e.g. Static) still wraps, as Python.
+    "overflow",
+    "scrollbar_corner_color",
+    "scrollbar_size2",
 ];
 
 struct StyledCase {
