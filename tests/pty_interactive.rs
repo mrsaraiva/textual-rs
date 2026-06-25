@@ -1643,3 +1643,125 @@ fn parity_stopwatch05_ticks() {
         "PARITY FAIL stopwatch05: continuous tick mismatch — rust_ticks={rust_adv} py_ticks={py_adv} (both must tick)."
     );
 }
+
+// --- guide/widgets: custom widgets (deterministic render) -------------------
+
+/// counter01: three static `Count: 0` counters + Footer (no key bindings).
+#[test]
+#[ignore = "BUG: the focused Counter (Static, height auto + `:focus outline-left: thick`) renders ~14 rows tall and triggers a scrollbar in Rust, while Python keeps it 3 rows (padding 1 2 around one line). The focused widget fills available height instead of auto-sizing to content. 54 glyph + 3084 colour cells. Root: focused/auto-height widget vertical sizing fills container."]
+fn parity_counter01_render() {
+    let script = [Step::Wait(300)];
+    let (rf, pf) = cat_both("counter01", "guide/widgets", &script, 400);
+    assert_glyph_parity("counter01", &pf, &rf, &[]);
+}
+
+/// counter02: the focused counter increments on `k`/up. Press `k`.
+#[test]
+#[ignore = "BUG: same focused-Counter auto-height divergence as counter01 (focused widget fills container height + scrollbar). 78 glyph + 3084 colour cells. Root: focused/auto-height widget vertical sizing."]
+fn parity_counter02_increment() {
+    let script = [Step::SendKeys("k"), Step::Wait(300)];
+    let (rf, pf) = cat_both("counter02", "guide/widgets", &script, 400);
+    assert_glyph_parity("counter02", &pf, &rf, &[]);
+}
+
+/// fizzbuzz01: a static rich `Table` rendered on mount.
+#[test]
+#[ignore = "BUG: `Screen { align: center middle }` + auto-size FizzBuzz — Python centres the table (rows ~5+, col ~47); Rust renders it at the top-left (row 0, col 0). align center middle not applied to an auto-sized child. 422 glyph cells. Root: align center middle (shared with nesting/centering gap)."]
+fn parity_fizzbuzz01_table() {
+    let script = [Step::Wait(300)];
+    let (rf, pf) = cat_both("fizzbuzz01", "guide/widgets", &script, 400);
+    assert_glyph_parity("fizzbuzz01", &pf, &rf, &[]);
+}
+
+/// fizzbuzz02: same table forced to width 50 (expand=True).
+#[test]
+fn parity_fizzbuzz02_table() {
+    let script = [Step::Wait(300)];
+    let (rf, pf) = cat_both("fizzbuzz02", "guide/widgets", &script, 400);
+    assert_glyph_parity("fizzbuzz02", &pf, &rf, &[]);
+}
+
+/// hello01: a bare `Hello, World!` widget render (bold markup).
+#[test]
+fn parity_hello01_render() {
+    let script = [Step::Wait(300)];
+    let (rf, pf) = cat_both("hello01", "guide/widgets", &script, 400);
+    assert_glyph_parity("hello01", &pf, &rf, &[]);
+}
+
+/// hello02: same with the styled box CSS.
+#[test]
+fn parity_hello02_render() {
+    let script = [Step::Wait(300)];
+    let (rf, pf) = cat_both("hello02", "guide/widgets", &script, 400);
+    assert_glyph_parity("hello02", &pf, &rf, &[]);
+}
+
+/// hello03: on_mount sets "Hola"; clicking the widget cycles to "Bonjour".
+#[test]
+fn parity_hello03_click() {
+    let script = [Step::Click(10, 5), Step::Wait(300)];
+    let (rf, pf) = cat_both("hello03", "guide/widgets", &script, 400);
+    assert_glyph_parity("hello03", &pf, &rf, &[]);
+}
+
+/// hello04: styled 40x9 box centred; clicking it cycles the greeting.
+#[test]
+fn parity_hello04_click() {
+    let script = [Step::Click(60, 14), Step::Wait(300)];
+    let (rf, pf) = cat_both("hello04", "guide/widgets", &script, 400);
+    assert_glyph_parity("hello04", &pf, &rf, &[]);
+}
+
+/// hello05: on_mount renders "Hola" with a clickable @click link. Initial
+/// render parity (the link target is exercised by hello06's variant).
+#[test]
+fn parity_hello05_render() {
+    let script = [Step::Wait(300)];
+    let (rf, pf) = cat_both("hello05", "guide/widgets", &script, 400);
+    assert_glyph_parity("hello05", &pf, &rf, &[]);
+}
+
+/// hello06: same plus a border title/subtitle. Initial render parity.
+#[test]
+fn parity_hello06_render() {
+    let script = [Step::Wait(300)];
+    let (rf, pf) = cat_both("hello06", "guide/widgets", &script, 400);
+    assert_glyph_parity("hello06", &pf, &rf, &[]);
+}
+
+/// checker01: an 8x8 black/white checkerboard (Strip render_line).
+#[test]
+#[ignore = "BUG: the white squares (`Style.parse(\"on white\")`) render bg #ffffff in Rust but #c4c5b5 in Python — Python resolves the named colour \"white\" through its colour pipeline (dimmed), Rust uses raw #ffffff. 1920 colour cells. Root: named-colour (\"white\"/\"black\") resolution differs from Python."]
+fn parity_checker01_board() {
+    let script = [Step::Wait(300)];
+    let (rf, pf) = cat_both("checker01", "guide/widgets", &script, 400);
+    assert_glyph_parity("checker01", &pf, &rf, &[]);
+}
+
+/// checker02: the board with component-class colours (#A5BAC9 / #004578).
+#[test]
+#[ignore = "BUG: 2 stray cells at the bottom-right corner ([28..29,118..119]) — Rust paints a black square edge (#000000) where Python shows the screen bg (#121212). Minor board-overflow artifact beyond the 64-col board. 2 glyph + 2 colour cells."]
+fn parity_checker02_board() {
+    let script = [Step::Wait(300)];
+    let (rf, pf) = cat_both("checker02", "guide/widgets", &script, 400);
+    assert_glyph_parity("checker02", &pf, &rf, &[]);
+}
+
+/// checker03: a 100-square board inside a ScrollView (visible portion only).
+#[test]
+fn parity_checker03_board() {
+    let script = [Step::Wait(300)];
+    let (rf, pf) = cat_both("checker03", "guide/widgets", &script, 400);
+    assert_glyph_parity("checker03", &pf, &rf, &[]);
+}
+
+/// checker04: same board with a mouse-cursor highlight; initial render (no
+/// hover) parity.
+#[test]
+#[ignore = "BUG: the right-edge scrollbar/board-edge band (cols 118..119) differs — Rust paints fg #e0e0e0 on bg #a5bac9 (board white square colour) while Python shows the scrollbar fg #003054 on screen bg #121212. The board cells + cursor square (0,0) otherwise match. 3 glyph + 175 colour cells. Root: ScrollView right-edge scrollbar colour/extent (note: checker03, same ScrollView without cursor var, is glyph+colour clean)."]
+fn parity_checker04_board() {
+    let script = [Step::Wait(300)];
+    let (rf, pf) = cat_both("checker04", "guide/widgets", &script, 400);
+    assert_glyph_parity("checker04", &pf, &rf, &[]);
+}
