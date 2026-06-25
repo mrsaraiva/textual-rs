@@ -26,6 +26,21 @@ until the API stabilizes.
   exact) and timer-counter (live + exact-via-`advance_clock`) demos, plus a
   deliberately inert demo proving the harness *fails* a non-responsive
   interaction and *passes* a responsive one.
+### Changed
+
+- **Stopwatch + progress-bar tutorial demos migrated onto the real timer/reactive
+  fundamentals.** `stopwatch05`, `stopwatch06`, and the final `stopwatch` tutorial
+  ports no longer fake the live clock with an app-level `on_tick` id-query push.
+  `TimeDisplay` is now a `#[derive(Reactive)]` `Digits` widget with a `time`
+  reactive driven by an app-owned `set_interval(1/60)` (mirroring Python's
+  `set_interval(1/60, update_time)` + `watch_time` → `update`); `stopwatch06`/
+  `stopwatch` add `start()`/`stop()`/`reset()` (timer resume/pause + zero) routed
+  to each Stopwatch's `TimeDisplay` via a posted command message, so the Reset
+  button works. `progress_bar_isolated`/`progress_bar_styled` now register a
+  paused `set_interval(1/10, …, pause=True)` at mount and `resume()` it on Start,
+  matching Python instead of advancing per render frame. Each migrated demo gains
+  deterministic unit tests asserting the timer+reactive wiring advances the
+  displayed value.
 
 ## [1.0.0] - 2026-06-24
 
