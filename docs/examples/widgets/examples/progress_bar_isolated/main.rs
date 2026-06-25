@@ -133,4 +133,50 @@ mod tests {
         bar.advance(1.0);
         assert_eq!(bar.progress(), before + 1.0, "make_progress advances by 1");
     }
+
+    /// LIVENESS (end-to-end through the headless harness): the bar is paused at
+    /// mount, so advancing the clock alone leaves it at 0; pressing `s` resumes
+    /// the interval (and sets total=100), and advancing the deterministic clock
+    /// then fires `make_progress` ticks that advance the bar. A dead wiring
+    /// (action not routed, or timer never resumed) would leave it at 0.
+    ///
+    /// We assert on the observable widget state (`ProgressBar::progress`) — the
+    /// true thing the demo mutates. (The 80×24 indeterminate bar at 10% happens
+    /// to hash to the same frame fingerprint as the empty bar, so the rendered
+    /// fingerprint is too coarse to be the liveness signal here; the state
+    /// transition 0 → 10 is the honest proof the demo functions.)
+    #[test]
+    fn liveness_start_then_clock_advances_bar() {
+        IndeterminateProgressBar::new()
+            .run_test(|pilot| {
+                let read_progress = |pilot: &Pilot| -> (f64, Option<f64>) {
+                    let app = pilot.app();
+                    app.query_one_typed::<ProgressBar>("#progress_bar")
+                        .ok()
+                        .and_then(|h| h.read(app, |b| (b.progress(), b.total())).ok())
+                        .unwrap_or((-1.0, None))
+                };
+                // Paused at mount: clock advance before `s` must NOT advance it.
+                pilot.advance_clock(Duration::from_secs(1))?;
+                assert_eq!(
+                    read_progress(pilot).0,
+                    0.0,
+                    "timer is paused at mount; clock advance must be inert"
+                );
+                // Resume via the `s` action, then advance: bar must fill.
+                pilot.press(&["s"])?;
+                pilot.advance_clock(Duration::from_secs(1))?;
+                let (progress, total) = read_progress(pilot);
+                assert!(
+                    progress > 0.0,
+                    "after `s`, advancing the clock must advance the bar (got {progress})"
+                );
+                assert_eq!(total, Some(100.0), "`s` sets total=100");
+                Ok(())
+            })
+            .expect("run_test");
+    }
 }
+
+#[cfg(test)]
+use textual::runtime::Pilot;

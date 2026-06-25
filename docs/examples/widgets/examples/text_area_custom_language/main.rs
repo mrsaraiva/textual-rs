@@ -32,3 +32,25 @@ fn main() -> Result<()> {
     }
     run_sync(TextAreaCustomLanguageApp)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// LIVENESS: focus the editor and type a character; the edit mutates the
+    /// document and changes the rendered frame. A dead TextArea (keys not routed
+    /// to editing) leaves both identical.
+    #[test]
+    fn liveness_type_inserts_text() {
+        TextAreaCustomLanguageApp
+            .run_test(|pilot| {
+                pilot.press(&["tab"])?;
+                let before = pilot.app().frame_fingerprint();
+                pilot.press(&["X"])?;
+                let after = pilot.app().frame_fingerprint();
+                assert_ne!(before, after, "typing must change the rendered frame");
+                Ok(())
+            })
+            .expect("run_test");
+    }
+}

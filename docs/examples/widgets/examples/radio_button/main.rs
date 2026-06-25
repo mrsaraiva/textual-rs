@@ -97,4 +97,33 @@ mod tests {
         // "Serenity" is at index 3 and was set with value=true.
         assert_eq!(radio_set.pressed_index(), Some(3));
     }
+
+    /// LIVENESS: tab to focus the RadioSet ("Serenity", index 3, pressed at
+    /// mount), navigate down and select (enter). We assert on the observable
+    /// widget state (`pressed_index` moves off 3) — the true thing the
+    /// interaction mutates. A dead RadioSet (keys not routed / not focusable)
+    /// leaves the pressed index put.
+    #[test]
+    fn liveness_navigate_and_select() {
+        RadioChoicesApp
+            .run_test(|pilot| {
+                let pressed = |pilot: &Pilot| -> Option<usize> {
+                    let app = pilot.app();
+                    app.query_one_typed::<RadioSet>("RadioSet")
+                        .ok()
+                        .and_then(|h| h.read(app, |r| r.pressed_index()).ok())
+                        .flatten()
+                };
+                pilot.press(&["tab"])?; // focus the radio set
+                assert_eq!(pressed(pilot), Some(3), "Serenity pressed at mount");
+                pilot.press(&["down", "enter"])?;
+                assert_ne!(
+                    pressed(pilot),
+                    Some(3),
+                    "selecting another button must move the pressed index"
+                );
+                Ok(())
+            })
+            .expect("run_test");
+    }
 }

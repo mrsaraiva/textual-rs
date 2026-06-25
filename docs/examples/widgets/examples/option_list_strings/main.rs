@@ -111,4 +111,33 @@ mod tests {
         assert_eq!(items[0].prompt(), Some("Aerilon"));
         assert_eq!(items[11].prompt(), Some("Virgon"));
     }
+
+    /// LIVENESS: focus the OptionList and press down to move the highlight. We
+    /// assert on the observable widget state (`highlighted` 0 -> 1) — the true
+    /// thing navigation mutates. A dead OptionList (keys not routed) leaves the
+    /// highlight put.
+    ///
+    /// KNOWN RENDER GAP (DEFERRED): moving the highlight does NOT change the
+    /// rendered frame headlessly (the highlighted-row styling isn't reflected in
+    /// the rendered cells under the Pilot); navigation is live, the highlight
+    /// re-paint is the gap. See `option_list_options` for the same note.
+    #[test]
+    fn liveness_navigate_advances_highlight() {
+        OptionListApp
+            .run_test(|pilot| {
+                let hl = |pilot: &Pilot| -> Option<usize> {
+                    let app = pilot.app();
+                    app.query_one_typed::<OptionList>("OptionList")
+                        .ok()
+                        .and_then(|h| h.read(app, |l| l.highlighted()).ok())
+                        .flatten()
+                };
+                pilot.press(&["tab"])?;
+                assert_eq!(hl(pilot), Some(0), "starts highlighting the first option");
+                pilot.press(&["down"])?;
+                assert_eq!(hl(pilot), Some(1), "down must advance the highlight");
+                Ok(())
+            })
+            .expect("run_test");
+    }
 }

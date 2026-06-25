@@ -89,3 +89,44 @@ impl TextualApp for SwitchApp {
 fn main() -> textual::Result<()> {
     run_sync(SwitchApp)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn switch_app_composes_without_panic() {
+        let mut app = SwitchApp;
+        let _root = app.compose();
+    }
+
+    /// LIVENESS: clicking the first Switch flips its boolean value (off -> on),
+    /// emitting `Switch.Changed`. We assert on the observable widget state (the
+    /// `value` flip) — the true thing the demo mutates. A dead Switch (mouse
+    /// unhandled) leaves the value at `false`.
+    ///
+    /// NOTE: the slider *knob* is animated (`slider_pos` eases toward
+    /// `slider_target`), and that easing is driven by the per-frame animation
+    /// tick which the headless Pilot does not synthesise — so the rendered frame
+    /// fingerprint does NOT change here even though the value flipped. The value
+    /// transition is the honest headless-observable proof the toggle works; the
+    /// knob slide is a live-only visual.
+    #[test]
+    fn liveness_click_toggles_switch_value() {
+        SwitchApp
+            .run_test(|pilot| {
+                let read = |pilot: &Pilot| -> bool {
+                    let app = pilot.app();
+                    app.query_one_typed::<Switch>("Switch")
+                        .ok()
+                        .and_then(|h| h.read(app, |s| s.value()).ok())
+                        .unwrap_or(false)
+                };
+                assert_eq!(read(pilot), false, "first switch starts off");
+                pilot.click("Switch")?;
+                assert_eq!(read(pilot), true, "clicking the switch must toggle it on");
+                Ok(())
+            })
+            .expect("run_test");
+    }
+}

@@ -113,3 +113,27 @@ fn main() -> Result<()> {
     }
     run_sync(RichLogApp::default())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// LIVENESS: pressing a key runs `on_key`, which writes a formatted
+    /// `Key(...)` line into the RichLog. The new line scrolls into view, so the
+    /// rendered frame must change. A dead key handler leaves the log identical.
+    #[test]
+    fn liveness_keypress_writes_log_line() {
+        RichLogApp::default()
+            .run_test(|pilot| {
+                let before = pilot.app().frame_fingerprint();
+                pilot.press(&["z"])?;
+                let after = pilot.app().frame_fingerprint();
+                assert_ne!(
+                    before, after,
+                    "a key press must append a log line (frame changes)"
+                );
+                Ok(())
+            })
+            .expect("run_test");
+    }
+}

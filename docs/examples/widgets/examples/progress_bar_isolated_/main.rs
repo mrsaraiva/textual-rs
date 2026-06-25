@@ -108,4 +108,39 @@ mod tests {
         let app = IndeterminateProgressBar::new();
         assert!(!app.started);
     }
+
+    /// LIVENESS: pressing `s` routes the `start` action, which flips the bar to
+    /// determinate (`total=100`, progress reset to 0) and arms `started`. That
+    /// state transition is the demo's observable response to the binding.
+    ///
+    /// NOTE on the advance loop: this port drives `make_progress` from
+    /// `on_tick_with_app` (the per-frame app tick), NOT a `set_interval` timer.
+    /// The headless Pilot pumps timers + messages but does not synthesise the
+    /// wall-clock app tick, so `advance_clock` does not advance the bar here —
+    /// see the sibling `progress_bar_isolated` port (set_interval based), whose
+    /// probe DOES advance under `advance_clock`. The bar-fill loop of THIS port
+    /// is therefore only exercised live, not headless; we assert the `s` action
+    /// liveness (the routable, headless-observable part).
+    #[test]
+    fn liveness_start_action_makes_bar_determinate() {
+        IndeterminateProgressBar::new()
+            .run_test(|pilot| {
+                let before = pilot.app().frame_fingerprint();
+                pilot.press(&["s"])?;
+                let after = pilot.app().frame_fingerprint();
+                assert_ne!(
+                    before, after,
+                    "pressing `s` (start) must change the rendered frame"
+                );
+                let app = pilot.app();
+                let total = app
+                    .query_one_typed::<ProgressBar>("#progress_bar")
+                    .ok()
+                    .and_then(|h| h.read(app, |b| b.total()).ok())
+                    .flatten();
+                assert_eq!(total, Some(100.0), "`s` sets total=100");
+                Ok(())
+            })
+            .expect("run_test");
+    }
 }

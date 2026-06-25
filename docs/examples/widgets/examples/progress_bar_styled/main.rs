@@ -159,4 +159,32 @@ mod tests {
         bar.advance(1.0);
         assert_eq!(bar.progress(), before + 1.0, "make_progress advances by 1");
     }
+
+    /// LIVENESS (end-to-end): paused at mount; pressing `s` resumes the
+    /// `set_interval`, and advancing the deterministic clock fires
+    /// `make_progress`, advancing the bar's observable progress past 0. A dead
+    /// wiring (action unrouted / timer never resumed) leaves it at 0.
+    #[test]
+    fn liveness_start_then_clock_advances_bar() {
+        StyledProgressBar::new()
+            .run_test(|pilot| {
+                let read = |pilot: &Pilot| -> f64 {
+                    let app = pilot.app();
+                    app.query_one_typed::<ProgressBar>("#progress_bar")
+                        .ok()
+                        .and_then(|h| h.read(app, |b| b.progress()).ok())
+                        .unwrap_or(-1.0)
+                };
+                pilot.advance_clock(Duration::from_secs(1))?;
+                assert_eq!(read(pilot), 0.0, "paused at mount; clock advance inert");
+                pilot.press(&["s"])?;
+                pilot.advance_clock(Duration::from_secs(1))?;
+                assert!(read(pilot) > 0.0, "after `s`, clock must advance the bar");
+                Ok(())
+            })
+            .expect("run_test");
+    }
 }
+
+#[cfg(test)]
+use textual::runtime::Pilot;

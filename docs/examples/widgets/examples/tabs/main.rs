@@ -196,4 +196,35 @@ mod tests {
         }
         assert_eq!(app.next_name_index, 1);
     }
+
+    /// LIVENESS: pressing `a` runs the `add` handler, appending a new tab to the
+    /// `Tabs` widget. We assert on the observable widget state (`tab_count`
+    /// 1 -> 2) — the true thing the binding mutates. A dead `a` binding leaves
+    /// the count unchanged.
+    ///
+    /// KNOWN RENDER GAP (DEFERRED): the added tab does NOT appear in the rendered
+    /// frame headlessly — the `a` handler calls `request_repaint()` but not
+    /// `request_recompose_node(Tabs)`, and `Tabs::add_tab` builds arena children
+    /// that need a recompose to become visible (cf. the `progress_bar` ListView
+    /// history, which DOES `request_recompose_node` and renders). So
+    /// `frame_fingerprint` is unchanged after `a` even though the state advanced.
+    /// The binding/state path is live; the tab-bar re-render is the gap.
+    #[test]
+    fn liveness_add_tab_advances_count() {
+        TabsApp::new()
+            .run_test(|pilot| {
+                let count = |pilot: &Pilot| -> usize {
+                    let app = pilot.app();
+                    app.query_one_typed::<Tabs>("Tabs")
+                        .ok()
+                        .and_then(|h| h.read(app, |t| t.tab_count()).ok())
+                        .unwrap_or(0)
+                };
+                assert_eq!(count(pilot), 1, "starts with one tab");
+                pilot.press(&["a"])?;
+                assert_eq!(count(pilot), 2, "pressing `a` must add a tab");
+                Ok(())
+            })
+            .expect("run_test");
+    }
 }

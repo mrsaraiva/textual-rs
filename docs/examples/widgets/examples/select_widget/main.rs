@@ -109,4 +109,24 @@ mod tests {
         assert_eq!(ev.label, "I must not fear.");
         assert_eq!(ev.index, 0);
     }
+
+    /// LIVENESS: focus the Select and press enter to expand its overlay. The
+    /// option list pops over the screen, changing the rendered frame. A dead
+    /// Select (toggle not routed) leaves the closed control identical.
+    #[test]
+    fn liveness_expand_overlay() {
+        SelectApp
+            .run_test(|pilot| {
+                pilot.press(&["tab"])?; // focus the Select
+                let before = pilot.app().frame_fingerprint();
+                pilot.press(&["enter"])?; // expand the overlay
+                let after = pilot.app().frame_fingerprint();
+                assert_ne!(
+                    before, after,
+                    "expanding the Select overlay must change the rendered frame"
+                );
+                Ok(())
+            })
+            .expect("run_test");
+    }
 }

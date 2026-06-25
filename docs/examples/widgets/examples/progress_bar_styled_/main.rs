@@ -122,3 +122,41 @@ impl TextualApp for StyledProgressBar {
 fn main() -> textual::Result<()> {
     run_sync(StyledProgressBar::default())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// LIVENESS: pressing `s` routes the `start` action, flipping the bar to
+    /// determinate (`total=100`) and arming the advance loop. That state
+    /// transition is the demo's observable response to the binding.
+    ///
+    /// NOTE: like its sibling `progress_bar_isolated_`, this port advances the
+    /// bar from `on_tick_with_app` (per-frame app tick) rather than a
+    /// `set_interval` timer. The headless Pilot pumps timers + messages but does
+    /// not synthesise the wall-clock app tick, so `advance_clock` does not fill
+    /// the bar here. We assert the `s` action liveness (the headless-observable
+    /// part); the bar-fill loop is exercised only live.
+    #[test]
+    fn liveness_start_action_makes_bar_determinate() {
+        StyledProgressBar::default()
+            .run_test(|pilot| {
+                let before = pilot.app().frame_fingerprint();
+                pilot.press(&["s"])?;
+                let after = pilot.app().frame_fingerprint();
+                assert_ne!(
+                    before, after,
+                    "pressing `s` (start) must change the rendered frame"
+                );
+                let app = pilot.app();
+                let total = app
+                    .query_one_typed::<ProgressBar>("ProgressBar")
+                    .ok()
+                    .and_then(|h| h.read(app, |b| b.total()).ok())
+                    .flatten();
+                assert_eq!(total, Some(100.0), "`s` sets total=100");
+                Ok(())
+            })
+            .expect("run_test");
+    }
+}

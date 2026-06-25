@@ -170,4 +170,25 @@ mod tests {
         let app = FundingProgressApp;
         assert_eq!(app.title(), "Funding tracking");
     }
+
+    /// LIVENESS: focus the donation Input, type "25", submit with Enter, and
+    /// require the rendered frame to change (progress bar advances + a history
+    /// line "Donation for $25 received!" appears). A dead wiring (button/input
+    /// message not routed to `add_donation`) would leave the frame unchanged.
+    #[test]
+    fn liveness_donation_advances_progress() {
+        FundingProgressApp
+            .run_test(|pilot| {
+                pilot.click("#amount")?;
+                let before = pilot.app().frame_fingerprint();
+                pilot.press(&["2", "5", "enter"])?;
+                let after = pilot.app().frame_fingerprint();
+                assert_ne!(
+                    before, after,
+                    "submitting a donation must change the rendered frame"
+                );
+                Ok(())
+            })
+            .expect("run_test");
+    }
 }

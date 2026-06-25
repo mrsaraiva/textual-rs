@@ -145,4 +145,25 @@ mod tests {
         assert_eq!(set.pressed_index(), Some(3), "Serenity should be at index 3");
         assert_eq!(set.len(), 9);
     }
+
+    /// LIVENESS: the RadioSet is focused at mount. Navigating (down) and
+    /// selecting (enter) emits `RadioSet.Changed`, whose handler fills the
+    /// `#pressed` / `#index` labels (empty at start) — so the frame must change.
+    /// A dead `on_radio_set_changed` wiring leaves the labels empty / frame
+    /// identical.
+    #[test]
+    fn liveness_select_updates_labels() {
+        RadioSetChangedApp
+            .run_test(|pilot| {
+                let before = pilot.app().frame_fingerprint();
+                pilot.press(&["down", "enter"])?;
+                let after = pilot.app().frame_fingerprint();
+                assert_ne!(
+                    before, after,
+                    "selecting a radio button must update the labels (frame changes)"
+                );
+                Ok(())
+            })
+            .expect("run_test");
+    }
 }
