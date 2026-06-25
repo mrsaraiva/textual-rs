@@ -97,6 +97,18 @@ until the API stabilizes.
 
 ### Fixed
 
+- **`App::mount` / `mount_boxed` / `mount_all` build and paint dynamically-mounted
+  widgets.** These app-level mounts inserted a raw widget node (`tree.mount`)
+  without running the canonical compose+layout+render integration, so a mounted
+  widget's composed children (e.g. `Welcome`'s `#close` button) were never built
+  and nothing painted. They now route through `mount_extracted_recursive` (the
+  same path compose-time builds and `mount_under`/`mount_before`/`mount_after`
+  use) and request a relayout via `after_structural_mutation`, so composed
+  children build, lay out, and render. They also now target the active *screen
+  body* (Python `App.mount` defaults to `self.screen`) instead of the bare app
+  runtime root — mounting onto the root made the widget a sibling of the
+  full-height screen, pushing it offscreen. Flips the `app/widgets02`,
+  `app/widgets03`, and `app/widgets04` liveness probes from DEAD to LIVE.
 - **App and screen-root key bindings stay live while a screen/mode is active.**
   Key dispatch matched declarative bindings only in the active (top-of-stack)
   screen tree, so two whole binding classes were silently dropped: (1) the

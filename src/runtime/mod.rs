@@ -1239,7 +1239,7 @@ impl App {
         out
     }
 
-    /// Mount a widget as a direct child of the active tree root.
+    /// Mount a widget onto the active screen.
     pub fn mount(
         &mut self,
         widget: impl Widget + 'static,
@@ -1247,35 +1247,83 @@ impl App {
         self.mount_boxed(Box::new(widget))
     }
 
-    /// Mount a boxed widget as a direct child of the active tree root.
+    /// The default parent for app-level dynamic mounts: the active screen body.
+    ///
+    /// Python parity: `App.mount` defaults to mounting onto `self.screen` (the
+    /// current screen), not the bare app root. In the arena tree, the active
+    /// tree's root is either the screen body itself (when a `Screen` is pushed)
+    /// or the runtime adapter wrapper (`WelcomeApp>`) whose child is the base
+    /// `AppRoot`/`Screen`. Mounting onto the wrapper would make the new widget a
+    /// *sibling* of the full-height screen, pushing it offscreen (rendered but at
+    /// y == viewport height). So resolve to the nearest `Screen`-typed node: the
+    /// root if it is a screen, else its first `Screen` child.
+    fn default_mount_parent(tree: &WidgetTree) -> Option<NodeId> {
+        let root = tree.root()?;
+        let is_screen = |id: NodeId| -> bool {
+            tree.get(id).is_some_and(|node| {
+                let w = node.widget.as_ref();
+                w.style_type() == "Screen" || w.style_type_aliases().contains(&"Screen")
+            })
+        };
+        if is_screen(root) {
+            return Some(root);
+        }
+        tree.children(root)
+            .iter()
+            .copied()
+            .find(|&child| is_screen(child))
+            .or(Some(root))
+    }
+
+    /// Mount a boxed widget onto the active screen body.
+    ///
+    /// Routes through the canonical compose-aware mount path
+    /// ([`mount_extracted_recursive`](Self::mount_extracted_recursive)) so the
+    /// widget's composed children (e.g. `Welcome`'s `#close` button) are built,
+    /// laid out, and painted — matching the compose-time build and Python's
+    /// `Widget.mount`, which composes + refreshes the new subtree. A raw
+    /// `tree.mount` insert (the previous behavior) left composed children absent
+    /// and the widget unpainted; it also targeted the bare tree root, mounting
+    /// the widget offscreen (see [`Self::default_mount_parent`]).
     pub fn mount_boxed(
         &mut self,
         widget: Box<dyn Widget>,
     ) -> std::result::Result<NodeId, QueryError> {
-        let Some(tree) = self.active_widget_tree_mut() else {
-            return Err(QueryError::NoMatch);
+        let parent = {
+            let Some(tree) = self.active_widget_tree() else {
+                return Err(QueryError::NoMatch);
+            };
+            Self::default_mount_parent(tree).ok_or(QueryError::NoMatch)?
         };
-        let Some(root) = tree.root() else {
-            return Err(QueryError::NoMatch);
+        let id = {
+            let tree = self.active_widget_tree_mut().ok_or(QueryError::NoMatch)?;
+            Self::mount_extracted_recursive(tree, parent, widget)
         };
-        let id = tree.mount(root, widget);
-        self.clear_on_next_render = true;
+        self.after_structural_mutation(parent);
         Ok(id)
     }
 
-    /// Mount multiple widgets as direct children of the active tree root.
+    /// Mount multiple widgets onto the active screen body.
+    ///
+    /// Each widget is mounted through the same compose-aware path as
+    /// [`mount_boxed`](Self::mount_boxed) so composed children build and paint.
     pub fn mount_all(
         &mut self,
         widgets: Vec<Box<dyn Widget>>,
     ) -> std::result::Result<(), QueryError> {
-        let Some(tree) = self.active_widget_tree_mut() else {
-            return Err(QueryError::NoMatch);
+        let parent = {
+            let Some(tree) = self.active_widget_tree() else {
+                return Err(QueryError::NoMatch);
+            };
+            Self::default_mount_parent(tree).ok_or(QueryError::NoMatch)?
         };
-        let Some(root) = tree.root() else {
-            return Err(QueryError::NoMatch);
-        };
-        tree.mount_all(root, widgets);
-        self.clear_on_next_render = true;
+        {
+            let tree = self.active_widget_tree_mut().ok_or(QueryError::NoMatch)?;
+            for widget in widgets {
+                Self::mount_extracted_recursive(tree, parent, widget);
+            }
+        }
+        self.after_structural_mutation(parent);
         Ok(())
     }
 
@@ -5266,7 +5314,11 @@ mod tests {
         ])
         .expect("mount_all should work");
 
-        assert!(app.clear_on_next_render);
+        // A structural mutation requests a full relayout (not a terminal clear);
+        // `mount`/`mount_all` route through `after_structural_mutation`, which
+        // deliberately avoids `clear_on_next_render` (see its doc comment) so the
+        // normal diff repaints only changed cells.
+        assert!(app.take_pending_force_relayout());
         let by_type = app
             .get_child_by_type::<TypeProbe>()
             .expect("child by type should resolve");
