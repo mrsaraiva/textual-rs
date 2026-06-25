@@ -32,6 +32,26 @@ demo to a verified-working state.
   animated opacity composites into the FrameBuffer. Plus tutorial stopwatch ports migrated
   onto real `set_interval`/reactive (clock ticks from mount).
 
+- **`pty_interactive` real dual-app harness (the trustworthy interactive standard)** —
+  a new test harness (`tests/pty_interactive.rs`) that runs BOTH the real cargo-built
+  Rust example AND the real Python Textual app, each in its own PTY at the same size,
+  drives the SAME multi-step input script into both, and compares what the terminals
+  actually render as a CELL GRID (per-cell glyph + fg + bg colour via the `vt100`
+  emulator). No tmux, no frozen goldens, no in-process probes — real app vs real app.
+  This closes the trust gap left by in-process liveness probes (a probe that called
+  `TimeDisplay::start()` directly went green while the live app's Start button did
+  nothing). It is multi-step (`SendKeys`/`Key`/`Click`/`Wait`), time-aware (multi-frame
+  capture so a running clock / fade / worker can be observed), colour-aware (truecolor
+  diff), and prints an honest Rust-vs-Python cell diff on mismatch. Non-determinism
+  policy: assert EXACT text+colour where rendering is deterministic, STRUCTURE/behaviour
+  where it is not (clock *advanced*, fade *progressed*, weather *appeared* / no internal
+  event text leaked). Ships with the six maintainer-flagged demos as acceptance cases —
+  `dynamic_watch` (counter 30 vs 3 + blue `#0178d4` vs white `#e0e0e0` bar),
+  `modes01` (footer present vs missing), `stopwatch06` (clock advances vs frozen after
+  Start), `weather05` (`WorkerStateChanged` leak), `animation01` (red→bg fade vs static
+  `#ff0000`), `widgets02` (red vs blue rule) — each proving the harness detects the real
+  divergence.
+
 ### Fixed
 
 - **`how-to/render_compose` gradient rotation is now live under `run_test`** — the
