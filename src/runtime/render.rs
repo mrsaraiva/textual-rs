@@ -916,6 +916,49 @@ fn render_tree_node(
             frame.write_line_at(x0 as usize, y as usize, &cropped, false);
         }
 
+        // Empty-Screen runtime background composite.
+        //
+        // The Screen surface widget (`AppRoot`, `style_type() == "Screen"`) bakes
+        // its blank surface from its OWN seed style, so a background set at
+        // RUNTIME on the Screen *node* — e.g. `query_mut("Screen").set_styles(
+        // |s| s.set_bg(red))` or `run_action("set_background('red')")` — never
+        // reaches the widget's baked surface (the node style and the widget seed
+        // are distinct). Without this, an empty Screen with a dynamically-set
+        // inline background paints 0 colored cells: the resolved node bg is red
+        // but every surface cell is still the stale theme base.
+        //
+        // The compositor owns surface compositing, so re-fill the Screen node's
+        // CONTENT box here with the RESOLVED node background (which includes the
+        // runtime inline bg). This mirrors `render_screen_tree_layer`'s
+        // top-of-layer fill for the screen-stack case, and Python's
+        // `Screen.styles.background` driving the screen blank. Children render
+        // AFTER this block (see below), so they still composite on top. Only runs
+        // for opaque backgrounds on the screen-surface node; every other widget
+        // is unaffected.
+        //
+        // The fill is scoped to the CONTENT box (inside any border/padding), NOT
+        // the full layout rect, so a Screen with `border:` (e.g. the `screen`
+        // styles demo: `Screen { background: darkblue; border: heavy white }`)
+        // keeps its border chrome — the widget already rendered the border into
+        // its segments above, and this fill must not clobber those edge cells.
+        // For a borderless empty Screen the content box equals the layout rect,
+        // so the runtime bg still fills the whole surface (actions01/02).
+        if node_is_screen_surface(node) {
+            if let Some(bg) = resolved.bg {
+                if bg.a >= 1.0 {
+                    let content = node_content_or_layout_rect(node);
+                    let cx0 = i32::from(content.x0) + ctx.origin_x;
+                    let cy0 = i32::from(content.y0) + ctx.origin_y;
+                    let cx1 = i32::from(content.x1) + ctx.origin_x;
+                    let cy1 = i32::from(content.y1) + ctx.origin_y;
+                    let content_clip = ClipRect { x0: cx0, y0: cy0, x1: cx1, y1: cy1 };
+                    if let Some(fill_clip) = paint_clip.intersect(content_clip) {
+                        fill_rect_with_background(frame, fill_clip, bg);
+                    }
+                }
+            }
+        }
+
         // CSS `outline`: compute perimeter cells now (the ancestor style stack
         // still represents the base/parent background), but defer painting until
         // AFTER children render so the outline overdraws the final composited
@@ -2354,6 +2397,16 @@ fn node_has_gutter(node: &crate::widget_tree::WidgetNode) -> bool {
     // A degenerate/unset content rect (zero extent) means "no resolved content
     // box" — treat as no gutter and fall back to the layout rect elsewhere.
     c.x1 > c.x0 && c.y1 > c.y0 && (c.x0 > l.x0 || c.y0 > l.y0 || c.x1 < l.x1 || c.y1 < l.y1)
+}
+
+/// Whether this node is the Screen surface (`AppRoot`, which reports
+/// `style_type() == "Screen"`). The Screen surface owns the screen background;
+/// the compositor re-fills its rect with the resolved node background so a
+/// runtime-set inline bg on the Screen node composites even when the surface
+/// widget baked a stale per-seed background (see the empty-Screen fill above).
+fn node_is_screen_surface(node: &crate::widget_tree::WidgetNode) -> bool {
+    node.widget.style_type() == "Screen"
+        || node.widget.style_type_aliases().contains(&"Screen")
 }
 
 // ===========================================================================

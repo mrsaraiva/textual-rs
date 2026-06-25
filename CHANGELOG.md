@@ -7,6 +7,21 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Empty Screen composites a runtime-set inline background** — the tree
+  compositor now re-fills the Screen surface node's content box with its
+  RESOLVED node background, so a background set at runtime on the `Screen` node
+  (e.g. `query_mut("Screen").set_styles(|s| s.set_bg(red))` or
+  `run_action("set_background('red')")`) repaints the rendered surface even when
+  the Screen has no child widgets. Previously the Screen surface widget
+  (`AppRoot`) baked its blank surface from its own seed style, missing the bg set
+  on the node record, so an empty Screen painted 0 colored cells. The fill is
+  scoped to the content box so a Screen with a `border:` keeps its chrome.
+  Mirrors Python's `Screen.styles.background` driving the screen blank. Flips the
+  `guide/actions/actions01` and `guide/actions/actions02` liveness probes from
+  DEAD to LIVE.
+
 ### Added
 
 - **`@click` action-link routing in the headless click path** — the headless
