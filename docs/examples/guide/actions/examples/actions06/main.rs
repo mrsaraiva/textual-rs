@@ -112,30 +112,23 @@ fn main() -> textual::Result<()> {
 mod tests {
     use super::*;
 
-    /// LIVENESS PROBE (DEAD — captures expected behavior, currently failing).
+    /// LIVENESS PROBE (LIVE).
     ///
-    /// Pressing 'n' is expected to scroll the `HorizontalScroll` from page N to
-    /// page N+1 (and 'p' back). The binding fires and `page_no` advances, but
-    /// the **page content never scrolls/renders**: the first 'n' changes the
-    /// frame only because the Footer hint "Previous" appears (it was hidden by
-    /// `check_action` on page 0); the *second* 'n' (page1 -> page2) produces an
-    /// IDENTICAL frame (page1 == page2). The pages themselves are never laid out
-    /// or drawn: `node_screen_rect("HorizontalScroll")`, `#page-0`, `#page-1`
-    /// all return `None`.
+    /// Pressing 'n' scrolls the `HorizontalScroll` from page N to page N+1 (and
+    /// 'p' back). The first 'n' changes the frame partly because the Footer hint
+    /// "Previous" appears, so we assert on the *second* 'n' (page1 -> page2),
+    /// which is a pure page scroll with no footer-hint toggle — that must change
+    /// the rendered frame.
     ///
-    /// ROOT: the demo composes the scroller as `Node::new(HorizontalScroll::new())
-    /// .id("page-container")` — a structural Node wrapper with no rendered
-    /// surface — and the `HorizontalScroll`'s page children get no laid-out/
-    /// rendered region (same class as binding01's `#bars` wrapper). So
-    /// `scroll_visible(page)` has nothing to scroll into view, and page
-    /// navigation is invisible. (Pages use `width: 100vw`; combined with the
-    /// wrapper, the horizontal scroll viewport never materialises.)
-    ///
-    /// TODO (fix then un-ignore): give the pages a rendered region inside a
-    /// real horizontal scroll viewport so navigation visibly changes the frame.
-    /// The assertion below is the real expected behavior: the SECOND 'n' (a
-    /// pure page scroll, no footer-hint toggle) must change the rendered frame.
-    #[ignore = "DEAD: HorizontalScroll pages never lay out/render; scroll_visible navigation is invisible"]
+    /// ROOT (fixed): the demo composes the scroller as
+    /// `Node::new(HorizontalScroll::new()).id("page-container")` and each page as
+    /// `Node::new(Placeholder).id("page-N")`. The structural `Node` wrappers used
+    /// to interpose a non-scroll layout layer above the `HorizontalScroll`,
+    /// shrink-sizing the pages so the scroll viewport never materialised. The
+    /// node-build pipeline now COLLAPSES a purely structural transparent `Node`
+    /// out of the tree (mounting its inner widget in its place with the forwarded
+    /// id/classes/style), so the `HorizontalScroll` is the layout node itself and
+    /// the `100vw` pages lay out and scroll like Python `HorizontalScroll(id=..)`.
     #[test]
     fn liveness_next_prev_navigation_changes_frame() {
         textual::run_test_sized(PagesApp::new(), 40, 12, |pilot| {

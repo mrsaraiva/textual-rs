@@ -418,24 +418,22 @@ mod tests {
         assert_eq!(children.len(), 8);
     }
 
-    /// LIVENESS PROBE (currently DEAD — see root cause below).
+    /// LIVENESS PROBE (LIVE).
     ///
-    /// Toggling a bit Switch must post `BitChanged`, recompute the byte, and
-    /// update the Input (Switch -> Input wiring). We assert the Input's own text
-    /// changed (state, not just frame — the Switch's own toggle visual would
-    /// dirty the frame regardless, a false positive we avoid).
+    /// Toggling a bit Switch posts `BitChanged`, recomputes the byte, and updates
+    /// the Input (Switch -> Input wiring). We assert the Input's own text changed
+    /// (state, not just frame — the Switch's own toggle visual would dirty the
+    /// frame regardless, a false positive we avoid).
     ///
-    /// ROOT CAUSE (DEAD): the Switch toggle itself works (the switch value flips
-    /// to `true`), but the app writes the recomputed byte via
-    /// `app.with_query_one_mut_as::<Input, _>("#byte-input", ...)`, and in this
-    /// demo `#byte-input` is the id of a `Node::new(Input::new())` *wrapper*, not
-    /// the inner `Input`. The typed query therefore matches the `Node` (not an
-    /// `Input`), the downcast fails, and the byte value is never written — the
-    /// Input stays empty. Fix: put the id on the `Input` (or query the inner
-    /// Input), out of scope for this reactive-dispatch sweep. Flip this
-    /// `#[ignore]` once the byte value reaches the Input.
+    /// ROOT (fixed): the app writes the recomputed byte via
+    /// `app.with_query_one_mut_as::<Input, _>("#byte-input", ...)`, where
+    /// `#byte-input` is `Node::new(Input::new()).id("byte-input")`. Previously the
+    /// id landed on the `Node` *wrapper*, so the typed `#byte-input` query matched
+    /// the `Node` and the `Input` downcast failed — the byte was never written.
+    /// The node-build pipeline now collapses the structural `Node` out of the tree
+    /// and forwards the id to the inner `Input`, so `#byte-input` resolves to the
+    /// `Input` itself (Python parity: `Input(id="byte-input")`).
     #[test]
-    #[ignore = "DEAD: app writes the byte to `#byte-input` which is a Node wrapper, not the inner Input -> typed downcast fails -> Input never updates"]
     fn liveness_toggling_switch_updates_input() {
         textual::run_test(ByteInputApp::new(), |pilot| {
             let initial = pilot

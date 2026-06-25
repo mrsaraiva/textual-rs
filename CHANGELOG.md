@@ -97,6 +97,25 @@ until the API stabilizes.
 
 ### Fixed
 
+- **Structural `Node` wrappers (`Widget(id="x")` parity) no longer break the
+  inner widget's identity or layout.** The compose/node-build pipeline now
+  COLLAPSES a purely structural transparent `Node` (a wrapper carrying only an id
+  and/or wrapping a scroll container, with no border) out of the arena tree:
+  its single inner widget is mounted in the wrapper's place and owns the
+  forwarded id/inline-style, exactly like Python where `HorizontalScroll(id="x")`
+  / `Input(id="x")` is one widget. Previously the wrapper interposed a
+  `width:auto` (shrink-to-content) layout layer above the inner widget, which (a)
+  emitted id-bearing messages and answered typed `#id` downcast queries against
+  the non-rendering wrapper instead of the inner widget, and (b) prevented a
+  wrapped scroll container from establishing its own scroll viewport (its
+  `width:100vw` children collapsed and never scrolled). A `Button` declared via
+  `ChildDecl::with_id(..)` now also propagates that id into its own seed so
+  `ButtonPressed.button_id` resolves it. A *classed* non-scroll wrapper (e.g.
+  `Static.class("words")`, whose class carries `border`/`background`/`width`)
+  is intentionally left intact — it is the rendered styled box. Flips the
+  `guide/reactivity/dynamic_watch`, `guide/compound/byte03`,
+  `guide/input/binding01`, and `guide/actions/actions06` liveness probes from
+  DEAD to LIVE.
 - **Headless (`run_test`/Pilot) now fires app-level timer-callback reactives.**
   The headless pump invoked `run_due_timer_callbacks` directly, bypassing the
   root `on_app_timer` hook, so reactive fields mutated inside `set_interval`

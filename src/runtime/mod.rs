@@ -2819,6 +2819,22 @@ impl App {
             .map(|(index, id, classes)| (index, (id, classes)))
             .collect();
         for (index, mut child) in children.into_iter().enumerate() {
+            // Collapse a purely structural wrapper (transparent `Node` carrying
+            // only id/classes/inline-style) out of the tree, mounting its inner
+            // child in its place (see `mount_extracted_recursive`). Any decl-level
+            // id/classes recorded for this slot are applied to the resulting inner
+            // node so `#id` queries still resolve.
+            if let Some((inner, seed)) = child.take_structural_collapse() {
+                let inner_id = Self::mount_extracted_recursive(tree, parent, inner);
+                tree.apply_forwarded_seed(inner_id, seed);
+                if let Some((id, classes)) = decl_meta.remove(&index) {
+                    crate::widgets::apply_child_decl_meta(tree, inner_id, id, &classes);
+                }
+                if let Some(sink) = sinks.remove(&index) {
+                    sink(inner_id, tree.tree_id());
+                }
+                continue;
+            }
             // Recursively extract grandchildren before mounting the child.
             // We must do this while we still have &mut access to the child.
             let grandchildren = child.take_composed_children();
@@ -2870,6 +2886,17 @@ impl App {
         parent: NodeId,
         mut widget: Box<dyn Widget>,
     ) -> NodeId {
+        // Collapse a purely structural wrapper (transparent `Node` carrying only
+        // an id/classes/inline-style) OUT of the tree: mount its inner child in
+        // its place and fold the wrapper's identity onto the inner widget. This
+        // keeps a wrapped scroll/flow container as the layout node itself (so it
+        // establishes its own scroll viewport) instead of being shrink-sized by
+        // an interposed wrapper layer. Mirrors Python `Widget(id="x")`.
+        if let Some((inner, seed)) = widget.take_structural_collapse() {
+            let inner_id = Self::mount_extracted_recursive(tree, parent, inner);
+            tree.apply_forwarded_seed(inner_id, seed);
+            return inner_id;
+        }
         let grandchildren = widget.take_composed_children();
         let mut grandchild_sinks: std::collections::HashMap<usize, crate::handle::HandleSink> =
             widget.take_child_handle_sinks().into_iter().collect();
@@ -2916,6 +2943,39 @@ impl App {
                 handle_sink,
             } = decl;
             let WidgetBuilder::Ready(mut widget) = builder;
+            // Propagate a `ChildDecl::with_id(..)` id into the widget's OWN seed
+            // before mount, so widgets that cache it for id-bearing messages
+            // (e.g. `Button` → `ButtonPressed.button_id`) resolve the id. The
+            // node-record id is still applied below (covers all widgets). This
+            // mirrors Python `Button(id="x")` where the widget owns its id.
+            if id.is_some() {
+                widget.set_seed_css_id(id.clone());
+            }
+            if !classes.is_empty() {
+                widget.set_seed_classes(classes.clone());
+            }
+            // Collapse a purely structural wrapper out of the tree, mounting its
+            // inner child in its place (see `mount_extracted_recursive`). The
+            // decl-level id/classes were already folded into the wrapper seed
+            // above, so they travel with the forwarded seed; re-apply the decl id
+            // explicitly too (covers the node-record path) and fire the sink.
+            if let Some((inner, seed)) = widget.take_structural_collapse() {
+                let inner_id = Self::mount_extracted_recursive(tree, parent, inner);
+                tree.apply_forwarded_seed(inner_id, seed);
+                if let Some(id_str) = &id {
+                    tree.set_css_id(inner_id, Some(id_str.clone()));
+                }
+                for class in &classes {
+                    tree.add_class(inner_id, class);
+                }
+                if let Some(sink) = handle_sink {
+                    sink(inner_id, tree.tree_id());
+                }
+                if !decl_children.is_empty() {
+                    Self::mount_declarations(tree, inner_id, decl_children);
+                }
+                continue;
+            }
             // Extract children from declared widgets too.
             let extracted = widget.take_composed_children();
             let mut extracted_sinks: std::collections::HashMap<usize, crate::handle::HandleSink> =

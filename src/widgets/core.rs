@@ -249,6 +249,33 @@ pub trait Widget: Send + Sync + Any {
         Vec::new()
     }
 
+    /// Collapse a *purely structural* wrapper out of the arena tree.
+    ///
+    /// A transparent [`Node`](crate::widgets::Node) created only to attach an
+    /// id/inline-style to a single child (e.g.
+    /// `Node::new(HorizontalScroll::new()).id("page-container")`, or
+    /// `Node::new(Input::new()).id("byte-input")`) has no rendered surface AND no
+    /// border of its own — in Python the same intent is a single widget
+    /// (`HorizontalScroll(id="page-container")`, `Input(id="byte-input")`).
+    /// Keeping the wrapper as a distinct arena node interposes a `width:auto`
+    /// (shrink-to-content) layout layer ABOVE the inner widget, which drops the
+    /// inner widget's explicit size and prevents a wrapped scroll container from
+    /// establishing its own scroll viewport — so id-targeted mounts /
+    /// `scroll_visible` / typed `#id` downcast queries resolve to a wrapper with
+    /// no laid-out region or the wrong type, never the inner widget.
+    ///
+    /// When this returns `Some((inner, seed))`, the build pipeline mounts `inner`
+    /// directly in the wrapper's place (under the wrapper's parent) and applies
+    /// `seed` (id + classes + inline style) onto it — making the inner widget own
+    /// the identity AND the layout slot, exactly like Python. Returning `None`
+    /// (the default) keeps the widget as its own arena node. A wrapper that
+    /// carries a CSS *class* of its own (real styling, e.g.
+    /// `Static.class("words")`) or a border must NOT collapse — it is the rendered
+    /// box and stays put. See [`Node::take_structural_collapse`] for the gating.
+    fn take_structural_collapse(&mut self) -> Option<(Box<dyn Widget>, NodeSeed)> {
+        None
+    }
+
     /// Return this widget's arena-assigned NodeId.
     ///
     /// During event/message dispatch and rendering, the runtime sets a
@@ -779,6 +806,23 @@ pub trait Widget: Send + Sync + Any {
     /// before the child is mounted to the arena tree.  The default is a no-op; widgets
     /// that hold a NodeSeed override this to write into `seed.styles.style`.
     fn set_inline_style(&mut self, _style: Style) {}
+    /// Pre-mount CSS-id injection.
+    ///
+    /// Used by the compose/node-build pipeline to propagate an id that was
+    /// declared *outside* the widget itself — a `ChildDecl::with_id(..)` — down
+    /// into the widget's own `NodeSeed`. Setting the id on the seed (rather than
+    /// only on the arena node record) ensures the widget owns the id, so that
+    /// id-bearing messages cached at `take_node_seed` resolve it (e.g.
+    /// `ButtonPressed.button_id`), mirroring Python `Button(id="x")`.
+    ///
+    /// Default: no-op. Override on widgets that cache their id for id-bearing
+    /// messages (currently [`Button`](crate::widgets::Button)).
+    fn set_seed_css_id(&mut self, _id: Option<String>) {}
+    /// Pre-mount CSS-class injection (companion to [`Widget::set_seed_css_id`]).
+    ///
+    /// Appends `ChildDecl`-declared classes into the widget's own `NodeSeed`.
+    /// Default: no-op.
+    fn set_seed_classes(&mut self, _classes: Vec<String>) {}
     fn style_type(&self) -> &'static str {
         std::any::type_name::<Self>()
             .rsplit("::")
