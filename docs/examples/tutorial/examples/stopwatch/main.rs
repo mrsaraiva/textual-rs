@@ -4,20 +4,35 @@
 /// buttons, a live time display, and bindings to add/remove stopwatches
 /// dynamically (a = add, r = remove, d = toggle dark mode).
 ///
-/// Python structure:
-///   - TimeDisplay(Digits) — live clock display, updated via a 1/60s interval
-///   - Stopwatch(HorizontalGroup) — one row: Start, Stop, Reset buttons + TimeDisplay
-///   - StopwatchApp(App) — Header, Footer, VerticalScroll(#timers) with three Stopwatches
+/// This is `stopwatch06` plus dynamic add/remove. It uses the framework's timer +
+/// reactive fundamentals (the same primitives Python uses) for the live clock,
+/// NOT an app-level tick/id-query push.
 ///
-/// Rust differences:
-///   - No reactive interval; clock is driven via `on_tick_with_app` (called every
-///     frame) instead of Textual's `set_interval`.
+/// Python structure:
+///   - TimeDisplay(Digits) — live clock, `set_interval(1/60, update_time, pause=True)`,
+///     reactive `time`/`total`, and `start()`/`stop()`/`reset()`.
+///   - Stopwatch(HorizontalGroup) — Start/Stop/Reset buttons + a TimeDisplay;
+///     `on_button_pressed` calls the matching TimeDisplay method + toggles `started`.
+///   - StopwatchApp(App) — Header, Footer, VerticalScroll(#timers) with three
+///     Stopwatches; `a`/`r` mount/remove a Stopwatch.
+///
+/// Rust faithful mapping (see stopwatch06 for the detailed rationale):
+///   - `TimeDisplay` is a `#[derive(Reactive)]` widget wrapping `Digits` with
+///     `time`/`total` reactives + a `running` flag and start/stop/reset methods.
+///   - The app owns ONE `set_interval(1/60)` driving `update_time` on every
+///     TimeDisplay (each only advances while `running`). Newly mounted stopwatches
+///     are picked up automatically because the interval re-queries `TimeDisplay`.
+///   - `Stopwatch::on_message` toggles `started` and posts a `TimeDisplayCmd`;
+///     the app's `on_message_with_app` applies start/stop/reset to the addressed
+///     TimeDisplay node.
 ///   - Dynamic add/remove uses `app.mount_under` / `app.remove_node`.
-///   - `TimeDisplay` wraps `Digits` and delegates rendering; the tick loop calls
-///     `Digits::update` to push the formatted time string.
+///
+/// NON-PROMOTABLE as a full golden: the running clock digits are timer-driven and
+/// nondeterministic. Structural add/remove is verified via tests and idle capture.
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use textual::prelude::*;
+use textual::reactive::{enqueue_runtime_reactive_entry, RuntimeReactiveEntry};
 
 // ---------------------------------------------------------------------------
 // CSS (mirrors stopwatch.tcss exactly)
@@ -78,26 +93,107 @@ Button {
 }
 "#;
 
+/// Format elapsed seconds as `HH:MM:SS.cc` — mirrors Python's
+/// `f"{hours:02,.0f}:{minutes:02.0f}:{seconds:05.2f}"`.
+fn format_time(secs: f64) -> String {
+    let total_cs = (secs * 100.0) as u64;
+    let cs = total_cs % 100;
+    let total_s = total_cs / 100;
+    let s = total_s % 60;
+    let total_m = total_s / 60;
+    let m = total_m % 60;
+    let h = total_m / 60;
+    format!("{h:02}:{m:02}:{s:02}.{cs:02}")
+}
+
+// Unique id per TimeDisplay so a Stopwatch (initial or dynamically added) can
+// address its own display.
+static NEXT_DISPLAY: AtomicU64 = AtomicU64::new(0);
+
 // ---------------------------------------------------------------------------
-// Monotonic id source — each Stopwatch (initial or dynamically added) gets a
-// unique TimeDisplay id so the tick loop can pair them.
+// Custom message: a Stopwatch tells the app to drive its TimeDisplay.
 // ---------------------------------------------------------------------------
 
-static NEXT_SW: AtomicU64 = AtomicU64::new(0);
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CmdKind {
+    Start,
+    Stop,
+    Reset,
+}
+
+#[derive(Debug, Clone)]
+struct TimeDisplayCmd {
+    display_id: String,
+    kind: CmdKind,
+}
+
+textual::impl_message!(TimeDisplayCmd);
 
 // ---------------------------------------------------------------------------
-// TimeDisplay widget
+// TimeDisplay widget — Digits + `time`/`total` reactives + start/stop/reset
 // ---------------------------------------------------------------------------
 
+#[derive(Reactive)]
 struct TimeDisplay {
+    #[reactive(watch, init = false)]
+    time: f64,
+    #[reactive(init = false)]
+    total: f64,
+    start_instant: Instant,
+    running: bool,
     inner: Digits,
+    display_id: String,
 }
 
 impl TimeDisplay {
-    fn new(text: &str) -> Self {
+    fn new() -> Self {
+        let n = NEXT_DISPLAY.fetch_add(1, Ordering::Relaxed);
         Self {
-            inner: Digits::new(text),
+            time: 0.0,
+            total: 0.0,
+            start_instant: Instant::now(),
+            running: false,
+            inner: Digits::new("00:00:00.00"),
+            display_id: format!("td-{n}"),
         }
+    }
+
+    /// Python `update_time`: `self.time = self.total + (monotonic() - start_time)`.
+    fn update_time(&mut self, ctx: &mut ReactiveCtx) {
+        if !self.running {
+            return;
+        }
+        let elapsed = self.start_instant.elapsed().as_secs_f64();
+        self.set_time(self.total + elapsed, ctx);
+    }
+
+    /// Python `start`: reset the segment origin and resume the timer.
+    fn start(&mut self, _ctx: &mut ReactiveCtx) {
+        self.start_instant = Instant::now();
+        self.running = true;
+    }
+
+    /// Python `stop`: pause, fold the segment into `total`, freeze time.
+    fn stop(&mut self, ctx: &mut ReactiveCtx) {
+        if self.running {
+            self.total += self.start_instant.elapsed().as_secs_f64();
+            self.running = false;
+        }
+        let total = self.total;
+        self.set_total(total, ctx);
+        self.set_time(total, ctx);
+    }
+
+    /// Python `reset`: total = 0, time = 0.
+    fn reset(&mut self, ctx: &mut ReactiveCtx) {
+        self.running = false;
+        self.set_total(0.0, ctx);
+        self.set_time(0.0, ctx);
+    }
+
+    /// Python `watch_time`: format the elapsed time and push it to the Digits.
+    fn watch_time(&mut self, _old: &f64, new: &f64, _ctx: &mut ReactiveCtx) {
+        self.inner.update(format_time(*new));
     }
 }
 
@@ -125,6 +221,10 @@ impl Widget for TimeDisplay {
     fn layout_height(&self) -> Option<usize> {
         self.inner.layout_height()
     }
+
+    fn reactive_widget(&mut self) -> Option<&mut dyn ReactiveWidget> {
+        Some(self)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -133,51 +233,21 @@ impl Widget for TimeDisplay {
 
 struct Stopwatch {
     inner: HorizontalGroup,
-    /// CSS id of this stopwatch's TimeDisplay child (`digits-<n>`).
-    digits_id: String,
-    started: bool,
-    start_instant: Option<Instant>,
-    total_elapsed_secs: f64,
+    display_id: String,
 }
 
 impl Stopwatch {
     fn new() -> Self {
-        let n = NEXT_SW.fetch_add(1, Ordering::Relaxed);
-        let digits_id = format!("digits-{n}");
+        let display = TimeDisplay::new();
+        let display_id = display.display_id.clone();
         let inner = HorizontalGroup::new().with_compose(vec![
             ChildDecl::from(Button::success("Start").id("start")),
             ChildDecl::from(Button::error("Stop").id("stop")),
             ChildDecl::from(Button::new("Reset").id("reset")),
-            ChildDecl::from(TimeDisplay::new("00:00:00.00")).with_id(&digits_id),
+            ChildDecl::from(display).with_id(&display_id),
         ]);
-        Self {
-            inner,
-            digits_id,
-            started: false,
-            start_instant: None,
-            total_elapsed_secs: 0.0,
-        }
+        Self { inner, display_id }
     }
-
-    fn elapsed_secs(&self) -> f64 {
-        let base = self.total_elapsed_secs;
-        if let Some(inst) = &self.start_instant {
-            base + inst.elapsed().as_secs_f64()
-        } else {
-            base
-        }
-    }
-}
-
-fn format_time(secs: f64) -> String {
-    let total_cs = (secs * 100.0) as u64;
-    let cs = total_cs % 100;
-    let total_s = total_cs / 100;
-    let s = total_s % 60;
-    let total_m = total_s / 60;
-    let m = total_m % 60;
-    let h = total_m / 60;
-    format!("{h:02}:{m:02}:{s:02}.{cs:02}")
 }
 
 impl Widget for Stopwatch {
@@ -211,30 +281,25 @@ impl Widget for Stopwatch {
 
     fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
         if let Some(bp) = message.downcast_ref::<ButtonPressed>() {
-            match bp.button_id.as_deref() {
+            let kind = match bp.button_id.as_deref() {
                 Some("start") => {
-                    self.started = true;
-                    self.start_instant = Some(Instant::now());
                     ctx.add_class("started");
-                    ctx.request_repaint();
-                    ctx.set_handled();
+                    Some(CmdKind::Start)
                 }
                 Some("stop") => {
-                    if let Some(inst) = self.start_instant.take() {
-                        self.total_elapsed_secs += inst.elapsed().as_secs_f64();
-                    }
-                    self.started = false;
                     ctx.remove_class("started");
-                    ctx.request_repaint();
-                    ctx.set_handled();
+                    Some(CmdKind::Stop)
                 }
-                Some("reset") => {
-                    self.total_elapsed_secs = 0.0;
-                    self.start_instant = None;
-                    ctx.request_repaint();
-                    ctx.set_handled();
-                }
-                _ => {}
+                Some("reset") => Some(CmdKind::Reset),
+                _ => None,
+            };
+            if let Some(kind) = kind {
+                ctx.post_message(TimeDisplayCmd {
+                    display_id: self.display_id.clone(),
+                    kind,
+                });
+                ctx.request_repaint();
+                ctx.set_handled();
             }
         }
     }
@@ -291,32 +356,51 @@ impl TextualApp for StopwatchApp {
             )
     }
 
-    fn on_tick_with_app(&mut self, app: &mut App, _tick: u64, ctx: &mut EventCtx) {
-        // Drive the live clock: for every running Stopwatch, push the formatted
-        // elapsed time into its paired TimeDisplay child.
-        let sw_nodes = app
-            .query("Stopwatch")
-            .map(|q| q.into_ids())
-            .unwrap_or_default();
-        let mut updates: Vec<(String, String)> = Vec::new();
-        for node in sw_nodes {
-            if let Some(Some(pair)) = app.with_widget_mut_as::<Stopwatch, _>(node, |sw| {
-                sw.started
-                    .then(|| (sw.digits_id.clone(), format_time(sw.elapsed_secs())))
-            }) {
-                updates.push(pair);
-            }
-        }
-        let mut repainted = false;
-        for (digits_id, time_str) in updates {
-            let sel = format!("#{digits_id}");
-            let _ = app.with_query_one_mut_as::<TimeDisplay, _>(&sel, |d| {
-                d.inner.update(time_str);
+    fn on_mount_with_app(&mut self, app: &mut App, _ctx: &mut EventCtx) {
+        // Python TimeDisplay.on_mount: set_interval(1/60, update_time, pause=True).
+        // One app-owned 1/60s interval drives `update_time` on every TimeDisplay
+        // (including dynamically added ones, since it re-queries each fire); each
+        // display only advances while `running`.
+        app.set_interval(
+            Duration::from_secs_f64(1.0 / 60.0),
+            None,
+            false,
+            Box::new(|app, _ctx| {
+                let display_ids = app
+                    .query("TimeDisplay")
+                    .map(|q| q.into_ids())
+                    .unwrap_or_default();
+                for node_id in display_ids {
+                    let mut rctx = ReactiveCtx::new(node_id);
+                    app.with_widget_mut_as::<TimeDisplay, _>(node_id, |td| {
+                        td.update_time(&mut rctx);
+                    });
+                    if rctx.has_changes() {
+                        enqueue_runtime_reactive_entry(RuntimeReactiveEntry::new(node_id, rctx));
+                    }
+                }
+            }),
+        );
+    }
+
+    fn on_message_with_app(&mut self, app: &mut App, message: &MessageEvent, ctx: &mut EventCtx) {
+        if let Some(cmd) = message.downcast_ref::<TimeDisplayCmd>() {
+            let sel = format!("#{}", cmd.display_id);
+            let node_id = match app.query(&sel).and_then(|q| q.first()) {
+                Ok(id) => id,
+                Err(_) => return,
+            };
+            let mut rctx = ReactiveCtx::new(node_id);
+            app.with_widget_mut_as::<TimeDisplay, _>(node_id, |td| match cmd.kind {
+                CmdKind::Start => td.start(&mut rctx),
+                CmdKind::Stop => td.stop(&mut rctx),
+                CmdKind::Reset => td.reset(&mut rctx),
             });
-            repainted = true;
-        }
-        if repainted {
+            if rctx.has_changes() {
+                enqueue_runtime_reactive_entry(RuntimeReactiveEntry::new(node_id, rctx));
+            }
             ctx.request_repaint();
+            ctx.set_handled();
         }
     }
 
@@ -346,6 +430,13 @@ fn main() -> textual::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use textual::reactive::ReactiveWidget;
+
+    fn flush(td: &mut TimeDisplay, mut ctx: ReactiveCtx) {
+        let changes = ctx.take_changes();
+        let mut dispatch_ctx = ReactiveCtx::new(textual::node_id::NodeId::default());
+        td.reactive_dispatch(&changes, &mut dispatch_ctx);
+    }
 
     #[test]
     fn stopwatch_composes_without_panic() {
@@ -370,5 +461,34 @@ mod tests {
     #[test]
     fn format_time_one_minute() {
         assert_eq!(format_time(61.5), "00:01:01.50");
+    }
+
+    /// start() + an advanced clock advances the displayed time; reset() zeroes it.
+    #[test]
+    fn start_advances_and_reset_zeroes() {
+        let mut td = TimeDisplay::new();
+
+        let mut ctx = ReactiveCtx::new(textual::node_id::NodeId::default());
+        td.start(&mut ctx);
+        td.start_instant = Instant::now() - Duration::from_secs(4);
+
+        let mut ctx = ReactiveCtx::new(textual::node_id::NodeId::default());
+        td.update_time(&mut ctx);
+        assert!(ctx.has_changes(), "running display advances");
+        flush(&mut td, ctx);
+        assert_ne!(td.inner.value(), "00:00:00.00");
+
+        // Reset works while stopped.
+        let mut ctx = ReactiveCtx::new(textual::node_id::NodeId::default());
+        td.reset(&mut ctx);
+        flush(&mut td, ctx);
+        assert_eq!(td.inner.value(), "00:00:00.00");
+    }
+
+    #[test]
+    fn time_display_ids_unique() {
+        let a = TimeDisplay::new();
+        let b = TimeDisplay::new();
+        assert_ne!(a.display_id, b.display_id);
     }
 }
