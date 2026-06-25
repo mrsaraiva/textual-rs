@@ -5,9 +5,17 @@
 /// `compose()` to add a `Static` child widget on top.
 ///
 /// The `Splash` container overrides `is_active()` to enable fast tick events
-/// (~60 fps) and updates a time-driven gradient angle on each tick.
-use std::time::{SystemTime, UNIX_EPOCH};
-
+/// (~60 fps) and updates the gradient angle on each tick.
+///
+/// Python's `render_compose.py` enables `self.auto_refresh = 1 / 30` (a framework
+/// refresh timer) and reads `time() * 90` in `render()` — i.e. the angle is driven
+/// by the framework's periodic refresh, advancing ~90°/second. We mirror that with
+/// the framework tick cadence (`on_tick`, the Rust analogue of `auto_refresh`):
+/// the angle is a pure function of the runtime tick counter, exactly like
+/// `LoadingIndicator` derives its phase. Driving the angle from the framework
+/// clock — rather than wall-clock `SystemTime::now()` — keeps the animation
+/// deterministic under the headless Pilot harness, where `advance_clock` /
+/// `advance_ticks` step the runtime tick and rotate the gradient reproducibly.
 use rich_rs::{Console, ConsoleOptions, Renderable, Segments};
 use textual::prelude::*;
 use textual::renderables::LinearGradient;
@@ -49,12 +57,13 @@ fn parse_hex_color(s: &str) -> Color {
     Color::rgb(r, g, b)
 }
 
-fn current_time_secs() -> f32 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs_f32()
-}
+/// Degrees the gradient rotates per runtime tick.
+///
+/// Python rotates `time() * 90` = 90°/second. The runtime's active tick cadence
+/// is ~16ms (~60 fps), so 90°/s ≈ 1.44°/tick. The exact constant is purely
+/// visual; what matters is that the angle is a deterministic function of the
+/// framework tick rather than wall-clock time.
+const DEGREES_PER_TICK: f32 = 1.44;
 
 const CSS: &str = r#"
 Splash {
@@ -68,26 +77,33 @@ Static {
 
 struct Splash {
     container: Container,
-    angle_deg: f32,
+    /// Runtime tick counter — the framework's refresh cadence drives the angle
+    /// (Python's `auto_refresh`), so the gradient rotation is deterministic.
+    tick: u64,
     stops: Vec<(f32, Color)>,
 }
 
 impl Splash {
     fn new() -> Self {
         let stops = build_stops();
-        let angle_deg = current_time_secs() * 90.0;
         let container = Container::new().with_child(Static::new("Making a splash with Textual!"));
         Self {
             container,
-            angle_deg,
+            tick: 0,
             stops,
         }
+    }
+
+    /// Current gradient angle, derived purely from the framework tick counter
+    /// (the Rust analogue of Python's `time() * 90` driven by `auto_refresh`).
+    fn angle_deg(&self) -> f32 {
+        self.tick as f32 * DEGREES_PER_TICK
     }
 }
 
 impl Widget for Splash {
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        let gradient = LinearGradient::new(self.angle_deg, self.stops.clone());
+        let gradient = LinearGradient::new(self.angle_deg(), self.stops.clone());
         gradient.render(console, options)
     }
 
@@ -99,8 +115,13 @@ impl Widget for Splash {
         true
     }
 
-    fn on_tick(&mut self, _tick: u64) {
-        self.angle_deg = current_time_secs() * 90.0;
+    fn on_tick(&mut self, tick: u64) {
+        // Advance the angle from the framework tick (Python: `auto_refresh`
+        // triggers a refresh; `render` reads `time() * 90`). The runtime delivers
+        // strictly-increasing ticks both in the live loop and under the headless
+        // Pilot harness (`advance_clock` / `advance_ticks`), so the rotation is
+        // deterministic in tests.
+        self.tick = tick;
     }
 
     fn style_type(&self) -> &'static str {
@@ -172,24 +193,27 @@ mod tests {
         assert_eq!(splash.style_type(), "Splash");
     }
 
+    #[test]
+    fn angle_is_derived_from_framework_tick() {
+        let mut splash = Splash::new();
+        assert_eq!(splash.angle_deg(), 0.0);
+        splash.on_tick(10);
+        assert!((splash.angle_deg() - 10.0 * DEGREES_PER_TICK).abs() < f32::EPSILON);
+        splash.on_tick(100);
+        assert!((splash.angle_deg() - 100.0 * DEGREES_PER_TICK).abs() < f32::EPSILON);
+        // Different ticks => different angle => a different rendered gradient.
+        assert_ne!(Splash::new().angle_deg(), splash.angle_deg());
+    }
+
     /// LIVENESS probe (Pilot, headless): the `Splash` container is fast-tick
     /// active (`is_active() == true`); each `on_tick` advances the gradient angle
-    /// (`angle_deg = current_time_secs() * 90.0`), so an animated demo should
-    /// repaint a different gradient frame over time.
-    ///
-    /// UNCLEAR under the headless harness — `#[ignore]`d. Two compounding roots:
-    /// (1) the per-frame `Widget::on_tick` hook is driven by the *live* event
-    /// loop's wall-clock tick cadence (`runtime/event_loop.rs` `last_tick`), and
-    /// is NOT invoked by the headless pump — `Pilot::advance_clock` fires
-    /// `set_interval`/`set_timer` callbacks (the manual timer clock), but not
-    /// `on_tick`; and (2) the angle is derived from wall-clock `SystemTime::now()`
-    /// rather than the manual test clock, so even if ticked it would not advance
-    /// deterministically. Confirmed: `advance_clock(2s)` leaves the frame
-    /// unchanged. This is a harness gap for `on_tick`-animated widgets, not a
-    /// demo defect. TODO: drive `on_tick` from the headless pump under
-    /// `advance_clock` (and/or have the demo derive its angle from the manual
-    /// clock); then drop `#[ignore]`.
-    #[ignore = "UNCLEAR: Widget::on_tick is not pumped headless + angle uses wall-clock time"]
+    /// from the framework tick counter (the Rust analogue of Python's
+    /// `auto_refresh`-driven `time() * 90`). Because the angle is now driven by the
+    /// framework clock — not wall-clock `SystemTime::now()` — `advance_clock`
+    /// steps the runtime tick deterministically and the gradient repaints a
+    /// different frame. (The headless `advance_clock` pump delivers one runtime
+    /// tick per wake, invoking `on_tick` on every active arena node including
+    /// `Splash`.)
     #[test]
     fn render_compose_animation_is_live() {
         run_test(SplashApp, |pilot| {
@@ -198,7 +222,7 @@ mod tests {
             assert_ne!(
                 before,
                 pilot.app().frame_fingerprint(),
-                "the time-driven gradient must repaint a different frame"
+                "the framework-tick-driven gradient must repaint a different frame"
             );
             Ok(())
         })
