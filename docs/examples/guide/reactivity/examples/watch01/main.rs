@@ -152,7 +152,6 @@ mod tests {
     /// this `#[ignore]` once post-mount `set_inline_style` reaches render, or
     /// switch the watcher to `query_mut(sel).set_styles(...)`.
     #[test]
-    #[ignore = "DEAD: post-mount Static::set_inline_style writes to the detached widget seed, never reaching the arena node style/render (styling-pipeline fix needed; same gap as computed01)"]
     fn liveness_submitting_color_repaints_panels() {
         textual::run_test(WatchApp::new(), |pilot| {
             pilot.click("Input")?;

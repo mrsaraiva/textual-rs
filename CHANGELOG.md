@@ -97,6 +97,31 @@ until the API stabilizes.
 
 ### Fixed
 
+- **Runtime state flips now relayout/repaint the owning node (Checkbox `-on`,
+  Collapsible body).** A widget state change made outside an event handler
+  (e.g. `Checkbox` toggle via the reactive phase, `Collapsible::toggle()` via
+  `App::with_widget_mut_as`) only mutated the widget's detached seed classes and
+  never reached the arena node, so the rendered frame was byte-identical despite
+  the asserted state change. `Checkbox::watch_checked` now queues a `-on`
+  class op onto its node (mirroring Python `ToggleButton.watch_value` →
+  `set_class(value, "-on")`) so `&.-on > .toggle--button` repaints the button
+  color; `Collapsible` now toggles the `-collapsed` class on its node — via a
+  pending-class-op seam drained in `App::with_widget_mut` for non-event toggles,
+  via `EventCtx` for the click/key path (which now also requests layout
+  invalidation) — so the `&.-collapsed > Contents { display: none }` rule
+  hides/reveals the body and the box re-sizes. Mirrors Python
+  `Collapsible._update_collapsed`. Flips the `checkbox`, `collapsible`,
+  `collapsible_custom_symbol`, and `collapsible_nested` liveness probes to LIVE.
+- **Post-mount `Static::set_inline_style` now reaches the arena node.** A
+  widget's seed (including its inline style) is moved into the arena node at
+  mount, so a post-mount `set_inline_style` (e.g. a reactive `watch_color`
+  doing `widget.set_inline_style(Style::new().bg(c))` through
+  `App::with_widget_mut`) only updated the now-detached widget seed and never
+  reached the node's rendered style. `Static::set_inline_style` now stages a
+  write-through that `App::with_widget_mut` cascades onto the node's inline
+  style (`node.styles.style.combine(&staged)`, per-property override matching
+  Python `widget.styles.<prop> = value`). Flips the `computed01` and `watch01`
+  liveness probes to LIVE.
 - **Headless (`run_test`/Pilot) now fires app-level timer-callback reactives.**
   The headless pump invoked `run_due_timer_callbacks` directly, bypassing the
   root `on_app_timer` hook, so reactive fields mutated inside `set_interval`
