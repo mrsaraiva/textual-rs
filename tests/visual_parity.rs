@@ -315,6 +315,21 @@ const PASSING: &[&str] = &[
     //    `position: relative; offset: x y` child is centered THEN shifted (the
     //    offset is no longer cancelled by re-centering).
     "position",
+    // Promoted after the scrollbar-visibility paint/reservation split
+    // (c17-scrollvis2): `scrollbar-visibility` no longer gates lane RESERVATION
+    // or forces the bar to show. Python's `_refresh_scrollbars` keys `show_*`
+    // off overflow ALONE; `scrollbar_size_vertical` reserves the stable gutter
+    // regardless of show; and the compositor PAINTS the chrome only when
+    // `show_* && scrollbar_visibility == "visible"`. The Rust fix mirrors that:
+    //  - `ScrollbarPolicy::resolve` derives `allow_*`/`force_visible_*` from
+    //    overflow only and exposes `paint_vertical/paint_horizontal` (false under
+    //    `scrollbar-visibility: hidden`).
+    //  - `apply_host_scrollbar_layout` drives the scrollbar lane RECT off lane
+    //    RESERVATION (`vertical_lane_width>0` / `horizontal_lane_height>0`), not
+    //    `show`, so a stable gutter keeps its reserved rect with no overflow;
+    //    `set_runtime_display` is gated on `show && paint`, so the hidden case
+    //    reserves the gutter but renders the host background (exact-RGB).
+    "scrollbar_visibility",
 ];
 
 struct StyledCase {
