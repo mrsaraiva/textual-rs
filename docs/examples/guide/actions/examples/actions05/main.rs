@@ -205,4 +205,31 @@ mod tests {
         assert!(cs.execute_action(&action, &mut ctx));
         assert!(cs.bg.is_some());
     }
+
+    fn screen_bg(app: &App) -> Option<Color> {
+        let node = app.query_one("Screen").ok()?;
+        app.node_explicit_bg(node)
+    }
+
+    /// LIVENESS PROBE: with no focused widget owning `set_background`, the
+    /// app-level r/g/b BINDINGS resolve up the namespace chain to the app and
+    /// tint the whole screen. Guards the binding -> namespace-resolution -> app
+    /// `on_app_action_str` -> Screen set_bg path. (The per-panel `@click`
+    /// route — `ColorSwitcher::execute_action` — is covered by the unit test
+    /// above; the headless click path can't route `@click` end-to-end.)
+    #[test]
+    fn liveness_app_binding_tints_whole_screen() {
+        textual::run_test(ActionsApp, |pilot| {
+            let before = pilot.app().frame_fingerprint();
+            pilot.press(&["r"])?;
+            assert_eq!(
+                screen_bg(pilot.app()),
+                textual::style::parse_color_like("red"),
+                "app binding 'r' must tint the whole screen red"
+            );
+            assert_ne!(before, pilot.app().frame_fingerprint(), "frame must change");
+            Ok(())
+        })
+        .unwrap();
+    }
 }

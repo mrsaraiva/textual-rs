@@ -277,4 +277,28 @@ mod tests {
         let mut app = MouseApp;
         let _root = app.compose();
     }
+
+    /// LIVENESS PROBE (UNCLEAR — harness gap): this demo's entire behavior is
+    /// driven by `MouseMove` events (the RichLog write + Ball offset update both
+    /// fire from `MouseScreen::on_event_capture` on `Event::MouseMove`). The
+    /// in-process Pilot can inject key presses and clicks, but has **no**
+    /// mouse-move primitive (`pilot.press` / `pilot.click` / `pilot.click_at`
+    /// only — see `src/runtime/pilot.rs`), and there is no public App API to
+    /// inject a `MouseMove` event headlessly. So the representative interaction
+    /// cannot be exercised in `run_test` today.
+    ///
+    /// TODO: flip this to a real liveness assertion once the Pilot gains a
+    /// `move_to(x, y)` / mouse-move injection (analogous to Python
+    /// `pilot.hover` / `pilot.move`). The expected behavior is: after a mouse
+    /// move, the RichLog gains a `MouseMove(...)` line and the Ball's CSS offset
+    /// updates — the rendered frame must change.
+    #[ignore = "Pilot has no headless mouse-move injection; demo is MouseMove-driven"]
+    #[test]
+    fn liveness_mouse_move_updates_log_and_ball() {
+        textual::run_test(MouseApp::default(), |_pilot| {
+            // Intentionally empty until a mouse-move injection primitive exists.
+            Ok(())
+        })
+        .unwrap();
+    }
 }

@@ -94,6 +94,50 @@ impl TextualApp for PagesApp {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// LIVENESS PROBE (DEAD — captures expected behavior, currently failing).
+    ///
+    /// Pressing 'n' should scroll the `HorizontalScroll` from one full-viewport
+    /// page to the next. The binding fires and `page_no` advances, but the
+    /// **pages never scroll**: the first 'n' changes the frame only because the
+    /// `check_action`-dimmed Footer hint "Previous" appears; the second 'n'
+    /// (page1 -> page2, a pure scroll) yields an IDENTICAL frame (page1 ==
+    /// page2). Page-0 renders at `(0,0,39,9)`, but there is no horizontal
+    /// overflow to scroll through.
+    ///
+    /// ROOT: the demo's CSS sets `Placeholder { width: 100%; height: 100% }`,
+    /// so each page is sized to the *container* width (40), not the *viewport*
+    /// width. The 5 pages therefore do not lay out side-by-side with horizontal
+    /// overflow, so the `HorizontalScroll` has nothing to scroll and
+    /// `scroll_visible(page)` is a no-op. Python's `actions07.py` uses
+    /// `width: 100vw` (full viewport width per page), which creates the overflow
+    /// that makes paging visible. (The Rust port of actions06 uses `100vw` but
+    /// fails for a different reason — a non-rendering Node wrapper.)
+    ///
+    /// TODO (fix then un-ignore): size pages to the viewport (`100vw`) so the
+    /// horizontal scroll has overflow, then a pure page scroll must change the
+    /// rendered frame (asserted below).
+    #[ignore = "DEAD: pages sized 100% (not 100vw) create no horizontal overflow; scroll navigation is invisible"]
+    #[test]
+    fn liveness_next_prev_navigation_changes_frame() {
+        textual::run_test_sized(PagesApp::new(), 40, 12, |pilot| {
+            pilot.press(&["n"])?; // page0 -> page1 (footer "Previous" appears)
+            let page1 = pilot.app().frame_fingerprint();
+            pilot.press(&["n"])?; // page1 -> page2: a pure page scroll
+            let page2 = pilot.app().frame_fingerprint();
+            assert_ne!(
+                page1, page2,
+                "scrolling from page 1 to page 2 must change the rendered frame"
+            );
+            Ok(())
+        })
+        .unwrap();
+    }
+}
+
 fn main() -> textual::Result<()> {
     run_sync(PagesApp::new())
 }

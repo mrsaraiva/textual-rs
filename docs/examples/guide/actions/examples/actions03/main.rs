@@ -76,4 +76,44 @@ mod tests {
         assert!(TEXT.contains("[@click=app.set_background('green')]"));
         assert!(TEXT.contains("[@click=app.set_background('blue')]"));
     }
+
+    fn screen_bg(app: &App) -> Option<textual::style::Color> {
+        let node = app.query_one("Screen").ok()?;
+        app.node_explicit_bg(node)
+    }
+
+    /// LIVENESS PROBE (UNCLEAR — harness gap): this demo's only interaction is
+    /// clicking a `[@click=app.set_background('red')]` span inside a `Static`.
+    /// The runtime routes such clicks via `App::click_action_at` (consulting the
+    /// `@click` meta baked into the clicked cell) — but that step lives only in
+    /// the live event loop (`run_with`), NOT in the Pilot's headless click path
+    /// (`headless_process_mouse_up` dispatches MouseDown/Up/Click to the target
+    /// widget but never calls `click_action_at`). So a headless click on the
+    /// span does not fire the action, and the screen background never changes.
+    ///
+    /// "Red" sits on line 2 (row index 1) of the Static; we click its first
+    /// cell. TODO: flip this to a non-ignored assertion once `headless_inject_*`
+    /// gains the `@click` action-link routing the live loop already performs.
+    #[ignore = "Pilot headless click path omits @click action-link routing (click_action_at)"]
+    #[test]
+    fn liveness_click_red_span_sets_red_background() {
+        textual::run_test_sized(ActionsApp, 40, 10, |pilot| {
+            let static_node = pilot.app().query_one("Static").expect("Static present");
+            let rect = pilot
+                .app()
+                .node_screen_rect(static_node)
+                .expect("Static must have a rendered region");
+            // "Red" is the second line of TEXT.
+            let x = rect.0 + 1;
+            let y = rect.1 + 1;
+            pilot.click_at(x, y)?;
+            assert_eq!(
+                screen_bg(pilot.app()),
+                textual::style::parse_color_like("red"),
+                "clicking the 'Red' @click span must set the screen background red"
+            );
+            Ok(())
+        })
+        .unwrap();
+    }
 }

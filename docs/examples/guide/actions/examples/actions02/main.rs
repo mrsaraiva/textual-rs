@@ -63,4 +63,48 @@ mod tests {
         let mut app = ActionsApp;
         let _root = app.compose();
     }
+
+    fn screen_bg(app: &App) -> Option<textual::style::Color> {
+        let node = app.query_one("Screen").ok()?;
+        app.node_explicit_bg(node)
+    }
+
+    /// LIVENESS PROBE (DEAD — captures expected behavior, currently failing).
+    ///
+    /// Pressing 'r' runs the named action `set_background('red')` (via
+    /// `run_action`), which the app handles by setting the `Screen` inline bg
+    /// red. The node's explicit bg becomes red, but — exactly as in actions01 —
+    /// the **rendered frame never turns red** (0 red cells in the full scan).
+    ///
+    /// ROOT (same as actions01): this demo composes an **empty screen**
+    /// (`AppRoot::new()` with no children). An empty `Screen` does not composite
+    /// its runtime-set inline background into the rendered surface. The action
+    /// route itself is live (state changes; actions04/05 with content render the
+    /// red surface correctly).
+    ///
+    /// TODO (fix then un-ignore): composite an empty `Screen`'s runtime-set
+    /// inline bg into the rendered surface.
+    #[ignore = "DEAD: empty Screen does not composite runtime-set inline bg into the rendered surface"]
+    #[test]
+    fn liveness_press_r_runs_action_and_sets_red() {
+        textual::run_test(ActionsApp, |pilot| {
+            pilot.press(&["r"])?;
+            assert_eq!(
+                screen_bg(pilot.app()),
+                textual::style::parse_color_like("red"),
+                "pressing 'r' must run set_background('red') and set the Screen node bg red"
+            );
+            let red = textual::style::parse_color_like("red");
+            let red_cells = (0..24)
+                .flat_map(|y| (0..80).map(move |x| (x, y)))
+                .filter(|(x, y)| pilot.app().frame_cell_bg(*x, *y) == red)
+                .count();
+            assert!(
+                red_cells > 0,
+                "the rendered screen surface must turn red (found {red_cells} red cells)"
+            );
+            Ok(())
+        })
+        .unwrap();
+    }
 }

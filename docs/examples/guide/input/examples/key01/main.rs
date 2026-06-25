@@ -67,3 +67,31 @@ fn main() -> Result<()> {
     }
     run_sync(InputApp::default())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// LIVENESS PROBE: pressing a key must write a `Key(...)` line into the
+    /// `RichLog`, changing the rendered frame. Guards the on_key -> RichLog
+    /// write -> repaint path.
+    #[test]
+    fn liveness_keypress_writes_to_richlog_and_changes_frame() {
+        textual::run_test(InputApp::default(), |pilot| {
+            let before = pilot.app().frame_fingerprint();
+            pilot.press(&["a"])?;
+            let after = pilot.app().frame_fingerprint();
+            assert_ne!(
+                before, after,
+                "pressing a key must write to the RichLog and change the frame"
+            );
+
+            // A second, different keypress writes another line — frame changes again.
+            pilot.press(&["b"])?;
+            let after3 = pilot.app().frame_fingerprint();
+            assert_ne!(after, after3, "a second keypress must append another log line");
+            Ok(())
+        })
+        .unwrap();
+    }
+}
