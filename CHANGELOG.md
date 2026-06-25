@@ -9,6 +9,16 @@ until the API stabilizes.
 
 ### Fixed
 
+- **`how-to/render_compose` gradient rotation is now live under `run_test`** — the
+  `Splash` container's gradient angle was derived from wall-clock
+  `SystemTime::now()` (`time() * 90`), so the deterministic Pilot clock
+  (`advance_clock`) could not move it and the liveness probe captured an
+  unchanged frame. The angle is now a pure function of the framework tick counter
+  (`on_tick`), the Rust analogue of Python's `auto_refresh`-driven refresh — the
+  same pattern `LoadingIndicator` uses. `advance_clock`/`advance_ticks` now step
+  the runtime tick and rotate the gradient reproducibly, flipping the demo's
+  liveness probe from `#[ignore]`d to a real asserting test.
+
 - **Animated widget `opacity` is now live under `run_test`** — three coupled
   fixes make an on-mount opacity fade (e.g. `guide/animator/animation01`'s 2s
   `animate_style("opacity", 100 -> 0)`) progress deterministically and visibly:
