@@ -532,8 +532,18 @@ impl ScrollView {
     /// CSS fields take priority; falls back to theme tokens matching the
     /// existing `line_scrollbar_styles()` defaults.
     fn resolve_scrollbar_css(&self) -> ResolvedScrollbar {
-        let meta = crate::css::selector_meta_generic(self);
-        let style = crate::css::resolve_style(self, &meta);
+        // In tree-mode render, `render_widget_with_meta` has already resolved this
+        // host node's style against the ARENA NODE record (so per-id rules like
+        // `#v1 { scrollbar-size: 5 1 }` are matched on the node's css_id, which lives
+        // on the WidgetNode, not on the widget's seed) and pushed it onto the style
+        // stack. `current_self_style()` returns that node-resolved style. Falling back
+        // to `resolve_style(self, &meta)` here would re-resolve OFF-TREE using only the
+        // widget's own `style_id()` (None for ScrollableContainer/ScrollView), missing
+        // the per-id scrollbar-size and re-reserving the default-2 lane.
+        let style = crate::css::current_self_style().unwrap_or_else(|| {
+            let meta = crate::css::selector_meta_generic(self);
+            crate::css::resolve_style(self, &meta)
+        });
         let fallback_overflow = style.overflow.unwrap_or(crate::style::Overflow::Auto);
 
         // Track background: CSS → theme token.

@@ -49,22 +49,22 @@ impl TextualApp for OverflowApp {
         AppRoot::new().with_child(
             Horizontal::new()
                 .with_child(
-                    Node::new(
-                        VerticalScroll::new()
-                            .with_child(Static::new(TEXT))
-                            .with_child(Static::new(TEXT))
-                            .with_child(Static::new(TEXT)),
-                    )
-                    .id("left"),
+                    // id() lives directly on the VerticalScroll (the scroll host) —
+                    // not on a Node wrapper. A wrapper would make `#right` match the
+                    // wrapper while the scroll host keeps the default `overflow-y:
+                    // auto`. Mirrors Python `VerticalScroll(..., id="left")`.
+                    VerticalScroll::new()
+                        .with_child(Static::new(TEXT))
+                        .with_child(Static::new(TEXT))
+                        .with_child(Static::new(TEXT))
+                        .id("left"),
                 )
                 .with_child(
-                    Node::new(
-                        VerticalScroll::new()
-                            .with_child(Static::new(TEXT))
-                            .with_child(Static::new(TEXT))
-                            .with_child(Static::new(TEXT)),
-                    )
-                    .id("right"),
+                    VerticalScroll::new()
+                        .with_child(Static::new(TEXT))
+                        .with_child(Static::new(TEXT))
+                        .with_child(Static::new(TEXT))
+                        .id("right"),
                 ),
         )
     }

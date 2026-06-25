@@ -103,9 +103,40 @@ pub fn layout_vertical(
         );
         // Intrinsic content-width hint, used to (a) widen the height-measurement seed and
         // (b) let auto-width children overflow a horizontally-scrollable parent.
+        //
+        // On a host that lets children overflow horizontally (overflow-x: auto|scroll,
+        // OR a scroll host clipping overflow-x: hidden), an `auto`-width child must be
+        // measured at its FULL (unwrapped) content width so its auto HEIGHT counts the
+        // unwrapped line count — NOT the inflated count produced by wrapping at the
+        // narrow viewport. `content_width()` is None for a fill/auto Label (it only
+        // reports a hint when `shrink`), so fall back to `auto_content_width()` (the
+        // rendered-text cell width used for `width: auto` sizing) in that case. This is
+        // Python-faithful: `_resolve.resolve_box_models` measures `get_content_width`
+        // unconstrained, and the compositor clips/h-scrolls the overflow — it never
+        // re-wraps the child to the container. Mirrors the vertical counterpart of the
+        // C13 horizontal-clip fix (root #3: vertical/content-axis virtual-height
+        // inflation). (e.g. `scrollbar_corner_color`: a long-line Label kept its full
+        // ~430-col width and 71-row height instead of wrapping to 4 extra rows.)
+        //
+        // Crucially this applies ONLY to EXPLICIT `width: auto` (shrink-to-content,
+        // e.g. Label's DEFAULT_CSS), NOT to an UNSET width (Python `1fr` fill, e.g.
+        // Static). A fill-width child (Static in `overflow.py`) must keep wrapping to
+        // the viewport — Python sizes it to the container width and wraps it. Using
+        // `auto_content_width()` on a fill child would wrongly shrink it to its
+        // longest line and stop the wrap.
+        let width_is_explicit_auto =
+            matches!(style.width.as_ref(), Some(crate::style::Scalar::Auto));
         let pre_intrinsic_w = tree
             .get(child)
-            .and_then(|node| node.widget.content_width())
+            .and_then(|node| {
+                node.widget.content_width().or_else(|| {
+                    if allow_h_overflow && width_is_explicit_auto {
+                        node.widget.auto_content_width()
+                    } else {
+                        None
+                    }
+                })
+            })
             .and_then(|w| u16::try_from(w).ok());
 
         // Seed auto-height widgets with a realistic content width before we ask
@@ -196,9 +227,8 @@ pub fn layout_vertical(
         // `style.width`/`style.height` were already normalized to `Some(Auto)`
         // above for transparent wrappers whose wrapped child is auto-sized, so a
         // plain `Some(Auto)` check now covers both real auto widgets and those
-        // wrappers.
-        let width_is_explicit_auto =
-            matches!(style.width.as_ref(), Some(crate::style::Scalar::Auto));
+        // wrappers. (`width_is_explicit_auto` is computed once above, near
+        // `pre_intrinsic_w`.)
         let height_is_explicit_auto =
             matches!(style.height.as_ref(), Some(crate::style::Scalar::Auto));
         // The measured value is the children's content extent (the container's

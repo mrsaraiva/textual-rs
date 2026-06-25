@@ -1,5 +1,4 @@
 use crate::compose::ComposeResult;
-use crate::style::Overflow;
 use crate::widgets::{ScrollableContainer, Widget};
 
 use crate::widgets::delegate::delegate_widget_to;
@@ -12,9 +11,12 @@ impl VerticalScroll {
     crate::delegate_ident_methods!(inner);
 
     pub fn new() -> Self {
-        let inner = ScrollableContainer::new()
-            .with_overflow_x(Overflow::Hidden)
-            .with_overflow_y(Overflow::Auto);
+        // Overflow is NOT set inline here: Python `containers.py::VerticalScroll`
+        // declares `overflow-x: hidden; overflow-y: auto` via DEFAULT_CSS (an
+        // OVERRIDABLE default), mirrored in `css/defaults/containers.rs`. Setting it
+        // inline would make it INLINE-specificity and override user CSS such as
+        // `#right { overflow-y: hidden }`.
+        let inner = ScrollableContainer::new();
         Self { inner }
     }
 

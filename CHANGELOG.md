@@ -7,6 +7,40 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-24 (fix(scroll): overflow inline-override + per-id scrollbar CSS + box-model vertical-wrap)
+
+- **`VerticalScroll` / `HorizontalScroll` no longer set overflow inline.** Their
+  constructors previously called `.with_overflow_x/y(...)` at INLINE specificity,
+  which OVERRODE user CSS such as `#right { overflow-y: hidden }`. Python declares
+  these overflows via `DEFAULT_CSS` (an OVERRIDABLE default), mirrored in
+  `css/defaults/containers.rs` (`VerticalScroll { overflow-x: hidden; overflow-y:
+  auto }` / `HorizontalScroll { overflow-x: auto; overflow-y: hidden }`). Removing
+  the inline set lets that default apply while user CSS can still override it.
+- **Per-id scrollbar CSS now resolves against the host node.**
+  `ScrollView::resolve_scrollbar_css` re-resolved styles OFF-TREE via
+  `selector_meta_generic(self)`, which reads the widget's own `style_id()` (always
+  `None` for `ScrollableContainer` / `ScrollView`) and so missed per-id rules like
+  `#v1 { scrollbar-size: 5 1 }` that live on the arena NODE record — re-reserving the
+  default-2 lane and double-clipping a column. It now reads the host node's
+  render-pass resolved style via `current_self_style()` (the same source the
+  dedicated `ScrollBar` already uses for `current_host_style()`).
+- **Box-model vertical-wrap: auto-width children of a horizontally-overflowing host
+  no longer inflate the virtual height.** On a host that allows horizontal overflow
+  (`overflow-x: auto|scroll`, or a scroll host clipping `overflow-x: hidden`), an
+  EXPLICIT `width: auto` child (e.g. a `Label`) is now measured at its FULL unwrapped
+  content width (via `auto_content_width()`), so its `height: auto` counts the
+  unwrapped line count instead of the inflated count produced by wrapping to the
+  narrow viewport. An UNSET-width child (Python `1fr` fill, e.g. `Static`) still
+  wraps. This is the vertical/content-axis counterpart of the C13 horizontal-clip
+  fix and is Python-faithful (`_resolve.resolve_box_models` measures content width
+  unconstrained; the compositor clips / h-scrolls the overflow, never re-wrapping).
+- Clears `overflow`, `scrollbar_corner_color`, and `scrollbar_size2` (promoted to the
+  styled-parity PASSING set, exact-RGB vs Python). `scrollbar_visibility` remains
+  PENDING — `scrollbar-visibility: hidden` must RESERVE the scrollbar gutter (content
+  shrinks) while skipping the scrollbar paint, distinct from `overflow: hidden`
+  (which removes the lane); that lives in `ScrollbarPolicy` / the host-scrollbar
+  render path (out of this pass's scope).
+
 ### 2026-06-24 (feat(border): markup-styled border (sub)titles + ellipsis truncation + grid vcenter)
 
 - **Border title / subtitle now render through the Content markup pipeline.** A
