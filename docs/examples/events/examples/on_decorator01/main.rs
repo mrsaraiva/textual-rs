@@ -129,25 +129,20 @@ mod tests {
     /// `app.toggle_dark`, which should recolor the UI so the rendered frame
     /// changes.
     ///
-    /// `#[ignore]`d — the toggle is not observable through the current headless
-    /// harness. ROOT: there is no public dark-mode/theme accessor to assert the
-    /// state flip, and with this demo's default-styled buttons on an otherwise
-    /// blank screen, `app.toggle_dark` produces no per-cell color change in the
-    /// rendered `FrameBuffer` (the fingerprint is unchanged). The action *is*
-    /// dispatched (the quit branch above proves the click→handler path), but its
-    /// visual effect can't be captured here. TODO: expose a public dark-mode
-    /// accessor (or render theme-sensitive chrome) so the toggle is observable;
-    /// then drop `#[ignore]`.
-    #[ignore = "UNCLEAR: app.toggle_dark has no observable frame/state change in this demo headless"]
+    /// Now LIVE via the public dark-mode accessor. With this demo's
+    /// default-styled buttons on an otherwise blank screen, `app.toggle_dark`
+    /// produces no per-cell color change in the rendered `FrameBuffer`, so a
+    /// frame-fingerprint probe was inconclusive. `App::is_dark()` exposes the
+    /// dark-mode flag, so the toggle's state flip is directly assertable.
     #[test]
     fn on_decorator01_toggle_dark_recolors_is_live() {
         run_test(OnDecoratorApp, |pilot| {
-            let before = pilot.app().frame_fingerprint();
+            let before = pilot.app().is_dark();
             pilot.click("#toggle-dark")?;
             assert_ne!(
                 before,
-                pilot.app().frame_fingerprint(),
-                "clicking Toggle dark must recolor the UI (rendered frame changes)"
+                pilot.app().is_dark(),
+                "clicking Toggle dark must flip the app's dark-mode state"
             );
             Ok(())
         })

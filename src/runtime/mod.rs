@@ -600,6 +600,15 @@ pub struct App {
     modes: HashMap<String, Box<dyn Fn() -> Box<dyn crate::screen::Screen> + Send + Sync>>,
     /// The name of the currently active mode, if any.
     current_mode: Option<String>,
+    /// Count of suspend-process requests observed while headless.
+    ///
+    /// The live `action_suspend_process` sends a real `SIGTSTP` to the current
+    /// process; under the headless [`Pilot`] harness that would suspend the test
+    /// runner itself. So `run_test` installs a no-op suspend impl (see
+    /// `headless_startup`), and `action_suspend_process` bumps this counter when
+    /// headless instead of suspending — giving exit/suspend-on-interaction demos
+    /// an observable signal via [`App::headless_suspend_count`].
+    headless_suspend_count: u32,
     /// Monotonic tick counter delivered to `root.on_tick(tick)` by the headless
     /// [`Pilot::advance_ticks`]. The live loop keeps this counter loop-local; the
     /// headless harness keeps it on the `App` so successive `advance_ticks` /
@@ -720,6 +729,7 @@ impl App {
             data_bindings: Vec::new(),
             dynamic_watchers: Vec::new(),
             suspend_process_impl: suspend_process_default,
+            headless_suspend_count: 0,
             headless_tick: 0,
             headless_worker_registry: None,
             pending_highlight_clear: None,
@@ -1962,6 +1972,13 @@ impl App {
     }
 
     pub fn action_suspend_process(&mut self) -> bool {
+        // Headless (run_test): never SIGTSTP the test runner. Record the request
+        // so suspend-on-interaction demos are observable via
+        // `headless_suspend_count`, and return without touching the driver.
+        if self.headless {
+            self.headless_suspend_count = self.headless_suspend_count.saturating_add(1);
+            return true;
+        }
         let was_started = self.driver.started();
         if was_started && self.driver.stop().is_err() {
             self.action_notify(
@@ -3002,6 +3019,15 @@ impl App {
     /// default-styled chrome) shows no per-cell color change.
     pub fn is_dark(&self) -> bool {
         self.dark_mode
+    }
+
+    /// How many times a suspend-process action has been observed while headless.
+    ///
+    /// Under the `Pilot` harness `action_suspend_process` records the request
+    /// (instead of sending a real `SIGTSTP`) so suspend-on-interaction demos can
+    /// assert the trigger fired without suspending the test runner.
+    pub fn headless_suspend_count(&self) -> u32 {
+        self.headless_suspend_count
     }
 
     /// Activate a named theme by name (Python `App.theme = name`).

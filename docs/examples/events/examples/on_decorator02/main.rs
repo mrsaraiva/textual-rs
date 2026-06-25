@@ -155,22 +155,20 @@ mod tests {
     /// LIVENESS probe (Pilot, headless): clicking "Toggle dark" routes to the
     /// toggle handler (`app.toggle_dark`), which should recolor the UI.
     ///
-    /// `#[ignore]`d for the same reason as on_decorator01: `app.toggle_dark` has
-    /// no observable frame/state change in this demo headless (no public
-    /// dark-mode accessor; default-styled buttons on a blank screen produce no
-    /// per-cell color change). The quit probe above proves the router path is
-    /// live. TODO: expose a dark-mode accessor or render theme-sensitive chrome;
-    /// then drop `#[ignore]`.
-    #[ignore = "UNCLEAR: app.toggle_dark has no observable frame/state change in this demo headless"]
+    /// Now LIVE via the public dark-mode accessor (same situation as
+    /// on_decorator01: default-styled buttons on a blank screen produce no
+    /// per-cell color change, so a frame-fingerprint probe was inconclusive).
+    /// `App::is_dark()` exposes the flag, so the routed toggle's state flip is
+    /// directly assertable.
     #[test]
     fn on_decorator02_router_toggle_dark_is_live() {
         run_test(OnDecoratorApp::new(), |pilot| {
-            let before = pilot.app().frame_fingerprint();
+            let before = pilot.app().is_dark();
             pilot.click("#toggle-dark")?;
             assert_ne!(
                 before,
-                pilot.app().frame_fingerprint(),
-                "routing Toggle dark must recolor the UI (rendered frame changes)"
+                pilot.app().is_dark(),
+                "routing Toggle dark must flip the app's dark-mode state"
             );
             Ok(())
         })
