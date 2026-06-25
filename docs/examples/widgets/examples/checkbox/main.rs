@@ -85,4 +85,34 @@ mod tests {
         // AppRoot should have at least one child (the VerticalScroll).
         assert!(!root.children().is_empty());
     }
+
+    /// LIVENESS (currently DEAD — see TODO): "Kaitain" is focused on mount;
+    /// pressing space should toggle its checked state. Python conveys the
+    /// checked state via the `toggle--button` component color (the `X` glyph
+    /// recolors via the `-on` class). The toggle fires at the widget level
+    /// (see `checkbox_emits_message_on_toggle` in `src/widgets/checkbox.rs`),
+    /// but in the running app the `-on` recolor is NOT reflected in the
+    /// rendered frame: pressing `tab` changes the frame (focus moves) yet a
+    /// subsequent `space` produces an identical fingerprint.
+    ///
+    /// ROOT: the runtime toggle does not re-resolve the focused Checkbox's
+    /// component styles (`&.-on > .toggle--button`) into the frame — the `-on`
+    /// class change does not invalidate/repaint the cell color. The fix is at
+    /// the framework level (component-style re-resolution on reactive state
+    /// change), after which this probe flips to LIVE: remove `#[ignore]`.
+    #[test]
+    #[ignore = "DEAD: focused-Checkbox toggle does not repaint -on component color; flip when fixed"]
+    fn space_toggles_focused_checkbox() {
+        textual::run_test(CheckboxApp, |pilot| {
+            let before = pilot.app().frame_fingerprint();
+            pilot.press(&["space"])?;
+            let after = pilot.app().frame_fingerprint();
+            assert_ne!(
+                before, after,
+                "space on the focused Checkbox must toggle it and change the frame"
+            );
+            Ok(())
+        })
+        .unwrap();
+    }
 }

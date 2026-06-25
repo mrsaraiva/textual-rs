@@ -113,3 +113,42 @@ fn main() -> Result<()> {
     }
     run_sync_snapshot(ButtonsAdvancedApp)
 }
+
+#[cfg(test)]
+mod liveness {
+    use super::*;
+    use textual::run_test;
+
+    /// LIVENESS: clicking a button publishes a ButtonPressed, which
+    /// `on_message_with_app` writes into the docked StatusLine ("Events: ...").
+    /// The StatusLine text changes, so the rendered frame must change. Proves
+    /// the button -> message -> status path is wired.
+    ///
+    /// NOTE: we click by coordinate rather than tab+enter because keyboard focus
+    /// navigation does not currently traverse this demo's Dock>ScrollView>
+    /// VerticalScroll button nesting (a separate focus-traversal gap); the mouse
+    /// path is the representative interaction and is fully live.
+    #[test]
+    fn clicking_button_updates_status_line() {
+        run_test(ButtonsAdvancedApp, |pilot| {
+            let before = pilot.app().frame_fingerprint();
+            // The first column's first button ("Default") sits near the top-left.
+            pilot.click_at(5, 3)?;
+            let after = pilot.app().frame_fingerprint();
+            let status = pilot
+                .app_mut()
+                .with_query_one_mut_as::<StatusLine, _>("StatusLine", |s| s.text.clone())
+                .unwrap_or_default();
+            assert!(
+                !status.is_empty(),
+                "clicking a button must publish a ButtonPressed into the StatusLine"
+            );
+            assert_ne!(
+                before, after,
+                "clicking a button must update the StatusLine and change the frame"
+            );
+            Ok(())
+        })
+        .unwrap();
+    }
+}

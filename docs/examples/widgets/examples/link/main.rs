@@ -29,3 +29,29 @@ impl TextualApp for LinkApp {
 fn main() -> textual::Result<()> {
     run_sync(LinkApp)
 }
+
+#[cfg(test)]
+mod liveness {
+    use super::*;
+    use textual::run_test;
+
+    /// UNCLEAR (headless): the Link's representative interaction is clicking it,
+    /// which opens an external URL (`https://textualize.io`) via the OS browser
+    /// (the `open` crate). That side effect is not observable in a headless
+    /// frame and must not actually launch a browser in CI, so we cannot assert a
+    /// frame change for the real interaction.
+    ///
+    /// We keep a smoke probe that the app composes and renders the Link without
+    /// panicking under the headless harness (the click action itself is left
+    /// unexercised). Promote to a real liveness assertion only if the Link grows
+    /// an observable in-frame state (e.g. a focus/hover style we can drive).
+    #[test]
+    fn link_renders_under_harness() {
+        run_test(LinkApp, |pilot| {
+            let fp = pilot.app().frame_fingerprint();
+            assert_ne!(fp, 0, "the Link app must render a non-empty frame");
+            Ok(())
+        })
+        .unwrap();
+    }
+}

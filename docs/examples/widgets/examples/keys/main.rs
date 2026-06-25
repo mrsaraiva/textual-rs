@@ -216,3 +216,28 @@ fn main() -> Result<()> {
     }
     run_sync(KeysApp::default())
 }
+
+#[cfg(test)]
+mod liveness {
+    use super::*;
+    use textual::run_test;
+
+    /// LIVENESS: pressing a key calls `on_key_with_app`, which writes a
+    /// `Key(key='a', ...)` diagnostic line into the KeyLog. The log body
+    /// changes, so the rendered frame must change. Proves the key-logging path
+    /// is wired.
+    #[test]
+    fn pressing_key_logs_line() {
+        run_test(KeysApp::default(), |pilot| {
+            let before = pilot.app().frame_fingerprint();
+            pilot.press(&["a"])?;
+            let after = pilot.app().frame_fingerprint();
+            assert_ne!(
+                before, after,
+                "pressing a key must append a line to the KeyLog and change the frame"
+            );
+            Ok(())
+        })
+        .unwrap();
+    }
+}

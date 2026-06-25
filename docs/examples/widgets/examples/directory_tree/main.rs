@@ -30,4 +30,25 @@ mod tests {
         let mut app = DirectoryTreeApp;
         let _root = app.compose();
     }
+
+    /// LIVENESS: the DirectoryTree auto-focuses and loads "./"; pressing `down`
+    /// moves the tree cursor to the next node, re-rendering the highlight. The
+    /// rendered frame must change. Proves tree navigation is wired.
+    #[test]
+    fn arrow_navigation_changes_frame() {
+        textual::run_test(DirectoryTreeApp, |pilot| {
+            // Let the initial directory load settle.
+            pilot.pause()?;
+            pilot.press(&["tab"])?;
+            let before = pilot.app().frame_fingerprint();
+            pilot.press(&["down"])?;
+            let after = pilot.app().frame_fingerprint();
+            assert_ne!(
+                before, after,
+                "pressing 'down' must move the DirectoryTree cursor and change the frame"
+            );
+            Ok(())
+        })
+        .unwrap();
+    }
 }

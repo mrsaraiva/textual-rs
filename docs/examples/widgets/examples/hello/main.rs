@@ -93,3 +93,48 @@ fn main() -> Result<()> {
     }
     run_sync(MissionControl)
 }
+
+#[cfg(test)]
+mod liveness {
+    use super::*;
+    use textual::run_test;
+
+    /// LIVENESS: the showcase contains a `TabbedContent` with two panes
+    /// ("events" + "config"). Clicking the second tab switches the active pane,
+    /// changing the rendered body. The frame must change. Proves the
+    /// TabbedContent tab-switch interaction is wired.
+    ///
+    /// We discover the second tab's screen position from the `Tab` nodes' rects
+    /// and click its centre (rather than a hard-coded coordinate).
+    #[test]
+    fn clicking_tab_switches_pane() {
+        run_test(MissionControl, |pilot| {
+            let before = pilot.app().frame_fingerprint();
+            let tab_ids: Vec<_> = pilot
+                .app()
+                .query("Tab")
+                .map(|q| q.into_ids())
+                .unwrap_or_default();
+            assert!(
+                tab_ids.len() >= 2,
+                "TabbedContent must expose at least two Tab nodes, got {}",
+                tab_ids.len()
+            );
+            // Click the centre of the second tab.
+            let rect = pilot
+                .app()
+                .node_screen_rect(tab_ids[1])
+                .expect("second tab must have a rendered region");
+            let cx = rect.0 + (rect.2.saturating_sub(rect.0)) / 2;
+            let cy = rect.1 + (rect.3.saturating_sub(rect.1)) / 2;
+            pilot.click_at(cx, cy)?;
+            let after = pilot.app().frame_fingerprint();
+            assert_ne!(
+                before, after,
+                "clicking the second tab must switch the active pane and change the frame"
+            );
+            Ok(())
+        })
+        .unwrap();
+    }
+}

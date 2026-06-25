@@ -76,3 +76,42 @@ impl TextualApp for ClockApp {
 fn main() -> textual::Result<()> {
     run_sync(ClockApp::default())
 }
+
+#[cfg(test)]
+mod liveness {
+    use super::*;
+    use std::time::Duration;
+    use textual::run_test;
+
+    /// LIVENESS: the clock registers a 1s repeating timer in `on_mount`
+    /// (Python `set_interval(1, self.update_clock)`). Advancing the manual test
+    /// clock fires the timer callback, which re-renders the Digits widget.
+    ///
+    /// NOTE: the callback reads wall-clock `chrono::Local::now()` (not the manual
+    /// test clock), so the displayed time only changes when a real second
+    /// elapses between fires. We sleep ~1.1s of real time across the advance so
+    /// the wall second rolls over, making the frame change observable and the
+    /// timer wiring demonstrable.
+    #[test]
+    fn timer_tick_updates_clock_frame() {
+        run_test(ClockApp::default(), |pilot| {
+            assert!(
+                pilot.clock_is_manual(),
+                "run_test must install the deterministic manual clock"
+            );
+            let before = pilot.app().frame_fingerprint();
+            // Fire the 1s interval a few times; the demo's callback reads
+            // real wall-clock time, so straddle a real-second boundary.
+            pilot.advance_clock(Duration::from_secs(1))?;
+            std::thread::sleep(Duration::from_millis(1100));
+            pilot.advance_clock(Duration::from_secs(1))?;
+            let after = pilot.app().frame_fingerprint();
+            assert_ne!(
+                before, after,
+                "the 1s clock timer must fire and update the displayed time"
+            );
+            Ok(())
+        })
+        .unwrap();
+    }
+}

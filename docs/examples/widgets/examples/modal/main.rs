@@ -88,3 +88,32 @@ fn main() -> Result<()> {
     }
     run_sync(ModalApp::default())
 }
+
+#[cfg(test)]
+mod liveness {
+    use super::*;
+    use textual::run_test;
+
+    /// LIVENESS: focusing the "Open modal" primary button and activating it
+    /// publishes a primary ButtonPressed, which `on_message_with_app` handles by
+    /// showing the overlay (modal layer). The rendered frame must change.
+    /// Proves the button -> message -> overlay-show path is wired.
+    #[test]
+    fn open_modal_shows_overlay() {
+        run_test(ModalApp::default(), |pilot| {
+            // Let on_tick run to settle the initial hidden state.
+            pilot.pause()?;
+            // Focus the first focusable button ("Open modal", primary).
+            pilot.press(&["tab"])?;
+            let before = pilot.app().frame_fingerprint();
+            pilot.press(&["enter"])?;
+            let after = pilot.app().frame_fingerprint();
+            assert_ne!(
+                before, after,
+                "activating 'Open modal' must show the overlay and change the frame"
+            );
+            Ok(())
+        })
+        .unwrap();
+    }
+}

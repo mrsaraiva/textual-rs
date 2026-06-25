@@ -32,3 +32,28 @@ fn main() -> Result<()> {
     }
     run_sync(TableApp)
 }
+
+#[cfg(test)]
+mod liveness {
+    use super::*;
+    use textual::run_test;
+
+    /// LIVENESS: the DataTable auto-focuses (only focusable widget); pressing
+    /// `down` moves the cell cursor to the next row, re-highlighting a different
+    /// region. The rendered frame must change. Proves the table is interactive.
+    #[test]
+    fn arrow_moves_cursor() {
+        run_test(TableApp, |pilot| {
+            pilot.press(&["tab"])?;
+            let before = pilot.app().frame_fingerprint();
+            pilot.press(&["down"])?;
+            let after = pilot.app().frame_fingerprint();
+            assert_ne!(
+                before, after,
+                "pressing 'down' must move the DataTable cursor and change the frame"
+            );
+            Ok(())
+        })
+        .unwrap();
+    }
+}
