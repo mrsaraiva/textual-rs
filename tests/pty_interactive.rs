@@ -1765,3 +1765,88 @@ fn parity_checker04_board() {
     let (rf, pf) = cat_both("checker04", "guide/widgets", &script, 400);
     assert_glyph_parity("checker04", &pf, &rf, &[]);
 }
+
+// --- guide/widgets: time/hover-dependent (structural parity) ----------------
+
+/// loading01: four DataTables each show a `loading` indicator until a worker
+/// (random 2-10s sleep) populates them. We sample DURING the loading window
+/// (~1.2s, before the 2s minimum sleep) and assert both apps render a loading
+/// indicator (structural — exact spinner frame is non-deterministic). Worker
+/// completion time is random so we do NOT compare the loaded end-state.
+#[test]
+#[ignore = "BUG: while DataTable.loading=True, Python renders a LoadingIndicator (animated `●` dots) in all four panels; Rust renders a fully BLANK screen (no indicator, panels empty). The `loading` reactive does not mount/draw a LoadingIndicator. Root: DataTable/Widget `loading` state has no LoadingIndicator overlay in Rust."]
+fn parity_loading01_indicator() {
+    fn loading_shown(kind: &AppKind) -> bool {
+        let mut app = spawn(kind);
+        // Do NOT settle() — the spinner animates so the screen never stabilises;
+        // sample at a fixed point inside the guaranteed loading window instead.
+        std::thread::sleep(Duration::from_millis(1200));
+        let g = app.capture();
+        let label = app.label.clone();
+        // The Textual LoadingIndicator paints clusters of `●`/`·` dots.
+        let shown = g.contains("●") || g.contains("·") || g.contains("⠿");
+        eprintln!("{label}: loading-indicator visible at t=1.2s = {shown}");
+        if !shown {
+            dump(&format!("{label} @1.2s"), &g);
+        }
+        app.shutdown();
+        shown
+    }
+    let rust = loading_shown(&AppKind::Rust("loading01"));
+    let py = loading_shown(&AppKind::Python("guide/widgets", "loading01"));
+    assert!(
+        py,
+        "PRECONDITION: Python loading01 showed no loading indicator at t=1.2s."
+    );
+    assert!(
+        rust == py,
+        "PARITY FAIL loading01: Python shows a loading indicator while loading; Rust shows none (blank). rust={rust} py={py}."
+    );
+}
+
+/// Send a bare SGR mouse-move (motion, no button) to (col,row) 0-based.
+fn sgr_move(col: u16, row: u16) -> Vec<u8> {
+    format!("\x1b[<35;{};{}M", col + 1, row + 1).into_bytes()
+}
+
+/// tooltip01/02: hovering the centred Button surfaces a multi-line Tooltip.
+/// Hover, wait for the tooltip timer, then assert the tooltip text appeared on
+/// BOTH apps (structural — exact overlay position/colour is style-dependent).
+fn tooltip_appears(name: &'static str) -> (bool, bool) {
+    fn run(kind: &AppKind) -> bool {
+        let mut app = spawn(kind);
+        app.settle(Duration::from_secs(12));
+        // The Button is centred (Screen align center middle). Hover its middle.
+        app.send(&sgr_move(59, 14));
+        std::thread::sleep(Duration::from_millis(400));
+        app.send(&sgr_move(60, 14));
+        std::thread::sleep(Duration::from_millis(1500));
+        let g = app.capture();
+        let shown = g.contains("mind-killer") || g.contains("Fear is");
+        let label = app.label.clone();
+        app.shutdown();
+        eprintln!("{label}: tooltip shown = {shown}");
+        shown
+    }
+    (run(&AppKind::Rust(name)), run(&AppKind::Python("guide/widgets", name)))
+}
+
+/// tooltip01: default-styled tooltip.
+#[test]
+fn parity_tooltip01_hover() {
+    let (rust, py) = tooltip_appears("tooltip01");
+    assert!(
+        rust == py && py,
+        "PARITY FAIL tooltip01: hover tooltip presence mismatch — rust={rust} py={py} (both must show the tooltip)."
+    );
+}
+
+/// tooltip02: custom-styled tooltip (padding/background/color).
+#[test]
+fn parity_tooltip02_hover() {
+    let (rust, py) = tooltip_appears("tooltip02");
+    assert!(
+        rust == py && py,
+        "PARITY FAIL tooltip02: hover tooltip presence mismatch — rust={rust} py={py} (both must show the tooltip)."
+    );
+}
