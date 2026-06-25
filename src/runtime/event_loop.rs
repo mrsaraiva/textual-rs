@@ -4203,12 +4203,6 @@ impl App {
     /// lifecycle, and produce the first render into the in-memory frame.
     pub(crate) fn headless_startup(&mut self, root: &mut dyn Widget) -> crate::Result<()> {
         self.headless = true;
-        // Register the test thread as the UI thread so `App::call_from_thread`
-        // (used by worker demos that post widget updates back onto the event
-        // loop, e.g. weather04/05) works under the headless pump. Unregistered
-        // in `headless_finish`. The pump drains posted jobs (both in its main
-        // loop and inside the worker-wait spin) exactly as the live loop does.
-        crate::runtime::tasks::register_ui_thread();
         self.start()?;
 
         root.on_mount();
@@ -4311,11 +4305,16 @@ impl App {
 
             // `call_from_thread` jobs posted by worker threads. Run each with
             // `&mut App` so the worker (blocked on its result channel) unblocks,
-            // exactly as the live loop does once per tick.
-            for job in crate::runtime::tasks::drain_call_from_thread_jobs() {
-                progressed = true;
-                job(self);
-                pending.request_full_content();
+            // exactly as the live loop does once per tick. Only when THIS app
+            // registered the (process-global) UI thread — i.e. it actually
+            // spawned a worker — so a worker-free `run_test` does not drain jobs
+            // belonging to a concurrent test sharing the singleton bridge.
+            if self.headless_ui_thread_registered {
+                for job in crate::runtime::tasks::drain_call_from_thread_jobs() {
+                    progressed = true;
+                    job(self);
+                    pending.request_full_content();
+                }
             }
 
             // App-level / broadcast messages (set_title etc.).
@@ -4494,9 +4493,18 @@ impl App {
         let pending_workers = drain_accumulated_worker_requests();
         let has_new = !pending_workers.is_empty();
 
-        // Lazily create the registry the first time a worker is requested.
+        // Lazily create the registry the first time a worker is requested, and
+        // register this (the test) thread as the UI thread so the spawned
+        // worker's `App::call_from_thread` posts are serviced. Done here (not at
+        // startup) so worker-free `run_test` runs never touch the process-global
+        // `call_from_thread` bridge — avoiding contention with other tests that
+        // share the singleton.
         if has_new && self.headless_worker_registry.is_none() {
             self.headless_worker_registry = Some(WorkerRegistry::new());
+            if !self.headless_ui_thread_registered {
+                crate::runtime::tasks::register_ui_thread();
+                self.headless_ui_thread_registered = true;
+            }
         }
 
         let Some(mut registry) = self.headless_worker_registry.take() else {
@@ -5156,10 +5164,14 @@ impl App {
         // Cancel any still-active headless workers so a leftover background
         // thread can't post into a torn-down app, then unregister the UI thread
         // (dropping pending `call_from_thread` jobs, which unblocks any worker
-        // still parked on `call_from_thread`). Mirrors `CallFromThreadGuard::drop`
+        // still parked on `call_from_thread`) — but only if we registered it
+        // (i.e. a worker was actually spawned). Mirrors `CallFromThreadGuard::drop`
         // in the live loop.
         self.headless_worker_registry = None;
-        crate::runtime::tasks::unregister_ui_thread();
+        if self.headless_ui_thread_registered {
+            crate::runtime::tasks::unregister_ui_thread();
+            self.headless_ui_thread_registered = false;
+        }
         self.finish()
     }
 

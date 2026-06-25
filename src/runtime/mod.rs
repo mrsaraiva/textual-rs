@@ -616,6 +616,13 @@ pub struct App {
     /// the live loop's `tick += 1` per frame), which on-tick-driven animations
     /// (LoadingIndicator, button flash, …) rely on to progress.
     headless_tick: u64,
+    /// Whether the headless pump has registered this thread as the UI thread.
+    ///
+    /// Done lazily — only when the first worker is spawned headless — so that the
+    /// (process-global) `call_from_thread` bridge is left untouched by worker-free
+    /// `run_test` runs, which would otherwise contend with other tests sharing
+    /// the singleton. Unregistered in `headless_finish`.
+    headless_ui_thread_registered: bool,
     /// Worker registry used by the headless [`Pilot`] pump.
     ///
     /// The live event loop (`run_with`) owns a function-local [`WorkerRegistry`]
@@ -731,6 +738,7 @@ impl App {
             suspend_process_impl: suspend_process_default,
             headless_suspend_count: 0,
             headless_tick: 0,
+            headless_ui_thread_registered: false,
             headless_worker_registry: None,
             pending_highlight_clear: None,
             widget_tree: None,
