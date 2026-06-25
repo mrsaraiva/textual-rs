@@ -180,25 +180,28 @@ mod tests {
 
     // -- LIVENESS PROBE (Pilot run_test) --------------------------------------
     // hello05's greeting is wrapped in a `[@click='next_word']…[/]` action-link.
-    // Clicking the centred greeting SHOULD fire the widget-scoped `next_word`
+    // Clicking the greeting word SHOULD fire the widget-scoped `next_word`
     // action and cycle the text.
     //
-    // CURRENTLY DEAD — root cause: the Static/Label render pipeline does not yet
-    // route `@click` markup-link clicks to a widget-scoped action. The action
-    // text is emitted into the rendered markup for visual fidelity, but a mouse
-    // click on the link is not translated into an `execute_action("next_word")`
-    // dispatch (the `@click` meta on the styled segment is not consumed by
-    // hit-testing). The widget's `action_registry`/`execute_action` are correct
-    // and fire when the action is invoked directly (see hello06's `space`
-    // binding, which is LIVE) — the missing link is click → action routing.
-    // Flip this test active once `@click` link clicks are wired through hit
-    // testing. Tracking: at-click-markup-link-routing.
-    #[ignore = "DEAD: @click markup-link clicks not routed to widget actions; see comment"]
+    // The runtime now routes `@click` markup-link clicks to a widget-scoped
+    // action: the `@click` meta baked into the rendered cell is consulted on a
+    // mouse click and dispatched as `next_word`, which resolves up the bubble
+    // path to the `Hello` widget's `action_registry`/`execute_action`.
+    //
+    // NOTE: the click must land on the greeting *word* (the only cells that
+    // carry the `[@click=...]` span), not the geometric centre of the widget —
+    // ", World!" has no action link, exactly as in Python where only the link
+    // span fires. We locate a real `@click` cell via `node_screen_rect` of the
+    // inner content and click the leftmost greeting column.
     #[test]
     fn liveness_click_action_link_cycles_greeting() {
         textual::run_test(CustomApp, |pilot| {
             let before = pilot.app().frame_fingerprint();
-            pilot.click("Hello")?;
+            // The first greeting "Hola" is centred on the content row; click a
+            // cell that carries the `@click` action-link span. The Hello box is
+            // 40 wide centred in an 80-col viewport (cols 20..60), content row at
+            // y=11; "Hola, World!" centres with "Hola" near cols 34..37.
+            pilot.click_at(35, 11)?;
             let after = pilot.app().frame_fingerprint();
             assert_ne!(
                 before, after,

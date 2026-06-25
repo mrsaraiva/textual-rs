@@ -69,22 +69,15 @@ mod tests {
         app.node_explicit_bg(node)
     }
 
-    /// LIVENESS PROBE (DEAD — captures expected behavior, currently failing).
+    /// LIVENESS PROBE (LIVE).
     ///
     /// Pressing 'r' runs the named action `set_background('red')` (via
     /// `run_action`), which the app handles by setting the `Screen` inline bg
-    /// red. The node's explicit bg becomes red, but — exactly as in actions01 —
-    /// the **rendered frame never turns red** (0 red cells in the full scan).
-    ///
-    /// ROOT (same as actions01): this demo composes an **empty screen**
-    /// (`AppRoot::new()` with no children). An empty `Screen` does not composite
-    /// its runtime-set inline background into the rendered surface. The action
-    /// route itself is live (state changes; actions04/05 with content render the
-    /// red surface correctly).
-    ///
-    /// TODO (fix then un-ignore): composite an empty `Screen`'s runtime-set
-    /// inline bg into the rendered surface.
-    #[ignore = "DEAD: empty Screen does not composite runtime-set inline bg into the rendered surface"]
+    /// red. The node's explicit bg becomes red AND — exactly as in actions01 —
+    /// the rendered surface now turns red even on this **empty screen**
+    /// (`AppRoot::new()` with no children): the compositor re-fills the Screen
+    /// surface node's rect with the resolved node background. See
+    /// `node_is_screen_surface` in `src/runtime/render.rs`.
     #[test]
     fn liveness_press_r_runs_action_and_sets_red() {
         textual::run_test(ActionsApp, |pilot| {
