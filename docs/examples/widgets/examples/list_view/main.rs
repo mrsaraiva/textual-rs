@@ -89,4 +89,22 @@ mod tests {
         ]);
         assert_eq!(list.selected_item(), Some("One"));
     }
+
+    /// LIVENESS: the ListView auto-focuses; pressing `down` moves the
+    /// highlighted item from "One" to "Two", re-rendering the highlight. The
+    /// rendered frame must change. Proves arrow navigation is wired.
+    #[test]
+    fn arrow_navigation_changes_frame() {
+        textual::run_test(ListViewApp, |pilot| {
+            let before = pilot.app().frame_fingerprint();
+            pilot.press(&["down"])?;
+            let after = pilot.app().frame_fingerprint();
+            assert_ne!(
+                before, after,
+                "pressing 'down' must move the ListView highlight and change the frame"
+            );
+            Ok(())
+        })
+        .unwrap();
+    }
 }

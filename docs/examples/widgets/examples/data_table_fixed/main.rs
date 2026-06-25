@@ -55,3 +55,27 @@ impl TextualApp for TableApp {
 fn main() -> textual::Result<()> {
     run_sync(TableApp)
 }
+
+#[cfg(test)]
+mod liveness {
+    use super::*;
+    use textual::run_test;
+
+    /// LIVENESS: the table is focused on mount with `cursor_type = Row`; pressing
+    /// `down` moves the row cursor past the fixed rows, re-highlighting a
+    /// different row. The rendered frame must change.
+    #[test]
+    fn arrow_moves_row_cursor() {
+        run_test(TableApp, |pilot| {
+            let before = pilot.app().frame_fingerprint();
+            pilot.press(&["down"])?;
+            let after = pilot.app().frame_fingerprint();
+            assert_ne!(
+                before, after,
+                "pressing 'down' must move the row cursor and change the frame"
+            );
+            Ok(())
+        })
+        .unwrap();
+    }
+}

@@ -88,3 +88,41 @@ impl TextualApp for CollapsibleApp {
 fn main() -> textual::Result<()> {
     run_sync(CollapsibleApp)
 }
+
+#[cfg(test)]
+mod liveness {
+    use super::*;
+    use textual::run_test;
+
+    /// LIVENESS (currently DEAD — see TODO): pressing `c` fires the
+    /// `collapse_or_expand_true` action, which collapses every Collapsible.
+    /// Two sections start expanded, so collapsing them should hide their bodies
+    /// and change the rendered frame.
+    ///
+    /// The binding -> action -> toggle path IS wired and DOES mutate state: a
+    /// diagnostic confirmed all three Collapsibles report `is_collapsed() ==
+    /// true` after pressing `c`. But the rendered frame is byte-identical
+    /// before and after — the collapsed bodies are not hidden.
+    ///
+    /// ROOT: a runtime collapse-state change does not relayout/repaint the
+    /// Collapsible's body. The action handler requests layout invalidation +
+    /// repaint, yet the cached body content/height is not recomputed from the
+    /// new `collapsed` reactive. The fix is at the framework level (Collapsible
+    /// must re-run layout/visibility of its contents when `collapsed` flips at
+    /// runtime); after that this probe flips to LIVE — remove `#[ignore]`.
+    #[test]
+    #[ignore = "DEAD: runtime collapse mutates state but does not relayout/hide body; flip when fixed"]
+    fn collapse_all_binding_changes_frame() {
+        run_test(CollapsibleApp, |pilot| {
+            let before = pilot.app().frame_fingerprint();
+            pilot.press(&["c"])?;
+            let after = pilot.app().frame_fingerprint();
+            assert_ne!(
+                before, after,
+                "pressing 'c' must collapse the expanded sections and change the frame"
+            );
+            Ok(())
+        })
+        .unwrap();
+    }
+}

@@ -77,3 +77,27 @@ fn main() -> Result<()> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod liveness {
+    use super::*;
+    use textual::run_test;
+
+    /// LIVENESS: tabbing focus to a button changes the rendered frame (the
+    /// focused button renders a distinct, focused appearance). Proves the
+    /// Button widget participates in focus/render and is not inert.
+    #[test]
+    fn tab_focus_changes_frame() {
+        run_test(ButtonsApp { selected: None }, |pilot| {
+            let before = pilot.app().frame_fingerprint();
+            pilot.press(&["tab"])?;
+            let after = pilot.app().frame_fingerprint();
+            assert_ne!(
+                before, after,
+                "tab must move focus to a Button and change the frame"
+            );
+            Ok(())
+        })
+        .unwrap();
+    }
+}

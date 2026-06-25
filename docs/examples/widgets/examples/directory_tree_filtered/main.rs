@@ -91,4 +91,24 @@ mod tests {
         let _root = app.compose();
         // compose() must not panic — tree is created with filter set.
     }
+
+    /// LIVENESS: the filtered DirectoryTree auto-focuses and loads "./" (with
+    /// dotfiles filtered out); pressing `down` moves the tree cursor to the next
+    /// node, re-rendering the highlight. The rendered frame must change.
+    #[test]
+    fn arrow_navigation_changes_frame() {
+        textual::run_test(FilteredDirectoryTreeApp, |pilot| {
+            pilot.pause()?;
+            pilot.press(&["tab"])?;
+            let before = pilot.app().frame_fingerprint();
+            pilot.press(&["down"])?;
+            let after = pilot.app().frame_fingerprint();
+            assert_ne!(
+                before, after,
+                "pressing 'down' must move the DirectoryTree cursor and change the frame"
+            );
+            Ok(())
+        })
+        .unwrap();
+    }
 }

@@ -111,19 +111,13 @@ impl TextualApp for ContentSwitcherApp {
         });
     }
 
-    fn on_message_with_app(
-        &mut self,
-        app: &mut App,
-        message: &MessageEvent,
-        _ctx: &mut EventCtx,
-    ) {
+    fn on_message_with_app(&mut self, app: &mut App, message: &MessageEvent, _ctx: &mut EventCtx) {
         // Mirror Python: `self.query_one(ContentSwitcher).current = event.button.id`
         if let Some(ev) = message.downcast_ref::<ButtonPressed>() {
             if let Some(ref id) = ev.button_id {
-                let _ = app.with_query_one_mut_as::<ContentSwitcher, _>(
-                    "ContentSwitcher",
-                    |cs| cs.set_current(Some(id.clone())),
-                );
+                let _ = app.with_query_one_mut_as::<ContentSwitcher, _>("ContentSwitcher", |cs| {
+                    cs.set_current(Some(id.clone()))
+                });
             }
         }
     }
@@ -169,5 +163,24 @@ mod tests {
             button_id: Some("data-table".to_string()),
         };
         assert_eq!(bp.button_id.as_deref(), Some("data-table"));
+    }
+
+    /// LIVENESS: clicking the "Markdown" button publishes a ButtonPressed whose
+    /// id is forwarded to `ContentSwitcher.set_current`, switching the visible
+    /// child from the DataTable to the Markdown view. The rendered frame must
+    /// change. Proves the button -> message -> switcher path is wired.
+    #[test]
+    fn click_button_switches_content() {
+        textual::run_test(ContentSwitcherApp, |pilot| {
+            let before = pilot.app().frame_fingerprint();
+            pilot.click("#markdown")?;
+            let after = pilot.app().frame_fingerprint();
+            assert_ne!(
+                before, after,
+                "clicking the Markdown button must switch visible content and change the frame"
+            );
+            Ok(())
+        })
+        .unwrap();
     }
 }

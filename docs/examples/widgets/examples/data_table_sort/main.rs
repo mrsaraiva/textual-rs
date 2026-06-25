@@ -149,3 +149,27 @@ impl TextualApp for TableApp {
 fn main() -> textual::Result<()> {
     run_sync(TableApp::new())
 }
+
+#[cfg(test)]
+mod liveness {
+    use super::*;
+    use textual::run_test;
+
+    /// LIVENESS: pressing `n` sorts the table by swimmer last name, reordering
+    /// the rows. The rendered frame must change. Proves the binding/key ->
+    /// `sort_by` -> re-render path is wired.
+    #[test]
+    fn sort_by_last_name_changes_frame() {
+        run_test(TableApp::new(), |pilot| {
+            let before = pilot.app().frame_fingerprint();
+            pilot.press(&["n"])?;
+            let after = pilot.app().frame_fingerprint();
+            assert_ne!(
+                before, after,
+                "pressing 'n' must sort the DataTable rows and change the frame"
+            );
+            Ok(())
+        })
+        .unwrap();
+    }
+}

@@ -26,6 +26,22 @@ until the API stabilizes.
   exact) and timer-counter (live + exact-via-`advance_clock`) demos, plus a
   deliberately inert demo proving the harness *fails* a non-responsive
   interaction and *passes* a responsive one.
+- **Liveness probes for widget demos (A–M)** — each interactive `docs/examples/
+  widgets/examples/*` demo gained a committed `#[cfg(test)]` liveness probe that
+  runs the demo headless via `App::run_test` and asserts the representative
+  interaction changes the rendered frame (or observable state): button/tab
+  clicks, key bindings, `DataTable`/`ListView`/`DirectoryTree` cursor navigation,
+  `Input`/`MaskedInput` typing + validation, `ContentSwitcher`/`TabbedContent`
+  switching, the `modal` overlay, the `keys` logger, and the `clock` timer. These
+  become permanent regression guards. Three demos surfaced real framework gaps
+  and ship as `#[ignore]`d guards (with documented ROOTs) that flip to LIVE once
+  fixed: a focused `Checkbox` toggle does not repaint its `-on` component color,
+  and a runtime `Collapsible` collapse (binding **or** title-click — state
+  confirmed to flip via diagnostic) does not relayout/repaint its body
+  (`collapsible`, `collapsible_custom_symbol`, `collapsible_nested`). Two are
+  `#[ignore]`d as unprobeable headless: `loading_indicator` (its animation is
+  `on_tick`-driven and the headless pump does not deliver `on_tick` — needs a
+  `Pilot::advance_ticks`) and `link` (its click opens an external URL).
 ### Changed
 
 - **Stopwatch + progress-bar tutorial demos migrated onto the real timer/reactive

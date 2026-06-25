@@ -89,3 +89,27 @@ fn main() -> Result<()> {
     }
     run_sync(TableApp::new())
 }
+
+#[cfg(test)]
+mod liveness {
+    use super::*;
+    use textual::run_test;
+
+    /// LIVENESS: cursor_type starts at "column" on mount; pressing `c` cycles to
+    /// "row", which re-highlights a different region of the DataTable. The
+    /// rendered frame must change. Proves the key -> cursor-type -> render path.
+    #[test]
+    fn cycle_cursor_changes_frame() {
+        run_test(TableApp::new(), |pilot| {
+            let before = pilot.app().frame_fingerprint();
+            pilot.press(&["c"])?;
+            let after = pilot.app().frame_fingerprint();
+            assert_ne!(
+                before, after,
+                "pressing 'c' must cycle the DataTable cursor type and change the frame"
+            );
+            Ok(())
+        })
+        .unwrap();
+    }
+}
