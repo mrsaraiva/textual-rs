@@ -1585,3 +1585,61 @@ fn parity_set_reactive03_names() {
     let (rf, pf) = cat_both("set_reactive03", "guide/reactivity", &script, 400);
     assert_glyph_parity("set_reactive03", &pf, &rf, &[]);
 }
+
+// --- tutorial: stopwatches --------------------------------------------------
+// The Header carries a live clock on row 0, excluded via skip_rows in the
+// deterministic (non-ticking) cases.
+
+/// stopwatch01: Header + Footer only. Initial layout parity (clock row skipped).
+#[test]
+fn parity_stopwatch01_layout() {
+    let script = [Step::Wait(300)];
+    let (rf, pf) = cat_both("stopwatch01", "tutorial", &script, 400);
+    assert_glyph_parity("stopwatch01", &pf, &rf, &[0]);
+}
+
+/// stopwatch02: three Stopwatch widgets (Start/Stop/Reset buttons + a frozen
+/// 00:00:00.00 TimeDisplay). Initial layout parity (clock row skipped).
+#[test]
+fn parity_stopwatch02_layout() {
+    let script = [Step::Wait(300)];
+    let (rf, pf) = cat_both("stopwatch02", "tutorial", &script, 400);
+    assert_glyph_parity("stopwatch02", &pf, &rf, &[0]);
+}
+
+/// stopwatch03: same as 02 with the tutorial CSS applied. Layout parity.
+#[test]
+#[ignore = "BUG: glyph-perfect but the Button border fg is #8d8d8d (Rust) vs #919191 (Python) — a ~4/channel grey-shade difference on every button border. 201 colour cells. Root: button border colour token/shade rounding."]
+fn parity_stopwatch03_layout() {
+    let script = [Step::Wait(300)];
+    let (rf, pf) = cat_both("stopwatch03", "tutorial", &script, 400);
+    assert_glyph_parity("stopwatch03", &pf, &rf, &[0]);
+}
+
+/// stopwatch04: clicking the first Start button adds the `started` class
+/// (purely a styling change — no clock yet). Click Start, compare.
+#[test]
+#[ignore = "BUG: clicking Start should add the `.started` class whose CSS hides #start/#reset (`display:none`, `visibility:hidden`) and shows #stop (`display:block`). Python correctly shows only \"Stop\"; Rust still shows \"Start\" AND \"Reset\" (started-state descendant CSS toggles not applied). 42 glyph + 188 colour cells. Root: `.started #start/#stop/#reset` display/visibility class-state CSS not reflected after add_class."]
+fn parity_stopwatch04_start_class() {
+    let script = [Step::Click(8, 4), Step::Wait(300)];
+    let (rf, pf) = cat_both("stopwatch04", "tutorial", &script, 400);
+    assert_glyph_parity("stopwatch04", &pf, &rf, &[0]);
+}
+
+/// stopwatch05: every TimeDisplay ticks continuously from mount (no Start
+/// gating). Time-dependent → assert the digit region ADVANCED on BOTH apps
+/// (structural parity), not a specific value.
+#[test]
+fn parity_stopwatch05_ticks() {
+    // The block-digit time band sits below the header; exclude the header clock
+    // by fingerprinting rows 5..28 only.
+    let rows = 5..28usize;
+    let cols = 0..COLS as usize;
+    let rust_adv = region_advances(&AppKind::Rust("stopwatch05"), &[], rows.clone(), cols.clone(), 1200);
+    let py_adv = region_advances(&AppKind::Python("tutorial", "stopwatch05"), &[], rows, cols, 1200);
+    eprintln!("stopwatch05: rust_ticks={rust_adv} py_ticks={py_adv}");
+    assert!(
+        rust_adv && py_adv,
+        "PARITY FAIL stopwatch05: continuous tick mismatch — rust_ticks={rust_adv} py_ticks={py_adv} (both must tick)."
+    );
+}
