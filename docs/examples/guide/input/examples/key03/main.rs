@@ -154,3 +154,30 @@ fn main() -> Result<()> {
     }
     run_sync(InputApp::default())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// LIVENESS PROBE: focusing a `KeyLogger` pane (via Tab) then pressing a key
+    /// must log the key into that pane and change the rendered frame. Guards the
+    /// focus -> per-widget on_event(Key) -> RichLog write path.
+    #[test]
+    fn liveness_focus_then_keypress_logs_to_pane_and_changes_frame() {
+        textual::run_test(InputApp::default(), |pilot| {
+            // Tab focuses the first KeyLogger (focus border changes the frame).
+            pilot.press(&["tab"])?;
+            let focused = pilot.app().frame_fingerprint();
+
+            // Pressing a key while a pane is focused logs into that pane.
+            pilot.press(&["x"])?;
+            let after_key = pilot.app().frame_fingerprint();
+            assert_ne!(
+                focused, after_key,
+                "pressing a key while a KeyLogger is focused must log it and change the frame"
+            );
+            Ok(())
+        })
+        .unwrap();
+    }
+}

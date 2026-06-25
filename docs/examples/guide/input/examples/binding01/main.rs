@@ -155,4 +155,64 @@ mod tests {
         assert!(bindings.iter().any(|b| b.key == "g"), "missing 'g' binding");
         assert!(bindings.iter().any(|b| b.key == "b"), "missing 'b' binding");
     }
+
+    /// LIVENESS PROBE (DEAD — captures expected behavior, currently failing).
+    ///
+    /// Pressing the bound key `r`/`g`/`b` *does* fire the binding and mount a
+    /// `Bar` node (the tree mutates: Bar count goes 0 -> 1 -> 3), but the
+    /// rendered frame NEVER changes and the mounted `Bar` has no rendered
+    /// region (`node_screen_rect("Bar") == None`).
+    ///
+    /// ROOT: the demo composes `#bars` as `Node::new(VerticalScroll::new())
+    /// .id("bars")` — so the `#bars` selector resolves to the *Node wrapper*,
+    /// not the `VerticalScroll` itself. `node_screen_rect("#bars") == None`
+    /// (the wrapper has no own surface) while `node_screen_rect("VerticalScroll")
+    /// == Some((0,0,79,22))`. `app.mount_under("#bars", bar)` therefore inserts
+    /// the `Bar` as a child of the structural Node, *outside* the scroll
+    /// viewport's laid-out/rendered subtree, so it is never laid out or drawn.
+    ///
+    /// In Python `binding01.py`, `#bars` IS the `VerticalScroll`, and
+    /// `action_add_bar` mounts the `Bar` directly inside it.
+    ///
+    /// TODO (fix then un-ignore): make the demo mount into the scroll viewport
+    /// (e.g. give the `VerticalScroll` itself the `#bars` id, or mount under
+    /// `"VerticalScroll"`), and/or have `mount_under` on a structural Node
+    /// forward into its scrollable content child. The assertion below is the
+    /// real expected behavior: mounting a Bar must change the rendered frame and
+    /// give the Bar a rendered region.
+    #[ignore = "DEAD: mount_under(#bars) targets a non-rendering Node wrapper; Bar never lays out/renders"]
+    #[test]
+    fn liveness_pressing_color_keys_mounts_bars_and_changes_frame() {
+        textual::run_test(BindingApp, |pilot| {
+            let before_bars = pilot
+                .app()
+                .query("Bar")
+                .map(|q| q.into_ids().len())
+                .unwrap_or(0);
+            assert_eq!(before_bars, 0, "expected no Bar widgets before any keypress");
+            let before_frame = pilot.app().frame_fingerprint();
+
+            pilot.press(&["r"])?;
+
+            let after_bars = pilot
+                .app()
+                .query("Bar")
+                .map(|q| q.into_ids().len())
+                .unwrap_or(0);
+            assert_eq!(after_bars, 1, "pressing 'r' must mount one Bar widget");
+            // Expected (currently fails): the mounted Bar must be rendered.
+            let bar_id = pilot.app().query_one("Bar").expect("Bar mounted");
+            assert!(
+                pilot.app().node_screen_rect(bar_id).is_some(),
+                "the mounted Bar must have a rendered region"
+            );
+            assert_ne!(
+                before_frame,
+                pilot.app().frame_fingerprint(),
+                "mounting a Bar must change the rendered frame"
+            );
+            Ok(())
+        })
+        .unwrap();
+    }
 }

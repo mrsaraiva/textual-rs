@@ -101,3 +101,33 @@ fn main() -> Result<()> {
     }
     run_sync(InputApp::default())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// LIVENESS PROBE: pressing a key must write a `Key(...)` line into the
+    /// `RichLog` and change the rendered frame. Guards on_key -> RichLog write.
+    #[test]
+    fn liveness_keypress_writes_to_richlog_and_changes_frame() {
+        textual::run_test(InputApp::default(), |pilot| {
+            let before = pilot.app().frame_fingerprint();
+            pilot.press(&["a"])?;
+            let after = pilot.app().frame_fingerprint();
+            assert_ne!(
+                before, after,
+                "pressing a key must write to the RichLog and change the frame"
+            );
+
+            // The space key additionally rings the bell — and still logs a line.
+            pilot.press(&["space"])?;
+            let after_space = pilot.app().frame_fingerprint();
+            assert_ne!(
+                after, after_space,
+                "pressing space must also append a log line (and ring the bell)"
+            );
+            Ok(())
+        })
+        .unwrap();
+    }
+}

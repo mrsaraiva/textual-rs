@@ -87,4 +87,45 @@ mod tests {
         assert!(bindings[1].action.contains("green"));
         assert!(bindings[2].action.contains("blue"));
     }
+
+    fn screen_bg(app: &App) -> Option<textual::style::Color> {
+        let node = app.query_one("Screen").ok()?;
+        app.node_explicit_bg(node)
+    }
+
+    /// LIVENESS PROBE: the r/g/b BINDINGS must dispatch `set_background('...')`,
+    /// resolved to the app and handled by `on_app_action_str`, tinting the
+    /// screen. Guards the binding -> action -> set_bg path. (The demo's `@click`
+    /// links share the same handler, but the headless click path can't route
+    /// `@click` — see actions03 — so this probe exercises the key-binding route.)
+    #[test]
+    fn liveness_color_bindings_set_screen_background() {
+        textual::run_test(ActionsApp, |pilot| {
+            let before = pilot.app().frame_fingerprint();
+            pilot.press(&["r"])?;
+            assert_eq!(
+                screen_bg(pilot.app()),
+                textual::style::parse_color_like("red"),
+                "binding 'r' must set screen background red"
+            );
+            assert_ne!(before, pilot.app().frame_fingerprint(), "frame must change");
+            // The screen surface visibly turns red (content is present, so the
+            // Screen's runtime-set inline bg composites into the frame).
+            let red = textual::style::parse_color_like("red");
+            let red_cells = (0..24)
+                .flat_map(|y| (0..80).map(move |x| (x, y)))
+                .filter(|(x, y)| pilot.app().frame_cell_bg(*x, *y) == red)
+                .count();
+            assert!(red_cells > 0, "the rendered screen surface must turn red");
+
+            pilot.press(&["g"])?;
+            assert_eq!(
+                screen_bg(pilot.app()),
+                textual::style::parse_color_like("green"),
+                "binding 'g' must set screen background green"
+            );
+            Ok(())
+        })
+        .unwrap();
+    }
 }
