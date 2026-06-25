@@ -51,7 +51,6 @@ mod liveness {
     /// layout/visibility when `collapsed` flips at runtime. Fix at the framework
     /// level, then remove `#[ignore]` to flip this guard to LIVE.
     #[test]
-    #[ignore = "DEAD: runtime collapse mutates state but does not relayout/repaint body; flip when fixed"]
     fn click_title_toggles_body() {
         run_test(CollapsibleApp, |pilot| {
             let before = pilot.app().frame_fingerprint();

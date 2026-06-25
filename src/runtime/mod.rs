@@ -2441,6 +2441,16 @@ impl App {
                 }
             }
         }
+        // Sync any post-mount inline-style write-through into the arena node.
+        // `take_node_seed()` emptied the widget's seed at mount, so a post-mount
+        // `set_inline_style` (e.g. a reactive `watch_color`) only touched the
+        // detached widget seed. Cascade the staged style onto the node's inline
+        // style so it reaches layout/render (Python `widget.styles.<prop> = v`).
+        if let Some(node) = tree.get_mut(node_id) {
+            if let Some(writethrough) = node.widget.take_inline_style_writethrough() {
+                node.styles.style = node.styles.style.combine(&writethrough);
+            }
+        }
         Some(result)
     }
 

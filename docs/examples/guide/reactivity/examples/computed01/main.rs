@@ -178,7 +178,6 @@ mod tests {
     /// switch the watcher to the node-level `query_mut(sel).set_styles(...)` path
     /// (which already works, per the testing/rgb demo).
     #[test]
-    #[ignore = "DEAD: post-mount Static::set_inline_style writes to the detached widget seed, never reaching the arena node style/render (styling-pipeline fix needed; same gap as watch01)"]
     fn liveness_typing_red_repaints_swatch() {
         textual::run_test(ComputedApp::new(), |pilot| {
             pilot.click("#red")?;

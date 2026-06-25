@@ -92,8 +92,14 @@ impl Checkbox {
 
     // ── Watchers ─────────────────────────────────────────────────────────
 
-    fn watch_checked(&mut self, _old: &bool, _new: &bool, _ctx: &mut ReactiveCtx) {
+    fn watch_checked(&mut self, _old: &bool, _new: &bool, ctx: &mut ReactiveCtx) {
+        // Keep the detached seed classes in sync (off-tree CSS resolution in
+        // `render` reads them) AND queue a class op so the arena node toggles
+        // `-on` too. The node's classes drive `&.-on > .toggle--button` matching
+        // and the repaint that recolors the button glyph. Mirrors Python
+        // `ToggleButton.watch_value` → `self.set_class(self.value, "-on")`.
         self.rebuild_classes_in_place();
+        ctx.set_class(self.checked, "-on");
     }
 
     // ── Builder methods ──────────────────────────────────────────────────

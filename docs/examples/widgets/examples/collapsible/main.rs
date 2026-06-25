@@ -111,7 +111,6 @@ mod liveness {
     /// must re-run layout/visibility of its contents when `collapsed` flips at
     /// runtime); after that this probe flips to LIVE — remove `#[ignore]`.
     #[test]
-    #[ignore = "DEAD: runtime collapse mutates state but does not relayout/hide body; flip when fixed"]
     fn collapse_all_binding_changes_frame() {
         run_test(CollapsibleApp, |pilot| {
             let before = pilot.app().frame_fingerprint();

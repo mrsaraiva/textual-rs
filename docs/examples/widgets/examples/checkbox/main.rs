@@ -86,30 +86,49 @@ mod tests {
         assert!(!root.children().is_empty());
     }
 
-    /// LIVENESS (currently DEAD — see TODO): "Kaitain" is focused on mount;
-    /// pressing space should toggle its checked state. Python conveys the
-    /// checked state via the `toggle--button` component color (the `X` glyph
-    /// recolors via the `-on` class). The toggle fires at the widget level
-    /// (see `checkbox_emits_message_on_toggle` in `src/widgets/checkbox.rs`),
-    /// but in the running app the `-on` recolor is NOT reflected in the
-    /// rendered frame: pressing `tab` changes the frame (focus moves) yet a
-    /// subsequent `space` produces an identical fingerprint.
+    /// LIVENESS: focusing a Checkbox and pressing `space` toggles its `value`,
+    /// applying the `-on` class. Python conveys the checked state via the
+    /// `toggle--button` component color (`&.-on > .toggle--button`), so the
+    /// rendered frame must change when the toggle fires.
     ///
-    /// ROOT: the runtime toggle does not re-resolve the focused Checkbox's
-    /// component styles (`&.-on > .toggle--button`) into the frame — the `-on`
-    /// class change does not invalidate/repaint the cell color. The fix is at
-    /// the framework level (component-style re-resolution on reactive state
-    /// change), after which this probe flips to LIVE: remove `#[ignore]`.
+    /// We focus the first Checkbox via the framework focus API rather than relying
+    /// on the demo's mount-time `#initial_focus` focus: that id is set through
+    /// `ChildDecl::with_id`, which is not yet propagated onto the mounted node
+    /// (a separate decl-id/mount wiring gap, outside this relayout/repaint fix).
+    /// The toggle-repaint behaviour this probe guards is now LIVE: pressing
+    /// `space` flips the checked state AND changes the frame (the `-on` class now
+    /// reaches the arena node and triggers a repaint of the recolored button).
     #[test]
-    #[ignore = "DEAD: focused-Checkbox toggle does not repaint -on component color; flip when fixed"]
     fn space_toggles_focused_checkbox() {
         textual::run_test(CheckboxApp, |pilot| {
+            let ids = pilot
+                .app()
+                .query("Checkbox")
+                .map(|q| q.into_ids())
+                .unwrap_or_default();
+            assert!(!ids.is_empty(), "expected Checkbox widgets in the tree");
+            let _ = pilot.app_mut().query_mut("Checkbox").map(|q| q.focus());
+
+            let before_checked = pilot
+                .app_mut()
+                .with_widget_mut_as::<Checkbox, _>(ids[0], |c| c.checked())
+                .unwrap_or(false);
             let before = pilot.app().frame_fingerprint();
             pilot.press(&["space"])?;
             let after = pilot.app().frame_fingerprint();
+            let after_checked = pilot
+                .app_mut()
+                .with_widget_mut_as::<Checkbox, _>(ids[0], |c| c.checked())
+                .unwrap_or(false);
+
+            assert_ne!(
+                before_checked, after_checked,
+                "space on the focused Checkbox must toggle its checked state"
+            );
             assert_ne!(
                 before, after,
-                "space on the focused Checkbox must toggle it and change the frame"
+                "toggling the focused Checkbox must change the frame (the -on \
+                 component color repaints)"
             );
             Ok(())
         })

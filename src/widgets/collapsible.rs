@@ -317,6 +317,12 @@ pub struct Collapsible {
     children: Vec<Box<dyn Widget>>,
     children_extracted: bool,
     seed: NodeSeed,
+    /// Class add/remove ops staged by a post-mount collapsed-state change made
+    /// outside an event handler (e.g. via `App::with_widget_mut_as`). The runtime
+    /// drains these in `with_widget_mut` and applies them to the arena node so the
+    /// `&.-collapsed > Contents { display: none }` rule matches and the body
+    /// shows/hides. Mirrors Python `_update_collapsed` → `set_class(..,-collapsed)`.
+    pending_class_ops: Vec<(String, bool)>,
 }
 
 impl Collapsible {
@@ -336,7 +342,23 @@ impl Collapsible {
             children: Vec::new(),
             children_extracted: false,
             seed,
+            pending_class_ops: Vec::new(),
         }
+    }
+
+    /// Keep the detached seed class in sync (off-tree resolution / re-mount) AND
+    /// stage a class op so a post-mount toggle reaches the arena node through the
+    /// `drain_pending_class_ops` seam.
+    fn sync_collapsed_class(&mut self) {
+        if self.collapsed {
+            if !self.seed.classes.iter().any(|c| c == "-collapsed") {
+                self.seed.classes.push("-collapsed".to_string());
+            }
+        } else {
+            self.seed.classes.retain(|c| c != "-collapsed");
+        }
+        self.pending_class_ops
+            .push(("-collapsed".to_string(), self.collapsed));
     }
 
     pub fn collapsed(mut self, collapsed: bool) -> Self {
@@ -400,6 +422,16 @@ impl Collapsible {
                 Box::new(old),
                 Box::new(value),
             );
+            // Mirror Python `_update_collapsed`: toggle the `-collapsed` class so
+            // the `&.-collapsed > Contents { display: none }` rule matches.
+            ctx.set_class(value, "-collapsed");
+            if self.collapsed {
+                if !self.seed.classes.iter().any(|c| c == "-collapsed") {
+                    self.seed.classes.push("-collapsed".to_string());
+                }
+            } else {
+                self.seed.classes.retain(|c| c != "-collapsed");
+            }
         }
     }
 
@@ -411,18 +443,27 @@ impl Collapsible {
 
     pub fn toggle(&mut self) {
         self.collapsed = !self.collapsed;
+        self.sync_collapsed_class();
     }
 
     fn toggle_with_ctx(&mut self, ctx: &mut EventCtx) {
         self.collapsed = !self.collapsed;
         if self.collapsed {
             ctx.add_class("-collapsed");
+            if !self.seed.classes.iter().any(|c| c == "-collapsed") {
+                self.seed.classes.push("-collapsed".to_string());
+            }
         } else {
             ctx.remove_class("-collapsed");
+            self.seed.classes.retain(|c| c != "-collapsed");
         }
         ctx.post_message(CollapsibleToggled {
             collapsed: self.collapsed,
         });
+        // The body show/hide is CSS-`display`-driven, which is recomputed during
+        // the layout pass — request relayout (not just repaint) so the Contents
+        // child's `display:none` toggles and the box re-sizes.
+        ctx.request_layout_invalidation();
         ctx.request_repaint();
         ctx.set_handled();
     }
@@ -572,6 +613,10 @@ impl Widget for Collapsible {
 
     fn set_inline_style(&mut self, style: crate::style::Style) {
         self.seed.styles.style = style;
+    }
+
+    fn drain_pending_class_ops(&mut self) -> Vec<(String, bool)> {
+        std::mem::take(&mut self.pending_class_ops)
     }
 
     fn take_node_seed(&mut self) -> NodeSeed {
