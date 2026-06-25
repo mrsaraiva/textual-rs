@@ -177,4 +177,36 @@ mod tests {
         let mut app = CustomApp;
         let _root = app.compose();
     }
+
+    // -- LIVENESS PROBE (Pilot run_test) --------------------------------------
+    // hello05's greeting is wrapped in a `[@click='next_word']…[/]` action-link.
+    // Clicking the centred greeting SHOULD fire the widget-scoped `next_word`
+    // action and cycle the text.
+    //
+    // CURRENTLY DEAD — root cause: the Static/Label render pipeline does not yet
+    // route `@click` markup-link clicks to a widget-scoped action. The action
+    // text is emitted into the rendered markup for visual fidelity, but a mouse
+    // click on the link is not translated into an `execute_action("next_word")`
+    // dispatch (the `@click` meta on the styled segment is not consumed by
+    // hit-testing). The widget's `action_registry`/`execute_action` are correct
+    // and fire when the action is invoked directly (see hello06's `space`
+    // binding, which is LIVE) — the missing link is click → action routing.
+    // Flip this test active once `@click` link clicks are wired through hit
+    // testing. Tracking: at-click-markup-link-routing.
+    #[ignore = "DEAD: @click markup-link clicks not routed to widget actions; see comment"]
+    #[test]
+    fn liveness_click_action_link_cycles_greeting() {
+        textual::run_test(CustomApp, |pilot| {
+            let before = pilot.app().frame_fingerprint();
+            pilot.click("Hello")?;
+            let after = pilot.app().frame_fingerprint();
+            assert_ne!(
+                before, after,
+                "clicking the [@click='next_word'] greeting link must fire the \
+                 widget action and change the rendered frame"
+            );
+            Ok(())
+        })
+        .unwrap();
+    }
 }

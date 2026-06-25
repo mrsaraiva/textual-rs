@@ -536,4 +536,32 @@ mod tests {
         let b = TimeDisplay::new();
         assert_ne!(a.display_id, b.display_id);
     }
+
+    // -- LIVENESS PROBE (Pilot run_test) --------------------------------------
+    // stopwatch06's Start button posts ButtonPressed -> Stopwatch adds the
+    // `started` class AND posts a TimeDisplayCmd::Start to the app, which starts
+    // that stopwatch's TimeDisplay. The `started` class toggle is the
+    // deterministic, observable change (CSS flips Start/Stop display + recolours
+    // the row), so clicking Start must change the rendered frame.
+    //
+    // NOTE: the running-clock digit advance is NOT probed — the displayed time
+    // derives from a wall-clock `Instant::elapsed()`, not the manual timer
+    // clock, so `Pilot::advance_clock` cannot reproduce it deterministically
+    // (the demo flags this as "NON-PROMOTABLE: timer-driven"). The start/stop/
+    // reset reactive transitions are unit-covered above.
+    #[test]
+    fn liveness_click_start_toggles_started_class() {
+        textual::run_test(StopwatchApp, |pilot| {
+            let before = pilot.app().frame_fingerprint();
+            pilot.click("#start")?;
+            let after = pilot.app().frame_fingerprint();
+            assert_ne!(
+                before, after,
+                "clicking Start must add the `started` class and change the \
+                 rendered frame"
+            );
+            Ok(())
+        })
+        .unwrap();
+    }
 }

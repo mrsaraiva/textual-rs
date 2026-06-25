@@ -198,4 +198,23 @@ mod tests {
         widget.next_word();
         assert_eq!(widget.next_index, HELLOS.len() + 1);
     }
+
+    // -- LIVENESS PROBE (Pilot run_test) --------------------------------------
+    // hello04 advances the greeting on `on_click` (fired on MouseUp targeting
+    // the Hello widget). A click must cycle the greeting and change the frame.
+    #[test]
+    fn liveness_click_cycles_greeting() {
+        textual::run_test(CustomApp, |pilot| {
+            let before = pilot.app().frame_fingerprint();
+            pilot.click("Hello")?;
+            let after = pilot.app().frame_fingerprint();
+            assert_ne!(
+                before, after,
+                "clicking the Hello widget must cycle the greeting (MouseUp \
+                 handler) and change the rendered frame"
+            );
+            Ok(())
+        })
+        .unwrap();
+    }
 }

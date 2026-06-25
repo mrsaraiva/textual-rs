@@ -394,4 +394,31 @@ mod tests {
         let b = TimeDisplay::new();
         assert_ne!(a.display_id, b.display_id);
     }
+
+    // -- LIVENESS PROBE (Pilot run_test) --------------------------------------
+    // stopwatch05 wires the buttons to toggle the `started` class (the timer
+    // itself is free-running from mount). Clicking Start adds `started`, and the
+    // CSS `.started` rules flip Start/Stop `display` and recolour the row, so
+    // the click must change the rendered frame.
+    //
+    // NOTE: the running-clock digit advance is intentionally NOT probed here —
+    // the displayed time derives from a wall-clock `Instant::elapsed()`, not the
+    // manual timer clock, so `Pilot::advance_clock` cannot reproduce it
+    // deterministically (the demos flag this as "NON-PROMOTABLE: timer-driven").
+    // The deterministic, observable interaction is the `started` class toggle.
+    #[test]
+    fn liveness_click_start_toggles_started_class() {
+        textual::run_test(StopwatchApp, |pilot| {
+            let before = pilot.app().frame_fingerprint();
+            pilot.click("#start")?;
+            let after = pilot.app().frame_fingerprint();
+            assert_ne!(
+                before, after,
+                "clicking Start must add the `started` class and change the \
+                 rendered frame"
+            );
+            Ok(())
+        })
+        .unwrap();
+    }
 }

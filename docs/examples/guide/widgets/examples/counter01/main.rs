@@ -126,4 +126,24 @@ mod tests {
         let mut app = CounterApp;
         let _root = app.compose();
     }
+
+    // -- LIVENESS PROBE (Pilot run_test) --------------------------------------
+    // counter01 has no key bindings; its only interaction is focus: pressing
+    // Tab moves focus to a Counter, which the CSS `Counter:focus` rule styles
+    // distinctly (background/color/outline). The rendered frame must change.
+    #[test]
+    fn liveness_tab_focuses_counter_changes_frame() {
+        textual::run_test(CounterApp, |pilot| {
+            let before = pilot.app().frame_fingerprint();
+            pilot.press(&["tab"])?;
+            let after = pilot.app().frame_fingerprint();
+            assert_ne!(
+                before, after,
+                "pressing Tab must focus a Counter and change the rendered \
+                 frame (the `:focus` style applies)"
+            );
+            Ok(())
+        })
+        .unwrap();
+    }
 }

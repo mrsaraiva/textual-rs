@@ -263,6 +263,30 @@ mod tests {
         assert!(!changed);
     }
 
+    // -- LIVENESS PROBE (Pilot run_test) — UNCLEAR ----------------------------
+    // checker04's only interaction is the cursor highlight that follows the
+    // mouse (`on_mouse_move` → repaint of the new/old cursor square). It cannot
+    // be probed through the current Pilot headless harness: `Pilot` exposes
+    // `press`, `click`, `pause`, `advance_clock`, and `resize`, but NO
+    // mouse-move / hover injection (`headless_inject_click` emits only
+    // MouseDown/MouseUp/Click, never MouseMove). A click at a square does not
+    // move the cursor, so a frame-fingerprint probe would falsely read DEAD.
+    //
+    // The widget-level cursor logic IS covered by `cursor_moves_on_mouse_move`
+    // / `cursor_no_change_same_square` above. A true end-to-end liveness probe
+    // needs a new `Pilot::hover(selector)` / `move_mouse(x, y)` that injects a
+    // MouseMove through `call_on_mouse_move_auto`. Flip this active once that
+    // exists. Tracking: pilot-mouse-move-injection.
+    #[ignore = "UNCLEAR: Pilot has no headless mouse-move/hover injection; see comment"]
+    #[test]
+    fn liveness_hover_moves_cursor_placeholder() {
+        // Intentionally a no-op placeholder so the liveness entry exists and is
+        // discoverable; replace the body with a real `pilot.hover(...)` probe
+        // when mouse-move injection is added to Pilot.
+        let board = CheckerBoard::new(8);
+        assert_eq!((board.cursor_col, board.cursor_row), (0, 0));
+    }
+
     #[test]
     fn declares_component_classes() {
         let board = CheckerBoard::new(4);

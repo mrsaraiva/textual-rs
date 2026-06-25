@@ -63,4 +63,27 @@ mod tests {
         let mut app = StopwatchApp;
         let _root = app.compose();
     }
+
+    // -- LIVENESS PROBE (Pilot run_test) --------------------------------------
+    // At this tutorial step the buttons have no handlers (Python's stopwatch02
+    // is structure-only), but the widgets are still interactive: clicking a
+    // Button focuses it and applies the Button focus/active styling, changing
+    // the rendered frame. This proves the composed Stopwatch UI responds to
+    // input. (The `d` toggle_dark binding is separately DEAD — see
+    // stopwatch01's probe for the theme-token root cause.)
+    #[test]
+    fn liveness_tab_focuses_button_changes_frame() {
+        textual::run_test(StopwatchApp, |pilot| {
+            let before = pilot.app().frame_fingerprint();
+            pilot.press(&["tab"])?;
+            let after = pilot.app().frame_fingerprint();
+            assert_ne!(
+                before, after,
+                "pressing Tab must focus the first Button and apply its focus \
+                 styling, changing the rendered frame"
+            );
+            Ok(())
+        })
+        .unwrap();
+    }
 }

@@ -161,4 +161,29 @@ mod tests {
             assert_eq!(row.len(), ncols, "Row column count mismatch");
         }
     }
+
+    // -- LIVENESS PROBE (Pilot run_test) — UNCLEAR ----------------------------
+    // loading01 has no user interaction: on mount each table is set to
+    // `loading = true` (LoadingIndicator overlay) and a background worker
+    // sleeps a real `std::thread::sleep(2..5 s)` before depositing rows; on
+    // `WorkerStateChanged::Success` the app fills the table and clears loading.
+    //
+    // This cannot be made deterministic under the Pilot harness: the worker
+    // delay uses the wall clock, NOT the manual timer clock, so
+    // `pilot.advance_clock(...)` does not fast-forward it, and the completion
+    // arrives on a real background thread at a nondeterministic time. A
+    // frame-fingerprint probe would race the worker and be flaky. The data
+    // shape and compose structure are covered by the tests above. A real
+    // liveness probe needs the worker to schedule its delay on the framework
+    // timer clock (so `advance_clock` can drive it) — until then this is
+    // UNCLEAR. Tracking: worker-delay-on-manual-clock.
+    #[ignore = "UNCLEAR: worker uses wall-clock thread::sleep; not driveable by Pilot::advance_clock; see comment"]
+    #[test]
+    fn liveness_worker_fills_table_placeholder() {
+        // Placeholder so the liveness entry exists; replace with a real
+        // advance_clock-driven probe once worker delays run on the timer clock.
+        let mut app = DataApp::new();
+        let root = app.compose();
+        assert_eq!(root.children().len(), 4);
+    }
 }
