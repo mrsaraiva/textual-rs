@@ -150,15 +150,21 @@ mod tests {
     /// and the rendered frame changes each time (different placeholder content).
     /// Guards that mode-switch key bindings actually swap the active screen.
     ///
-    /// DEAD — currently `#[ignore]`d. ROOT: app-level `BINDINGS` are not consulted
-    /// while a screen/mode is active. The key dispatch only matches bindings in
-    /// `App::active_widget_tree()` (the top *screen* tree — `runtime/mod.rs:1051`),
-    /// so the app-root's `s`/`h`/`d` bindings are never in the match chain once a
-    /// mode screen covers the app. `current_mode()` stays "dashboard" after `s`.
-    /// Python keeps App.BINDINGS in the binding chain below the active screen.
-    /// TODO: include app-root bindings in `match_binding_tree` resolution when a
-    /// screen is active; then drop `#[ignore]` — this probe flips to LIVE.
-    #[ignore = "DEAD: app-level bindings not consulted while a mode screen is active"]
+    /// LIVE: app-level `BINDINGS` are consulted while a mode screen is active.
+    /// `match_binding_chain` (`runtime/routing.rs`) walks the active screen tree
+    /// *and* the app-root tree (`App::app_root_tree_when_screen_active`), so the
+    /// app's `s`/`h`/`d` bindings stay in the chain beneath the active mode
+    /// screen — matching Python `App._check_bindings`, which always appends
+    /// `App._bindings` after the screen chain.
+    ///
+    /// Asserts each bound key actually swaps the active mode (`current_mode()`)
+    /// and changes the rendered frame. Note: re-entering a mode does NOT
+    /// reproduce the original frame byte-for-byte — `Placeholder` assigns colors
+    /// from a process-global counter on each construction, and `switch_mode`
+    /// rebuilds the screen, so the dashboard's placeholder color advances. That
+    /// is faithful to Python (its `Placeholder` cycles colors globally too) and
+    /// is independent of binding resolution; the probe therefore checks mode +
+    /// frame-change, not round-trip frame equality.
     #[test]
     fn modes01_switch_mode_is_live() {
         run_test(ModesApp, |pilot| {
@@ -171,13 +177,14 @@ mod tests {
             assert_ne!(dashboard, settings, "pressing 's' must switch to Settings");
 
             pilot.press(&["h"])?; // switch_mode('help')
+            assert_eq!(pilot.app().current_mode(), Some("help"), "h must switch mode to help");
             let help = pilot.app().frame_fingerprint();
             assert_ne!(settings, help, "pressing 'h' must switch to Help");
 
             pilot.press(&["d"])?; // switch_mode('dashboard')
+            assert_eq!(pilot.app().current_mode(), Some("dashboard"), "d must switch mode back to dashboard");
             let back = pilot.app().frame_fingerprint();
             assert_ne!(help, back, "pressing 'd' must switch back to Dashboard");
-            assert_eq!(dashboard, back, "Dashboard frame must match the initial mount");
             Ok(())
         })
         .expect("modes01 switch-mode harness should run");

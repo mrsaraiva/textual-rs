@@ -32,7 +32,8 @@ use super::routing::{
     active_binding_hints_tree, dispatch_event_broadcast_tree, dispatch_event_to_target_tree,
     dispatch_event_tree, dispatch_message_queue_tree, dispatch_mouse_scroll,
     dispatch_mouse_scroll_to_target_tree, dispatch_scroll_action_tree, focused_help_metadata_tree,
-    focused_node_id_tree, is_priority_action, is_scroll_action, match_binding_tree,
+    focused_node_id_tree, is_priority_action, is_scroll_action, match_binding_chain,
+    BindingSource,
 };
 use super::types::{DispatchOutcome, PendingInvalidation, StylesheetReload};
 use crate::node_id::{NodeId, node_id_to_ffi};
@@ -401,11 +402,20 @@ fn dispatch_simulated_key_like_input(
     }
 
     // Declarative bindings before raw key dispatch.
-    if let Some(tree) = app.active_widget_tree()
-        && let Some((_binding_node_id, action_str)) = match_binding_tree(tree, &key)
+    let binding_match = app.active_widget_tree().and_then(|tree| {
+        match_binding_chain(tree, app.app_root_tree_when_screen_active(), &key)
+    });
+    if let Some((binding_node_id, action_str, binding_source)) = binding_match
         && let Some(parsed) = crate::action::parse_action(&action_str)
     {
-        if let Some(tree_mut) = app.active_widget_tree_mut() {
+        // CLUSTER 7: a binding declared on a node whose action is served only
+        // by `execute_action` (no `action_registry()` entry) must still run on
+        // that source node — the binding source IS the target. Only applies
+        // when the binding came from the active tree (the source node lives
+        // there); app-root bindings are dispatched on the `root` adapter below.
+        if binding_source == BindingSource::Active
+            && let Some(tree_mut) = app.active_widget_tree_mut()
+        {
             let focused = focused_node_id_tree(tree_mut);
             let resolved = {
                 let tree_ref = &*tree_mut;
@@ -417,15 +427,16 @@ fn dispatch_simulated_key_like_input(
                     })
                 })
             };
-            if let Some(ra) = resolved
-                && let Some(node) = tree_mut.get_mut(ra.node)
-            {
+            // Prefer the registry-resolved owner; otherwise fall back to the
+            // binding's own source node.
+            let target = resolved.map(|ra| ra.node).unwrap_or(binding_node_id);
+            if let Some(node) = tree_mut.get_mut(target) {
                 let mut ctx = EventCtx::default();
                 if execute_action_with_dispatch_target(
                     &mut *node.widget,
                     &parsed,
                     &mut ctx,
-                    ra.node,
+                    target,
                 ) || ctx.handled()
                 {
                     pass.repaint_requested |= ctx.repaint_requested();
@@ -1732,6 +1743,21 @@ fn run_paste_command(program: &str, args: &[&str]) -> Option<String> {
 }
 
 impl App {
+    /// The app-root widget tree, but only when a *separate* screen/mode tree is
+    /// active on top of it. Returns `None` when the app-root tree is itself the
+    /// active tree (no screen pushed), so callers don't double-walk it.
+    ///
+    /// Used by binding resolution so `App::BINDINGS` stay in the chain beneath
+    /// an active screen (Python `App._check_bindings` always appends the App's
+    /// own bindings after the screen chain).
+    pub(crate) fn app_root_tree_when_screen_active(&self) -> Option<&crate::widget_tree::WidgetTree> {
+        if self.screen_stack.top().is_some() {
+            self.widget_tree.as_ref()
+        } else {
+            None
+        }
+    }
+
     fn apply_app_blur_focus_state(&mut self) {
         self.app_active = false;
         let focused = self.active_widget_tree().and_then(focused_node_id_tree);
@@ -2570,16 +2596,29 @@ impl App {
                             continue;
                         }
 
-                        // Declarative BINDINGS: check focused widget chain for matching binding.
+                        // Declarative BINDINGS: walk the active chain (focused→root,
+                        // or screen-body root when unfocused) plus App::BINDINGS
+                        // beneath an active screen.
                         let binding_match = self.active_widget_tree().and_then(|tree| {
-                            match_binding_tree(tree, &key).map(|(node_id, action_str)| {
-                                (node_id, action_str, tree.root().unwrap_or_default())
+                            let root_target = tree.root().unwrap_or_default();
+                            match_binding_chain(
+                                tree,
+                                self.app_root_tree_when_screen_active(),
+                                &key,
+                            )
+                            .map(|(node_id, action_str, source)| {
+                                (node_id, action_str, source, root_target)
                             })
                         });
-                        if let Some((_binding_node_id, action_str, root_target)) = binding_match
+                        if let Some((binding_node_id, action_str, binding_source, root_target)) =
+                            binding_match
                             && let Some(parsed) = crate::action::parse_action(&action_str)
                         {
-                            if let Some(tree_mut) = self.active_widget_tree_mut() {
+                            // CLUSTER 7: execute the binding on its source node when
+                            // no registry owner resolves (binding source IS target).
+                            if binding_source == BindingSource::Active
+                                && let Some(tree_mut) = self.active_widget_tree_mut()
+                            {
                                 let focused = focused_node_id_tree(tree_mut);
                                 let resolved = {
                                     let tree_ref = &*tree_mut;
@@ -2599,15 +2638,15 @@ impl App {
                                         )
                                     })
                                 };
-                                if let Some(ra) = resolved
-                                    && let Some(node) = tree_mut.get_mut(ra.node)
-                                {
+                                let target =
+                                    resolved.map(|ra| ra.node).unwrap_or(binding_node_id);
+                                if let Some(node) = tree_mut.get_mut(target) {
                                     let mut ctx = EventCtx::default();
                                     let handled = execute_action_with_dispatch_target(
                                         &mut *node.widget,
                                         &parsed,
                                         &mut ctx,
-                                        ra.node,
+                                        target,
                                     );
                                     debug_input(&format!(
                                         "[input] binding action={action_str:?} handled={handled}"
@@ -4730,15 +4769,21 @@ impl App {
             return;
         }
 
-        // Declarative BINDINGS on the focused widget chain.
+        // Declarative BINDINGS: active chain (focused→root, or screen-body root
+        // when unfocused) plus App::BINDINGS beneath an active screen.
         let binding_match = self.active_widget_tree().and_then(|tree| {
-            match_binding_tree(tree, &key)
-                .map(|(node_id, action_str)| (node_id, action_str, tree.root().unwrap_or_default()))
+            let root_target = tree.root().unwrap_or_default();
+            match_binding_chain(tree, self.app_root_tree_when_screen_active(), &key)
+                .map(|(node_id, action_str, source)| (node_id, action_str, source, root_target))
         });
-        if let Some((_binding_node_id, action_str, root_target)) = binding_match
+        if let Some((binding_node_id, action_str, binding_source, root_target)) = binding_match
             && let Some(parsed) = crate::action::parse_action(&action_str)
         {
-            if let Some(tree_mut) = self.active_widget_tree_mut() {
+            // CLUSTER 7: execute the binding on its source node when no registry
+            // owner resolves (binding source IS target).
+            if binding_source == BindingSource::Active
+                && let Some(tree_mut) = self.active_widget_tree_mut()
+            {
                 let focused = focused_node_id_tree(tree_mut);
                 let resolved = {
                     let tree_ref = &*tree_mut;
@@ -4750,15 +4795,14 @@ impl App {
                         })
                     })
                 };
-                if let Some(ra) = resolved
-                    && let Some(node) = tree_mut.get_mut(ra.node)
-                {
+                let target = resolved.map(|ra| ra.node).unwrap_or(binding_node_id);
+                if let Some(node) = tree_mut.get_mut(target) {
                     let mut ctx = EventCtx::default();
                     let handled = execute_action_with_dispatch_target(
                         &mut *node.widget,
                         &parsed,
                         &mut ctx,
-                        ra.node,
+                        target,
                     );
                     if handled || ctx.handled() {
                         let mut binding_outcome = DispatchOutcome {

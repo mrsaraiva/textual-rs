@@ -173,28 +173,28 @@ mod tests {
     }
 
     // -- LIVENESS PROBE (Pilot run_test) --------------------------------------
-    // Drives the real headless app: Tab to focus the first Counter, then press
-    // `up` (the bound increment key). The bound `change_count(1)` action SHOULD
-    // re-render the focused Counter's "Count: N" text, changing the frame.
+    // Drives the real headless app: the first Counter is focused on mount, so
+    // pressing `up` (the bound increment key) runs the bound `change_count(1)`
+    // action and re-renders the focused Counter's "Count: N" text, changing the
+    // frame.
     //
-    // CURRENTLY DEAD — root cause: a widget that declares BINDINGS whose action
-    // is served only by `execute_action` (no `action_registry()` entry) never
-    // runs. The headless/runtime key path resolves the focused widget's binding
-    // through `action::resolve_action`, which walks the focus chain looking for
-    // a node whose `action_registry()` *contains* the action name. `Counter`
-    // overrides `execute_action` but declares no `action_registry`, so
-    // `resolve_action` returns `None`, the focused-node branch is skipped, and
-    // the action falls through to the root (which does not handle it). The
-    // binding came FROM the Counter, so the intended target is unambiguous: the
-    // runtime should fall back to executing the binding on its source node when
-    // `resolve_action` finds no registry owner. Flip this test to active once
-    // that fallback lands. Tracking: widget-BINDINGS-without-action_registry.
-    #[ignore = "DEAD: widget BINDINGS action not run without action_registry() entry; see comment"]
+    // LIVE: a widget that declares BINDINGS whose action is served only by
+    // `execute_action` (no `action_registry()` entry) now runs. The key path
+    // first asks `action::resolve_action` for a registry owner; `Counter`
+    // overrides `execute_action` but declares no `action_registry`, so that
+    // returns `None`. Binding resolution then falls back to the binding's own
+    // SOURCE node (the `Counter` that declared `up,k`) — the binding source IS
+    // the target — and dispatches `change_count` there. See
+    // `runtime/event_loop.rs` (CLUSTER 7 fallback) and `match_binding_chain`.
+    //
+    // The probe increments the mount-focused, visible first Counter (no Tab):
+    // the demo's three counters stack but only the first is laid out visibly in
+    // the headless frame today (a separate layout gap), so the assertion targets
+    // the visible counter to keep this a pure binding-liveness check.
     #[test]
     fn liveness_up_key_increments_visible_count() {
         textual::run_test(CounterApp, |pilot| {
-            // Focus the first Counter so its key bindings are active.
-            pilot.press(&["tab"])?;
+            // The first Counter is focused on mount; its key bindings are active.
             let before = pilot.app().frame_fingerprint();
             pilot.press(&["up"])?;
             let after = pilot.app().frame_fingerprint();
