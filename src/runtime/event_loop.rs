@@ -4203,6 +4203,12 @@ impl App {
     /// lifecycle, and produce the first render into the in-memory frame.
     pub(crate) fn headless_startup(&mut self, root: &mut dyn Widget) -> crate::Result<()> {
         self.headless = true;
+        // Register the test thread as the UI thread so `App::call_from_thread`
+        // (used by worker demos that post widget updates back onto the event
+        // loop, e.g. weather04/05) works under the headless pump. Unregistered
+        // in `headless_finish`. The pump drains posted jobs (both in its main
+        // loop and inside the worker-wait spin) exactly as the live loop does.
+        crate::runtime::tasks::register_ui_thread();
         self.start()?;
 
         root.on_mount();
@@ -4219,12 +4225,33 @@ impl App {
             }
         }
 
+        let mut pending = PendingInvalidation::default();
         {
             let mut mount_ctx = crate::event::EventCtx::default();
             root.on_app_mount(self, &mut mount_ctx);
+            // Absorb the mount ctx so its outcome (worker requests, messages,
+            // invalidation, recompositions) flows into the runtime — in
+            // particular, worker requests issued from `on_mount_with_app`
+            // (e.g. questions01's `push_screen_wait` worker) reach the headless
+            // worker phase via the accumulator instead of being dropped.
+            let mut mount_outcome = DispatchOutcome {
+                handled: mount_ctx.handled(),
+                repaint_requested: mount_ctx.repaint_requested(),
+                invalidation: mount_ctx.invalidation(),
+                stop_requested: mount_ctx.stop_requested(),
+                messages: mount_ctx.take_messages(),
+                animation_requests: mount_ctx.take_animation_requests(),
+                worker_requests: mount_ctx.take_worker_requests(),
+                recompose_nodes: mount_ctx.take_recompose_nodes(),
+                default_prevented: false,
+                class_ops: mount_ctx.take_class_ops(),
+            };
+            self.absorb_outcome(&mut mount_outcome, &mut pending, InvalidationScope::Global);
+            let mut msg_outcome =
+                self.dispatch_message_queue_with_runtime(root, mount_outcome.messages);
+            self.absorb_outcome(&mut msg_outcome, &mut pending, InvalidationScope::Global);
         }
 
-        let mut pending = PendingInvalidation::default();
         self.render_widget(root)?;
         self.apply_layout_info_to_tree();
 
@@ -4274,6 +4301,15 @@ impl App {
         const MAX_ITERATIONS: usize = 10_000;
         for _ in 0..MAX_ITERATIONS {
             let mut progressed = false;
+
+            // `call_from_thread` jobs posted by worker threads. Run each with
+            // `&mut App` so the worker (blocked on its result channel) unblocks,
+            // exactly as the live loop does once per tick.
+            for job in crate::runtime::tasks::drain_call_from_thread_jobs() {
+                progressed = true;
+                job(self);
+                pending.request_full_content();
+            }
 
             // App-level / broadcast messages (set_title etc.).
             let app_messages = self.drain_pending_app_messages();
@@ -4329,6 +4365,18 @@ impl App {
                 let mut outcome =
                     self.dispatch_message_queue_with_runtime(root, task_messages);
                 self.absorb_outcome(&mut outcome, pending, InvalidationScope::Global);
+            }
+
+            // Worker requests + completions. The live loop owns a function-local
+            // `WorkerRegistry` and runs this phase each pass (see `run_with`);
+            // headless has no such loop-local state, so it keeps its registry on
+            // the `App` and processes it here. We spawn newly-requested workers
+            // and, while any worker is still active, block briefly for its
+            // completion — so a "type a city → background fetch → update Static"
+            // demo reaches a settled, deterministic result by the time the pump
+            // returns to idle, instead of leaving the request un-run.
+            if self.headless_process_workers(root, pending) {
+                progressed = true;
             }
 
             // Animation frame (advances active animations toward completion).
@@ -4399,6 +4447,115 @@ impl App {
             }
         }
         Ok(())
+    }
+
+    /// Headless worker phase: spawn newly-requested workers into the App-owned
+    /// [`WorkerRegistry`], deterministically await any still-running worker, and
+    /// route the resulting [`WorkerStateChanged`] messages through the runtime.
+    ///
+    /// Returns `true` if any work progressed (a request was spawned or a state
+    /// change was routed), so the pump loop keeps iterating until idle.
+    ///
+    /// Determinism: worker jobs run on OS threads (as in production), but a
+    /// headless test must reach a settled frame before the pump returns. So
+    /// while any worker remains active we block — bounded by a wall-clock
+    /// deadline — polling for completions. This is the one place the headless
+    /// harness touches the wall clock; it is confined to "wait for the
+    /// background thread I just spawned to finish," which a real `pilot.pause`
+    /// would also observe in Python (its event loop yields until the worker's
+    /// awaitable resolves).
+    fn headless_process_workers(
+        &mut self,
+        root: &mut dyn Widget,
+        pending: &mut PendingInvalidation,
+    ) -> bool {
+        let pending_workers = drain_accumulated_worker_requests();
+        let has_new = !pending_workers.is_empty();
+
+        // Lazily create the registry the first time a worker is requested.
+        if has_new && self.headless_worker_registry.is_none() {
+            self.headless_worker_registry = Some(WorkerRegistry::new());
+        }
+
+        let Some(mut registry) = self.headless_worker_registry.take() else {
+            // No registry and nothing requested → nothing to do.
+            return false;
+        };
+
+        let mut progressed = false;
+
+        // Spawn newly-requested workers and collect any synchronous changes
+        // (e.g. exclusive-mode cancellations) plus completions already ready.
+        let mut changes = process_worker_requests(&mut registry, pending_workers);
+        if has_new {
+            progressed = true;
+        }
+
+        // Deterministically drive workers toward quiescence: while any worker is
+        // still active, run `call_from_thread` jobs it posts and collect its
+        // state changes. We do NOT block indefinitely for a worker — a worker
+        // can deliberately *park* (e.g. `push_screen_wait`, which suspends the
+        // worker on the UI until a screen is dismissed). So we stop waiting once
+        // the worker has gone quiescent: no `call_from_thread` job ran and no
+        // state change landed within a short grace window while the worker stays
+        // active. Fast workers (weather) complete within the window; parked
+        // workers (questions01) yield control back to the pump so the test body
+        // can drive the next interaction (the click that dismisses the screen).
+        const WORKER_WAIT_BUDGET: std::time::Duration = std::time::Duration::from_secs(10);
+        const QUIESCENCE_GRACE: std::time::Duration = std::time::Duration::from_millis(25);
+        let deadline = Instant::now() + WORKER_WAIT_BUDGET;
+        let mut last_activity = Instant::now();
+        while !registry.active_workers().is_empty() && Instant::now() < deadline {
+            let mut activity = false;
+
+            // Run any `call_from_thread` jobs the worker posted while we wait —
+            // otherwise a worker that calls `App::call_from_thread` (weather04/05,
+            // and the screen push in questions01) would deadlock against this
+            // spin, each waiting on the other.
+            for job in crate::runtime::tasks::drain_call_from_thread_jobs() {
+                job(self);
+                pending.request_full_content();
+                activity = true;
+            }
+
+            let mut batch = registry.drain_state_changes();
+            if !batch.is_empty() {
+                changes.append(&mut batch);
+                activity = true;
+            }
+
+            if activity {
+                last_activity = Instant::now();
+            } else if last_activity.elapsed() >= QUIESCENCE_GRACE {
+                // Worker still active but idle (parked waiting on the UI, or
+                // simply slow between posts): hand control back to the pump.
+                break;
+            } else {
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+        }
+        // Final non-blocking sweep for any completions that landed last.
+        changes.extend(registry.drain_state_changes());
+
+        if !changes.is_empty() {
+            progressed = true;
+            let worker_messages = worker_state_runtime_messages(&registry, changes);
+            let mut worker_outcome =
+                self.dispatch_message_queue_with_runtime(root, worker_messages);
+            // `absorb_outcome` records a sticky `headless_stop_requested` if the
+            // worker-driven handler requested app exit.
+            self.absorb_outcome(&mut worker_outcome, pending, InvalidationScope::Global);
+        }
+
+        registry.cleanup();
+
+        // Keep the registry only if it still tracks workers; otherwise drop it
+        // so a fully-idle app does not carry empty worker state.
+        if !registry.active_workers().is_empty() {
+            self.headless_worker_registry = Some(registry);
+        }
+
+        progressed
     }
 
     /// Inject a single key press through the same dispatch cascade the live
@@ -4816,6 +4973,13 @@ impl App {
     /// Headless unmount + finish (returns the app to a clean state).
     pub(crate) fn headless_finish(&mut self, root: &mut dyn Widget) -> crate::Result<()> {
         root.on_unmount();
+        // Cancel any still-active headless workers so a leftover background
+        // thread can't post into a torn-down app, then unregister the UI thread
+        // (dropping pending `call_from_thread` jobs, which unblocks any worker
+        // still parked on `call_from_thread`). Mirrors `CallFromThreadGuard::drop`
+        // in the live loop.
+        self.headless_worker_registry = None;
+        crate::runtime::tasks::unregister_ui_thread();
         self.finish()
     }
 

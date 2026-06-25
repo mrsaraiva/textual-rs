@@ -600,6 +600,16 @@ pub struct App {
     modes: HashMap<String, Box<dyn Fn() -> Box<dyn crate::screen::Screen> + Send + Sync>>,
     /// The name of the currently active mode, if any.
     current_mode: Option<String>,
+    /// Worker registry used by the headless [`Pilot`] pump.
+    ///
+    /// The live event loop (`run_with`) owns a function-local [`WorkerRegistry`]
+    /// and calls `process_worker_requests` each pass; the headless pump has no
+    /// such loop-local state, so it keeps its registry here (created lazily on
+    /// first use). When set, [`App::headless_pump`] drains accumulated worker
+    /// requests into it, spawns/awaits their (bounded) completion deterministically,
+    /// and routes the resulting `WorkerStateChanged` messages — mirroring the
+    /// live loop's worker phase so worker-driven demos are probeable headlessly.
+    headless_worker_registry: Option<crate::worker::WorkerRegistry>,
 }
 
 impl App {
@@ -703,6 +713,7 @@ impl App {
             data_bindings: Vec::new(),
             dynamic_watchers: Vec::new(),
             suspend_process_impl: suspend_process_default,
+            headless_worker_registry: None,
             pending_highlight_clear: None,
             widget_tree: None,
             screen_stack: ScreenStack::new(),
@@ -2962,6 +2973,16 @@ impl App {
     /// The currently active theme name.
     pub fn theme_name(&self) -> &str {
         &self.theme_name
+    }
+
+    /// Whether the app is currently in dark mode (Python `App.dark`).
+    ///
+    /// Flipped by [`App::action_toggle_dark`] / `action_change_theme`. Exposed
+    /// publicly so headless `Pilot` tests can assert a `toggle_dark` actually
+    /// flipped the state, even when the rendered frame (e.g. a blank screen with
+    /// default-styled chrome) shows no per-cell color change.
+    pub fn is_dark(&self) -> bool {
+        self.dark_mode
     }
 
     /// Activate a named theme by name (Python `App.theme = name`).

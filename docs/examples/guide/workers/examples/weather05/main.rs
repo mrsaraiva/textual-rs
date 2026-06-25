@@ -238,13 +238,11 @@ mod tests {
     /// worker fetches and posts the result onto the UI thread via
     /// `App::call_from_thread`, updating the `#weather` Static.
     ///
-    /// UNCLEAR ROOT: same as weather02/03/04 — the headless `Pilot` pump owns no
-    /// `WorkerRegistry` and does not service `call_from_thread`, so the worker
-    /// never runs and the Static stays empty. NOT a dead demo; flip this
-    /// `#[ignore]` once the headless harness pumps workers and services
-    /// `call_from_thread`.
+    /// Now LIVE: the headless pump owns a `WorkerRegistry`, registers the test
+    /// thread as the UI thread, and drains `call_from_thread` jobs (main loop +
+    /// worker-wait spin), so the threaded worker's posted `#weather` update runs
+    /// on the event-loop thread and the demo reaches a settled frame.
     #[test]
-    #[ignore = "UNCLEAR: headless Pilot pump does not process background workers or service call_from_thread; worker never runs so the Static never updates"]
     fn liveness_worker_updates_weather() {
         textual::run_test(WeatherApp::new(), |pilot| {
             pilot.click("Input")?;

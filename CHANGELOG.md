@@ -9,6 +9,18 @@ until the API stabilizes.
 
 ### Added
 
+- **Headless worker pump** — the in-process `Pilot` pump (`headless_pump`) now
+  owns a `WorkerRegistry` and runs a worker phase each pass (mirroring the live
+  `run_with` loop): newly-requested workers are spawned, their (bounded)
+  completion is awaited deterministically, and `WorkerStateChanged` is routed
+  through the runtime so worker-driven demos reach a settled frame by the time
+  the pump returns to idle. Flips the `weather02`/`weather03`/`weather04`/
+  `weather05`, `events/dictionary`, and `guide/screens/questions01` liveness
+  probes from UNCLEAR to LIVE.
+- **`App::is_dark()`** — public read accessor for the app's dark-mode flag
+  (Python `App.dark`), so headless `Pilot` tests can assert a `toggle_dark`
+  actually flipped the state even when the rendered frame shows no per-cell
+  color change.
 - **`App::headless_stop_requested()`** — a Pilot/test helper that reports whether
   any interaction dispatched under the headless pump requested the app to stop
   (`ctx.request_stop()`), e.g. a "press a button to quit" demo. The live loop

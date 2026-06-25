@@ -176,13 +176,12 @@ mod tests {
     /// the exclusive worker fetches and posts the result back onto the UI thread
     /// via `App::call_from_thread` to update the `Static`.
     ///
-    /// UNCLEAR ROOT: same as weather02/03 — the headless `Pilot` pump owns no
-    /// `WorkerRegistry`, so the worker never runs (and `call_from_thread`
-    /// requires a live event loop to service the posted closure). The Static
-    /// stays empty. NOT a dead demo; flip this `#[ignore]` once the headless
-    /// harness pumps workers and services `call_from_thread`.
+    /// Now LIVE: the headless pump owns a `WorkerRegistry`, registers the test
+    /// thread as the UI thread, and drains `call_from_thread` jobs both in its
+    /// main loop and inside the worker-wait spin — so the worker's posted
+    /// `Static` update runs on the event-loop thread and the worker unblocks,
+    /// reaching a settled frame deterministically.
     #[test]
-    #[ignore = "UNCLEAR: headless Pilot pump does not process background workers or service call_from_thread; worker never runs so the Static never updates"]
     fn liveness_worker_updates_weather() {
         textual::run_test(WeatherApp::new(), |pilot| {
             pilot.click("Input")?;
