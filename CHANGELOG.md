@@ -18,6 +18,18 @@ until the API stabilizes.
   same pattern `LoadingIndicator` uses. `advance_clock`/`advance_ticks` now step
   the runtime tick and rotate the gradient reproducibly, flipping the demo's
   liveness probe from `#[ignore]`d to a real asserting test.
+- **`guide/widgets/loading01` load transition is now driveable headless** — the
+  demo's per-table slow-load simulation no longer uses a wall-clock
+  `std::thread::sleep` inside a background worker (which the manual test clock
+  cannot fast-forward), and instead schedules each deferred load with
+  `App::set_timer(delay, ...)` — the framework analogue of Python loading01's
+  `@work` coroutine `await sleep(randint(2, 10))`. `set_timer` fires on the real
+  wall clock when the app runs live and is driven by `Pilot::advance_clock(delay)`
+  under the headless harness, so the `LoadingIndicator` → populated-`DataTable`
+  transition is fully deterministic. Flips the loading01 liveness probe from
+  UNCLEAR (`#[ignore]`d) to LIVE: before `advance_clock` every table is empty
+  (loading shown); after, every table holds the full row set and loading is
+  cleared, with the rendered frame changing across the transition.
 
 - **Animated widget `opacity` is now live under `run_test`** — three coupled
   fixes make an on-mount opacity fade (e.g. `guide/animator/animation01`'s 2s
