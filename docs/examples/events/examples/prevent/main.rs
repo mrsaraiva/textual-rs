@@ -124,4 +124,37 @@ mod tests {
         assert_eq!(ctx.pending_message_count(), 1);
         assert!(ctx.has_pending_message::<InputChanged>());
     }
+
+    /// LIVENESS probe (Pilot, headless): focus the `Input`, type characters (the
+    /// echoed text appears in the input — frame + value change), then click the
+    /// "Clear" button. The handler clears the input inside a `ctx.prevent` scope,
+    /// so the value returns to empty (frame changes back). Drives the type → echo
+    /// and click → clear interactions end-to-end through the real input widget.
+    #[test]
+    fn prevent_type_and_clear_is_live() {
+        fn input_value(app: &App) -> Option<String> {
+            app.query_one_typed::<Input>("Input")
+                .ok()
+                .and_then(|h| h.read(app, |i| i.value().to_string()).ok())
+        }
+        run_test(PreventApp::new(), |pilot| {
+            pilot.click("Input")?; // focus the input
+            let empty = pilot.app().frame_fingerprint();
+
+            pilot.press(&["h", "i"])?;
+            assert_eq!(input_value(pilot.app()).as_deref(), Some("hi"), "typing must echo into the input");
+            let typed = pilot.app().frame_fingerprint();
+            assert_ne!(empty, typed, "typing must change the rendered frame (echoed text)");
+
+            pilot.click("#clear")?;
+            assert_eq!(
+                input_value(pilot.app()).as_deref(),
+                Some(""),
+                "clicking Clear must empty the input (the prevent scope only suppresses InputChanged)"
+            );
+            assert_ne!(typed, pilot.app().frame_fingerprint(), "clearing must change the rendered frame");
+            Ok(())
+        })
+        .expect("prevent type/clear harness should run");
+    }
 }

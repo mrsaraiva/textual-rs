@@ -9,6 +9,19 @@ until the API stabilizes.
 
 ### Added
 
+- **`App::headless_stop_requested()`** — a Pilot/test helper that reports whether
+  any interaction dispatched under the headless pump requested the app to stop
+  (`ctx.request_stop()`), e.g. a "press a button to quit" demo. The live loop
+  breaks on stop, but the headless pump keeps running so the test body can read
+  state; this sticky flag makes exit-on-interaction demos assertable through the
+  Pilot harness even though their rendered frame is otherwise unchanged.
+- **Liveness probes for `app` / `events` / `screens` / `themes` / `how-to` doc
+  examples** — each interactive doc demo now carries a `#[cfg(test)]` Pilot
+  (`run_test`) liveness probe that performs the representative interaction (push
+  screen, click button, type input, switch mode, cycle theme, …) and asserts the
+  rendered frame / observable state changed. Probes for demos blocked by a known
+  runtime gap are committed `#[ignore]`d with a documented root cause and TODO,
+  so the fix later flips them to passing guards.
 - **Deterministic Pilot clock** — inside `App::run_test`, the timer subsystem now
   runs on a deterministic manual clock (installed at `Pilot` creation, preserving
   any timers scheduled during startup). New `Pilot::advance_clock(Duration)`

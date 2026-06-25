@@ -135,4 +135,65 @@ mod tests {
         let screen = BsodScreen;
         assert!(!screen.is_modal());
     }
+
+    /// LIVENESS probe (Pilot, headless): pressing `b` pushes the BSOD screen and
+    /// changes the frame; pressing `escape` (bound on the BSOD root to
+    /// `app.pop_screen`) pops it and changes the frame back. Guards both the
+    /// app-level push binding and the screen-root pop binding.
+    ///
+    /// Push (`b`, from the base screen) is LIVE; the screen-root `escape` pop
+    /// binding is DEAD, so this probe is `#[ignore]`d for now.
+    ///
+    /// ROOT: a pushed screen's own declarative `bindings()` (here `escape ->
+    /// app.pop_screen` on `BsodRoot`) are not in the active binding chain. With
+    /// the BSOD screen active, `app.binding_hints()` lists only the inherited
+    /// scroll/navigation bindings — `escape` is absent — so `match_binding_tree`
+    /// (`runtime/routing.rs:621`) never finds it and the pop never fires.
+    /// `match_binding_tree` walks the focused→root path of the active screen
+    /// tree, but the screen-root binding owner is not reached on that path.
+    /// Python collects Screen.BINDINGS (and App.BINDINGS) into the chain.
+    /// TODO: include the screen-root (and app-root) bindings in the active chain
+    /// when a screen is pushed; then drop `#[ignore]` — this probe flips to LIVE.
+    #[ignore = "DEAD: screen-root key bindings (escape->pop_screen) not in the active binding chain"]
+    #[test]
+    fn screen01_push_and_pop_is_live() {
+        run_test(BsodApp, |pilot| {
+            assert_eq!(pilot.app().screen_count(), 0);
+            let before = pilot.app().frame_fingerprint();
+
+            pilot.press(&["b"])?;
+            assert_eq!(pilot.app().screen_count(), 1, "b must push the BSOD screen");
+            let pushed = pilot.app().frame_fingerprint();
+            assert_ne!(before, pushed, "pushing the BSOD screen must change the frame");
+
+            pilot.press(&["escape"])?;
+            assert_eq!(pilot.app().screen_count(), 0, "escape must pop the BSOD screen");
+            let popped = pilot.app().frame_fingerprint();
+            assert_ne!(pushed, popped, "popping the BSOD screen must change the frame");
+            Ok(())
+        })
+        .expect("screen01 push/pop harness should run");
+    }
+
+    /// LIVENESS probe (Pilot, headless): the *push* half of screen01 — pressing
+    /// `b` (an app binding, fired from the base screen before any screen is
+    /// pushed) pushes the BSOD screen and changes the frame. This half is LIVE
+    /// and stays enabled as a permanent guard; the `escape` pop half is covered
+    /// (currently `#[ignore]`d) by `screen01_push_and_pop_is_live`.
+    #[test]
+    fn screen01_push_is_live() {
+        run_test(BsodApp, |pilot| {
+            assert_eq!(pilot.app().screen_count(), 0);
+            let before = pilot.app().frame_fingerprint();
+            pilot.press(&["b"])?;
+            assert_eq!(pilot.app().screen_count(), 1, "b must push the BSOD screen");
+            assert_ne!(
+                before,
+                pilot.app().frame_fingerprint(),
+                "pushing the BSOD screen must change the frame"
+            );
+            Ok(())
+        })
+        .expect("screen01 push harness should run");
+    }
 }

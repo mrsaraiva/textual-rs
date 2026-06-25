@@ -4766,6 +4766,16 @@ impl App {
         self.hit_test.rect(node).map(|r| (r.x0, r.y0, r.x1, r.y1))
     }
 
+    /// Whether any interaction dispatched under the headless pump has requested
+    /// the app to stop (`ctx.request_stop()`), e.g. a "press a button to quit"
+    /// demo. Sticky once set. The live loop breaks on stop, but the headless
+    /// pump keeps running so the Pilot test body can read state — so this is the
+    /// way to assert that an exit-on-interaction demo actually fired its handler
+    /// (its rendered frame is otherwise unchanged). Test/Pilot helper.
+    pub fn headless_stop_requested(&self) -> bool {
+        self.headless_stop_requested
+    }
+
     /// A cheap fingerprint of the currently rendered frame (text + per-cell
     /// foreground/background). Two equal fingerprints mean visually identical
     /// frames; a change after input proves rendered output changed. Test/Pilot
@@ -4932,6 +4942,12 @@ impl App {
                 InvalidationScope::Global => pending.request_full_content(),
                 InvalidationScope::Widget(id) => pending.request_widget_rect(&self.hit_test, id),
             }
+        }
+        // Record (stickily) that a stop was requested so headless/Pilot tests can
+        // observe exit-on-interaction demos. The live loop breaks on stop; the
+        // headless pump does not, so without this the request would be invisible.
+        if outcome.stop_requested {
+            self.headless_stop_requested = true;
         }
         let requests = std::mem::take(&mut outcome.animation_requests);
         self.enqueue_animation_requests(requests);

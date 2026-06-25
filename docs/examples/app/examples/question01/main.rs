@@ -38,3 +38,28 @@ fn main() -> Result<()> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// LIVENESS probe (Pilot, headless): clicking a button posts `ButtonPressed`,
+    /// which the app handles by recording the reply and requesting stop (the
+    /// Python demo exits and prints the button id). The exit demo leaves the
+    /// frame unchanged, so liveness is asserted via `headless_stop_requested()`:
+    /// no stop before the click, stop requested after. Proves the button handler
+    /// is wired and fires.
+    #[test]
+    fn question01_button_press_exits_is_live() {
+        run_test(QuestionApp { reply: None }, |pilot| {
+            assert!(!pilot.app().headless_stop_requested(), "no stop before interaction");
+            pilot.click("#yes")?;
+            assert!(
+                pilot.app().headless_stop_requested(),
+                "clicking #yes must fire the handler and request app exit"
+            );
+            Ok(())
+        })
+        .expect("question01 button-exit harness should run");
+    }
+}

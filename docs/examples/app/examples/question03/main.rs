@@ -74,3 +74,25 @@ fn main() -> textual::Result<()> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// LIVENESS probe (Pilot, headless): clicking a button posts `ButtonPressed`,
+    /// handled by recording the answer and requesting stop (the Python demo
+    /// exits printing the button id). Liveness via `headless_stop_requested()`.
+    #[test]
+    fn question03_button_press_exits_is_live() {
+        run_test(QuestionApp::new(), |pilot| {
+            assert!(!pilot.app().headless_stop_requested(), "no stop before interaction");
+            pilot.click("#yes")?;
+            assert!(
+                pilot.app().headless_stop_requested(),
+                "clicking #yes must fire the handler and request app exit"
+            );
+            Ok(())
+        })
+        .expect("question03 button-exit harness should run");
+    }
+}

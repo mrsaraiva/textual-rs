@@ -141,4 +141,27 @@ mod tests {
         assert!(stop, "quit should request app stop");
         assert!(staged.is_none());
     }
+
+    /// LIVENESS probe (Pilot, headless): pressing `q` pushes the modal
+    /// QuitScreen (dimming the base screen rather than replacing it) and changes
+    /// the frame; clicking `#cancel` dismisses it and changes the frame back.
+    #[test]
+    fn modal02_push_and_dismiss_is_live() {
+        run_test(ModalApp, |pilot| {
+            assert_eq!(pilot.app().screen_count(), 0);
+            let before = pilot.app().frame_fingerprint();
+
+            pilot.press(&["q"])?;
+            assert_eq!(pilot.app().screen_count(), 1, "q must push the modal QuitScreen");
+            let pushed = pilot.app().frame_fingerprint();
+            assert_ne!(before, pushed, "pushing the modal must change the frame");
+
+            pilot.click("#cancel")?;
+            assert_eq!(pilot.app().screen_count(), 0, "cancel must dismiss the modal");
+            let dismissed = pilot.app().frame_fingerprint();
+            assert_ne!(pushed, dismissed, "dismissing the modal must change the frame");
+            Ok(())
+        })
+        .expect("modal02 push/dismiss harness should run");
+    }
 }

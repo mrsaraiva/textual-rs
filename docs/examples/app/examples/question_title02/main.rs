@@ -88,3 +88,49 @@ fn main() -> textual::Result<()> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// LIVENESS probe (Pilot, headless): `on_key_with_app` updates the app title
+    /// and sub-title on every key press, which the `Header` renders — so pressing
+    /// any key changes the rendered frame.
+    #[test]
+    fn question_title02_keypress_retitles_is_live() {
+        run_test(MyApp::new(), |pilot| {
+            let before = pilot.app().frame_fingerprint();
+            pilot.press(&["a"])?;
+            assert_ne!(
+                before,
+                pilot.app().frame_fingerprint(),
+                "pressing a key must retitle the header (rendered frame changes)"
+            );
+            assert_eq!(pilot.app().title(), "a", "key press must update the app title");
+            assert_eq!(
+                pilot.app().sub_title(),
+                Some("You just pressed a!"),
+                "key press must update the app sub-title"
+            );
+            Ok(())
+        })
+        .expect("question_title02 retitle harness should run");
+    }
+
+    /// LIVENESS probe (Pilot, headless): clicking a button records the reply and
+    /// requests stop (the Python demo exits printing the button id). Liveness via
+    /// `headless_stop_requested()`.
+    #[test]
+    fn question_title02_button_press_exits_is_live() {
+        run_test(MyApp::new(), |pilot| {
+            assert!(!pilot.app().headless_stop_requested(), "no stop before interaction");
+            pilot.click("#yes")?;
+            assert!(
+                pilot.app().headless_stop_requested(),
+                "clicking #yes must fire the handler and request app exit"
+            );
+            Ok(())
+        })
+        .expect("question_title02 button-exit harness should run");
+    }
+}

@@ -207,4 +207,50 @@ mod tests {
             _ => panic!("expected Value(false)"),
         }
     }
+
+    /// LIVENESS probe (Pilot, headless): on mount a worker calls
+    /// `push_screen_wait(QuestionScreen)`. The screen should appear (screen_count
+    /// 0 -> 1) and the rendered frame change; clicking `#yes` should dismiss it.
+    ///
+    /// UNCLEAR under the headless Pilot harness — `#[ignore]`d. ROOT: this demo's
+    /// interaction is driven by a background *worker thread* that calls the
+    /// blocking `App::push_screen_wait` (suspending the worker until the screen
+    /// dismisses, with the push marshaled to the UI thread via
+    /// `App::call_from_thread`). The headless pump (`runtime/event_loop.rs:4269`)
+    /// never spawns worker requests — `process_worker_requests` runs only in the
+    /// live event loop (`runtime/event_loop.rs:3956`) — so the on_mount worker
+    /// does not run and the screen is never pushed (screen_count stays 0). This
+    /// is a harness limitation, not a demo defect; the unit tests above already
+    /// prove the screen's dismiss handlers are correctly wired.
+    /// TODO: drive worker spawning + the call_from_thread bridge from the
+    /// headless pump (or via a Pilot worker-step) so this can run headless; then
+    /// drop `#[ignore]`.
+    #[ignore = "UNCLEAR: headless pump does not spawn worker threads (push_screen_wait never runs)"]
+    #[test]
+    fn questions01_worker_push_and_dismiss_is_live() {
+        run_test(QuestionsApp, |pilot| {
+            let before = pilot.app().frame_fingerprint();
+            // Let the on_mount worker run push_screen_wait and the push land.
+            pilot.pause()?;
+            assert_eq!(
+                pilot.app().screen_count(),
+                1,
+                "the on_mount worker must push the QuestionScreen"
+            );
+            let pushed = pilot.app().frame_fingerprint();
+            assert_ne!(before, pushed, "pushing the question screen must change the frame");
+
+            pilot.click("#yes")?;
+            pilot.pause()?;
+            assert_eq!(
+                pilot.app().screen_count(),
+                0,
+                "answering Yes must dismiss the QuestionScreen"
+            );
+            let dismissed = pilot.app().frame_fingerprint();
+            assert_ne!(pushed, dismissed, "dismissing the question screen must change the frame");
+            Ok(())
+        })
+        .expect("questions01 worker push/dismiss harness should run");
+    }
 }

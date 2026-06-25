@@ -136,4 +136,30 @@ mod tests {
         let btn = ColorButton::new("#008080");
         assert_eq!(btn.label, "#008080");
     }
+
+    /// LIVENESS probe (Pilot, headless): clicking a custom `ColorButton` posts
+    /// the custom `ColorSelected` message, which the app handles by setting the
+    /// screen background to the button's color. Asserted via the explicit screen
+    /// background (`node_explicit_bg`) — proving the custom message round-trips
+    /// from the widget's `on_event` click handler to the app handler.
+    #[test]
+    fn custom01_color_button_click_sets_background_is_live() {
+        fn screen_bg(app: &App) -> Option<Color> {
+            app.query_one("Screen").ok().and_then(|n| app.node_explicit_bg(n))
+        }
+        run_test(ColorApp, |pilot| {
+            let before = screen_bg(pilot.app());
+            // First ColorButton is "#008080" (teal).
+            pilot.click("ColorButton")?;
+            let after = screen_bg(pilot.app());
+            assert_ne!(before, after, "clicking a ColorButton must change the screen background");
+            assert_eq!(
+                after,
+                parse_color_like("#008080"),
+                "clicking the first ColorButton must set the bg to #008080"
+            );
+            Ok(())
+        })
+        .expect("custom01 color-button harness should run");
+    }
 }

@@ -200,4 +200,29 @@ mod tests {
         definition.on_tick_with_app(&mut app, 0, &mut tick_ctx);
         assert!(!tick_ctx.stop_requested());
     }
+
+    /// LIVENESS probe (Pilot, headless): pressing `q` runs `action_request_quit`,
+    /// which pushes the modal `ModalScreen[bool]` and changes the frame; clicking
+    /// `#cancel` dismisses it with `false` (callback does not request quit) and
+    /// changes the frame back. Drives the push-screen-with-callback path through
+    /// the real runtime end-to-end.
+    #[test]
+    fn modal03_push_and_dismiss_is_live() {
+        run_test(ModalApp::default(), |pilot| {
+            assert_eq!(pilot.app().screen_count(), 0);
+            let before = pilot.app().frame_fingerprint();
+
+            pilot.press(&["q"])?;
+            assert_eq!(pilot.app().screen_count(), 1, "q must push the QuitScreen");
+            let pushed = pilot.app().frame_fingerprint();
+            assert_ne!(before, pushed, "pushing the modal must change the frame");
+
+            pilot.click("#cancel")?;
+            assert_eq!(pilot.app().screen_count(), 0, "cancel must dismiss the modal");
+            let dismissed = pilot.app().frame_fingerprint();
+            assert_ne!(pushed, dismissed, "dismissing the modal must change the frame");
+            Ok(())
+        })
+        .expect("modal03 push/dismiss harness should run");
+    }
 }

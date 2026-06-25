@@ -19,3 +19,26 @@ impl TextualApp for WelcomeApp {
 fn main() -> Result<()> {
     run_sync(WelcomeApp)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// LIVENESS probe (Pilot, headless): the `Welcome` widget docks an "OK"
+    /// button (id `close`). Clicking it fires `on_button_pressed`, which requests
+    /// app stop (the Python demo exits). Liveness via `headless_stop_requested()`
+    /// since the exit demo's frame is unchanged.
+    #[test]
+    fn widgets01_ok_button_exits_is_live() {
+        run_test(WelcomeApp, |pilot| {
+            assert!(!pilot.app().headless_stop_requested(), "no stop before interaction");
+            pilot.click("#close")?;
+            assert!(
+                pilot.app().headless_stop_requested(),
+                "clicking the Welcome OK button must request app exit"
+            );
+            Ok(())
+        })
+        .expect("widgets01 OK-button harness should run");
+    }
+}
