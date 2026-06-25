@@ -1421,3 +1421,167 @@ fn parity_log_content() {
     let (rf, pf) = widgets_both("log", &script, 400);
     assert_glyph_parity("log", &pf, &rf, &[]);
 }
+
+// ===========================================================================
+// WAVE 2 — REVERIFICATION: reactivity / tutorial / widgets-guide / app demos.
+//
+// Same PARITY polarity as the widgets cases above (assert Rust == Python).
+// Each case drives the demo's representative interaction on BOTH the real Rust
+// binary and the real Python app, then asserts the cell grids agree (glyph
+// exact over content rows; colour where deterministic), OR — for inherently
+// time-dependent demos (live clocks, fades) — asserts the SAME structural
+// behaviour on both sides (e.g. the clock region advanced on BOTH).
+//
+// A case that differs is a BUG, committed `#[ignore = "BUG: <diff>"]` with the
+// concrete cell/colour/behaviour divergence so it is tracked and flips to
+// passing when the underlying fundamental is fixed.
+// ===========================================================================
+
+/// Drive both the Rust example `name` and the Python `<cat>/<name>.py` app with
+/// the same script; return (rust_final, py_final) grids.
+fn cat_both(
+    name: &'static str,
+    cat: &'static str,
+    script: &[Step],
+    settle_ms: u64,
+) -> (Grid, Grid) {
+    let r = drive(&AppKind::Rust(name), script, settle_ms);
+    let p = drive(&AppKind::Python(cat, name), script, settle_ms);
+    (r.into_iter().last().unwrap(), p.into_iter().last().unwrap())
+}
+
+/// Fingerprint a rectangular region's glyphs (used for time-dependent "did the
+/// clock advance?" checks where an exact value is non-deterministic).
+fn region_fp(g: &Grid, rows: std::ops::Range<usize>, cols: std::ops::Range<usize>) -> String {
+    let mut s = String::new();
+    for r in rows {
+        for c in cols.clone() {
+            s.push(g.cell(r, c).ch);
+        }
+        s.push('\n');
+    }
+    s
+}
+
+/// Spawn `kind`, run `pre`, then check whether the glyph fingerprint of the
+/// region (rows×cols) CHANGED across a `gap_ms` window — i.e. a live clock in
+/// that region advanced. Returns whether it advanced.
+fn region_advances(
+    kind: &AppKind,
+    pre: &[Step],
+    rows: std::ops::Range<usize>,
+    cols: std::ops::Range<usize>,
+    gap_ms: u64,
+) -> bool {
+    let mut app = spawn(kind);
+    app.settle(Duration::from_secs(12));
+    for step in pre {
+        match step {
+            Step::SendKeys(s) => app.send(s.as_bytes()),
+            Step::Key(k) => app.send(&k.bytes()),
+            Step::Wait(ms) => std::thread::sleep(Duration::from_millis(*ms)),
+            Step::Click(x, y) => app.send(&sgr_click(*x, *y)),
+        }
+    }
+    std::thread::sleep(Duration::from_millis(250));
+    let f0 = region_fp(&app.capture(), rows.clone(), cols.clone());
+    std::thread::sleep(Duration::from_millis(gap_ms));
+    let f1 = region_fp(&app.capture(), rows, cols);
+    let label = app.label.clone();
+    app.shutdown();
+    let adv = f0 != f1;
+    eprintln!("{label}: region advanced = {adv}");
+    adv
+}
+
+// --- reactivity (input-driven, deterministic) -------------------------------
+
+/// computed01: typing a red value live recomputes the colour swatch background.
+#[test]
+#[ignore = "BUG: the green/blue Inputs are constructed with value \"0\" but Rust renders their PLACEHOLDER text (\"Enter green 0-255\"/\"Enter blue 0-255\") instead of the value \"0\" that Python shows. 29 glyph cells + focused-Input :focus background-tint (#1e1e1e vs #272727)."]
+fn parity_computed01_color() {
+    let script = [Step::SendKeys("123"), Step::Wait(300)];
+    let (rf, pf) = cat_both("computed01", "guide/reactivity", &script, 400);
+    assert_glyph_parity("computed01", &pf, &rf, &[]);
+}
+
+/// watch01: submit a colour name; both swatches update their backgrounds.
+#[test]
+#[ignore = "BUG: glyph-perfect but focused Input bg #1e1e1e (Rust) vs #272727 (Python applies `background-tint: $foreground 5%` on :focus). 247 colour cells. Shared root: :focus background-tint not applied (wave-1)."]
+fn parity_watch01_color() {
+    let script = [Step::SendKeys("red"), Step::Key(Key::Enter), Step::Wait(300)];
+    let (rf, pf) = cat_both("watch01", "guide/reactivity", &script, 400);
+    assert_glyph_parity("watch01", &pf, &rf, &[]);
+}
+
+/// validate01: the focused +1 button is pressed 3× via Enter; the validated
+/// reactive caps at 10 and each press appends `count = N` to the RichLog.
+#[test]
+#[ignore = "BUG: glyph-perfect (count = 1/2/3 on both) but the focused +1 success-Button bg is #4ebf71 (Rust, base $success) vs #55c076 (Python, lighter :focus/hover tint). 89 colour cells. Shared root: button :focus/hover background-tint not applied."]
+fn parity_validate01_count() {
+    let script = [
+        Step::Key(Key::Enter),
+        Step::Wait(400),
+        Step::Key(Key::Enter),
+        Step::Wait(400),
+        Step::Key(Key::Enter),
+        Step::Wait(400),
+    ];
+    let (rf, pf) = cat_both("validate01", "guide/reactivity", &script, 500);
+    assert_glyph_parity("validate01", &pf, &rf, &[]);
+}
+
+/// refresh01: typing a name live refreshes the `Name` widget's render.
+#[test]
+#[ignore = "BUG: glyph-perfect (\"Hello, Will!\" on both) but focused Input bg #1e1e1e (Rust) vs #272727 (Python :focus background-tint). 236 colour cells. Shared root: :focus background-tint not applied (wave-1)."]
+fn parity_refresh01_greeting() {
+    let script = [Step::SendKeys("Will"), Step::Wait(300)];
+    let (rf, pf) = cat_both("refresh01", "guide/reactivity", &script, 400);
+    assert_glyph_parity("refresh01", &pf, &rf, &[]);
+}
+
+/// refresh02: same as refresh01 but the reactive has `layout=True`.
+#[test]
+#[ignore = "BUG: the bordered `Name` widget (width/height auto) renders FULL container size (120 cols x ~25 rows) in Rust while Python shrinks it to its content (a 12x3 box around \"Hello, Will!\"). auto width/height not honoured for a bordered widget. 288 glyph cells + focused-Input :focus tint."]
+fn parity_refresh02_greeting() {
+    let script = [Step::SendKeys("Will"), Step::Wait(300)];
+    let (rf, pf) = cat_both("refresh02", "guide/reactivity", &script, 400);
+    assert_glyph_parity("refresh02", &pf, &rf, &[]);
+}
+
+/// refresh03: same but the reactive has `recompose=True` (rebuilds children).
+#[test]
+#[ignore = "BUG: glyph-perfect (\"Hello, Will!\" on both, recompose works) but focused Input bg #1e1e1e (Rust) vs #272727 (Python :focus background-tint). 236 colour cells. Shared root: :focus background-tint not applied (wave-1)."]
+fn parity_refresh03_greeting() {
+    let script = [Step::SendKeys("Will"), Step::Wait(300)];
+    let (rf, pf) = cat_both("refresh03", "guide/reactivity", &script, 400);
+    assert_glyph_parity("refresh03", &pf, &rf, &[]);
+}
+
+/// set_reactive01: pressing Space cycles the greeting via a watcher.
+#[test]
+#[ignore = "BUG/divergence: the Python reference itself RAISES on startup (Rich traceback shown — `self.greeting = greeting` in __init__ fires watch_greeting before compose → query_one NoMatches; this is the doc's intended failure mode that set_reactive02 fixes). Rust does NOT reproduce it: it suppresses/defers the pre-mount watcher and renders \"Hola\". reactive watcher init-timing differs (Python eager → crash, Rust deferred). Also exposes the same `who`-not-rendered gap as set_reactive02."]
+fn parity_set_reactive01_greeting() {
+    let script = [Step::Key(Key::Space), Step::Wait(300)];
+    let (rf, pf) = cat_both("set_reactive01", "guide/reactivity", &script, 400);
+    assert_glyph_parity("set_reactive01", &pf, &rf, &[]);
+}
+
+/// set_reactive02: same interaction; greeting initialised via `set_reactive`.
+#[test]
+#[ignore = "BUG: Python shows \"Hola Textual\" (greeting cycled + who=\"Textual\"); Rust shows only \"Hola\" — the `who` Label initialised via set_reactive(\"Textual\") in __init__ is NOT reflected at compose time (Label(self.who) reads the default empty reactive). Root: reactive value assigned before compose not read by compose-time content."]
+fn parity_set_reactive02_greeting() {
+    let script = [Step::Key(Key::Space), Step::Wait(300)];
+    let (rf, pf) = cat_both("set_reactive02", "guide/reactivity", &script, 400);
+    assert_glyph_parity("set_reactive02", &pf, &rf, &[]);
+}
+
+/// set_reactive03: submitting a name appends a `Hello, <name>` Label via
+/// `mutate_reactive` + recompose.
+#[test]
+#[ignore = "BUG: after submitting \"Ada\", Python recomposes and shows a \"Hello, Ada\" Label; Rust recomposes the Input (placeholder returns) but the appended Label is MISSING. Root: mutate_reactive on a list + recompose does not render the newly-appended children."]
+fn parity_set_reactive03_names() {
+    let script = [Step::SendKeys("Ada"), Step::Key(Key::Enter), Step::Wait(300)];
+    let (rf, pf) = cat_both("set_reactive03", "guide/reactivity", &script, 400);
+    assert_glyph_parity("set_reactive03", &pf, &rf, &[]);
+}
