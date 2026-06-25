@@ -40,6 +40,29 @@ until the API stabilizes.
   shrinks) while skipping the scrollbar paint, distinct from `overflow: hidden`
   (which removes the lane); that lives in `ScrollbarPolicy` / the host-scrollbar
   render path (out of this pass's scope).
+### 2026-06-24 (fix(examples): cosmetic faithfulness — clock local time + fizzbuzz02 get_content_width hook)
+
+- **`clock` example now uses local wall-clock time.** Replaced the UTC
+  `SystemTime/UNIX_EPOCH` computation with `chrono::Local::now()`, matching Python
+  `datetime.now()` which returns local (not UTC) time. Added `chrono = "0.4"` to
+  the `docs/examples/widgets` crate.
+- **`fizzbuzz02` now wires the real `get_content_width` hook.** Previously, the
+  Python `FizzBuzz.get_content_width` → 50 override was emulated via `width: 50` in
+  CSS on a bare `Static`. The example now has a proper `FizzBuzz` widget struct that
+  implements `Widget::content_width() → Some(50)` — the Rust equivalent of Python's
+  `get_content_width` — and uses `width: auto` in CSS (faithful to the Python
+  `FizzBuzz { width: auto; }` CSS rule). The widget also implements `layout_height()`
+  from the pre-computed table line count so `height: auto` + `align: center middle`
+  center the widget correctly. PTY parity golden unchanged (same visual output).
+- **`digits` / `clock` id-selector substitution** (`#pi` / `#clock` → type-selector
+  `Digits`) left unchanged: the visual output is identical for single-widget apps (one
+  widget of that type), so this substitution is benign.
+- **`radio_button` / `radio_set` emoji** already use the correct Unicode literals
+  (`👉 🔴` / `\u{1F449}\u{1F534}`) that Rich resolves from
+  `:backhand_index_pointing_right: :red_circle:` shortcodes — no change needed.
+- DEFERRED: markdown / markdown_viewer code-fence syntax highlighting +
+  `code_indent_guides=False` — needs tree-sitter grammar changes, out of scope for
+  this sweep.
 
 ### 2026-06-24 (feat(border): markup-styled border (sub)titles + ellipsis truncation + grid vcenter)
 

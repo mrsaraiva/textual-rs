@@ -14,11 +14,12 @@
 ///
 /// Rust port (faithful): `on_mount_with_app` registers `app.set_interval(1s, ...)`.
 /// The timer callback queries the `Digits` widget and updates it — exactly Python's
-/// `update_clock`. No `on_tick` second-boundary faking.
+/// `update_clock`. Uses `chrono::Local::now()` to match Python `datetime.now()`
+/// (local wall-clock time, not UTC).
 ///
 /// NOTE: This example is non-deterministic — it displays the live current time, which
 /// changes every second and cannot be parity-verified by plain-text snapshot comparison.
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use chrono::Timelike;
 use textual::prelude::*;
 
 const CSS: &str = r#"
@@ -30,21 +31,17 @@ Digits {
 }
 "#;
 
-/// Compute current UTC time as "HH:MM:SS".
-fn current_time_utc() -> String {
-    let secs = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-    let s = secs % 60;
-    let m = (secs / 60) % 60;
-    let h = (secs / 3600) % 24;
-    format!("{h:02}:{m:02}:{s:02}")
+/// Compute current LOCAL time as "HH:MM:SS".
+///
+/// Mirrors Python `datetime.now().time()` formatted as `%T` (HH:MM:SS).
+fn current_time_local() -> String {
+    let now = chrono::Local::now();
+    format!("{:02}:{:02}:{:02}", now.hour(), now.minute(), now.second())
 }
 
 /// Python `update_clock`: set the Digits display to the current time.
 fn update_clock(app: &mut App, ctx: &mut EventCtx) {
-    let time = current_time_utc();
+    let time = current_time_local();
     let _ = app.with_query_one_mut_as::<Digits, _>("Digits", |digits| {
         digits.update(time);
     });
@@ -61,14 +58,14 @@ impl TextualApp for ClockApp {
     }
 
     fn compose(&mut self) -> AppRoot {
-        let time = current_time_utc();
+        let time = current_time_local();
         AppRoot::new().with_child(Digits::new(time))
     }
 
     fn on_mount_with_app(&mut self, app: &mut App, _ctx: &mut EventCtx) {
         // Python: self.set_interval(1, self.update_clock).
         app.set_interval(
-            Duration::from_secs(1),
+            std::time::Duration::from_secs(1),
             None,
             false,
             Box::new(|app, ctx| update_clock(app, ctx)),
