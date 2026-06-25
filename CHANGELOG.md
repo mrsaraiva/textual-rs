@@ -97,6 +97,28 @@ until the API stabilizes.
 
 ### Fixed
 
+- **App and screen-root key bindings stay live while a screen/mode is active.**
+  Key dispatch matched declarative bindings only in the active (top-of-stack)
+  screen tree, so two whole binding classes were silently dropped: (1) the
+  app-root's own `App::BINDINGS` (e.g. `app.switch_mode`, `app.push_screen`),
+  which live in a separate app-root tree, and (2) a pushed screen's own
+  declarative `bindings()` when nothing was focused (the no-focus fallback only
+  walked a single-child chain, stopping at the screen-host root before reaching
+  the screen-body root that owns bindings like `escape -> app.pop_screen`). A
+  new `match_binding_chain` walks the active chain (focused→root, or
+  `[screen-root, screen-body-root]` when unfocused) and then the app-root chain,
+  mirroring Python `App._check_bindings` / `Screen._binding_chain`. Flips the
+  `guide/screens/modes01`, `guide/screens/screen01`, and `guide/screens/screen02`
+  liveness probes from DEAD to LIVE (mode switching and screen push/pop via key
+  bindings now fire).
+- **Widget BINDINGS without an `action_registry()` entry now run on their source
+  node.** A widget that declared `BINDINGS` whose action is served only by an
+  `execute_action` override (no `action_registry()` entry) had its action
+  dropped: `resolve_action` found no registry owner and the action fell through
+  to the root, which did not handle it. Binding resolution now falls back to the
+  binding's own source node (the binding source IS the target, matching Python's
+  `run_action(action, namespace)`), so such actions dispatch correctly. Flips the
+  `guide/widgets/counter02` liveness probe from DEAD to LIVE.
 - **Headless (`run_test`/Pilot) now fires app-level timer-callback reactives.**
   The headless pump invoked `run_due_timer_callbacks` directly, bypassing the
   root `on_app_timer` hook, so reactive fields mutated inside `set_interval`

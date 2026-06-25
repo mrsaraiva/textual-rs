@@ -166,14 +166,12 @@ mod tests {
     /// changes the frame; pressing `escape` (bound on `BSODRoot` to
     /// `app.pop_screen`) pops it back and changes the frame again.
     ///
-    /// Push (`b`) is LIVE; the screen-root `escape` pop binding is DEAD, so this
-    /// probe is `#[ignore]`d. ROOT: same gap as screen01 — a pushed screen's own
+    /// Both halves are LIVE (same root fix as screen01): a pushed screen's own
     /// declarative `bindings()` (`escape -> app.pop_screen` on `BSODRoot`) are
-    /// not in the active binding chain (`app.binding_hints()` omits `escape`
-    /// while the screen is active), so `match_binding_tree` never matches it.
-    /// TODO: include screen-root bindings in the active chain when a screen is
-    /// pushed; then drop `#[ignore]` — this probe flips to LIVE.
-    #[ignore = "DEAD: screen-root key bindings (escape->pop_screen) not in the active binding chain"]
+    /// now in the active binding chain. With no widget focused,
+    /// `match_binding_chain` walks `[screen-root, screen-body-root]`, reaching
+    /// `BSODRoot` where `escape` is declared; the matched `app.pop_screen` routes
+    /// to the app adapter and pops the screen.
     #[test]
     fn screen02_push_and_pop_is_live() {
         run_test(BSODApp, |pilot| {

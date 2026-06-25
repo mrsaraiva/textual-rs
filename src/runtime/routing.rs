@@ -618,46 +618,122 @@ fn format_binding_key_display(binding_key: &str) -> String {
 /// Phase 2: normal bindings (focused→root).
 ///
 /// Returns `(node_id, action_string)` of the first match, or `None`.
+///
+/// Thin 2-tuple wrapper over [`match_binding_chain`] (active tree only), kept
+/// for the focused-chain regression tests below.
+#[cfg(test)]
 pub(crate) fn match_binding_tree(
     tree: &WidgetTree,
     key: &KeyEventData,
 ) -> Option<(NodeId, String)> {
-    let path = if let Some(focus_id) = focused_node_id_tree(tree) {
-        build_path_to_node(tree, focus_id)
-    } else {
-        // No focused widget: fall back to root + single-child chain so
-        // app-level/root declarative bindings still work.
-        let root = tree.root()?;
-        let mut path = vec![root];
-        let mut current = root;
-        loop {
-            let children = tree.children(current);
-            if children.len() != 1 {
-                break;
-            }
-            current = children[0];
-            path.push(current);
-        }
-        path
-    };
+    match_binding_chain(tree, None, key).map(|(node, action, _src)| (node, action))
+}
 
-    // Phase 1: priority bindings (focused → root)
-    for &node_id in path.iter().rev() {
-        if let Some(node) = tree.get(node_id) {
+/// Build the focused→root binding-resolution path for `tree`.
+///
+/// Mirrors Python `Screen._binding_chain` / `_modal_binding_chain` (focused
+/// `ancestors_with_self`, or `[screen, app]` when nothing is focused).
+///
+/// When a widget has focus, the path is `[root, …, parent, focused]`. When no
+/// widget is focused, the path is `[root, screen-body-root]`: the active tree's
+/// root plus its first ("content") child. This is the analog of Python's
+/// `[screen, app]` no-focus chain — the screen-tree root (`ScreenHost`,
+/// `style_type "Screen"`) delegates its own `bindings()` to the `Screen` impl,
+/// while the screen body's compose-root (the first child) carries the screen's
+/// declarative `BINDINGS`. Stopping at the root (as a single-child-only walk
+/// did) drops those bindings whenever the screen root has infrastructure
+/// siblings (scrollbars / tooltip / command palette).
+fn binding_path(tree: &WidgetTree) -> Vec<NodeId> {
+    if let Some(focus_id) = focused_node_id_tree(tree) {
+        return build_path_to_node(tree, focus_id);
+    }
+    // No focused widget: root + its first (content) child so the active
+    // screen/app body root's declarative bindings stay in the chain.
+    let Some(root) = tree.root() else {
+        return Vec::new();
+    };
+    let mut path = vec![root];
+    if let Some(&body) = tree.children(root).first() {
+        path.push(body);
+    }
+    path
+}
+
+/// Source tree of a matched binding, so the caller can route execution.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum BindingSource {
+    /// Binding declared in the active (screen or app) tree.
+    Active,
+    /// Binding declared on the app-root tree (e.g. `App::BINDINGS`), consulted
+    /// only when a separate screen tree is active.
+    AppRoot,
+}
+
+/// Result of a binding match: the source node, the action string, and which
+/// tree the source node belongs to.
+pub(crate) type BindingMatch = (NodeId, String, BindingSource);
+
+/// Match a key against the full active binding chain.
+///
+/// Faithful to Python's `App._check_bindings`, which consults
+/// `Screen._binding_chain` (focused→root) and then the App's own bindings:
+///
+/// - First walk the active tree (focused→root, or `[root, body-root]` when
+///   unfocused), matching priority bindings then normal bindings.
+/// - Then, when a distinct `app_root` tree is supplied (i.e. a screen/mode is
+///   active and the app-root tree is *not* the active tree), walk it too so
+///   `App::BINDINGS` (e.g. `app.switch_mode`, `app.push_screen`) remain live
+///   beneath the active screen.
+///
+/// `app_root` must be `None` when the active tree already *is* the app-root
+/// tree (no screen pushed), to avoid double-walking it.
+pub(crate) fn match_binding_chain(
+    active: &WidgetTree,
+    app_root: Option<&WidgetTree>,
+    key: &KeyEventData,
+) -> Option<BindingMatch> {
+    let active_path = binding_path(active);
+    let app_path = app_root.map(binding_path).unwrap_or_default();
+
+    // Phase 1: priority bindings, active chain (focused→root) then app-root.
+    for &node_id in active_path.iter().rev() {
+        if let Some(node) = active.get(node_id) {
             for binding in node.widget.bindings() {
                 if binding.priority && key_matches_binding(key, &binding.key) {
-                    return Some((node_id, binding.action.clone()));
+                    return Some((node_id, binding.action.clone(), BindingSource::Active));
+                }
+            }
+        }
+    }
+    if let Some(app_tree) = app_root {
+        for &node_id in app_path.iter().rev() {
+            if let Some(node) = app_tree.get(node_id) {
+                for binding in node.widget.bindings() {
+                    if binding.priority && key_matches_binding(key, &binding.key) {
+                        return Some((node_id, binding.action.clone(), BindingSource::AppRoot));
+                    }
                 }
             }
         }
     }
 
-    // Phase 2: normal bindings (focused → root)
-    for &node_id in path.iter().rev() {
-        if let Some(node) = tree.get(node_id) {
+    // Phase 2: normal bindings, active chain then app-root.
+    for &node_id in active_path.iter().rev() {
+        if let Some(node) = active.get(node_id) {
             for binding in node.widget.bindings() {
                 if !binding.priority && key_matches_binding(key, &binding.key) {
-                    return Some((node_id, binding.action.clone()));
+                    return Some((node_id, binding.action.clone(), BindingSource::Active));
+                }
+            }
+        }
+    }
+    if let Some(app_tree) = app_root {
+        for &node_id in app_path.iter().rev() {
+            if let Some(node) = app_tree.get(node_id) {
+                for binding in node.widget.bindings() {
+                    if !binding.priority && key_matches_binding(key, &binding.key) {
+                        return Some((node_id, binding.action.clone(), BindingSource::AppRoot));
+                    }
                 }
             }
         }
@@ -2391,6 +2467,91 @@ mod binding_tests {
         let (node_id, action) = result.unwrap();
         assert_eq!(node_id, root_id);
         assert_eq!(action, "submit");
+    }
+
+    /// CLUSTER 6 (screen-root bindings): with no widget focused, the no-focus
+    /// chain must reach the screen-body root (root + first content child), even
+    /// when the screen root has infrastructure siblings (scrollbars / tooltip).
+    /// The screen body root carries the screen's declarative `BINDINGS`
+    /// (e.g. `escape -> app.pop_screen`).
+    #[test]
+    fn match_binding_no_focus_reaches_screen_body_root() {
+        let mut tree = WidgetTree::new();
+        // Screen-host root (empty bindings), like `ScreenHost`.
+        let root_id = tree.set_root(Box::new(BindingWidget::new(false, vec![])));
+        // Body root (first child) carries the screen's binding.
+        let body_id = tree.mount(
+            root_id,
+            Box::new(BindingWidget::new(
+                false,
+                vec![BindingDecl::new("escape", "app.pop_screen", "Pop")],
+            )),
+        );
+        // Infrastructure siblings after the body (scrollbars / tooltip) — these
+        // are why a "single child only" walk used to stop at the root.
+        tree.mount(root_id, Box::new(BindingWidget::new(false, vec![])));
+        tree.mount(root_id, Box::new(BindingWidget::new(false, vec![])));
+
+        let key = KeyEventData::from_crossterm(key_event(KeyCode::Esc, KeyModifiers::empty()));
+        let result = match_binding_chain(&tree, None, &key);
+        assert_eq!(result, Some((body_id, "app.pop_screen".to_string(), BindingSource::Active)));
+    }
+
+    /// CLUSTER 6 (app-root bindings): when a separate app-root tree is supplied
+    /// (a screen/mode is active), `App::BINDINGS` declared on the app-root tree
+    /// must remain in the chain beneath the active screen, tagged `AppRoot`.
+    #[test]
+    fn match_binding_consults_app_root_tree_beneath_active_screen() {
+        // Active screen tree: a root with an unrelated binding.
+        let mut screen = WidgetTree::new();
+        screen.set_root(Box::new(BindingWidget::new(
+            false,
+            vec![BindingDecl::new("x", "noop", "Noop")],
+        )));
+
+        // App-root tree: the app adapter declares `s -> app.switch_mode(...)`.
+        let mut app_root = WidgetTree::new();
+        let app_node = app_root.set_root(Box::new(BindingWidget::new(
+            false,
+            vec![BindingDecl::new("s", "app.switch_mode('settings')", "Settings")],
+        )));
+
+        let key = KeyEventData::from_crossterm(key_event(KeyCode::Char('s'), KeyModifiers::empty()));
+        let result = match_binding_chain(&screen, Some(&app_root), &key);
+        assert_eq!(
+            result,
+            Some((app_node, "app.switch_mode('settings')".to_string(), BindingSource::AppRoot)),
+            "app-root binding must be consulted while a screen is active"
+        );
+    }
+
+    /// The active-tree chain takes precedence over the app-root chain (Python
+    /// walks `Screen._binding_chain` before falling back to App bindings).
+    #[test]
+    fn match_binding_active_chain_wins_over_app_root() {
+        let mut screen = WidgetTree::new();
+        let screen_root = screen.set_root(Box::new(BindingWidget::new(false, vec![])));
+        let body_id = screen.mount(
+            screen_root,
+            Box::new(BindingWidget::new(
+                false,
+                vec![BindingDecl::new("s", "screen_action", "Screen")],
+            )),
+        );
+
+        let mut app_root = WidgetTree::new();
+        app_root.set_root(Box::new(BindingWidget::new(
+            false,
+            vec![BindingDecl::new("s", "app.switch_mode('settings')", "Settings")],
+        )));
+
+        let key = KeyEventData::from_crossterm(key_event(KeyCode::Char('s'), KeyModifiers::empty()));
+        let result = match_binding_chain(&screen, Some(&app_root), &key);
+        assert_eq!(
+            result,
+            Some((body_id, "screen_action".to_string(), BindingSource::Active)),
+            "active-tree binding must win over an app-root binding for the same key"
+        );
     }
 
     // -- binding hints integration --
