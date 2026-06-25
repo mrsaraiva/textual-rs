@@ -57,23 +57,25 @@ mod tests {
     // Python switches the registered theme (`textual-dark` <-> `textual-light`)
     // and recolours every `$`-token-styled surface (Header/Footer/Screen).
     //
-    // CURRENTLY DEAD — root cause: the binding routes correctly (root
-    // `execute_action("toggle_dark")` posts `AppToggleDark`, the handler calls
-    // `App::action_toggle_dark()` and requests repaint), but
-    // `action_toggle_dark` only flips a flat `self.theme.base` bg/fg — it does
-    // NOT switch the registered token theme. Header/Footer/Screen resolve their
-    // colours from `$background`/`$panel`/etc. via the theme-token registry,
-    // which is unchanged, so the re-rendered frame is byte-identical. The fix is
-    // to make `action_toggle_dark` switch the active *registered* theme (as
-    // Python does), so token-styled widgets recolour. Flip this test active once
-    // that lands. Tracking: toggle_dark-switches-registered-theme.
-    #[ignore = "DEAD: toggle_dark mutates theme.base but not registered token theme; frame unchanged; see comment"]
+    // NOW LIVE — `App::action_toggle_dark` switches the active *registered*
+    // theme (`textual-dark` <-> `textual-light`) exactly like Python's
+    // `App.action_toggle_dark`. Header/Footer/Screen resolve their colours from
+    // `$background`/`$panel`/etc. via the theme-token registry, so swapping the
+    // active theme re-resolves every token-styled surface and the re-rendered
+    // frame differs (different bg/fg per cell). The `is_dark` flag also flips
+    // (see on_decorator01/02), but this probe asserts the stronger property:
+    // the rendered frame actually recolours.
     #[test]
     fn liveness_d_toggles_dark_mode() {
         textual::run_test(StopwatchApp, |pilot| {
+            assert!(pilot.app().is_dark(), "app starts in dark mode");
             let before = pilot.app().frame_fingerprint();
             pilot.press(&["d"])?;
             let after = pilot.app().frame_fingerprint();
+            assert!(
+                !pilot.app().is_dark(),
+                "pressing `d` must switch to the light theme"
+            );
             assert_ne!(
                 before, after,
                 "pressing `d` must toggle dark mode and recolour the frame"

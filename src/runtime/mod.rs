@@ -36,7 +36,7 @@ use crate::node_id::node_id_from_ffi;
 use crate::node_id::node_id_to_ffi;
 use crate::render::FrameBuffer;
 use crate::screen::ScreenStack;
-use crate::style::{Color, Theme, Visibility};
+use crate::style::{Theme, Visibility};
 use crate::widget_tree::{QueryError, WidgetTree};
 use crate::widgets::{
     BindingDecl, HelpPanel, SYSTEM_TOOLTIP_STYLE_ID, ToastSeverity, Tooltip, Widget,
@@ -476,6 +476,11 @@ pub struct App {
     theme_cycle_index: usize,
     default_stylesheet: StyleSheet,
     stylesheet: StyleSheet,
+    /// Source text of the app stylesheet (when set from CSS), kept so the app
+    /// stylesheet can be re-parsed against the active design tokens on a theme
+    /// switch. Color tokens (`$primary`/`$panel`/…) are resolved to concrete
+    /// colours at parse time, so a theme change must re-parse to re-resolve.
+    stylesheet_source: Option<String>,
     stylesheet_watch: Option<StylesheetWatcher>,
     running: bool,
     hovered: Option<NodeId>,
@@ -686,6 +691,7 @@ impl App {
             theme_cycle_index: 0,
             default_stylesheet: default_widget_stylesheet(),
             stylesheet: StyleSheet::default(),
+            stylesheet_source: None,
             stylesheet_watch: None,
             running: true,
             hovered: None,
@@ -2000,23 +2006,28 @@ impl App {
         Ok(false)
     }
 
+    /// Toggle the theme between `textual-light` and `textual-dark`.
+    ///
+    /// Faithful port of Python `App.action_toggle_dark`:
+    ///
+    /// ```python
+    /// self.theme = (
+    ///     "textual-dark" if self.theme == "textual-light" else "textual-light"
+    /// )
+    /// ```
+    ///
+    /// Switching the *registered* theme swaps the active design-token map
+    /// (`$primary`/`$background`/`$panel`/…), so every `$`-token-styled surface
+    /// re-resolves to the new theme's colours on the next render. This is the
+    /// real dark-mode toggle, not a flat `theme.base` bg/fg swap — Header,
+    /// Footer, Screen and any token-styled widget recolour together.
     pub fn action_toggle_dark(&mut self) -> bool {
-        self.dark_mode = !self.dark_mode;
-        let mut base = crate::style::Style::new();
-        if self.dark_mode {
-            if let Some(bg) = crate::style::parse_color_like("$background") {
-                base = base.bg(bg);
-            }
-            if let Some(fg) = crate::style::parse_color_like("$foreground") {
-                base = base.fg(fg);
-            }
+        let next = if self.theme_name == "textual-light" {
+            "textual-dark"
         } else {
-            base = base
-                .bg(Color::rgb(245, 245, 245))
-                .fg(Color::rgb(20, 20, 20));
-        }
-        self.theme = Theme::new().base(base);
-        true
+            "textual-light"
+        };
+        self.set_theme_by_name(next)
     }
 
     pub fn action_change_theme(&mut self) -> bool {
@@ -3167,7 +3178,22 @@ impl App {
         self.theme_name = name.to_string();
         self.dark_mode = crate::theme::get_theme(name).map(|t| t.dark).unwrap_or(true);
         self.rebuild_base_from_active_theme();
+        self.refresh_css_for_theme();
         true
+    }
+
+    /// Re-resolve token-bearing stylesheets against the now-active theme.
+    ///
+    /// Color tokens (`$primary`/`$panel`/…) are resolved to concrete colours at
+    /// CSS *parse* time, so the cached default + app stylesheets still hold the
+    /// previous theme's colours after a switch. Re-parsing them re-resolves
+    /// every token against the new active theme — the Rust analogue of Python
+    /// `App.refresh_css` re-applying the design tokens (`_watch_theme`).
+    fn refresh_css_for_theme(&mut self) {
+        self.default_stylesheet = default_widget_stylesheet();
+        if let Some(source) = self.stylesheet_source.clone() {
+            self.stylesheet = StyleSheet::parse(&source);
+        }
     }
 
     /// Rebuild the runtime base Style (`$background`/`$foreground`) from the
@@ -3434,20 +3460,27 @@ impl App {
 
     pub fn set_stylesheet(&mut self, stylesheet: StyleSheet) {
         self.stylesheet = stylesheet;
+        // A pre-parsed sheet has no source to re-resolve tokens from on a theme
+        // switch; clear any stale source so we don't re-parse the wrong CSS.
+        self.stylesheet_source = None;
     }
 
     pub fn stylesheet_mut(&mut self) -> &mut StyleSheet {
+        // Direct mutation bypasses the source cache; drop it to stay consistent.
+        self.stylesheet_source = None;
         &mut self.stylesheet
     }
 
     pub fn load_stylesheet(&mut self, css: &str) {
         self.stylesheet = StyleSheet::parse(css);
+        self.stylesheet_source = Some(css.to_string());
     }
 
     pub fn load_stylesheet_file(&mut self, path: impl Into<PathBuf>) -> Result<()> {
         let path = path.into();
         let css = fs::read_to_string(&path)?;
         self.stylesheet = StyleSheet::parse(&css);
+        self.stylesheet_source = Some(css);
         Ok(())
     }
 
@@ -3455,6 +3488,7 @@ impl App {
         let path = path.into();
         let css = fs::read_to_string(&path)?;
         self.stylesheet = StyleSheet::parse(&css);
+        self.stylesheet_source = Some(css.clone());
         let last_modified = fs::metadata(&path).and_then(|m| m.modified()).ok();
         self.stylesheet_watch = Some(StylesheetWatcher {
             path,
@@ -4192,6 +4226,7 @@ impl App {
             .iter()
             .any(|rule| style_affects_layout(&rule.style()));
         self.stylesheet = next.clone();
+        self.stylesheet_source = Some(css.clone());
         watch.last_css = css;
         watch.last_modified = Some(modified);
         Some(StylesheetReload {

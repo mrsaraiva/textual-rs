@@ -18,6 +18,7 @@
 //! that theme instead.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 use crate::style::{
@@ -438,6 +439,22 @@ struct Registry {
     active_tokens: HashMap<String, Color>,
 }
 
+/// Monotonic counter bumped every time the active design-token map changes
+/// (theme switch, or re-generation of the active theme's tokens). The computed
+/// style cache reads this so a theme change invalidates cached `$token` colours
+/// — the Rust analogue of Python `App._invalidate_css` driven by `_watch_theme`.
+static THEME_GENERATION: AtomicU64 = AtomicU64::new(0);
+
+/// Current active-theme generation. Bumped by [`set_active_theme`] /
+/// [`register_theme`] whenever the resolved token map changes.
+pub(crate) fn theme_generation() -> u64 {
+    THEME_GENERATION.load(Ordering::Relaxed)
+}
+
+fn bump_theme_generation() {
+    THEME_GENERATION.fetch_add(1, Ordering::Relaxed);
+}
+
 fn registry() -> &'static Mutex<Registry> {
     static REG: OnceLock<Mutex<Registry>> = OnceLock::new();
     REG.get_or_init(|| {
@@ -462,6 +479,7 @@ pub fn register_theme(theme: NamedTheme) {
     if reg.active.as_deref() == Some(name.as_str()) {
         let regenerated = reg.themes.get(&name).unwrap().generate();
         reg.active_tokens = regenerated;
+        bump_theme_generation();
     }
 }
 
@@ -497,6 +515,15 @@ pub fn set_active_theme(name: &str) -> bool {
     let Some(theme) = reg.themes.get(name).cloned() else {
         return false;
     };
+    // No-op if already active (don't churn the token map / generation).
+    let already_active = if name == "textual-dark" {
+        reg.active.is_none()
+    } else {
+        reg.active.as_deref() == Some(name)
+    };
+    if already_active {
+        return true;
+    }
     if name == "textual-dark" {
         reg.active = None;
         reg.active_tokens = HashMap::new();
@@ -504,6 +531,7 @@ pub fn set_active_theme(name: &str) -> bool {
         reg.active = Some(name.to_string());
         reg.active_tokens = theme.generate();
     }
+    bump_theme_generation();
     true
 }
 

@@ -9,6 +9,21 @@ until the API stabilizes.
 
 ### Fixed
 
+- **`toggle_dark` / theme switching re-resolves design tokens and recolours the
+  frame** — `App::action_toggle_dark` now switches the active *registered* theme
+  (`textual-dark` <-> `textual-light`), exactly like Python's
+  `App.action_toggle_dark`, instead of flipping a flat `theme.base` bg/fg. A
+  theme switch (`set_theme_by_name` / `cycle_theme` / `toggle_dark`) now also
+  re-resolves token-bearing CSS: design tokens (`$primary`/`$background`/`$panel`/
+  …) are resolved to concrete colours at CSS *parse* time, so the cached default
+  and app stylesheets are re-parsed against the new active theme (the app
+  stylesheet source is retained for this), and the computed-style cache is
+  invalidated via a theme-generation counter (the Rust analogue of Python
+  `_watch_theme` -> `_invalidate_css` + `refresh_css`). Token-styled surfaces
+  (Header / Footer / Screen and any `$`-token widget) now recolour together on a
+  dark-mode toggle. Flips the `tutorial/stopwatch01` liveness probe from DEAD to
+  LIVE and deepens `events/on_decorator01`/`on_decorator02` (frame now recolours,
+  not just the `is_dark` flag).
 - **Empty Screen composites a runtime-set inline background** — the tree
   compositor now re-fills the Screen surface node's content box with its
   RESOLVED node background, so a background set at runtime on the `Screen` node

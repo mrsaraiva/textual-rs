@@ -154,6 +154,12 @@ pub(super) struct ComputedStyleCache {
     entries: HashMap<NodeId, CachedComputedStyle>,
     stats: ComputedStyleCacheStats,
     layout_affected_change_in_pass: bool,
+    /// Active design-token generation the cached entries were resolved against.
+    /// A `$token` (e.g. `$panel`) resolves to a concrete `Color` baked into the
+    /// cached `Style`; the cache key is theme-independent, so a theme switch
+    /// would otherwise return stale colours. Tracking the generation lets us
+    /// drop stale entries when the active theme changes (Python `_invalidate_css`).
+    theme_generation: u64,
 }
 
 impl ComputedStyleCache {
@@ -168,6 +174,14 @@ impl ComputedStyleCache {
 
     pub(super) fn begin_render_pass(&mut self) {
         self.layout_affected_change_in_pass = false;
+        // If the active design theme changed since these entries were resolved,
+        // every cached `$token` colour is stale — drop them so this pass
+        // re-resolves against the new token map.
+        let current_gen = crate::theme::theme_generation();
+        if current_gen != self.theme_generation {
+            self.theme_generation = current_gen;
+            self.entries.clear();
+        }
     }
 
     pub(super) fn take_layout_affected_change(&mut self) -> bool {
