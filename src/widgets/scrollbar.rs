@@ -268,14 +268,22 @@ impl ScrollbarPolicy {
         let content_width = content_width.max(1);
         let content_height = content_height.max(1);
 
-        let allow_h = !matches!(self.visibility, ScrollbarVisibility::Hidden)
-            && !matches!(self.overflow_x, Overflow::Hidden);
-        let allow_v = !matches!(self.visibility, ScrollbarVisibility::Hidden)
-            && !matches!(self.overflow_y, Overflow::Hidden);
-        let force_visible_v = matches!(self.visibility, ScrollbarVisibility::Visible)
-            || matches!(self.overflow_y, Overflow::Scroll);
-        let force_visible_h = matches!(self.visibility, ScrollbarVisibility::Visible)
-            || matches!(self.overflow_x, Overflow::Scroll);
+        // `scrollbar-visibility` does NOT drop the lane or force it to show.
+        // Python reserves the gutter from overflow alone (`_refresh_scrollbars`
+        // keys `show_*` off `overflow_x/overflow_y` ONLY, never visibility) and
+        // merely declines to PAINT the chrome (`_compositor` adds the chrome
+        // widgets only when `scrollbar_visibility == "visible"`). So lane
+        // RESERVATION (`allow_*`) and forced-show derive from overflow alone;
+        // visibility is handled by the separate `paint_*` flags below.
+        let allow_h = !matches!(self.overflow_x, Overflow::Hidden);
+        let allow_v = !matches!(self.overflow_y, Overflow::Hidden);
+        let force_visible_v = matches!(self.overflow_y, Overflow::Scroll);
+        let force_visible_h = matches!(self.overflow_x, Overflow::Scroll);
+        // `paint_*` is whether the scrollbar GLYPHS are drawn into the reserved
+        // lane. Python's default `scrollbar-visibility` is `visible`, so only the
+        // explicit `hidden` case suppresses the paint (lane stays reserved).
+        let paint_v = !matches!(self.visibility, ScrollbarVisibility::Hidden);
+        let paint_h = !matches!(self.visibility, ScrollbarVisibility::Hidden);
         let force_gutter = matches!(self.gutter, ScrollbarGutter::Stable);
 
         let mut show_v = false;
@@ -334,6 +342,13 @@ impl ScrollbarPolicy {
             horizontal_lane_height,
             show_vertical: show_v,
             show_horizontal: show_h,
+            // `paint_*` gates whether the bar glyphs are drawn into the reserved
+            // lane. `scrollbar-visibility: hidden` reserves the gutter (lane
+            // stays) but suppresses the paint so the gutter shows the host
+            // background, matching Python's compositor (chrome added only when
+            // `scrollbar_visibility == "visible"`).
+            paint_vertical: paint_v,
+            paint_horizontal: paint_h,
         }
     }
 }
@@ -350,6 +365,12 @@ pub struct ScrollbarGeometry {
     pub horizontal_lane_height: usize,
     pub show_vertical: bool,
     pub show_horizontal: bool,
+    /// Whether the vertical scrollbar GLYPHS should be painted. False under
+    /// `scrollbar-visibility: hidden` (lane still reserved, just not painted).
+    pub paint_vertical: bool,
+    /// Whether the horizontal scrollbar GLYPHS should be painted. False under
+    /// `scrollbar-visibility: hidden`.
+    pub paint_horizontal: bool,
 }
 
 impl ScrollbarGeometry {
@@ -374,6 +395,11 @@ impl ScrollbarGeometry {
             horizontal_lane_height,
             show_vertical: vertical_lane_width > 0,
             show_horizontal: horizontal_lane_height > 0,
+            // Runtime-state geometry has no visibility context; default to
+            // painting (the hidden-visibility suppression is decided in the
+            // policy-resolve path that knows `scrollbar-visibility`).
+            paint_vertical: true,
+            paint_horizontal: true,
         }
     }
 
@@ -1177,6 +1203,76 @@ mod tests {
     }
 
     #[test]
+    fn hidden_visibility_reserves_lane_but_suppresses_paint() {
+        // Python parity: `scrollbar-visibility: hidden` reserves the gutter
+        // (`Widget._refresh_scrollbars` keys `show_*` off overflow only) and
+        // merely declines to PAINT the chrome (`_compositor` adds chrome only
+        // when `scrollbar_visibility == "visible"`). The lane must stay reserved
+        // so content width / layout is unchanged; only the bar glyphs disappear.
+        let visible = ScrollbarPolicy {
+            overflow_x: Overflow::Auto,
+            overflow_y: Overflow::Auto,
+            visibility: ScrollbarVisibility::Visible,
+            gutter: ScrollbarGutter::Auto,
+            vertical_size: 2,
+            horizontal_size: 1,
+        };
+        let hidden = ScrollbarPolicy {
+            visibility: ScrollbarVisibility::Hidden,
+            ..visible
+        };
+
+        // Overflowing content: lane geometry is IDENTICAL between visible and
+        // hidden; only the paint flag differs.
+        let g_vis = visible.resolve(80, 20, 80, 60);
+        let g_hid = hidden.resolve(80, 20, 80, 60);
+        assert_eq!(g_vis.vertical_lane_width, g_hid.vertical_lane_width);
+        assert_eq!(g_vis.viewport_width, g_hid.viewport_width);
+        assert!(g_hid.show_vertical, "hidden visibility still reserves the lane");
+        assert_eq!(g_hid.vertical_lane_width, 2);
+        assert_eq!(g_hid.viewport_width, 78);
+        assert!(g_vis.paint_vertical, "visible scrollbar is painted");
+        assert!(!g_hid.paint_vertical, "hidden scrollbar is NOT painted");
+
+        // `scrollbar-visibility: visible` does NOT force the lane to show. With
+        // NO overflow + auto overflow, the bar does not show (Python's
+        // `_refresh_scrollbars` keys off overflow only).
+        let no_overflow = visible.resolve(80, 20, 80, 10);
+        assert!(
+            !no_overflow.show_vertical,
+            "visible visibility must not force-show a non-overflowing auto lane"
+        );
+        assert_eq!(no_overflow.vertical_lane_width, 0);
+
+        // `scrollbar-gutter: stable` + no overflow still RESERVES the lane (width
+        // 2) even though the bar is not shown — Python `scrollbar_size_vertical`
+        // returns the full size whenever gutter==stable and overflow==auto.
+        let stable = ScrollbarPolicy {
+            gutter: ScrollbarGutter::Stable,
+            ..visible
+        };
+        let g_stable = stable.resolve(80, 20, 80, 10);
+        assert_eq!(
+            g_stable.vertical_lane_width, 2,
+            "stable gutter reserves the lane even with no overflow"
+        );
+        assert!(
+            !g_stable.show_vertical,
+            "stable gutter reserves the lane but the bar is not shown without overflow"
+        );
+        assert_eq!(g_stable.viewport_width, 78);
+
+        // Auto (the genuinely-overflowing default) still paints.
+        let auto = ScrollbarPolicy {
+            visibility: ScrollbarVisibility::Auto,
+            ..visible
+        };
+        let g_auto = auto.resolve(80, 20, 80, 60);
+        assert!(g_auto.paint_vertical);
+        assert_eq!(g_auto.vertical_lane_width, 2);
+    }
+
+    #[test]
     fn geometry_hit_test_distinguishes_thumb_and_track() {
         let geometry = ScrollbarGeometry {
             widget_width: 80,
@@ -1189,6 +1285,8 @@ mod tests {
             horizontal_lane_height: 0,
             show_vertical: true,
             show_horizontal: false,
+            paint_vertical: true,
+            paint_horizontal: true,
         };
         let (thumb_start, _thumb_len) = geometry.vertical_thumb(10);
         let thumb_hit = geometry.hit_test(79, thumb_start, 0, 10).unwrap();

@@ -7,6 +7,30 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### 2026-06-24 (fix(scroll): scrollbar-visibility reserves the gutter without painting the bar)
+
+- **`scrollbar-visibility` no longer gates scrollbar-lane RESERVATION or forces the
+  bar to show — it only governs whether the bar is PAINTED**, matching Python.
+  Previously the `hidden` case zeroed `allow_h/allow_v` in `ScrollbarPolicy::resolve`
+  (dropping the lane so content reflowed into the gutter columns), and the `visible`
+  case force-showed the bar even with no overflow. Python's `_refresh_scrollbars`
+  computes `show_*` from `overflow_x/overflow_y` ALONE (never visibility),
+  `scrollbar_size_vertical` reserves the stable gutter regardless of `show`, and the
+  `_compositor` PAINTS the chrome only when `show_* && scrollbar_visibility ==
+  "visible"`. The Rust fix mirrors that split:
+  - `ScrollbarPolicy::resolve` derives lane RESERVATION (`allow_*`) and
+    `force_visible_*` from overflow only, and exposes new
+    `ScrollbarGeometry::paint_vertical / paint_horizontal` (false under
+    `scrollbar-visibility: hidden`).
+  - `apply_host_scrollbar_layout` drives the scrollbar lane RECT off lane
+    RESERVATION (`vertical_lane_width > 0` / `horizontal_lane_height > 0`), NOT
+    `show`, so a `scrollbar-gutter: stable` host keeps its reserved 2-column rect
+    even with no overflow (previously the reserved columns were orphaned). The bar
+    PAINT (`set_runtime_display`) is gated on `show && paint`, so the hidden /
+    reserved-but-empty gutter renders the host background — exact-RGB vs Python.
+- Clears `scrollbar_visibility` (promoted to the styled-parity PASSING set, exact-RGB
+  vs Python; 85 PASS).
+
 ### 2026-06-24 (feat(layout): signed placement — negative offsets + `position: absolute`/`relative`)
 
 - **Widget-tree placement coordinates are now SIGNED (`i32`).** `widget_tree::Rect`

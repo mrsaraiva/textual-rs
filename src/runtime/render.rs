@@ -2924,8 +2924,21 @@ fn apply_host_scrollbar_layout(tree: &mut WidgetTree, viewport: (u16, u16)) {
             // `show_vertical_scrollbar` (which respects overflow + scrollbar_gutter separately
             // from `_get_scrollbar_region`'s stable-gutter reservation).
             let show = geometry.show_vertical;
-            set_runtime_display(tree, v_id, show);
-            let rect = if show {
+            // Display (the bar PAINT) is gated on `show && paint`: the bar is
+            // drawn only when content overflows (`show`) AND visibility is not
+            // hidden (`paint`). Python: the compositor adds the chrome widget
+            // only when `show_vertical_scrollbar` AND
+            // `scrollbar_visibility == "visible"`.
+            set_runtime_display(tree, v_id, show && geometry.paint_vertical);
+            // The lane RECT is driven by lane RESERVATION
+            // (`vertical_lane_width > 0`), NOT by `show`. Under
+            // `scrollbar-gutter: stable` with no overflow the gutter is reserved
+            // (lane width == 2) even though the bar is not shown — so the lane
+            // node still owns its 2-column rect (Python
+            // `scrollbar_size_vertical` returns the full size whenever
+            // gutter==stable and overflow==auto, regardless of show_vertical).
+            // Gating the rect on `show` orphaned those reserved columns.
+            let rect = if geometry.vertical_lane_width > 0 {
                 crate::widget_tree::Rect {
                     x0: content_rect.x0 + geometry.viewport_width as i32,
                     y0: content_rect.y0,
@@ -2957,8 +2970,12 @@ fn apply_host_scrollbar_layout(tree: &mut WidgetTree, viewport: (u16, u16)) {
         if let Some(h_id) = scrollbar_children.horizontal {
             // Fix B: same as vertical — use show_horizontal not horizontal_lane_height > 0.
             let show = geometry.show_horizontal;
-            set_runtime_display(tree, h_id, show);
-            let rect = if show {
+            // See the vertical block: display gated on `show && paint`; the lane
+            // RECT is driven by lane reservation (`horizontal_lane_height > 0`),
+            // so a stable-gutter reserved lane keeps its rect even with no
+            // overflow or hidden visibility.
+            set_runtime_display(tree, h_id, show && geometry.paint_horizontal);
+            let rect = if geometry.horizontal_lane_height > 0 {
                 crate::widget_tree::Rect {
                     x0: content_rect.x0,
                     y0: content_rect.y0 + geometry.viewport_height as i32,
@@ -2986,10 +3003,17 @@ fn apply_host_scrollbar_layout(tree: &mut WidgetTree, viewport: (u16, u16)) {
         }
 
         if let Some(c_id) = scrollbar_children.corner {
-            // Corner is shown only when BOTH scrollbar widgets are shown.
+            // Corner is PAINTED only when BOTH scrollbar widgets are shown AND
+            // painted. Under `scrollbar-visibility: hidden` the lanes stay
+            // reserved but neither bar (nor the corner) is painted.
             let show = geometry.show_vertical && geometry.show_horizontal;
-            set_runtime_display(tree, c_id, show);
-            let rect = if show {
+            let paint = geometry.paint_vertical && geometry.paint_horizontal;
+            set_runtime_display(tree, c_id, show && paint);
+            // Corner RECT is driven by lane reservation (both lanes reserved),
+            // matching the vertical/horizontal lane-rect policy.
+            let rect = if geometry.vertical_lane_width > 0
+                && geometry.horizontal_lane_height > 0
+            {
                 crate::widget_tree::Rect {
                     x0: content_rect.x0 + geometry.viewport_width as i32,
                     y0: content_rect.y0 + geometry.viewport_height as i32,
@@ -4138,9 +4162,15 @@ mod tests {
             10,
             "vertical scrollbar lane height should span viewport height"
         );
+        // Python parity: `scrollbar-visibility: visible` does NOT force the bar
+        // to show; `_refresh_scrollbars` keys `show_vertical` off overflow alone.
+        // The content here ("line\nline") does NOT overflow the 10-row viewport,
+        // so the bar is NOT displayed. The `scrollbar-gutter: stable` lane is
+        // still RESERVED (width 2 above) — reservation and display are distinct.
         assert!(
-            vertical_scrollbar.1.display,
-            "vertical scrollbar node should be visible when content overflows"
+            !vertical_scrollbar.1.display,
+            "vertical scrollbar must NOT be displayed when content does not overflow, \
+             even though the stable gutter still reserves the lane"
         );
     }
 
