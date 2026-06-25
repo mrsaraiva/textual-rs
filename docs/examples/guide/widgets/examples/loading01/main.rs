@@ -3,16 +3,19 @@
 /// Demonstrates the `loading` state on widgets:
 /// - Four DataTables laid out in a 2-column grid.
 /// - On mount, each table is set to `loading = true` (shows LoadingIndicator
-///   overlay) and a background worker is spawned to simulate a slow data fetch.
-/// - When each worker finishes it deposits its data into a shared queue; on
-///   `WorkerStateChanged::Success` the app drains the queue, populates the
-///   matching table, and sets `loading = false`.
+///   overlay) and a delayed load is scheduled to simulate a slow data fetch.
+/// - When each delay elapses, the matching table is populated and its loading
+///   state cleared.
 ///
-/// Python uses `asyncio.sleep(randint(2, 10))` per table.  The Rust port
-/// simulates this with `std::thread::sleep` and a deterministic random-ish
-/// delay derived from the table index (2-5 seconds per table) so the test
-/// remains reproducible without an external RNG dependency.
-use std::sync::{Arc, Mutex};
+/// Python uses an `@work` coroutine that `await sleep(randint(2, 10))` then
+/// fills the table and clears `loading`.  The Rust port mirrors that with a
+/// framework `set_timer(delay, ...)` — `set_timer` *is* the deterministic
+/// analogue of `await sleep(delay)`: it schedules a one-shot callback on the
+/// runtime timer clock, so it fires on the real wall clock when the app runs
+/// live, and is driven by `Pilot::advance_clock(delay)` under the headless
+/// test harness (no wall-clock `thread::sleep`, which the manual clock cannot
+/// fast-forward). A deterministic staggered delay (2-5 s) derived from the
+/// table index stands in for `randint(2, 10)`.
 use textual::prelude::*;
 
 const CSS: &str = r#"
@@ -39,19 +42,27 @@ const ROWS: &[&[&str]] = &[
     &["10", "Darren Burns", "Scotland", "51.84"],
 ];
 
-/// Pending data deposited by a background worker: (table_id, rows).
-type PendingData = Vec<(String, Vec<Vec<String>>)>;
-
-struct DataApp {
-    /// Shared queue between workers and the app message handler.
-    pending: Arc<Mutex<PendingData>>,
+/// Populate `selector`'s DataTable with the swimming data and clear its loading
+/// state — the body of Python's `load_data` after the `await sleep(...)`.
+fn finish_load(app: &mut App, selector: &str) {
+    let rows: Vec<Vec<String>> = ROWS
+        .iter()
+        .map(|row| row.iter().map(|c| (*c).to_string()).collect())
+        .collect();
+    let _ = app.with_query_one_mut_as::<DataTable, _>(selector, |table| {
+        table.add_columns(HEADERS);
+        table.add_rows(rows.iter());
+    });
+    if let Ok(q) = app.query_mut(selector) {
+        q.set(None, None, None, Some(false));
+    }
 }
+
+struct DataApp;
 
 impl DataApp {
     fn new() -> Self {
-        Self {
-            pending: Arc::new(Mutex::new(Vec::new())),
-        }
+        Self
     }
 }
 
@@ -70,69 +81,25 @@ impl TextualApp for DataApp {
         ])
     }
 
-    fn on_mount_with_app(&mut self, app: &mut App, ctx: &mut EventCtx) {
-        // Set all four tables into loading state.
+    fn on_mount_with_app(&mut self, app: &mut App, _ctx: &mut EventCtx) {
+        // Python on_mount: for each DataTable -> loading = True; load_data(...).
         for i in 0..4usize {
             let selector = format!("#table{i}");
             if let Ok(q) = app.query_mut(&selector) {
                 q.set(None, None, None, Some(true));
             }
-        }
 
-        // Spawn one background worker per table.
-        for i in 0..4usize {
-            let pending = Arc::clone(&self.pending);
-            let table_id = format!("table{i}");
-            // Simulate randint(2, 10) seconds; use a deterministic spread so
-            // the demo shows staggered completion (2, 3, 4, 5 seconds).
-            let delay_secs = 2 + i;
-            ctx.request_worker_task(Some(&format!("load-{i}")), move |token| {
-                std::thread::sleep(std::time::Duration::from_secs(delay_secs as u64));
-                if token.is_cancelled() {
-                    return Ok(());
-                }
-                // Convert &[&str] rows to owned Vec<Vec<String>>.
-                let rows: Vec<Vec<String>> = ROWS
-                    .iter()
-                    .map(|row| row.iter().map(|c| (*c).to_string()).collect())
-                    .collect();
-                pending
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .push((table_id, rows));
-                Ok(())
-            });
-        }
-        ctx.request_repaint();
-    }
-
-    fn on_message_with_app(
-        &mut self,
-        app: &mut App,
-        message: &MessageEvent,
-        ctx: &mut EventCtx,
-    ) {
-        if let Some(w) = message.downcast_ref::<WorkerStateChanged>() {
-            if matches!(w.state, WorkerState::Success) {
-                // Drain completed table data from the shared queue.
-                let completed: PendingData = {
-                    let mut guard = self.pending.lock().unwrap_or_else(|e| e.into_inner());
-                    std::mem::take(&mut *guard)
-                };
-                for (table_id, rows) in completed {
-                    let selector = format!("#{table_id}");
-                    // Populate the table widget.
-                    let _ = app.with_query_one_mut_as::<DataTable, _>(&selector, |table| {
-                        table.add_columns(HEADERS);
-                        table.add_rows(rows.iter());
-                    });
-                    // Clear loading state.
-                    if let Ok(q) = app.query_mut(&selector) {
-                        q.set(None, None, None, Some(false));
-                    }
-                }
-                ctx.request_repaint();
-            }
+            // Schedule the deferred load. `set_timer` is the framework analogue
+            // of Python's `await sleep(delay)` inside the `@work` coroutine:
+            // fires on the wall clock live, driven by `advance_clock` headless.
+            // randint(2, 10) -> deterministic staggered 2/3/4/5 s per table.
+            let delay = std::time::Duration::from_secs((2 + i) as u64);
+            app.set_timer(
+                delay,
+                Box::new(move |app, _ctx| {
+                    finish_load(app, &selector);
+                }),
+            );
         }
     }
 }
@@ -144,6 +111,7 @@ fn main() -> textual::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
 
     #[test]
     fn data_app_composes_without_panic() {
@@ -162,28 +130,55 @@ mod tests {
         }
     }
 
-    // -- LIVENESS PROBE (Pilot run_test) — UNCLEAR ----------------------------
-    // loading01 has no user interaction: on mount each table is set to
-    // `loading = true` (LoadingIndicator overlay) and a background worker
-    // sleeps a real `std::thread::sleep(2..5 s)` before depositing rows; on
-    // `WorkerStateChanged::Success` the app fills the table and clears loading.
-    //
-    // This cannot be made deterministic under the Pilot harness: the worker
-    // delay uses the wall clock, NOT the manual timer clock, so
-    // `pilot.advance_clock(...)` does not fast-forward it, and the completion
-    // arrives on a real background thread at a nondeterministic time. A
-    // frame-fingerprint probe would race the worker and be flaky. The data
-    // shape and compose structure are covered by the tests above. A real
-    // liveness probe needs the worker to schedule its delay on the framework
-    // timer clock (so `advance_clock` can drive it) — until then this is
-    // UNCLEAR. Tracking: worker-delay-on-manual-clock.
-    #[ignore = "UNCLEAR: worker uses wall-clock thread::sleep; not driveable by Pilot::advance_clock; see comment"]
+    /// LIVENESS PROBE (Pilot run_test) — the loading → data transition.
+    ///
+    /// On mount each table is set `loading = true` (LoadingIndicator overlay)
+    /// and a `set_timer(2..5 s, ...)` load is scheduled. Because the demo now
+    /// schedules the delay on the framework timer clock (not a wall-clock
+    /// `thread::sleep`), `Pilot::advance_clock` drives it deterministically:
+    /// before advancing, every table is empty (loading shown); after advancing
+    /// past the longest delay, every table is populated and loading is cleared.
+    /// The rendered frame must change across that transition, and the row count
+    /// of each DataTable must go from 0 to the full ROWS length.
     #[test]
-    fn liveness_worker_fills_table_placeholder() {
-        // Placeholder so the liveness entry exists; replace with a real
-        // advance_clock-driven probe once worker delays run on the timer clock.
-        let mut app = DataApp::new();
-        let root = app.compose();
-        assert_eq!(root.children().len(), 4);
+    fn liveness_advance_clock_fills_tables() {
+        textual::run_test(DataApp::new(), |pilot| {
+            assert!(pilot.clock_is_manual());
+
+            // Before the load completes: every table is still empty.
+            for i in 0..4usize {
+                let sel = format!("#table{i}");
+                let count = pilot
+                    .app_mut()
+                    .with_query_one_mut_as::<DataTable, _>(&sel, |t| t.row_count())
+                    .expect("table present");
+                assert_eq!(count, 0, "{sel} must be empty before the load fires");
+            }
+            let before = pilot.app().frame_fingerprint();
+
+            // Advance past the longest staggered delay (table3 = 5 s).
+            pilot.advance_clock(Duration::from_secs(6))?;
+
+            // After the load: every table is populated and loading cleared.
+            for i in 0..4usize {
+                let sel = format!("#table{i}");
+                let count = pilot
+                    .app_mut()
+                    .with_query_one_mut_as::<DataTable, _>(&sel, |t| t.row_count())
+                    .expect("table present");
+                assert_eq!(
+                    count,
+                    ROWS.len(),
+                    "{sel} must be fully populated after advance_clock"
+                );
+            }
+            let after = pilot.app().frame_fingerprint();
+            assert_ne!(
+                before, after,
+                "the loading -> data transition must change the rendered frame"
+            );
+            Ok(())
+        })
+        .unwrap();
     }
 }
