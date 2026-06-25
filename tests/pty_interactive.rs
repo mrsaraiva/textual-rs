@@ -355,7 +355,13 @@ fn docs_profile_dir() -> String {
     // name (debug/release) derived from the running test binary.
     let exe = std::env::current_exe().expect("current_exe");
     exe.parent()
-        .and_then(|p| if p.ends_with("deps") { p.parent() } else { Some(p) })
+        .and_then(|p| {
+            if p.ends_with("deps") {
+                p.parent()
+            } else {
+                Some(p)
+            }
+        })
         .and_then(|p| p.file_name())
         .map(|s| s.to_string_lossy().into_owned())
         .unwrap_or_else(|| "debug".into())
@@ -367,7 +373,11 @@ fn rust_example_bin(name: &str) -> PathBuf {
         .join(docs_profile_dir())
         .join("examples")
         .join(name);
-    assert!(bin.exists(), "rust example binary missing: {}", bin.display());
+    assert!(
+        bin.exists(),
+        "rust example binary missing: {}",
+        bin.display()
+    );
     bin
 }
 
@@ -488,9 +498,7 @@ fn text_diff(py: &Grid, rust: &Grid) -> String {
         let g = py.row_text(row);
         let a = rust.row_text(row);
         if g != a {
-            out.push_str(&format!(
-                "row {row:>2}:\n  python | {g}\n  rust   | {a}\n"
-            ));
+            out.push_str(&format!("row {row:>2}:\n  python | {g}\n  rust   | {a}\n"));
         }
     }
     if out.is_empty() {
@@ -535,6 +543,195 @@ fn dump(label: &str, g: &Grid) {
 }
 
 // ===========================================================================
+// WIDGETS PARITY CASES (Rust == Python) — opposite polarity of the six "catch"
+// cases above. For each INTERACTIVE widgets demo we drive the demo's
+// representative interaction on BOTH the real Rust example binary and the real
+// Python app, then assert Rust matches Python.
+//
+// PARITY MODE
+// -----------
+// The catch cases assert the apps DIFFER on a flagged axis; these assert they
+// AGREE. Per the harness non-determinism policy we assert EXACT (glyph + fg +
+// bg) where the rendering is deterministic, and STRUCTURAL where it is not.
+//
+//   * GLYPH grid: for deterministic demos we require the visible character grid
+//     to match exactly over the content rows. The header row 0 carries a live
+//     clock on some demos and is excluded by `skip_rows` when present.
+//   * COLOUR: vt100 truecolor is captured per cell. Where both apps emit the
+//     same SGR the colours match exactly; where one side rounds a blended
+//     colour we report it. A demo whose glyphs match but whose key colours
+//     diverge is recorded as a BUG with the concrete cell (py value vs rust
+//     value), it does NOT silently pass.
+//
+// A case classified PASS means: after the representative interaction, the Rust
+// grid equals the Python grid (glyph exact over content rows, and no material
+// colour divergence). A case classified BUG carries `#[ignore = "BUG: ..."]`
+// with the concrete diff so it is tracked and flips to passing when fixed.
+// ===========================================================================
+
+/// Drive both the Rust example `name` and the Python `widgets/<name>.py` app
+/// with the same script; return (rust_final, py_final) grids.
+fn widgets_both(name: &'static str, script: &[Step], settle_ms: u64) -> (Grid, Grid) {
+    let r = drive(&AppKind::Rust(name), script, settle_ms);
+    let p = drive(&AppKind::Python("widgets", name), script, settle_ms);
+    (r.into_iter().last().unwrap(), p.into_iter().last().unwrap())
+}
+
+/// Count cells whose GLYPH differs between the two grids over `rows`
+/// (wide-continuation markers ignored). This is the deterministic axis.
+fn glyph_mismatch_count(py: &Grid, rust: &Grid, rows: std::ops::Range<usize>) -> usize {
+    let mut n = 0;
+    for row in rows {
+        for col in 0..COLS as usize {
+            let pc = py.cell(row, col);
+            let rc = rust.cell(row, col);
+            if pc.ch == '\u{200b}' || rc.ch == '\u{200b}' {
+                continue;
+            }
+            if pc.ch != rc.ch {
+                n += 1;
+            }
+        }
+    }
+    n
+}
+
+/// Count cells whose fg OR bg colour differs while the glyph matches, over
+/// `rows`. Glyph-equal-but-colour-different is the parity-relevant colour axis.
+fn colour_mismatch_count(py: &Grid, rust: &Grid, rows: std::ops::Range<usize>) -> usize {
+    let mut n = 0;
+    for row in rows {
+        for col in 0..COLS as usize {
+            let pc = py.cell(row, col);
+            let rc = rust.cell(row, col);
+            if pc.ch == '\u{200b}' || rc.ch == '\u{200b}' || pc.ch != rc.ch {
+                continue;
+            }
+            // A space glyph has no visible foreground: only its BACKGROUND is
+            // observable. Python often emits an explicit fg SGR on blank cells
+            // (the widget's colour) while the driver leaves it at terminal
+            // default; that is invisible, so compare bg only for spaces.
+            if pc.ch == ' ' {
+                if !cols_equiv(pc.bg, rc.bg) {
+                    n += 1;
+                }
+                continue;
+            }
+            if !cols_equiv(pc.fg, rc.fg) || !cols_equiv(pc.bg, rc.bg) {
+                n += 1;
+            }
+        }
+    }
+    n
+}
+
+/// Are two captured colours visually the same? Exact match, OR two truecolor
+/// triples within a tiny per-channel delta (≤2) — vt100/driver rounding noise,
+/// NOT a real colour divergence. A Default-vs-coloured pair is NOT equivalent.
+fn cols_equiv(a: Col, b: Col) -> bool {
+    if a == b {
+        return true;
+    }
+    match (a, b) {
+        (Col::Rgb(r1, g1, b1), Col::Rgb(r2, g2, b2)) => {
+            let d = |x: u8, y: u8| (x as i32 - y as i32).unsigned_abs();
+            d(r1, r2) <= 2 && d(g1, g2) <= 2 && d(b1, b2) <= 2
+        }
+        _ => false,
+    }
+}
+
+/// Assert glyph-exact parity over content rows (everything except `skip_rows`),
+/// reporting the concrete diff on failure. Colour divergence is reported as a
+/// warning line but does not by itself fail the glyph assertion (colour-only
+/// divergences are tracked as their own BUG cases with `#[ignore]`).
+fn assert_glyph_parity(name: &str, py: &Grid, rust: &Grid, skip_rows: &[usize]) {
+    dump(&format!("{name} PY final"), py);
+    dump(&format!("{name} RUST final"), rust);
+    let mut glyph_bad = 0usize;
+    let mut detail = String::new();
+    for row in 0..ROWS as usize {
+        if skip_rows.contains(&row) {
+            continue;
+        }
+        let g = py.row_text(row);
+        let a = rust.row_text(row);
+        if g != a {
+            let bad = glyph_mismatch_count(py, rust, row..row + 1);
+            glyph_bad += bad;
+            detail.push_str(&format!(
+                "row {row:>2} ({bad} glyph diffs):\n  python | {g}\n  rust   | {a}\n"
+            ));
+        }
+    }
+    let colour_bad = {
+        let mut c = 0;
+        for row in 0..ROWS as usize {
+            if skip_rows.contains(&row) {
+                continue;
+            }
+            c += colour_mismatch_count(py, rust, row..row + 1);
+        }
+        c
+    };
+    eprintln!("{name}: glyph_diffs={glyph_bad} colour_diffs={colour_bad}");
+    if colour_bad > 0 {
+        // Sample up to 12 glyph-matching colour divergences for diagnosis.
+        let mut shown = 0;
+        for row in 0..ROWS as usize {
+            if skip_rows.contains(&row) {
+                continue;
+            }
+            for col in 0..COLS as usize {
+                let pc = py.cell(row, col);
+                let rc = rust.cell(row, col);
+                if pc.ch == '\u{200b}' || rc.ch == '\u{200b}' || pc.ch != rc.ch {
+                    continue;
+                }
+                let visible_diff = if pc.ch == ' ' {
+                    !cols_equiv(pc.bg, rc.bg)
+                } else {
+                    !cols_equiv(pc.fg, rc.fg) || !cols_equiv(pc.bg, rc.bg)
+                };
+                if visible_diff {
+                    eprintln!(
+                        "  COLDIFF [{row:>2},{col:>3}] {:?} py fg={} bg={} | rust fg={} bg={}",
+                        pc.ch,
+                        pc.fg.short(),
+                        pc.bg.short(),
+                        rc.fg.short(),
+                        rc.bg.short(),
+                    );
+                    shown += 1;
+                    if shown >= 12 {
+                        break;
+                    }
+                }
+            }
+            if shown >= 12 {
+                break;
+            }
+        }
+    }
+    assert_eq!(
+        glyph_bad,
+        0,
+        "PARITY (glyph) FAIL for {name}: {glyph_bad} cells differ.\n{detail}\n\
+         BG palette (py): {:?}\nBG palette (rust): {:?}",
+        py.bg_palette(),
+        rust.bg_palette(),
+    );
+    assert_eq!(
+        colour_bad,
+        0,
+        "PARITY (colour) FAIL for {name}: {colour_bad} glyph-matching cells differ in fg/bg \
+         (see COLDIFF lines above).\nBG palette (py): {:?}\nBG palette (rust): {:?}",
+        py.bg_palette(),
+        rust.bg_palette(),
+    );
+}
+
+// ===========================================================================
 // ACCEPTANCE CASES — the six demos the maintainer flagged by hand.
 //
 // Each test asserts the harness can DETECT the Rust/Python discrepancy on the
@@ -560,7 +757,13 @@ fn dynamic_watch_increment_value_and_bar_colour() {
         Step::Click(4, 1),
         Step::Wait(400),
     ];
-    let (rust, py) = drive_both("dynamic_watch", "guide/reactivity", "dynamic_watch", &script, 600);
+    let (rust, py) = drive_both(
+        "dynamic_watch",
+        "guide/reactivity",
+        "dynamic_watch",
+        &script,
+        600,
+    );
     let (rf, pf) = (rust.last().unwrap(), py.last().unwrap());
     dump("dynamic_watch RUST final", rf);
     dump("dynamic_watch PY final", pf);
@@ -687,7 +890,11 @@ fn stopwatch06_clock_advances_after_start() {
     // ~3..7 (0-based), the Start button is at row 4, cols ~3..16, and the time
     // block art spans roughly cols 40..80 on row 4. We fingerprint a generous
     // band so we don't depend on exact glyph columns.
-    fn region_fingerprint(g: &Grid, rows: std::ops::Range<usize>, cols: std::ops::Range<usize>) -> String {
+    fn region_fingerprint(
+        g: &Grid,
+        rows: std::ops::Range<usize>,
+        cols: std::ops::Range<usize>,
+    ) -> String {
         let mut s = String::new();
         for r in rows {
             for c in cols.clone() {
@@ -733,10 +940,7 @@ fn stopwatch06_clock_advances_after_start() {
 /// harness asserts it can see the structural signal on the leak axis.
 #[test]
 fn weather05_no_event_leak_structural() {
-    let script = [
-        Step::SendKeys("Tokyo"),
-        Step::Wait(1500),
-    ];
+    let script = [Step::SendKeys("Tokyo"), Step::Wait(1500)];
     let (rust, py) = drive_both("weather05", "guide/workers", "weather05", &script, 1500);
     let (rf, pf) = (rust.last().unwrap(), py.last().unwrap());
     dump("weather05 RUST final", rf);
@@ -869,4 +1073,351 @@ fn widgets02_welcome_alignment_and_rule_colour() {
         pf.bg_palette(),
         rf.bg_palette(),
     );
+}
+
+// ===========================================================================
+// WIDGETS INTERACTIVE PARITY CASES (Rust == Python)
+// ===========================================================================
+
+// --- text-entry widgets -----------------------------------------------------
+
+/// input: type into the first Input; the typed text + cursor should render
+/// identically on both apps (deterministic, no clock/header).
+#[test]
+#[ignore = "BUG: focused Input bg differs — Python applies `background-tint: $foreground 5%` on :focus (bg #272727); Rust leaves bg #1e1e1e. 244 cells."]
+fn parity_input_typing() {
+    let script = [Step::SendKeys("Marcos"), Step::Wait(250)];
+    let (rf, pf) = widgets_both("input", &script, 400);
+    assert_glyph_parity("input", &pf, &rf, &[]);
+}
+
+/// input_types: integer + number Inputs; typing digits validates live.
+#[test]
+#[ignore = "BUG: focused Input bg #1e1e1e (Rust) vs #272727 (Python, $foreground 5% tint on :focus). 243 cells."]
+fn parity_input_types_typing() {
+    // Type into the first (integer) Input only — a non-digit is rejected, so the
+    // result is deterministic and avoids focus-traversal ambiguity.
+    let script = [Step::SendKeys("12a345"), Step::Wait(250)];
+    let (rf, pf) = widgets_both("input_types", &script, 400);
+    assert_glyph_parity("input_types", &pf, &rf, &[]);
+}
+
+/// input_validation: typing an invalid number must surface the SAME failure
+/// descriptions in the Pretty widget on both apps.
+#[test]
+#[ignore = "BUG: Pretty renders the failure-list multi-line `[` expanded; Python renders it inline `['Value is not even.', \"That's not a palindrome :/\"]`. 43 glyph + focused-Input tint diffs."]
+fn parity_input_validation_failure() {
+    let script = [Step::SendKeys("13"), Step::Wait(300)];
+    let (rf, pf) = widgets_both("input_validation", &script, 400);
+    assert_glyph_parity("input_validation", &pf, &rf, &[]);
+}
+
+/// masked_input: typing digits into a credit-card mask renders the same
+/// separators + placeholder on both apps.
+#[test]
+#[ignore = "BUG: focused MaskedInput bg #1e1e1e (Rust) vs #272727 (Python :focus tint). 245 cells."]
+fn parity_masked_input_typing() {
+    let script = [Step::SendKeys("4242424242"), Step::Wait(300)];
+    let (rf, pf) = widgets_both("masked_input", &script, 400);
+    assert_glyph_parity("masked_input", &pf, &rf, &[]);
+}
+
+// --- toggle widgets ---------------------------------------------------------
+
+/// checkbox: the focused checkbox toggles on Space. Initial focus is
+/// "#initial_focus" (Kaitain) per the demo.
+#[test]
+#[ignore = "BUG: Checkbox toggle-slot bg is #ffffff (Rust) vs #1b1b1b (Python) — the switch indicator paints a white background instead of the dark surface. 97 cells."]
+fn parity_checkbox_toggle() {
+    let script = [Step::Key(Key::Space), Step::Wait(250)];
+    let (rf, pf) = widgets_both("checkbox", &script, 400);
+    assert_glyph_parity("checkbox", &pf, &rf, &[]);
+}
+
+/// switch: the focused switch toggles on Enter/Space.
+#[test]
+#[ignore = "BUG: switch.tcss centers content (`align: center middle` on the container); Rust left-aligns every row (no horizontal align). 250 glyph cells shifted."]
+fn parity_switch_toggle() {
+    let script = [Step::Key(Key::Enter), Step::Wait(250)];
+    let (rf, pf) = widgets_both("switch", &script, 400);
+    assert_glyph_parity("switch", &pf, &rf, &[]);
+}
+
+// --- radio widgets ----------------------------------------------------------
+
+/// radio_button: RadioSet has focus; Down then Space moves + selects.
+#[test]
+#[ignore = "BUG: focused RadioSet border/surface tint differs (bg #1e1e1e vs #272727 on :focus). 154 cells."]
+fn parity_radio_button_select() {
+    let script = [
+        Step::SendKeys("\x1b[B"),
+        Step::Key(Key::Space),
+        Step::Wait(250),
+    ];
+    let (rf, pf) = widgets_both("radio_button", &script, 400);
+    assert_glyph_parity("radio_button", &pf, &rf, &[]);
+}
+
+/// radio_set: two RadioSets; Down arrow within the focused set.
+#[test]
+#[ignore = "BUG: focused RadioSet surface/border tint differs (bg #1e1e1e vs #272727 on :focus). 180 cells."]
+fn parity_radio_set_navigate() {
+    let script = [
+        Step::SendKeys("\x1b[B"),
+        Step::SendKeys("\x1b[B"),
+        Step::Wait(250),
+    ];
+    let (rf, pf) = widgets_both("radio_set", &script, 400);
+    assert_glyph_parity("radio_set", &pf, &rf, &[]);
+}
+
+/// radio_set_changed: selecting a button updates two Labels (pressed label +
+/// pressed index). Both must show the same strings.
+#[test]
+#[ignore = "BUG: RadioSet.Changed → Label.update not reflected — Python shows 'Pressed button label: Dune 1984' / 'Pressed button index: 1'; Rust shows only a stray 'P'. 47 glyph cells."]
+fn parity_radio_set_changed() {
+    let script = [
+        Step::SendKeys("\x1b[B"),
+        Step::Key(Key::Space),
+        Step::Wait(300),
+    ];
+    let (rf, pf) = widgets_both("radio_set_changed", &script, 400);
+    assert_glyph_parity("radio_set_changed", &pf, &rf, &[]);
+}
+
+// --- collapsible ------------------------------------------------------------
+
+/// collapsible: press 'e' to expand all, then 'c' to collapse all.
+#[test]
+#[ignore = "BUG: after expand-all('e') then collapse-all('c') Rust stays expanded (▼) while Python collapses (▶) — action_collapse_or_expand / `collapsed` reactive not applied. 2 glyph + surface tint cells."]
+fn parity_collapsible_expand_collapse() {
+    let script = [
+        Step::Key(Key::Char('e')),
+        Step::Wait(200),
+        Step::Key(Key::Char('c')),
+        Step::Wait(250),
+    ];
+    let (rf, pf) = widgets_both("collapsible", &script, 400);
+    assert_glyph_parity("collapsible", &pf, &rf, &[]);
+}
+
+/// collapsible_nested: Enter on the focused (outer) collapsible toggles it.
+#[test]
+#[ignore = "BUG: Enter on the focused Collapsible does not toggle it — Python collapses (▶), Rust stays expanded (▼). 1 glyph + surface tint cells."]
+fn parity_collapsible_nested_toggle() {
+    let script = [Step::Key(Key::Enter), Step::Wait(250)];
+    let (rf, pf) = widgets_both("collapsible_nested", &script, 400);
+    assert_glyph_parity("collapsible_nested", &pf, &rf, &[]);
+}
+
+/// collapsible_custom_symbol: static after compose; assert initial parity (the
+/// custom >>> / v symbols and one expanded/one collapsed panel).
+#[test]
+#[ignore = "BUG: Collapsible header/title surface colour differs from Python (180 cells, fg/bg tint on the custom-symbol header band)."]
+fn parity_collapsible_custom_symbol() {
+    let script = [Step::Wait(250)];
+    let (rf, pf) = widgets_both("collapsible_custom_symbol", &script, 400);
+    assert_glyph_parity("collapsible_custom_symbol", &pf, &rf, &[]);
+}
+
+// --- select -----------------------------------------------------------------
+
+/// select_widget: Enter opens the overlay (the option list of Dune lines).
+#[test]
+#[ignore = "BUG: Select overlay differs from Python (277 glyph cells) — the opened option-list overlay renders different content/layout. Header clock row excluded."]
+fn parity_select_open_overlay() {
+    let script = [Step::Key(Key::Enter), Step::Wait(300)];
+    let (rf, pf) = widgets_both("select_widget", &script, 400);
+    // Row 0 is the Header which carries a live clock; exclude it.
+    assert_glyph_parity("select_widget", &pf, &rf, &[0]);
+}
+
+/// select_widget_no_blank: 's' swaps the option set; first value differs.
+#[test]
+#[ignore = "BUG: Select (no-blank) surface/border tint differs from Python after swap (117 colour cells)."]
+fn parity_select_no_blank_swap() {
+    let script = [Step::Key(Key::Char('s')), Step::Wait(300)];
+    let (rf, pf) = widgets_both("select_widget_no_blank", &script, 400);
+    assert_glyph_parity("select_widget_no_blank", &pf, &rf, &[0]);
+}
+
+/// select_from_values_widget: Enter opens the overlay built via from_values.
+#[test]
+#[ignore = "BUG: Select.from_values overlay differs from Python (277 glyph cells), same overlay divergence as select_widget."]
+fn parity_select_from_values_open() {
+    let script = [Step::Key(Key::Enter), Step::Wait(300)];
+    let (rf, pf) = widgets_both("select_from_values_widget", &script, 400);
+    assert_glyph_parity("select_from_values_widget", &pf, &rf, &[0]);
+}
+
+// --- lists ------------------------------------------------------------------
+
+/// list_view: Down arrow moves the highlight off the first item.
+#[test]
+fn parity_list_view_navigate() {
+    let script = [Step::SendKeys("\x1b[B"), Step::Wait(250)];
+    let (rf, pf) = widgets_both("list_view", &script, 400);
+    assert_glyph_parity("list_view", &pf, &rf, &[]);
+}
+
+/// selection_list_selections: Down then Space toggles a selection.
+#[test]
+#[ignore = "BUG: SelectionList surface/row colours differ from Python (2103 colour cells over the focused list body)."]
+fn parity_selection_list_selections_toggle() {
+    let script = [
+        Step::SendKeys("\x1b[B"),
+        Step::Key(Key::Space),
+        Step::Wait(250),
+    ];
+    let (rf, pf) = widgets_both("selection_list_selections", &script, 400);
+    assert_glyph_parity("selection_list_selections", &pf, &rf, &[0]);
+}
+
+/// selection_list_selected: toggling a selection updates the Pretty panel with
+/// the selected values; both must agree.
+#[test]
+#[ignore = "BUG: SelectionList + Pretty panel differ from Python (153 glyph cells) — selected-values Pretty content/layout and list rendering diverge."]
+fn parity_selection_list_selected_toggle() {
+    let script = [
+        Step::SendKeys("\x1b[B"),
+        Step::Key(Key::Space),
+        Step::Wait(300),
+    ];
+    let (rf, pf) = widgets_both("selection_list_selected", &script, 400);
+    assert_glyph_parity("selection_list_selected", &pf, &rf, &[0]);
+}
+
+/// option_list_strings: Down arrow moves the highlight.
+#[test]
+#[ignore = "BUG: focused OptionList border/surface tint differs (bg #1e1e1e vs #272727 on :focus). 244 cells."]
+fn parity_option_list_strings_navigate() {
+    let script = [Step::SendKeys("\x1b[B"), Step::Wait(250)];
+    let (rf, pf) = widgets_both("option_list_strings", &script, 400);
+    assert_glyph_parity("option_list_strings", &pf, &rf, &[0]);
+}
+
+/// option_list_options: Down past a disabled/separator option.
+#[test]
+#[ignore = "BUG: OptionList (with disabled/separator options) surface + disabled-option colours differ from Python (811 cells)."]
+fn parity_option_list_options_navigate() {
+    let script = [
+        Step::SendKeys("\x1b[B"),
+        Step::SendKeys("\x1b[B"),
+        Step::Wait(250),
+    ];
+    let (rf, pf) = widgets_both("option_list_options", &script, 400);
+    assert_glyph_parity("option_list_options", &pf, &rf, &[0]);
+}
+
+// --- tabs -------------------------------------------------------------------
+
+/// tabs: 'a' adds a tab (cycles the Dune names); active label updates.
+#[test]
+#[ignore = "BUG: Tabs add_tab('a') does not add a visible tab — Python shows 'Paul Atreidies  Duke Leto Atreides'; Rust shows only 'Paul Atreidies'. 16 glyph cells."]
+fn parity_tabs_add() {
+    let script = [Step::Key(Key::Char('a')), Step::Wait(300)];
+    let (rf, pf) = widgets_both("tabs", &script, 400);
+    assert_glyph_parity("tabs", &pf, &rf, &[]);
+}
+
+/// tabbed_content: 'p' switches to the Paul tab.
+#[test]
+fn parity_tabbed_content_switch() {
+    let script = [Step::Key(Key::Char('p')), Step::Wait(300)];
+    let (rf, pf) = widgets_both("tabbed_content", &script, 400);
+    assert_glyph_parity("tabbed_content", &pf, &rf, &[]);
+}
+
+/// tabbed_content_label_color: Right arrow / Tab to the second (Green) tab; the
+/// tab label colours (red/green) are the flagged axis.
+#[test]
+fn parity_tabbed_content_label_color() {
+    let script = [Step::Wait(250)];
+    let (rf, pf) = widgets_both("tabbed_content_label_color", &script, 400);
+    assert_glyph_parity("tabbed_content_label_color", &pf, &rf, &[]);
+}
+
+/// content_switcher: click the Markdown button to switch panes.
+#[test]
+#[ignore = "BUG: ContentSwitcher button/markdown surface colours differ from Python (130 cells) after switching to the Markdown pane."]
+fn parity_content_switcher_switch() {
+    // The two buttons sit on row 1; "Markdown" is the second button.
+    let script = [Step::Click(20, 1), Step::Wait(350)];
+    let (rf, pf) = widgets_both("content_switcher", &script, 400);
+    assert_glyph_parity("content_switcher", &pf, &rf, &[]);
+}
+
+// --- tree -------------------------------------------------------------------
+
+/// tree: Down to the Characters node, then it's already expanded; navigate the
+/// tree and assert parity of the guide glyphs + labels.
+#[test]
+#[ignore = "BUG: Tree guide-line colour wrong (Rust fg #0178d4 blue vs Python #4f4f4f muted) and cursor-row bg blended (#0c7dd4 vs #0178d4 $primary). 7 cells."]
+fn parity_tree_navigate() {
+    let script = [
+        Step::SendKeys("\x1b[B"),
+        Step::SendKeys("\x1b[B"),
+        Step::Wait(250),
+    ];
+    let (rf, pf) = widgets_both("tree", &script, 400);
+    assert_glyph_parity("tree", &pf, &rf, &[]);
+}
+
+// --- data_table -------------------------------------------------------------
+
+/// data_table: Down/Right arrows move the cell cursor.
+#[test]
+#[ignore = "BUG: DataTable cursor/zebra row bg blended differently (#2d3740 vs #2b3339) — cursor-row tint composition off. 92 cells."]
+fn parity_data_table_navigate() {
+    let script = [
+        Step::SendKeys("\x1b[B"),
+        Step::SendKeys("\x1b[C"),
+        Step::Wait(250),
+    ];
+    let (rf, pf) = widgets_both("data_table", &script, 400);
+    assert_glyph_parity("data_table", &pf, &rf, &[]);
+}
+
+/// data_table_cursors: 'c' cycles the cursor type (column -> row -> cell ...).
+#[test]
+#[ignore = "BUG: DataTable (zebra + cycled cursor) row/cursor bg colours differ from Python (670 cells)."]
+fn parity_data_table_cursors_cycle() {
+    let script = [
+        Step::Key(Key::Char('c')),
+        Step::Wait(200),
+        Step::Key(Key::Char('c')),
+        Step::Wait(250),
+    ];
+    let (rf, pf) = widgets_both("data_table_cursors", &script, 400);
+    assert_glyph_parity("data_table_cursors", &pf, &rf, &[]);
+}
+
+/// data_table_sort: 'c' sorts by country.
+#[test]
+#[ignore = "BUG: DataTable (after sort) cursor/row bg colours differ from Python (67 cells)."]
+fn parity_data_table_sort() {
+    let script = [Step::Key(Key::Char('c')), Step::Wait(300)];
+    let (rf, pf) = widgets_both("data_table_sort", &script, 400);
+    assert_glyph_parity("data_table_sort", &pf, &rf, &[]);
+}
+
+// --- logs -------------------------------------------------------------------
+
+/// rich_log: a key press is echoed into the RichLog as an event; both apps
+/// should render the same content above (Syntax + Table) and append on key.
+#[test]
+#[ignore = "BUG: RichLog content colours differ from Python (1147 cells) — Syntax/Table highlight + log surface bg diverge."]
+fn parity_rich_log_keypress() {
+    let script = [Step::Key(Key::Char('z')), Step::Wait(300)];
+    let (rf, pf) = widgets_both("rich_log", &script, 400);
+    assert_glyph_parity("rich_log", &pf, &rf, &[]);
+}
+
+/// log: static content written on_ready; assert initial parity.
+#[test]
+#[ignore = "BUG: Log surface bg is #121212 (Rust) vs #000000 (Python) — Log default background not pure black. 120 cells."]
+fn parity_log_content() {
+    let script = [Step::Wait(300)];
+    let (rf, pf) = widgets_both("log", &script, 400);
+    assert_glyph_parity("log", &pf, &rf, &[]);
 }
