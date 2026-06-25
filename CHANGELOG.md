@@ -9,6 +9,13 @@ until the API stabilizes.
 
 ### Added
 
+- **`Pilot::hover(selector)` / `Pilot::move_to(x, y)`** — headless mouse-move
+  injection (Python `pilot.hover` / `pilot.move`). Routes a `MouseMove` through
+  the same headless dispatch as click injection: updates hover state (`:hover`,
+  Enter/Leave), arms/refreshes the shared system tooltip, and dispatches the
+  `MouseMove` to the widget under the cursor. Flips the `guide/input/mouse01`,
+  `guide/widgets/checker04`, `guide/widgets/tooltip01`, and
+  `guide/widgets/tooltip02` liveness probes from UNCLEAR to LIVE.
 - **`Pilot::advance_ticks(n)` + animator on the manual clock** — `advance_ticks`
   delivers `root.on_tick(tick)` (and the active arena widgets' `on_tick`) n times
   with a strictly-increasing counter, mirroring the live loop's per-frame tick, so

@@ -4969,6 +4969,83 @@ impl App {
         self.absorb_outcome(&mut msg_outcome, pending, InvalidationScope::Global);
     }
 
+    /// Inject a mouse move to absolute screen `(x, y)` through the same cascade
+    /// the live loop runs on a `MouseEventKind::Moved`: update hover + dispatch
+    /// Enter/Leave, arm/update the system tooltip, then dispatch a `MouseMove`
+    /// to the widget under the cursor. Mirrors `pilot.hover` / `pilot.move_to`.
+    pub(crate) fn headless_inject_mouse_move(
+        &mut self,
+        root: &mut dyn Widget,
+        screen_x: u16,
+        screen_y: u16,
+    ) -> crate::Result<()> {
+        let mut pending = PendingInvalidation::default();
+        self.with_headless_style_context(|app| {
+            app.headless_process_mouse_move(root, screen_x, screen_y, &mut pending);
+        });
+        self.headless_pump(root, &mut pending)
+    }
+
+    fn headless_process_mouse_move(
+        &mut self,
+        root: &mut dyn Widget,
+        screen_x: u16,
+        screen_y: u16,
+        pending: &mut PendingInvalidation,
+    ) {
+        // Hover transition (drives `:hover` pseudo + Enter/Leave events), exactly
+        // as the live `MouseEventKind::Moved` arm does.
+        let before = self.hovered;
+        if self.update_hover_from_frame(screen_x, screen_y, root) {
+            if let Some(id) = before {
+                pending.request_widget_rect(&self.hit_test, id);
+            }
+            if let Some(id) = self.hovered {
+                pending.request_widget_rect(&self.hit_test, id);
+            } else {
+                pending.request_full_content();
+            }
+            let enter_leave = generate_enter_leave_events(
+                before, self.hovered, screen_x, screen_y, screen_x, screen_y,
+            );
+            for (target, event) in enter_leave {
+                let mut outcome = self.dispatch_event_to_target_auto(root, target, &event);
+                self.absorb_outcome(&mut outcome, pending, InvalidationScope::Global);
+                let mut msg_outcome =
+                    self.dispatch_message_queue_with_runtime(root, outcome.messages);
+                self.absorb_outcome(&mut msg_outcome, pending, InvalidationScope::Global);
+            }
+        }
+
+        // Arm/refresh the shared system tooltip for the hovered owner.
+        if self.update_hover_tooltip(screen_x, screen_y) {
+            pending.request_flags(crate::event::InvalidationFlags::layout());
+            pending.request_full_content();
+        }
+
+        // Dispatch the MouseMove to the widget under the cursor (the demo-facing
+        // event: mouse01's RichLog write + ball offset both fire here).
+        if let Some(target) = self.widget_at_auto(screen_x, screen_y) {
+            let changed = self.call_on_mouse_move_auto(root, target, screen_x, screen_y, false);
+            let (x, y) = self.content_local_coords_auto(target, screen_x, screen_y);
+            let move_event = Event::MouseMove(crate::event::MouseMoveEvent {
+                target,
+                screen_x,
+                screen_y,
+                x,
+                y,
+            });
+            let mut outcome = self.dispatch_event_to_target_auto(root, target, &move_event);
+            self.absorb_outcome(&mut outcome, pending, InvalidationScope::Global);
+            let mut msg_outcome =
+                self.dispatch_message_queue_with_runtime(root, outcome.messages);
+            self.absorb_outcome(&mut msg_outcome, pending, InvalidationScope::Global);
+            if changed {
+                pending.request_full_content();
+            }
+        }
+    }
+
     /// Headless: advance to idle without injecting input. Mirrors `pilot.pause`.
     pub(crate) fn headless_pause(&mut self, root: &mut dyn Widget) -> crate::Result<()> {
         let mut pending = PendingInvalidation::default();

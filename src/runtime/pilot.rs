@@ -104,6 +104,30 @@ impl<'a> Pilot<'a> {
         self.app.headless_inject_click(self.root, x, y)
     }
 
+    /// Move the mouse to the centre of the widget matched by `selector`,
+    /// updating hover state (`:hover`, Enter/Leave, the system tooltip) and
+    /// dispatching a `MouseMove` to it, then advance to idle. Mirrors
+    /// `pilot.hover(selector)`.
+    pub fn hover(&mut self, selector: &str) -> Result<()> {
+        let node = self
+            .app
+            .query_one(selector)
+            .map_err(|e| crate::Error::Message(format!("hover selector {selector}: {e:?}")))?;
+        let rect = self
+            .app
+            .node_screen_rect(node)
+            .ok_or_else(|| crate::Error::Message(format!("no rendered region for {selector}")))?;
+        let cx = rect.0 + (rect.2.saturating_sub(rect.0)) / 2;
+        let cy = rect.1 + (rect.3.saturating_sub(rect.1)) / 2;
+        self.app.headless_inject_mouse_move(self.root, cx, cy)
+    }
+
+    /// Move the mouse to an absolute screen coordinate (hover + `MouseMove`),
+    /// then advance to idle. Mirrors `pilot.hover((x, y))` / `pilot.move`.
+    pub fn move_to(&mut self, x: u16, y: u16) -> Result<()> {
+        self.app.headless_inject_mouse_move(self.root, x, y)
+    }
+
     /// Advance the app to idle (process queued messages/timers/animations and
     /// render). Mirrors `pilot.pause()`.
     pub fn pause(&mut self) -> Result<()> {
