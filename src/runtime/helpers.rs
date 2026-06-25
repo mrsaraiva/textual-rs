@@ -234,10 +234,10 @@ pub fn widget_at_tree_layout(tree: &WidgetTree, x: u16, y: u16) -> Option<NodeId
             render_shift_y -= oy as i32;
         }
         let rect = node.layout_rect;
-        let x0 = i32::from(rect.x0) + render_shift_x;
-        let x1 = i32::from(rect.x1) + render_shift_x;
-        let y0 = i32::from(rect.y0) + render_shift_y;
-        let y1 = i32::from(rect.y1) + render_shift_y;
+        let x0 = rect.x0 + render_shift_x;
+        let x1 = rect.x1 + render_shift_x;
+        let y0 = rect.y0 + render_shift_y;
+        let y1 = rect.y1 + render_shift_y;
         let inside =
             i32::from(x) >= x0 && i32::from(x) < x1 && i32::from(y) >= y0 && i32::from(y) < y1;
         if !inside {
@@ -289,8 +289,8 @@ pub fn tree_content_local_coords(
         render_shift_y -= oy as i32;
     }
 
-    let origin_x = i32::from(rect.x0) + render_shift_x;
-    let origin_y = i32::from(rect.y0) + render_shift_y;
+    let origin_x = rect.x0 + render_shift_x;
+    let origin_y = rect.y0 + render_shift_y;
     let local_x = i32::from(screen_x).saturating_sub(origin_x).max(0) as u16;
     let local_y = i32::from(screen_y).saturating_sub(origin_y).max(0) as u16;
     (local_x, local_y)
