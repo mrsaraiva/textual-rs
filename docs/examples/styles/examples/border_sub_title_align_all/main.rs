@@ -1,12 +1,10 @@
 /// Port of Python Textual `docs/examples/styles/border_sub_title_align_all.py`.
 ///
 /// Demonstrates border-title-align and border-subtitle-align on a 3x3 grid of
-/// labeled containers. Each label has a border_title and border_subtitle set.
-///
-/// Framework gap: `Label` in textual-rs does not yet support `border_title` /
-/// `border_subtitle` instance properties — those fields are not rendered on
-/// Label widgets. The CSS alignment properties (border-title-align,
-/// border-subtitle-align) are included verbatim.
+/// labeled containers. Each label has a border_title and border_subtitle set,
+/// using Rich markup (`[b red]`, `[reverse]`, `[u][r]…[/]`) which is styled
+/// through the Content markup pipeline, and long titles are ellipsis-truncated
+/// to the border width — matching Python `_border.render_border_label`.
 use textual::prelude::*;
 
 const CSS: &str = r##"
@@ -91,31 +89,31 @@ impl TextualApp for BorderSubTitleAlignAll {
                     Container::new().with_child(
                         Label::new("This is the story of")
                             .id("lbl1")
-                            .with_border_title("Border title")
-                            .with_border_subtitle("Border subtitle"),
+                            .with_border_title("[b]Border [i]title[/i][/]")
+                            .with_border_subtitle("[u][r]Border[/r] subtitle[/]"),
                     ),
                 )
                 .with_child(
                     Container::new().with_child(
                         Label::new("a Python")
                             .id("lbl2")
-                            .with_border_title("Left, but it's loooooooooooong")
-                            .with_border_subtitle("Center, but it's loooooooooooong"),
+                            .with_border_title("[b red]Left, but it's loooooooooooong")
+                            .with_border_subtitle("[reverse]Center, but it's loooooooooooong"),
                     ),
                 )
                 .with_child(
                     Container::new().with_child(
                         Label::new("developer that")
                             .id("lbl3")
-                            .with_border_title("Left")
-                            .with_border_subtitle("@@@"),
+                            .with_border_title("[b i on purple]Left[/]")
+                            .with_border_subtitle("[r u white on black]@@@[/]"),
                     ),
                 )
                 .with_child(
                     Container::new().with_child(
                         Label::new("had to fill up")
                             .id("lbl4")
-                            .with_border_subtitle("Left"),
+                            .with_border_subtitle("[link='https://textual.textualize.io']Left[/]"),
                     ),
                 )
                 .with_child(

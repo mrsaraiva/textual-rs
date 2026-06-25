@@ -166,10 +166,7 @@ pub(crate) fn apply_debug_box(
     let label_width = rich_rs::cell_len(&label_text);
     let fill_width = (width - 2).saturating_sub(label_width);
     top.push_str(&label_text);
-    top.push_str(
-        &std::iter::repeat_n(b.top, fill_width)
-            .collect::<String>(),
-    );
+    top.push_str(&std::iter::repeat_n(b.top, fill_width).collect::<String>());
     top.push(b.top_right);
     out.push(vec![Segment::styled(top, style)]);
 
@@ -187,10 +184,7 @@ pub(crate) fn apply_debug_box(
 
     let mut bottom = String::new();
     bottom.push(b.bottom_left);
-    bottom.push_str(
-        &std::iter::repeat_n(b.bottom, width - 2)
-            .collect::<String>(),
-    );
+    bottom.push_str(&std::iter::repeat_n(b.bottom, width - 2).collect::<String>());
     bottom.push(b.bottom_right);
     out.push(vec![Segment::styled(bottom, style)]);
 
@@ -793,7 +787,16 @@ pub(crate) fn outline_edge_cells(
 
     // Build a horizontal edge row (top or bottom) and emit its per-cell glyphs.
     let mut push_horizontal_row = |edge: BorderEdge, row: usize| {
-        let segs = border_horizontal_row(edge, inner, outer, width, has_left, has_right, row == 0, None);
+        let segs = border_horizontal_row(
+            edge,
+            inner,
+            outer,
+            width,
+            has_left,
+            has_right,
+            row == 0,
+            None,
+        );
         let mut col = 0usize;
         for seg in segs {
             let style = seg.style.unwrap_or_default();
@@ -835,25 +838,11 @@ pub(crate) fn outline_edge_cells(
     cells
 }
 
-fn apply_text_style_flags(style: &mut rich_rs::Style, flags: &crate::style::TextStyleFlags) {
-    if flags.bold {
-        *style = (*style).with_bold(true);
-    }
-    if flags.dim {
-        *style = (*style).with_dim(true);
-    }
-    if flags.italic {
-        *style = (*style).with_italic(true);
-    }
-    if flags.underline {
-        *style = (*style).with_underline(true);
-    }
-    if flags.reverse {
-        style.reverse = Some(true);
-    }
-    if flags.strike {
-        style.strike = Some(true);
-    }
+/// Convert a rendered `rich_rs::SimpleColor` (already an opaque terminal color
+/// on the border line) into a `crate::style::Color` so it can serve as the base
+/// foreground/background under markup span styling for a border (sub)title.
+fn rich_color_to_style_color(color: Option<&rich_rs::SimpleColor>) -> Option<crate::style::Color> {
+    color.copied().map(crate::style::color_from_simple)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -875,36 +864,47 @@ fn overlay_border_text(
     if width <= left_w + right_w {
         return;
     }
-    let inner_w = width - left_w - right_w;
 
-    // Python `_border.render_border_label` pads the title with one blank on each
-    // side that has a corner; `render_row` then fills the remaining edge with the
-    // border character (NOT spaces). The title may use at most
-    // `inner_w - (pad_left + pad_right)` cells before padding.
+    // Mirror Python's two-stage border-label flow exactly
+    // (`_styles_cache.render_line` -> `_border.render_border_label` ->
+    // `_border.render_row`):
+    //
+    //   * `render_border_label` is called with `width - 2` (the full edge width
+    //     minus the two corner cells), and reserves `2 * corners_needed` cells
+    //     for the surrounding blanks + corners; the effective space for the
+    //     label text is therefore `(width - 2) - 2 * corners_needed`.
+    //   * The label is truncated (ellipsis) to that width, then padded by one
+    //     blank per present corner.
+    //   * `render_row` then lays the padded label over the full edge using
+    //     `space_available = max(0, width - corners_needed - label_length)`.
+    let corners = left_w + right_w;
     let pad_left = left_w;
     let pad_right = right_w;
-    let max_title_w = inner_w.saturating_sub(pad_left + pad_right);
+    let border_label_width = width.saturating_sub(2);
+    let cells_reserved = 2 * corners;
+    let max_title_w = border_label_width.saturating_sub(cells_reserved);
     if max_title_w == 0 {
         return;
     }
-    let truncated = if rich_rs::cell_len(text) > max_title_w {
-        rich_rs::set_cell_size(text, max_title_w)
-    } else {
-        text.to_string()
-    };
-    let title_w = rich_rs::cell_len(&truncated);
+    // Build the (sub)title as markup Content so embedded tags (`[b red]`,
+    // `[reverse]`, `[u][r]…[/]`) style the label, mirroring Python
+    // `_border.render_border_label` which renders a `Content`/`Text` markup
+    // label. Truncate with an ellipsis exactly like
+    // `Content.truncate(width, ellipsis=True)`, then pad one blank per present
+    // corner, matching Python's `pad_left(1)` / `pad_right(1)`.
+    let content = crate::content::Content::from_markup(text);
+    if content.cell_length() == 0 {
+        return;
+    }
+    let content = content.truncate(max_title_w, true);
+    let title_w = content.cell_length();
     if title_w == 0 {
         return;
     }
-    // Padded label = blank + title + blank (per present corner).
-    let padded_title = format!(
-        "{}{}{}",
-        " ".repeat(pad_left),
-        truncated,
-        " ".repeat(pad_right)
-    );
+    let content = content.pad_left(pad_left).pad_right(pad_right);
     let padded_w = title_w + pad_left + pad_right;
-    let space_available = inner_w.saturating_sub(padded_w);
+    // Python `render_row`: space_available = max(0, width - corners - label_length).
+    let space_available = width.saturating_sub(corners).saturating_sub(padded_w);
 
     // Fill character + style come from the existing border-line middle segment
     // (the repeated `─`/`━`/etc.), so the dashes keep the border color.
@@ -944,27 +944,69 @@ fn overlay_border_text(
         }
     };
 
-    let mut middle_style = middle_seg
+    // Base style for the label: the border-line middle style (carries the
+    // border foreground over the widget surface), plus the flip swap for
+    // panel/tab titles and any border-(sub)title-color/background/style CSS
+    // overrides. This is the Rust analogue of Python's `base_style` passed to
+    // `Content.render_segments` after `stylize_before(label_style)`.
+    let middle_rich = middle_seg
         .as_ref()
         .and_then(|s| s.style)
         .unwrap_or_default();
+    let mut base = crate::style::Style {
+        fg: rich_color_to_style_color(middle_rich.color.as_ref()),
+        bg: rich_color_to_style_color(middle_rich.bgcolor.as_ref()),
+        bold: middle_rich.bold,
+        dim: middle_rich.dim,
+        italic: middle_rich.italic,
+        underline: middle_rich.underline,
+        reverse: middle_rich.reverse,
+        strike: middle_rich.strike,
+        ..crate::style::Style::default()
+    };
     if flip {
         // Python _border.py:397-401: swap fg/bg of the base style for panel/tab titles.
-        std::mem::swap(&mut middle_style.color, &mut middle_style.bgcolor);
+        std::mem::swap(&mut base.fg, &mut base.bg);
     }
     if let Some(c) = fg {
-        middle_style = middle_style.with_color(c.to_simple_opaque());
+        base.fg = Some(c);
     }
     if let Some(c) = bg {
-        middle_style = middle_style.with_bgcolor(c.to_simple_opaque());
-    } else if middle_style.bgcolor.is_none() {
-        middle_style = middle_style.with_bgcolor(fallback_bg.to_simple_opaque());
+        base.bg = Some(c);
+    } else if base.bg.is_none() {
+        base.bg = Some(fallback_bg);
     }
     if let Some(f) = flags.as_ref() {
-        apply_text_style_flags(&mut middle_style, f);
+        if f.bold {
+            base.bold = Some(true);
+        }
+        if f.dim {
+            base.dim = Some(true);
+        }
+        if f.italic {
+            base.italic = Some(true);
+        }
+        if f.underline {
+            base.underline = Some(true);
+        }
+        if f.reverse {
+            base.reverse = Some(true);
+        }
+        if f.strike {
+            base.strike = Some(true);
+        }
     }
 
-    let mut rebuilt: Vec<Segment> = Vec::with_capacity(5);
+    // Resolve theme tokens ($primary, …) embedded in markup span tags, mirroring
+    // the resolver used by Label/Static rendering.
+    let resolve_fn = |raw: &str| {
+        crate::content::markup::parse_tag_style(raw)
+            .map(|t| t.style)
+            .unwrap_or_default()
+    };
+    let title_segs = content.render_label_segments(&base, resolve_fn);
+
+    let mut rebuilt: Vec<Segment> = Vec::with_capacity(title_segs.len() + 4);
     if has_left {
         if let Some(left) = row.first().cloned() {
             rebuilt.push(left);
@@ -973,7 +1015,7 @@ fn overlay_border_text(
     if let Some(seg) = make_fill(before) {
         rebuilt.push(seg);
     }
-    rebuilt.push(Segment::styled(padded_title, middle_style));
+    rebuilt.extend(title_segs);
     if let Some(seg) = make_fill(after) {
         rebuilt.push(seg);
     }

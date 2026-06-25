@@ -29,23 +29,45 @@ const PYTHON: &str = "/tmp/textual-venv/bin/python";
 
 /// Styled-verified examples (asserted exact). Grows as color-parity clusters land.
 const PASSING: &[&str] = &[
-    "background", "color", "color_auto", "border", "align_all",
+    "background",
+    "color",
+    "color_auto",
+    "border",
+    "align_all",
     // Promoted from the 87-example full sizing (already cell-exact vs Python):
-    "border_subtitle_align", "border_title_align", "grid_columns", "grid_gutter",
-    "grid_rows", "grid_size_both", "grid_size_columns", "screen",
+    "border_subtitle_align",
+    "border_title_align",
+    "grid_columns",
+    "grid_gutter",
+    "grid_rows",
+    "grid_size_both",
+    "grid_size_columns",
+    "screen",
     // Promoted after the foreground/fill-surface fix (default-colored glyphs
     // inherit $foreground; content-align fill carries fg; other fill bg-only):
-    "border_title_colors", "outline_vs_border", "colors", "colors01", "margin01",
+    "border_title_colors",
+    "outline_vs_border",
+    "colors",
+    "colors01",
+    "margin01",
     "widget",
     // Promoted after the vertical-extend fill fix (rows beyond content height
     // carry $foreground via visual_style; trailing horizontal pad stays bg-only):
-    "content_align_all", "text_overflow", "text_wrap", "visibility", "dimensions04",
+    "content_align_all",
+    "text_overflow",
+    "text_wrap",
+    "visibility",
+    "dimensions04",
     // Promoted after removing Label's stray `fg: $foreground` default so an
     // explicit ancestor `color` (e.g. Screen { color: black }) inherits down:
-    "margin", "outline", "padding",
+    "margin",
+    "outline",
+    "padding",
     // Promoted after float-faithful auto/contrast compositing (blend_over_float):
     // avoids u8 alpha-quantization drift on $text/auto-color text:
-    "max_height", "max_width", "min_width",
+    "max_height",
+    "max_width",
+    "min_width",
     // Promoted after skipping the fg-bearing align fill for the default
     // content-align (left, top) — matches Python's `!= ("left","top")` guard,
     // so the trailing pad of the content row stays background-only:
@@ -53,11 +75,14 @@ const PASSING: &[&str] = &[
     // Promoted after the Color.a u8->f32 float-alpha keystone: parsed-alpha bg/fg
     // blends (`red 10%`) now composite with the exact float factor (Python),
     // not the u8-quantized one — removes the ±1 RGB drift:
-    "align", "background_transparency", "colors02",
+    "align",
+    "background_transparency",
+    "colors02",
     // Promoted after apply_parent_align now runs for Grid layout (was skipped by
     // an early-return guard) — border_all/outline_all grid cells are now centred
     // vertically/horizontally just like every other layout strategy:
-    "border_all", "outline_all",
+    "border_all",
+    "outline_all",
     // Promoted after Fix B: apply_host_scrollbar_layout now uses geometry.show_vertical
     // (content overflows AND allowed) as the scrollbar-widget SHOW flag instead of
     // geometry.vertical_lane_width>0.  This separates gutter RESERVATION (stable gutter)
@@ -72,7 +97,10 @@ const PASSING: &[&str] = &[
     // Promoted after bumping rich-rs to 1.2.1: [link=url] markup no longer applies
     // a hardcoded cyan/underline (OSC8 meta only, matching Python Rich+Textual), so
     // link styling now comes from the CSS link-* tokens as Python does:
-    "link_background_hover", "link_color_hover", "link_style", "link_style_hover",
+    "link_background_hover",
+    "link_color_hover",
+    "link_style",
+    "link_style_hover",
     // Promoted after applying link-* CSS tokens to [@click=...] markup spans in
     // Label/Static render (mirrors Python's `widget.link_style` applied to @click
     // segments), and fixing CSS parser to handle `link-color: <color> <N>%` alpha
@@ -82,13 +110,22 @@ const PASSING: &[&str] = &[
     // text-style flags (bold/italic/underline/reverse), border, border_title,
     // box-sizing, padding, and dimension examples now use the Content pipeline
     // which correctly bakes visual_style + span_style into segments:
-    "text_style_all", "border01", "border_title", "box_sizing01",
-    "dimensions01", "dimensions02", "dimensions03", "outline01", "padding01",
+    "text_style_all",
+    "border01",
+    "border_title",
+    "box_sizing01",
+    "dimensions01",
+    "dimensions02",
+    "dimensions03",
+    "outline01",
+    "padding01",
     "text_opacity",
     // Color-residual (re-scoped to real roots): placeholder bg uses exact float 0.5
     // (was 128/255=0.50196) → column_span/row_span; border-fg + bg opacity now match
     // Python's double-application (background_colors blend + _apply_opacity) → opacity.
-    "column_span", "row_span", "opacity",
+    "column_span",
+    "row_span",
+    "opacity",
     // Promoted after links-parity workstream: (1) css_id preserved post-mount via
     // css_id_cache so id-selector link-* rules apply to Static correctly; (2)
     // @click spans get link-color/link-background CSS overlay in Static::render();
@@ -102,11 +139,13 @@ const PASSING: &[&str] = &[
     // background_tint: use Vertical::new().id() directly (not Node wrapper) so
     // `background: $panel` and `background-tint: ...` resolve on the same node,
     // matching Python `Vertical(Label(...), id="tint1")`.
-    "tint", "background_tint",
+    "tint",
+    "background_tint",
     // Match Python exactly (promoted as free wins this pass): min_height was a
     // pre-existing missed promotion; box_sizing now matches after the Static
     // off-tree id() resolution stopped inserting a spurious Node wrapper level.
-    "box_sizing", "min_height",
+    "box_sizing",
+    "min_height",
     // Promoted after the BOX vertical-extend fill discriminates chrome-only
     // containers from content widgets: a bordered Container renders no text
     // content (Python `Widget.render` -> `Blank(background_colors[1])`, bg-only),
@@ -114,14 +153,16 @@ const PASSING: &[&str] = &[
     // from `Screen { color: $foreground }`. Content widgets (Static/Label) keep
     // the fg-bearing `visual_style` extend (Python `render_line` IndexError).
     // This fixes the docked/bordered container blank-row fg bleed.
-    "dock_all", "margin_all",
+    "dock_all",
+    "margin_all",
     // Promoted after replacing Placeholder (cycling bg, centered label) with
     // Label::new("Widget") in the width/height example mains — matches Python's
     // bare Widget(): literal "Widget" text top-left (no content-align), green bg,
     // white fg. CSS adds the unset dimension (height:1fr / width:1fr) to mirror
     // Python's fill-the-screen default for a bare Widget. (Example-only fix;
     // Placeholder bg cycling must stay for max_width/min_width.)
-    "width", "height",
+    "width",
+    "height",
     // Promoted after the text-render residual fixes:
     //  - text_align: (1) content widgets with `color: auto` now carry the
     //    auto-contrast fg into their vertical-extend fill rows (the vfill
@@ -134,7 +175,8 @@ const PASSING: &[&str] = &[
     //    `auto_link_color` → `link_background.get_contrast_text(a)`), so a bright
     //    `link-background: $accent` yields dark link text instead of the screen
     //    contrast. Added `link_color_auto` marker to Style.
-    "text_align", "link_background",
+    "text_align",
+    "link_background",
     // Promoted after fixing CSS `hatch` compositing: the fill is now DEFERRED
     // until after children render (so the inner content child of a `.class()`
     // Node wrapper can no longer un-hatch the first inner row) and SCOPED to the
@@ -163,7 +205,9 @@ const PASSING: &[&str] = &[
     //    (unset OR `auto` height) in an `fr`-width row now re-measures its wrapped
     //    height at the RESOLVED width (was using the stale `layout_height()`), so a
     //    wrapping Label sized its box to the right line count. → text_style.
-    "width_comparison", "height_comparison", "text_style",
+    "width_comparison",
+    "height_comparison",
+    "text_style",
     // Promoted after the visibility-as-inheritance + layout-of-hidden-subtrees fix:
     //  (1) `apply_display_visibility_to_tree` now inherits effective visibility
     //      down the tree (Python `DOMNode.visible`): a `visibility:hidden`
@@ -191,7 +235,8 @@ const PASSING: &[&str] = &[
     //    cleared it but regressed nesting01/02's `align: center middle` by 2 rows
     //    (a margin-vs-`apply_parent_align` layout bug the Node wrapper masked).
     //    See `Static::class` doc-comment; re-land with the layout fix.
-    "padding02", "padding_all",
+    "padding02",
+    "padding_all",
     // Promoted after the TEXT-HEIGHT trailing-blank fix: `Label::intrinsic_height`
     // now routes through `text::intrinsic_wrapped_height` (Python
     // `Content.split(allow_blank=True)`), so a `Label(TEXT * N)` whose TEXT ends
@@ -218,7 +263,23 @@ const PASSING: &[&str] = &[
     // `constrain_width`) + the clipping content region. `scrollbars` (Label
     // `width: 150%; height: 150%`) and `scrollbar_size` (Label `width: 200`)
     // are now cell-and-RGB exact vs Python.
-    "scrollbars", "scrollbar_size",
+    "scrollbars",
+    "scrollbar_size",
+    // Promoted after the border (sub)title markup + truncation + grid-vcenter pass
+    // ("bordertitle"):
+    //  - border (sub)titles now render through the Content markup pipeline
+    //    (`Content::render_label_segments`) so embedded tags (`[b red]`,
+    //    `[reverse]`, `[u][r]…[/]`, `white on black`) style the label, matching
+    //    Python `_border.render_border_label`.
+    //  - ellipsis truncation uses Python's exact edge arithmetic
+    //    (`render_border_label` width-2 / `2*corners` reserve + `render_row`
+    //    space distribution) so over-long titles cut with `…`.
+    //  - layout reconciles a leaf's under-counted vertical chrome: `layout_height()`
+    //    resolves border/padding OFF-TREE (id/class CSS invisible post-mount), so the
+    //    vertical layout now adds the on-tree chrome the widget could not see — fixing
+    //    the `align: center middle` off-by-one for id-bordered Labels.
+    //  - markup `X on Y` color parse fixed (committed pending fg before `on`).
+    "border_sub_title_align_all",
 ];
 
 struct StyledCase {
@@ -237,7 +298,9 @@ fn discover() -> Vec<StyledCase> {
     let mut seen = HashSet::new();
     for sub in ["styles", "guide/styles"] {
         let dir = repo().join("../textual/docs/examples").join(sub);
-        let Ok(rd) = std::fs::read_dir(&dir) else { continue };
+        let Ok(rd) = std::fs::read_dir(&dir) else {
+            continue;
+        };
         let mut paths: Vec<PathBuf> = rd
             .flatten()
             .map(|e| e.path())
@@ -249,12 +312,17 @@ fn discover() -> Vec<StyledCase> {
             if seen.contains(&stem) {
                 continue;
             }
-            let bin = repo().join("docs/examples/target/debug/examples").join(&stem);
+            let bin = repo()
+                .join("docs/examples/target/debug/examples")
+                .join(&stem);
             if !bin.exists() {
                 continue;
             }
             seen.insert(stem.clone());
-            cases.push(StyledCase { name: stem.clone(), py_rel: format!("{sub}/{stem}.py") });
+            cases.push(StyledCase {
+                name: stem.clone(),
+                py_rel: format!("{sub}/{stem}.py"),
+            });
         }
     }
     cases
@@ -279,7 +347,12 @@ fn capture(mut cmd: CommandBuilder, cwd: PathBuf) -> String {
     cmd.env("TEXTUAL_COLOR_SYSTEM", "truecolor");
 
     let pty = native_pty_system()
-        .openpty(PtySize { rows: ROWS, cols: COLS, pixel_width: 0, pixel_height: 0 })
+        .openpty(PtySize {
+            rows: ROWS,
+            cols: COLS,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
         .expect("openpty");
     let mut child = pty.slave.spawn_command(cmd).expect("spawn");
     drop(pty.slave);
@@ -329,7 +402,10 @@ fn capture(mut cmd: CommandBuilder, cwd: PathBuf) -> String {
                     run = chs;
                 }
             }
-            serial.push_str(&format!("[{start}-{}] {run:?} fg={fg} bg={bg}\n--row {r}--\n", COLS - 1));
+            serial.push_str(&format!(
+                "[{start}-{}] {run:?} fg={fg} bg={bg}\n--row {r}--\n",
+                COLS - 1
+            ));
         }
         if !text.trim().is_empty() && text == prev {
             out = serial;
@@ -347,7 +423,9 @@ fn capture(mut cmd: CommandBuilder, cwd: PathBuf) -> String {
 }
 
 fn golden_path(name: &str) -> PathBuf {
-    repo().join("tests/pty_parity/golden_styled").join(format!("{name}.styled"))
+    repo()
+        .join("tests/pty_parity/golden_styled")
+        .join(format!("{name}.styled"))
 }
 
 #[test]
@@ -381,19 +459,27 @@ fn visual_parity_batch() {
                 continue;
             }
         };
-        let bin = repo().join("docs/examples/target/debug/examples").join(&case.name);
+        let bin = repo()
+            .join("docs/examples/target/debug/examples")
+            .join(&case.name);
         let actual = capture(CommandBuilder::new(bin.to_str().unwrap()), repo());
         let matches = actual.trim() == golden.trim();
         if !matches && std::env::var("DEBUG_CASE").map_or(false, |d| d == case.name || d == "ALL") {
-            let (gl, al): (Vec<&str>, Vec<&str>) = (golden.lines().collect(), actual.lines().collect());
+            let (gl, al): (Vec<&str>, Vec<&str>) =
+                (golden.lines().collect(), actual.lines().collect());
             eprintln!("--- DEBUG {} (py vs rust), first 12 diffs ---", case.name);
             let mut shown = 0;
             for i in 0..gl.len().max(al.len()) {
-                let (g, a) = (gl.get(i).copied().unwrap_or("<none>"), al.get(i).copied().unwrap_or("<none>"));
+                let (g, a) = (
+                    gl.get(i).copied().unwrap_or("<none>"),
+                    al.get(i).copied().unwrap_or("<none>"),
+                );
                 if g != a {
                     eprintln!("  py  : {g}\n  rust: {a}");
                     shown += 1;
-                    if shown >= 12 { break; }
+                    if shown >= 12 {
+                        break;
+                    }
                 }
             }
         }
@@ -408,7 +494,10 @@ fn visual_parity_batch() {
         if std::env::var("DUMP_FILE").map_or(false, |d| d == case.name) {
             std::fs::write(format!("/tmp/vp_{}_actual.txt", case.name), &actual).ok();
             std::fs::write(format!("/tmp/vp_{}_golden.txt", case.name), &golden).ok();
-            eprintln!("--- DUMP_FILE wrote /tmp/vp_{}_{{actual,golden}}.txt ---", case.name);
+            eprintln!(
+                "--- DUMP_FILE wrote /tmp/vp_{}_{{actual,golden}}.txt ---",
+                case.name
+            );
         }
         let passing = PASSING.contains(&case.name.as_str());
         match (matches, passing) {
@@ -432,7 +521,10 @@ fn visual_parity_batch() {
             cases.len()
         );
         if !ready.is_empty() {
-            eprintln!("READY (match Python — add to PASSING): {}", ready.join(", "));
+            eprintln!(
+                "READY (match Python — add to PASSING): {}",
+                ready.join(", ")
+            );
         }
     }
     if !regen && !report_only && !regressions.is_empty() {
