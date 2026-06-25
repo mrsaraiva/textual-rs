@@ -87,12 +87,20 @@ pub enum LifecycleEvent {
 ///
 /// A separate copy from `runtime::types::Rect` because that module is private.
 /// The two will be unified when the render pipeline migrates to WidgetTree (P1-12).
+///
+/// Coordinates are **signed** (`i32`) so a placement can carry a negative
+/// position (for example a widget with `offset: 0 -3` whose top border sits
+/// above the viewport at `y0 = -3`). This mirrors Python's signed `Region`
+/// (`textual/geometry.py`): the offset is applied in signed space and the
+/// above/left-of-viewport portion is clipped at render time rather than being
+/// clamped to `0` during layout (which would destroy the off-screen edge).
+/// Widths/heights derived as `x1 - x0` / `y1 - y0` remain non-negative.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Rect {
-    pub(crate) x0: u16,
-    pub(crate) y0: u16,
-    pub(crate) x1: u16,
-    pub(crate) y1: u16,
+    pub(crate) x0: i32,
+    pub(crate) y0: i32,
+    pub(crate) x1: i32,
+    pub(crate) y1: i32,
 }
 
 impl Rect {
@@ -102,6 +110,16 @@ impl Rect {
         x1: 0,
         y1: 0,
     };
+
+    /// Width of the rectangle (`x1 - x0`), clamped to be non-negative.
+    pub(crate) fn width(self) -> u16 {
+        (self.x1 - self.x0).max(0) as u16
+    }
+
+    /// Height of the rectangle (`y1 - y0`), clamped to be non-negative.
+    pub(crate) fn height(self) -> u16 {
+        (self.y1 - self.y0).max(0) as u16
+    }
 }
 
 // ---------------------------------------------------------------------------

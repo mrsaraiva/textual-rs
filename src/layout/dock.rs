@@ -77,13 +77,13 @@ pub fn arrange_dock(
         let layout_w = ow.saturating_sub(bx.margin.left + bx.margin.right);
         let layout_h = oh.saturating_sub(bx.margin.top + bx.margin.bottom);
 
-        // Translate to absolute coordinates.
-        let layout_x = region_x.saturating_add(ox);
-        let layout_y = region_y.saturating_add(oy);
+        // Translate to absolute coordinates (signed positions).
+        let layout_x = region_x + i32::from(ox);
+        let layout_y = region_y + i32::from(oy);
 
         // Inner content rect (placed box minus border+padding gutter).
-        let content_x = layout_x.saturating_add(bx.border_left + bx.padding_left);
-        let content_y = layout_y.saturating_add(bx.border_top + bx.padding_top);
+        let content_x = layout_x + i32::from(bx.border_left + bx.padding_left);
+        let content_y = layout_y + i32::from(bx.border_top + bx.padding_top);
         let content_w = layout_w.saturating_sub(bx.chrome_w);
         let content_h = layout_h.saturating_sub(bx.chrome_h);
 
@@ -95,8 +95,8 @@ pub fn arrange_dock(
     }
 
     // Shrink the region by accumulated spacing for the flow children.
-    let inner_x = region_x.saturating_add(left);
-    let inner_y = region_y.saturating_add(top);
+    let inner_x = region_x + i32::from(left);
+    let inner_y = region_y + i32::from(top);
     let inner_w = width.saturating_sub(left + right);
     let inner_h = height.saturating_sub(top + bottom);
     Region::new(inner_x, inner_y, inner_w, inner_h)
@@ -119,8 +119,8 @@ pub(crate) fn layout_dock_fill(tree: &mut WidgetTree, child: NodeId, inner: Regi
     let chrome_w = border_left + border_right + padding.left + padding.right;
     let chrome_h = border_top + border_bottom + padding.top + padding.bottom;
 
-    let content_x = inner.x.saturating_add(border_left + padding.left);
-    let content_y = inner.y.saturating_add(border_top + padding.top);
+    let content_x = inner.x + i32::from(border_left + padding.left);
+    let content_y = inner.y + i32::from(border_top + padding.top);
     let content_w = inner.width.saturating_sub(chrome_w);
     let content_h = inner.height.saturating_sub(chrome_h);
 

@@ -1,5 +1,5 @@
 use crate::node_id::NodeId;
-use crate::style::{BoxSizing, Offset, OffsetValue};
+use crate::style::BoxSizing;
 use crate::widget_tree::WidgetTree;
 
 use super::common::{
@@ -9,32 +9,6 @@ use super::common::{
 use super::region::Region;
 use super::resolve_1d::{Edge, layout_resolve_1d_exact};
 
-/// Apply a CSS `offset` displacement to a (x, y) coordinate pair.
-///
-/// Mirrors Python `_arrange.py`: offset is a visual shift applied after the
-/// normal-flow position is established. Percentage offsets resolve against the
-/// widget's own layout box dimensions (matching `layout_absolute`).
-fn apply_offset(x: u16, y: u16, offset: &Offset, layout_w: u16, layout_h: u16) -> (u16, u16) {
-    let dx = match offset.x {
-        OffsetValue::Cells(c) => c as i32,
-        OffsetValue::Percent(p) => (layout_w as f32 * p / 100.0).round() as i32,
-    };
-    let dy = match offset.y {
-        OffsetValue::Cells(c) => c as i32,
-        OffsetValue::Percent(p) => (layout_h as f32 * p / 100.0).round() as i32,
-    };
-    let new_x = if dx >= 0 {
-        x.saturating_add(dx as u16)
-    } else {
-        x.saturating_sub(dx.unsigned_abs() as u16)
-    };
-    let new_y = if dy >= 0 {
-        y.saturating_add(dy as u16)
-    } else {
-        y.saturating_sub(dy.unsigned_abs() as u16)
-    };
-    (new_x, new_y)
-}
 pub fn layout_horizontal(
     tree: &mut WidgetTree,
     children: &[NodeId],
@@ -48,9 +22,6 @@ pub fn layout_horizontal(
 
     // Phase 1: collect style specs.
     let mut specs: Vec<ChildSpec> = Vec::with_capacity(children.len());
-    // Collect per-child CSS `offset` displacements (visual shift applied after
-    // flow position, mirroring Python `layouts/horizontal.py` WidgetPlacement).
-    let mut offsets: Vec<Option<Offset>> = Vec::with_capacity(children.len());
     // Retain the (normalized) per-child style + intrinsic-width hint so the
     // width-aware height remeasure (Phase 2.5) can rebuild the height edge for
     // content-sized-height children once the resolved fr/fixed width is known.
@@ -147,7 +118,6 @@ pub fn layout_horizontal(
             }
 
         specs.push(spec);
-        offsets.push(style.offset);
         intrinsic_widths.push(intrinsic_width);
         styles.push(style);
     }
@@ -279,7 +249,7 @@ pub fn layout_horizontal(
     // left edge is the previous box's right edge plus the COLLAPSED gap
     // (`max(this.right, next.left)`), so adjacent margins overlap instead of
     // summing (Python `layouts/horizontal.py`).
-    let mut layout_left = available.x.saturating_add(specs[0].margin.left);
+    let mut layout_left = available.x + i32::from(specs[0].margin.left);
     for (i, &child) in children.iter().enumerate() {
         let spec = &specs[i];
         // Resolved widths are already box (margin-excluded), cumulative-floored.
@@ -287,7 +257,7 @@ pub fn layout_horizontal(
 
         // Layout rect excludes margin.
         let layout_x = layout_left;
-        let layout_y = available.y.saturating_add(spec.margin.top);
+        let layout_y = available.y + i32::from(spec.margin.top);
         let mut layout_h = available
             .height
             .saturating_sub(spec.margin.top + spec.margin.bottom);
@@ -332,18 +302,14 @@ pub fn layout_horizontal(
             layout_h
         };
 
-        // Apply CSS `offset` displacement (visual shift; does NOT alter flow).
-        // Mirrors Python `layouts/horizontal.py`: offset is stored per WidgetPlacement
-        // and applied when computing the widget's rendered position.
-        let (visual_x, visual_y) = if let Some(ref off) = offsets[i] {
-            apply_offset(layout_x, layout_y, off, layout_w, layout_h)
-        } else {
-            (layout_x, layout_y)
-        };
+        // CSS `offset` is applied AFTER container alignment (see
+        // vertical.rs / `apply_flow_offsets`), not folded into the flow position
+        // here — otherwise alignment would re-center the offset box and cancel it.
+        let (visual_x, visual_y) = (layout_x, layout_y);
 
         // Content rect.
-        let content_x = visual_x.saturating_add(spec.border_left + spec.padding.left);
-        let content_y = visual_y.saturating_add(spec.border_top + spec.padding.top);
+        let content_x = visual_x + i32::from(spec.border_left + spec.padding.left);
+        let content_y = visual_y + i32::from(spec.border_top + spec.padding.top);
         let content_w = layout_w.saturating_sub(
             spec.border_left + spec.border_right + spec.padding.left + spec.padding.right,
         );
@@ -362,7 +328,7 @@ pub fn layout_horizontal(
         // successor, so its trailing margin simply ends the row.
         if let Some(next) = specs.get(i + 1) {
             let gap = spec.margin.right.max(next.margin.left);
-            layout_left = layout_x.saturating_add(layout_w).saturating_add(gap);
+            layout_left = layout_x + i32::from(layout_w) + i32::from(gap);
         }
     }
 }

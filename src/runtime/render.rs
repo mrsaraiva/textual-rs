@@ -726,8 +726,8 @@ fn render_tree_node(
     }
 
     let rect = node.layout_rect;
-    let w = (rect.x1.saturating_sub(rect.x0)) as usize;
-    let h = (rect.y1.saturating_sub(rect.y0)) as usize;
+    let w = rect.width() as usize;
+    let h = rect.height() as usize;
 
     // Only render if the node is visible AND has a non-zero extent.
     let should_render = node.visibility == crate::style::Visibility::Visible && w > 0 && h > 0;
@@ -2512,14 +2512,14 @@ fn root_tree_virtual_content_size(tree: &WidgetTree) -> Option<(usize, usize)> {
         }
         saw_visible_child = true;
         let child_rect = child.layout_rect;
-        let child_extent_x = child_rect.x1.saturating_sub(content_rect.x0) as usize;
-        let child_extent_y = child_rect.y1.saturating_sub(content_rect.y0) as usize;
+        let child_extent_x = (child_rect.x1 - content_rect.x0).max(0) as usize;
+        let child_extent_y = (child_rect.y1 - content_rect.y0).max(0) as usize;
         virtual_w = virtual_w.max(child_extent_x);
         virtual_h = virtual_h.max(child_extent_y);
     }
     if !saw_visible_child {
-        virtual_w = content_rect.x1.saturating_sub(content_rect.x0) as usize;
-        virtual_h = content_rect.y1.saturating_sub(content_rect.y0) as usize;
+        virtual_w = content_rect.width() as usize;
+        virtual_h = content_rect.height() as usize;
     }
     Some((virtual_w, virtual_h))
 }
@@ -2616,10 +2616,10 @@ fn host_content_extent(
     content_rect: crate::widget_tree::Rect,
     scrollbar_children: ScrollbarHostChildren,
 ) -> (usize, usize, bool) {
-    let mut min_x: Option<u16> = None;
-    let mut min_y: Option<u16> = None;
-    let mut max_x = 0u16;
-    let mut max_y = 0u16;
+    let mut min_x: Option<i32> = None;
+    let mut min_y: Option<i32> = None;
+    let mut max_x = 0i32;
+    let mut max_y = 0i32;
     let mut saw_visible_child = false;
     // Python's scrollable virtual size (`_compositor` + `_arrange.py`) is the flow
     // (non-docked) content extent PLUS the spacing consumed by docked children on
@@ -2676,8 +2676,8 @@ fn host_content_extent(
             if !flow_layers.is_empty() && !flow_layers.contains(&dock_layer) {
                 continue;
             }
-            let w = child_rect.x1.saturating_sub(child_rect.x0);
-            let h = child_rect.y1.saturating_sub(child_rect.y0);
+            let w = child_rect.width();
+            let h = child_rect.height();
             match super::helpers::resolve_style_in_tree(tree, child_id).and_then(|style| style.dock)
             {
                 Some(crate::style::Dock::Top) => top_dock = top_dock.max(h),
@@ -2697,18 +2697,18 @@ fn host_content_extent(
         let margin = super::helpers::resolve_style_in_tree(tree, child_id)
             .map(|style| style.effective_margin())
             .unwrap_or_default();
-        let cx0 = child_rect.x0.saturating_sub(margin.left);
-        let cy0 = child_rect.y0.saturating_sub(margin.top);
-        let cx1 = child_rect.x1.saturating_add(margin.right);
-        let cy1 = child_rect.y1.saturating_add(margin.bottom);
+        let cx0 = child_rect.x0 - i32::from(margin.left);
+        let cy0 = child_rect.y0 - i32::from(margin.top);
+        let cx1 = child_rect.x1 + i32::from(margin.right);
+        let cy1 = child_rect.y1 + i32::from(margin.bottom);
         min_x = Some(min_x.map_or(cx0, |value| value.min(cx0)));
         min_y = Some(min_y.map_or(cy0, |value| value.min(cy0)));
         max_x = max_x.max(cx1);
         max_y = max_y.max(cy1);
     }
     if !saw_visible_child {
-        let viewport_w = content_rect.x1.saturating_sub(content_rect.x0) as usize;
-        let viewport_h = content_rect.y1.saturating_sub(content_rect.y0) as usize;
+        let viewport_w = content_rect.width() as usize;
+        let viewport_h = content_rect.height() as usize;
         if let Some(node) = tree.get(node_id)
             && let Some((virtual_w, virtual_h)) = node.widget.scroll_virtual_content_size()
         {
@@ -2718,12 +2718,10 @@ fn host_content_extent(
     }
     let origin_x = min_x.unwrap_or(content_rect.x0);
     let origin_y = min_y.unwrap_or(content_rect.y0);
-    let virtual_w = (max_x.saturating_sub(origin_x))
-        .saturating_add(left_dock)
-        .saturating_add(right_dock) as usize;
-    let virtual_h = (max_y.saturating_sub(origin_y))
-        .saturating_add(top_dock)
-        .saturating_add(bottom_dock) as usize;
+    let virtual_w =
+        ((max_x - origin_x).max(0) + i32::from(left_dock) + i32::from(right_dock)) as usize;
+    let virtual_h =
+        ((max_y - origin_y).max(0) + i32::from(top_dock) + i32::from(bottom_dock)) as usize;
     (virtual_w.max(1), virtual_h.max(1), true)
 }
 
@@ -2835,8 +2833,8 @@ fn apply_host_scrollbar_layout(tree: &mut WidgetTree, viewport: (u16, u16)) {
             let style = resolve_node_style(tree, node_id, &meta);
             (content_rect, outer_rect, style, offset_x, offset_y)
         };
-        let content_w = content_rect.x1.saturating_sub(content_rect.x0).max(1) as usize;
-        let content_h = content_rect.y1.saturating_sub(content_rect.y0).max(1) as usize;
+        let content_w = (content_rect.width() as usize).max(1);
+        let content_h = (content_rect.height() as usize).max(1);
 
         let (virtual_w, virtual_h, mut has_content_children) =
             host_content_extent(tree, node_id, content_rect, scrollbar_children);
@@ -2891,12 +2889,8 @@ fn apply_host_scrollbar_layout(tree: &mut WidgetTree, viewport: (u16, u16)) {
         let viewport_rect = crate::widget_tree::Rect {
             x0: content_rect.x0,
             y0: content_rect.y0,
-            x1: content_rect
-                .x0
-                .saturating_add(geometry.viewport_width as u16),
-            y1: content_rect
-                .y0
-                .saturating_add(geometry.viewport_height as u16),
+            x1: content_rect.x0 + geometry.viewport_width as i32,
+            y1: content_rect.y0 + geometry.viewport_height as i32,
         };
         if let Some(node) = tree.get_mut(node_id) {
             node.content_rect = viewport_rect;
@@ -2933,14 +2927,10 @@ fn apply_host_scrollbar_layout(tree: &mut WidgetTree, viewport: (u16, u16)) {
             set_runtime_display(tree, v_id, show);
             let rect = if show {
                 crate::widget_tree::Rect {
-                    x0: content_rect
-                        .x0
-                        .saturating_add(geometry.viewport_width as u16),
+                    x0: content_rect.x0 + geometry.viewport_width as i32,
                     y0: content_rect.y0,
                     x1: content_rect.x1,
-                    y1: content_rect
-                        .y0
-                        .saturating_add(geometry.viewport_height as u16),
+                    y1: content_rect.y0 + geometry.viewport_height as i32,
                 }
             } else {
                 crate::widget_tree::Rect::ZERO
@@ -2971,12 +2961,8 @@ fn apply_host_scrollbar_layout(tree: &mut WidgetTree, viewport: (u16, u16)) {
             let rect = if show {
                 crate::widget_tree::Rect {
                     x0: content_rect.x0,
-                    y0: content_rect
-                        .y0
-                        .saturating_add(geometry.viewport_height as u16),
-                    x1: content_rect
-                        .x0
-                        .saturating_add(geometry.viewport_width as u16),
+                    y0: content_rect.y0 + geometry.viewport_height as i32,
+                    x1: content_rect.x0 + geometry.viewport_width as i32,
                     y1: content_rect.y1,
                 }
             } else {
@@ -3005,12 +2991,8 @@ fn apply_host_scrollbar_layout(tree: &mut WidgetTree, viewport: (u16, u16)) {
             set_runtime_display(tree, c_id, show);
             let rect = if show {
                 crate::widget_tree::Rect {
-                    x0: content_rect
-                        .x0
-                        .saturating_add(geometry.viewport_width as u16),
-                    y0: content_rect
-                        .y0
-                        .saturating_add(geometry.viewport_height as u16),
+                    x0: content_rect.x0 + geometry.viewport_width as i32,
+                    y0: content_rect.y0 + geometry.viewport_height as i32,
                     x1: content_rect.x1,
                     y1: content_rect.y1,
                 }
@@ -3048,16 +3030,8 @@ fn sync_host_scrollbar_positions(tree: &mut WidgetTree) {
                 continue;
             };
             let (offset_x, offset_y) = node.widget.scroll_offset_f32();
-            let viewport_w = node
-                .content_rect
-                .x1
-                .saturating_sub(node.content_rect.x0)
-                .max(1) as usize;
-            let viewport_h = node
-                .content_rect
-                .y1
-                .saturating_sub(node.content_rect.y0)
-                .max(1) as usize;
+            let viewport_w = (node.content_rect.width() as usize).max(1);
+            let viewport_h = (node.content_rect.height() as usize).max(1);
             (
                 offset_x,
                 offset_y,
@@ -3933,8 +3907,8 @@ mod tests {
             palette_rect.y0, 0,
             "runtime-host command palette should start at screen top"
         );
-        let sample_x = usize::from(palette_rect.x0).min(59);
-        let sample_y = usize::from(palette_rect.y0).min(13);
+        let sample_x = (palette_rect.x0.max(0) as usize).min(59);
+        let sample_y = (palette_rect.y0.max(0) as usize).min(13);
         let baseline_underlay_style = baseline_frame
             .get(sample_x, sample_y)
             .style

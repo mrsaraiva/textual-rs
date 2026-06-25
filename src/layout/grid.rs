@@ -373,8 +373,8 @@ pub fn layout_grid(
         .is_some_and(|k| k.keyline_type != KeylineType::None);
     let grid_available = if keyline_enabled && available.width > 2 && available.height > 2 {
         Region::new(
-            available.x.saturating_add(1),
-            available.y.saturating_add(1),
+            available.x + 1,
+            available.y + 1,
             available.width.saturating_sub(2),
             available.height.saturating_sub(2),
         )
@@ -585,15 +585,10 @@ pub fn layout_grid(
         let (bt, bb, bl, br) = border_spacing(&style);
         let box_sizing = style.box_sizing.unwrap_or(BoxSizing::BorderBox);
 
-        // Layout rect: cell + available offset, margin inset.
-        let layout_x = grid_available
-            .x
-            .saturating_add(cell_x)
-            .saturating_add(margin.left);
-        let layout_y = grid_available
-            .y
-            .saturating_add(cell_y)
-            .saturating_add(margin.top);
+        // Layout rect: cell + available offset, margin inset. Positions are
+        // signed (the grid container itself may originate off-viewport).
+        let layout_x = grid_available.x + i32::from(cell_x) + i32::from(margin.left);
+        let layout_y = grid_available.y + i32::from(cell_y) + i32::from(margin.top);
 
         // Size the child by its OWN box model within the cell (Python grid:
         // `widget._get_box_model(cell_size)`), not by stretching it to the cell.
@@ -683,8 +678,8 @@ pub fn layout_grid(
         }
 
         // Content rect: inner area after border + padding.
-        let content_x = layout_x.saturating_add(bl + padding.left);
-        let content_y = layout_y.saturating_add(bt + padding.top);
+        let content_x = layout_x + i32::from(bl + padding.left);
+        let content_y = layout_y + i32::from(bt + padding.top);
         let content_w = layout_w.saturating_sub(bl + br + padding.left + padding.right);
         let content_h = layout_h.saturating_sub(bt + bb + padding.top + padding.bottom);
 

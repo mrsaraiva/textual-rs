@@ -37,24 +37,64 @@ use dock::layout_dock_fill;
 use split::{arrange_split, layout_absolute};
 
 fn shift_rect_x(rect: crate::widget_tree::Rect, delta: i32) -> crate::widget_tree::Rect {
-    let x0 = (rect.x0 as i32 + delta).max(0) as u16;
-    let x1 = (rect.x1 as i32 + delta).max(0) as u16;
     crate::widget_tree::Rect {
-        x0,
+        x0: rect.x0 + delta,
         y0: rect.y0,
-        x1,
+        x1: rect.x1 + delta,
         y1: rect.y1,
     }
 }
 
 fn shift_rect_y(rect: crate::widget_tree::Rect, delta: i32) -> crate::widget_tree::Rect {
-    let y0 = (rect.y0 as i32 + delta).max(0) as u16;
-    let y1 = (rect.y1 as i32 + delta).max(0) as u16;
     crate::widget_tree::Rect {
         x0: rect.x0,
-        y0,
+        y0: rect.y0 + delta,
         x1: rect.x1,
-        y1,
+        y1: rect.y1 + delta,
+    }
+}
+
+/// Apply the CSS `offset` displacement to flow children AFTER container
+/// alignment.
+///
+/// Mirrors Python: the `offset` is stored on each `WidgetPlacement` and added to
+/// the placement region at the very end of arrangement — i.e. *after* the
+/// container has centered/aligned the flow group. Applying it earlier (folded
+/// into the flow position) would let `apply_parent_align` re-center the
+/// offset-shifted box and cancel the displacement. A negative offset moves the
+/// box off-viewport (signed coordinate); the render path clips it.
+///
+/// Percentage offsets resolve against the widget's own (post-align) box size,
+/// matching `Styles.offset.resolve(Size(width, height), viewport)`.
+fn apply_flow_offsets(tree: &mut WidgetTree, children: &[NodeId], _viewport: (u16, u16)) {
+    use crate::style::OffsetValue;
+    for &child in children {
+        let style = get_node_style(tree, child);
+        let Some(off) = style.offset else {
+            continue;
+        };
+        if matches!(off.x, OffsetValue::Cells(0)) && matches!(off.y, OffsetValue::Cells(0)) {
+            continue;
+        }
+        let Some(node) = tree.get(child) else {
+            continue;
+        };
+        let (w, h) = (node.layout_rect.width(), node.layout_rect.height());
+        let dx = match off.x {
+            OffsetValue::Cells(c) => c as i32,
+            OffsetValue::Percent(p) => (f32::from(w) * p / 100.0).round() as i32,
+        };
+        let dy = match off.y {
+            OffsetValue::Cells(c) => c as i32,
+            OffsetValue::Percent(p) => (f32::from(h) * p / 100.0).round() as i32,
+        };
+        if dx == 0 && dy == 0 {
+            continue;
+        }
+        if let Some(node) = tree.get_mut(child) {
+            node.layout_rect = shift_rect_y(shift_rect_x(node.layout_rect, dx), dy);
+            node.content_rect = shift_rect_y(shift_rect_x(node.content_rect, dx), dy);
+        }
     }
 }
 
@@ -90,44 +130,44 @@ fn apply_parent_align(
     // narrow buttons row and a wide content box both shift by the same dx and
     // stay left-aligned with each other (block centering), instead of each being
     // independently centered on the cross axis.
-    let mut min_x = u16::MAX;
-    let mut min_y = u16::MAX;
-    let mut max_x = 0u16;
-    let mut max_y = 0u16;
+    // Bounding box of all (margin-grown) placements in signed coordinate space
+    // (mirrors Python `WidgetPlacement.get_bounds`).
+    let mut min_x = i32::MAX;
+    let mut min_y = i32::MAX;
+    let mut max_x = i32::MIN;
+    let mut max_y = i32::MIN;
     for (idx, &child) in children.iter().enumerate() {
         if let Some(node) = tree.get(child) {
             let margin = margins[idx];
             let layout = node.layout_rect;
-            min_x = min_x.min(layout.x0.saturating_sub(margin.left));
-            min_y = min_y.min(layout.y0.saturating_sub(margin.top));
-            max_x = max_x.max(layout.x1.saturating_add(margin.right));
-            max_y = max_y.max(layout.y1.saturating_add(margin.bottom));
+            min_x = min_x.min(layout.x0 - i32::from(margin.left));
+            min_y = min_y.min(layout.y0 - i32::from(margin.top));
+            max_x = max_x.max(layout.x1 + i32::from(margin.right));
+            max_y = max_y.max(layout.y1 + i32::from(margin.bottom));
         }
     }
-    if min_x == u16::MAX {
+    if min_x == i32::MAX {
         return;
     }
-    let used_w = max_x.saturating_sub(min_x);
-    let used_h = max_y.saturating_sub(min_y);
+    let used_w = (max_x - min_x).max(0) as u16;
+    let used_h = (max_y - min_y).max(0) as u16;
 
     let dx = match align.horizontal {
         HorizontalAlign::Left => 0i32,
         HorizontalAlign::Center => {
-            (available.x as i32 + (available.width.saturating_sub(used_w) / 2) as i32)
-                - min_x as i32
+            (available.x + (available.width.saturating_sub(used_w) / 2) as i32) - min_x
         }
         HorizontalAlign::Right => {
-            (available.x as i32 + available.width.saturating_sub(used_w) as i32) - min_x as i32
+            (available.x + available.width.saturating_sub(used_w) as i32) - min_x
         }
     };
     let dy = match align.vertical {
         VerticalAlign::Top => 0i32,
         VerticalAlign::Middle => {
-            (available.y as i32 + (available.height.saturating_sub(used_h) / 2) as i32)
-                - min_y as i32
+            (available.y + (available.height.saturating_sub(used_h) / 2) as i32) - min_y
         }
         VerticalAlign::Bottom => {
-            (available.y as i32 + available.height.saturating_sub(used_h) as i32) - min_y as i32
+            (available.y + available.height.saturating_sub(used_h) as i32) - min_y
         }
     };
 
@@ -185,8 +225,8 @@ pub fn resolve_layout(
     // tab bars). Convert that chrome into an inset child-available region.
     let child_available = if let Some(node_ref) = tree.get(node) {
         let (ct, cr, cb, cl) = node_ref.widget.tree_child_content_inset();
-        let x = available.x.saturating_add(cl);
-        let y = available.y.saturating_add(ct);
+        let x = available.x + i32::from(cl);
+        let y = available.y + i32::from(ct);
         let horizontal = cl.saturating_add(cr);
         let vertical = ct.saturating_add(cb);
         let width = available.width.saturating_sub(horizontal);
@@ -223,8 +263,8 @@ pub fn resolve_layout(
                 continue;
             }
             let rect = child_node.content_rect;
-            let w = rect.x1.saturating_sub(rect.x0);
-            let h = rect.y1.saturating_sub(rect.y0);
+            let w = rect.width();
+            let h = rect.height();
             if w == 0 || h == 0 {
                 continue;
             }
@@ -419,6 +459,10 @@ pub fn resolve_layout(
                     apply_parent_align(tree, &flow, inner, Layout::Horizontal, effective_align);
                 }
             }
+            // CSS `offset` is applied AFTER alignment (Python WidgetPlacement
+            // offset is added post-arrange) so a relative-position offset is not
+            // cancelled by container centering.
+            apply_flow_offsets(tree, &flow, viewport);
         }
     }
 
@@ -445,8 +489,8 @@ pub fn resolve_layout(
             continue;
         }
         let rect = child_node.content_rect;
-        let w = rect.x1.saturating_sub(rect.x0);
-        let h = rect.y1.saturating_sub(rect.y0);
+        let w = rect.width();
+        let h = rect.height();
         if w == 0 || h == 0 {
             continue;
         }
@@ -458,15 +502,47 @@ pub fn resolve_layout(
 // Layout inspection (public API for testing)
 // ---------------------------------------------------------------------------
 
-/// Return the layout and content rects for a tree node.
+/// Return the layout and content rects for a tree node (clamped to `u16`).
 ///
 /// Returns `Some((layout: (x0,y0,x1,y1), content: (x0,y0,x1,y1)))`,
 /// or `None` if the node doesn't exist.
+///
+/// Placement coordinates are signed internally (a widget may sit partly
+/// above/left of the viewport with a negative origin). This helper clamps
+/// negatives to `0` for the common non-negative inspection case; use
+/// [`inspect_node_rects_signed`] to observe negative placements.
 #[allow(clippy::type_complexity)] // return type is simple tuples, just wide
 pub fn inspect_node_rects(
     tree: &WidgetTree,
     node: NodeId,
 ) -> Option<((u16, u16, u16, u16), (u16, u16, u16, u16))> {
+    let clamp = |v: i32| v.max(0) as u16;
+    tree.get(node).map(|n| {
+        (
+            (
+                clamp(n.layout_rect.x0),
+                clamp(n.layout_rect.y0),
+                clamp(n.layout_rect.x1),
+                clamp(n.layout_rect.y1),
+            ),
+            (
+                clamp(n.content_rect.x0),
+                clamp(n.content_rect.y0),
+                clamp(n.content_rect.x1),
+                clamp(n.content_rect.y1),
+            ),
+        )
+    })
+}
+
+/// Like [`inspect_node_rects`] but returns the raw **signed** placement
+/// coordinates, so a negative origin (for example a widget with `offset: 0 -3`)
+/// is observable. Mirrors Python's signed `Region`.
+#[allow(clippy::type_complexity)]
+pub fn inspect_node_rects_signed(
+    tree: &WidgetTree,
+    node: NodeId,
+) -> Option<((i32, i32, i32, i32), (i32, i32, i32, i32))> {
     tree.get(node).map(|n| {
         (
             (
@@ -603,7 +679,7 @@ mod tests {
 
     // -- Helpers --------------------------------------------------------------
 
-    fn assert_layout_rect(tree: &WidgetTree, node: NodeId, x0: u16, y0: u16, x1: u16, y1: u16) {
+    fn assert_layout_rect(tree: &WidgetTree, node: NodeId, x0: i32, y0: i32, x1: i32, y1: i32) {
         let n = tree.get(node).unwrap();
         assert_eq!(
             n.layout_rect,
@@ -612,7 +688,7 @@ mod tests {
         );
     }
 
-    fn assert_content_rect(tree: &WidgetTree, node: NodeId, x0: u16, y0: u16, x1: u16, y1: u16) {
+    fn assert_content_rect(tree: &WidgetTree, node: NodeId, x0: i32, y0: i32, x1: i32, y1: i32) {
         let n = tree.get(node).unwrap();
         assert_eq!(
             n.content_rect,

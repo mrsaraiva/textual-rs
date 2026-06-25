@@ -301,6 +301,20 @@ const PASSING: &[&str] = &[
     "overflow",
     "scrollbar_corner_color",
     "scrollbar_size2",
+    // Promoted after the signed-placement refactor (c16-offsetrect):
+    //  - widget-tree `Rect` + `Region` positions are now SIGNED (i32) and the
+    //    layout offset is applied in signed space (no `saturating_sub` clamp to
+    //    0), mirroring Python's signed `Region`/`Offset`. A negative-origin
+    //    placement survives layout and the existing i32 render clip drops the
+    //    off-viewport edge (e.g. `offset: 0 -3`).
+    //  - `layout_absolute` now sizes a `position: absolute` widget by its
+    //    intrinsic content (`auto` width/height) instead of filling the region,
+    //    so the absolute Label is content-sized like Python `_get_box_model`.
+    //  - CSS `offset` is applied AFTER container alignment (`apply_flow_offsets`),
+    //    matching Python's post-arrange WidgetPlacement offset, so a
+    //    `position: relative; offset: x y` child is centered THEN shifted (the
+    //    offset is no longer cancelled by re-centering).
+    "position",
 ];
 
 struct StyledCase {
