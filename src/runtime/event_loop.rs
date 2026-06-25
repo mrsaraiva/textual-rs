@@ -4247,6 +4247,13 @@ impl App {
                 class_ops: mount_ctx.take_class_ops(),
             };
             self.absorb_outcome(&mut mount_outcome, &mut pending, InvalidationScope::Global);
+            // Explicit `ctx.animate_style(...)` requests issued from
+            // `on_mount_with_app` (e.g. animation01's opacity fade) are carried
+            // on the ctx separately from the numeric `animation_requests` above;
+            // enqueue them into the animator so the animation runs under the
+            // headless pump (anchored to the manual clock).
+            let style_anims = mount_ctx.take_style_animation_requests();
+            self.enqueue_style_animation_requests(style_anims);
             let mut msg_outcome =
                 self.dispatch_message_queue_with_runtime(root, mount_outcome.messages);
             self.absorb_outcome(&mut msg_outcome, &mut pending, InvalidationScope::Global);
@@ -4380,9 +4387,24 @@ impl App {
             }
 
             // Animation frame (advances active animations toward completion).
+            //
+            // Only count it as progress when the frame actually produced an
+            // update. Under the manual clock (run_test) time does not advance
+            // within a single pump, so a still-active animation that yields no
+            // new value this instant must NOT keep the pump spinning — otherwise
+            // the loop would burn MAX_ITERATIONS until `advance_clock` moves time
+            // forward. (On the wall clock, `clock_now()` always advances, so an
+            // active animation keeps producing frames and progress, as before.)
             if self.animator.has_animations() {
-                progressed = true;
                 let mut anim_outcome = self.dispatch_animation_frame(root);
+                if anim_outcome.repaint_requested
+                    || anim_outcome.invalidation.layout
+                    || anim_outcome.invalidation.style
+                    || anim_outcome.invalidation.content
+                    || !anim_outcome.messages.is_empty()
+                {
+                    progressed = true;
+                }
                 self.absorb_outcome(&mut anim_outcome, pending, InvalidationScope::Global);
             }
 
@@ -4556,6 +4578,67 @@ impl App {
         }
 
         progressed
+    }
+
+    /// Deliver `count` frame ticks to the widget tree, then pump to idle.
+    ///
+    /// Mirrors the live loop's per-frame `root.on_tick(tick)` / `on_app_tick`
+    /// (which the headless pump otherwise never fires). Each tick uses a
+    /// strictly-increasing counter (`headless_tick`), so on-tick-driven
+    /// animations (LoadingIndicator's spinner phase, button flash, …) advance
+    /// frame-by-frame deterministically. This is the headless analogue of the
+    /// real loop ticking once per `tick_rate`.
+    pub(crate) fn headless_advance_ticks(
+        &mut self,
+        root: &mut dyn Widget,
+        count: u64,
+    ) -> crate::Result<()> {
+        let mut pending = PendingInvalidation::default();
+        for _ in 0..count {
+            self.headless_tick = self.headless_tick.wrapping_add(1);
+            let tick = self.headless_tick;
+
+            // Widget-level tick. `root.on_tick` reaches the AppRoot wrapper, but
+            // the widgets that actually animate (LoadingIndicator, …) live in the
+            // arena tree, so deliver the tick to every active arena node too.
+            root.on_tick(tick);
+            if let Some(tree) = self.active_widget_tree_mut()
+                && let Some(tree_root) = tree.root()
+            {
+                for node in tree.walk_depth_first(tree_root) {
+                    if let Some(widget_node) = tree.get_mut(node) {
+                        let widget = &mut widget_node.widget;
+                        if widget.is_active() {
+                            widget.on_tick(tick);
+                        }
+                    }
+                }
+            }
+            // Any on-tick widget repaint is content-level; request it so the
+            // pump re-renders and the rendered frame reflects the new phase.
+            pending.request_full_content();
+
+            // App-level tick hook (mirrors the live loop's `on_app_tick`).
+            let mut app_tick_ctx = EventCtx::default();
+            root.on_app_tick(self, tick, &mut app_tick_ctx);
+            let mut app_tick_outcome = DispatchOutcome {
+                handled: app_tick_ctx.handled(),
+                repaint_requested: app_tick_ctx.repaint_requested(),
+                invalidation: app_tick_ctx.invalidation(),
+                stop_requested: app_tick_ctx.stop_requested(),
+                messages: app_tick_ctx.take_messages(),
+                animation_requests: app_tick_ctx.take_animation_requests(),
+                worker_requests: app_tick_ctx.take_worker_requests(),
+                recompose_nodes: app_tick_ctx.take_recompose_nodes(),
+                default_prevented: false,
+                class_ops: app_tick_ctx.take_class_ops(),
+            };
+            self.absorb_outcome(&mut app_tick_outcome, &mut pending, InvalidationScope::Global);
+            let mut msg_outcome =
+                self.dispatch_message_queue_with_runtime(root, app_tick_outcome.messages);
+            self.absorb_outcome(&mut msg_outcome, &mut pending, InvalidationScope::Global);
+        }
+        self.headless_pump(root, &mut pending)
     }
 
     /// Inject a single key press through the same dispatch cascade the live
@@ -5081,7 +5164,10 @@ impl App {
         if requests.is_empty() {
             return;
         }
-        self.animator.enqueue_many(requests, Instant::now());
+        // Anchor to the timer clock so animations follow the manual clock under
+        // `run_test` (deterministic) and the wall clock otherwise.
+        let now = self.clock_now();
+        self.animator.enqueue_many(requests, now);
     }
 
     pub(super) fn enqueue_style_animation_requests(
@@ -5091,7 +5177,8 @@ impl App {
         if requests.is_empty() {
             return;
         }
-        self.animator.enqueue_style_many(requests, Instant::now());
+        let now = self.clock_now();
+        self.animator.enqueue_style_many(requests, now);
     }
 
     fn absorb_outcome(
@@ -5278,7 +5365,9 @@ impl App {
     }
 
     pub(super) fn dispatch_animation_frame(&mut self, root: &mut dyn Widget) -> DispatchOutcome {
-        let now = Instant::now();
+        // Step against the timer clock so animation progress is deterministic
+        // under `run_test` (driven by `advance_clock`) and wall-clock otherwise.
+        let now = self.clock_now();
         let updates = self.animator.step(now, self.animation_level);
         let style_updates = self.animator.step_style(now, self.animation_level);
 

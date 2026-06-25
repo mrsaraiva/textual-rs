@@ -9,6 +9,15 @@ until the API stabilizes.
 
 ### Added
 
+- **`Pilot::advance_ticks(n)` + animator on the manual clock** — `advance_ticks`
+  delivers `root.on_tick(tick)` (and the active arena widgets' `on_tick`) n times
+  with a strictly-increasing counter, mirroring the live loop's per-frame tick, so
+  on-tick-driven motion (LoadingIndicator spinner) advances deterministically
+  headless. The animator is now anchored to the timer clock (`App::clock_now`)
+  for enqueue and step, so under `run_test` animations follow the deterministic
+  manual clock that `advance_clock` drives instead of racing `Instant::now()`;
+  `advance_clock` also delivers a frame tick per wake. Flips the
+  `widgets/loading_indicator` liveness probe from UNCLEAR to LIVE.
 - **Headless worker pump** — the in-process `Pilot` pump (`headless_pump`) now
   owns a `WorkerRegistry` and runs a worker phase each pass (mirroring the live
   `run_with` loop): newly-requested workers are spawned, their (bounded)

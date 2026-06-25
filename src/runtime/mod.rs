@@ -600,6 +600,13 @@ pub struct App {
     modes: HashMap<String, Box<dyn Fn() -> Box<dyn crate::screen::Screen> + Send + Sync>>,
     /// The name of the currently active mode, if any.
     current_mode: Option<String>,
+    /// Monotonic tick counter delivered to `root.on_tick(tick)` by the headless
+    /// [`Pilot::advance_ticks`]. The live loop keeps this counter loop-local; the
+    /// headless harness keeps it on the `App` so successive `advance_ticks` /
+    /// `advance_clock` calls deliver strictly-increasing tick values (mirroring
+    /// the live loop's `tick += 1` per frame), which on-tick-driven animations
+    /// (LoadingIndicator, button flash, …) rely on to progress.
+    headless_tick: u64,
     /// Worker registry used by the headless [`Pilot`] pump.
     ///
     /// The live event loop (`run_with`) owns a function-local [`WorkerRegistry`]
@@ -713,6 +720,7 @@ impl App {
             data_bindings: Vec::new(),
             dynamic_watchers: Vec::new(),
             suspend_process_impl: suspend_process_default,
+            headless_tick: 0,
             headless_worker_registry: None,
             pending_highlight_clear: None,
             widget_tree: None,
@@ -893,6 +901,17 @@ impl App {
     /// True if any app-level timer callback is awaiting invocation.
     pub(crate) fn has_pending_timer_fires(&self) -> bool {
         !self.pending_timer_fires.is_empty()
+    }
+
+    /// The runtime "now", read from the timer clock so it follows the manual
+    /// clock under `run_test` (and the wall clock otherwise).
+    ///
+    /// The animator is anchored to this — `enqueue_*`/`step*` all use it — so
+    /// inside `run_test` animations advance deterministically with
+    /// [`Pilot::advance_clock`] / [`Pilot::advance_ticks`] instead of racing
+    /// `Instant::now()`.
+    pub(crate) fn clock_now(&self) -> Instant {
+        self.timers.now()
     }
 
     /// Run the callbacks for every app-level timer that fired this turn.

@@ -40,27 +40,19 @@ mod tests {
     /// `li.on_tick(42)` in `src/widgets/loading_indicator.rs`), so it animates
     /// in a real terminal.
     ///
-    /// It cannot be driven by the current Pilot: `advance_clock` advances
-    /// *timers*, and `headless_pump` runs the *animator* frame, but NEITHER
-    /// delivers `root.on_tick(tick)`. So advancing the clock leaves `tick == 0`
-    /// and the frame is unchanged.
-    ///
-    /// ROOT (harness, not demo): the headless pump should deliver the animation
-    /// tick (or `Pilot` should expose `advance_ticks(n)`) so tick-driven
-    /// animations are testable headless. Once that exists, replace the smoke
-    /// check below with a real before/after frame-change assertion and remove
-    /// `#[ignore]`.
+    /// Now LIVE: `Pilot::advance_ticks(n)` delivers `root.on_tick(tick)` n times
+    /// with a strictly-increasing counter (mirroring the live loop's per-frame
+    /// tick), so the LoadingIndicator's pulsing phase advances and the rendered
+    /// frame changes deterministically.
     #[test]
-    #[ignore = "UNCLEAR: on_tick-driven animation is not delivered by headless pump; needs Pilot::advance_ticks"]
     fn animation_advances_frame() {
-        use std::time::Duration;
         textual::run_test(LoadingApp, |pilot| {
             let before = pilot.app().frame_fingerprint();
-            pilot.advance_clock(Duration::from_millis(500))?;
+            pilot.advance_ticks(8)?;
             let after = pilot.app().frame_fingerprint();
             assert_ne!(
                 before, after,
-                "advancing the clock must animate the LoadingIndicator and change the frame"
+                "advancing ticks must animate the LoadingIndicator and change the frame"
             );
             Ok(())
         })

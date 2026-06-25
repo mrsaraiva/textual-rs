@@ -150,18 +150,37 @@ impl<'a> Pilot<'a> {
                     let advanced = step.max(Duration::from_nanos(1)).min(remaining);
                     self.app.advance_timers(advanced);
                     remaining -= advanced;
-                    self.app.headless_pause(self.root)?;
+                    // Deliver one frame tick per wake and pump. The live loop
+                    // ticks once per frame as time elapses; mirroring that here
+                    // lets `on_tick`-driven motion (LoadingIndicator, button
+                    // flash) progress while time advances, alongside the timer
+                    // and animator (both now anchored to this manual clock).
+                    self.app.headless_advance_ticks(self.root, 1)?;
                 }
                 _ => break,
             }
         }
         // Consume any sub-deadline remainder so the clock ends exactly `delta`
-        // ahead, then pump once more to settle.
+        // ahead, then deliver a final tick + pump to settle.
         if !remaining.is_zero() {
             self.app.advance_timers(remaining);
-            self.app.headless_pause(self.root)?;
+            self.app.headless_advance_ticks(self.root, 1)?;
         }
         Ok(())
+    }
+
+    /// Deliver `count` frame ticks to the widget tree, then advance to idle.
+    ///
+    /// Mirrors the live loop's per-frame `on_tick` / `on_app_tick`, which the
+    /// headless pump does not otherwise fire. Each tick carries a
+    /// strictly-increasing counter, so on-tick-driven animations
+    /// (`LoadingIndicator`'s spinner phase, button flash, the progress-bar
+    /// pulse, …) advance frame-by-frame deterministically — the analogue of
+    /// Python's animation frames firing while the loop runs. Use this (instead
+    /// of [`Pilot::advance_clock`]) for demos whose motion is driven purely by
+    /// `on_tick` rather than by elapsed time.
+    pub fn advance_ticks(&mut self, count: u64) -> Result<()> {
+        self.app.headless_advance_ticks(self.root, count)
     }
 
     /// True while the harness is running on the deterministic manual clock
