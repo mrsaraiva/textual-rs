@@ -51,17 +51,9 @@ mod tests {
     /// OK button (`#close`) should appear and render, then clicking it requests
     /// app stop.
     ///
-    /// DEAD — `#[ignore]`d. ROOT: `App::mount` / `mount_boxed`
-    /// (`runtime/mod.rs:1203`) inserts the raw widget node but does NOT run the
-    /// canonical compose+layout+render integration (`mount_extracted_recursive`)
-    /// that dynamic mounts use. After the press, "Welcome" is queryable but its
-    /// composed child `#close` is absent and the widget never paints — the frame
-    /// stays blank even after a forced relayout. So the mounted Welcome is inert:
-    /// no children, not rendered, OK button unclickable. (widgets03's module doc
-    /// already notes the related "Button not in the arena tree" symptom.)
-    /// TODO: route `App::mount` through the compose-aware mount path so composed
-    /// children build, lay out, and paint; then drop `#[ignore]`.
-    #[ignore = "DEAD: App::mount (mount_boxed) does not compose/lay out/render the mounted widget"]
+    /// LIVE: `App::mount` / `mount_boxed` now routes through the canonical
+    /// compose+layout+render integration (`mount_extracted_recursive`), so the
+    /// mounted `Welcome` builds its composed `#close` child, lays out, and paints.
     #[test]
     fn widgets02_keypress_mounts_welcome_is_live() {
         run_test(WelcomeApp, |pilot| {

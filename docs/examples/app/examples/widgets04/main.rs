@@ -77,16 +77,10 @@ mod tests {
     /// (`app.with_query_one_mut_as::<Button>("#close", ...)`), the full Python
     /// behavior (`self.query_one(Button).label = "YES!"`).
     ///
-    /// DEAD — `#[ignore]`d. ROOT: `App::mount` / `mount_boxed`
-    /// (`runtime/mod.rs:1203`) inserts the raw `Welcome` node without running the
-    /// compose+layout+render integration, so `Welcome`'s composed `#close` button
-    /// never enters the arena tree. The relabel's `query_one("#close")` finds
-    /// nothing (no-op) and the widget never paints (frame stays blank). The
-    /// module doc's claim that "Welcome's Button is in the arena tree" does not
-    /// hold for the `App::mount` path.
-    /// TODO: route `App::mount` through the compose-aware mount path so composed
-    /// children build and the relabel + render succeed; then drop `#[ignore]`.
-    #[ignore = "DEAD: App::mount (mount_boxed) does not compose Welcome's #close child, so relabel/render are no-ops"]
+    /// LIVE: `App::mount` / `mount_boxed` now routes through the compose-aware
+    /// mount path (`mount_extracted_recursive`), so `Welcome`'s composed `#close`
+    /// button enters the arena tree. The relabel's `query_one("#close")` finds it
+    /// and the widget composes + paints.
     #[test]
     fn widgets04_keypress_mounts_and_relabels_is_live() {
         run_test(WelcomeApp::new(), |pilot| {

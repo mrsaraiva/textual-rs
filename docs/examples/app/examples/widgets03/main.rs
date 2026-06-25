@@ -63,14 +63,9 @@ mod tests {
     /// LIVENESS probe (Pilot, headless): pressing a key mounts `Welcome` and its
     /// OK button (`#close`) should appear and render.
     ///
-    /// DEAD — `#[ignore]`d. ROOT: `App::mount` / `mount_boxed`
-    /// (`runtime/mod.rs:1203`) inserts the raw widget node but does not run the
-    /// compose+layout+render integration, so `Welcome`'s composed `#close` child
-    /// is absent and the widget never paints (frame stays blank). The module doc
-    /// above already flags the related "Button not in the arena tree" symptom.
-    /// TODO: route `App::mount` through the compose-aware mount path; then drop
-    /// `#[ignore]`.
-    #[ignore = "DEAD: App::mount (mount_boxed) does not compose/lay out/render the mounted widget"]
+    /// LIVE: `App::mount` / `mount_boxed` now routes through the compose-aware
+    /// mount path (`mount_extracted_recursive`), so `Welcome`'s composed `#close`
+    /// child builds, lays out, and paints.
     #[test]
     fn widgets03_keypress_mounts_welcome_is_live() {
         run_test(WelcomeApp, |pilot| {
