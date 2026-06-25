@@ -140,4 +140,23 @@ mod tests {
         let mut app = HelloApp;
         let _root = app.compose();
     }
+
+    // -- LIVENESS PROBE (Pilot run_test) --------------------------------------
+    // The whole point of hello03: clicking the Hello widget cycles to the next
+    // greeting and updates the displayed text. Clicking must change the frame.
+    #[test]
+    fn liveness_click_cycles_greeting() {
+        textual::run_test(HelloApp, |pilot| {
+            let before = pilot.app().frame_fingerprint();
+            pilot.click("Hello")?;
+            let after = pilot.app().frame_fingerprint();
+            assert_ne!(
+                before, after,
+                "clicking the Hello widget must cycle the greeting and change \
+                 the rendered frame"
+            );
+            Ok(())
+        })
+        .unwrap();
+    }
 }

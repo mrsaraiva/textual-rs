@@ -271,4 +271,20 @@ mod tests {
         let mut app = TooltipApp;
         let _root = app.compose();
     }
+
+    // -- LIVENESS PROBE (Pilot run_test) — UNCLEAR ----------------------------
+    // tooltip01's interaction is: hover the Button, wait the tooltip dwell
+    // delay, and a Tooltip overlay appears with TEXT. This cannot be probed
+    // headless: Pilot has no mouse-move/hover injection (only press/click), so
+    // the hover that arms the tooltip dwell timer can't be delivered, and the
+    // overlay never mounts. The tooltip *content* hook is unit-covered by
+    // `tooltip_text_is_set`. A real liveness probe needs `Pilot::hover` +
+    // driving the dwell timer via `advance_clock`. Tracking:
+    // pilot-mouse-move-injection / tooltip-hover-headless.
+    #[ignore = "UNCLEAR: no headless hover injection to arm the tooltip; see comment"]
+    #[test]
+    fn liveness_hover_shows_tooltip_placeholder() {
+        let btn = TooltipButton::new(Button::success("Click me"), TEXT);
+        assert_eq!(btn.tooltip(), Some(TEXT.to_string()));
+    }
 }

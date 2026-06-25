@@ -148,4 +148,24 @@ mod tests {
         let bindings = app.bindings();
         assert!(bindings.iter().any(|b| b.key == "space"));
     }
+
+    // -- LIVENESS PROBE (Pilot run_test) --------------------------------------
+    // hello06 cycles the greeting via the app-level `space` → `next_word`
+    // binding (the keyboard fallback for the @click link). Pressing space must
+    // change the rendered frame.
+    #[test]
+    fn liveness_space_cycles_greeting() {
+        textual::run_test(HelloApp::new(), |pilot| {
+            let before = pilot.app().frame_fingerprint();
+            pilot.press(&["space"])?;
+            let after = pilot.app().frame_fingerprint();
+            assert_ne!(
+                before, after,
+                "pressing space must cycle the greeting via the app `next_word` \
+                 action and change the rendered frame"
+            );
+            Ok(())
+        })
+        .unwrap();
+    }
 }

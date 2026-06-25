@@ -171,4 +171,40 @@ mod tests {
         let c = Counter::new();
         assert!(c.focusable());
     }
+
+    // -- LIVENESS PROBE (Pilot run_test) --------------------------------------
+    // Drives the real headless app: Tab to focus the first Counter, then press
+    // `up` (the bound increment key). The bound `change_count(1)` action SHOULD
+    // re-render the focused Counter's "Count: N" text, changing the frame.
+    //
+    // CURRENTLY DEAD — root cause: a widget that declares BINDINGS whose action
+    // is served only by `execute_action` (no `action_registry()` entry) never
+    // runs. The headless/runtime key path resolves the focused widget's binding
+    // through `action::resolve_action`, which walks the focus chain looking for
+    // a node whose `action_registry()` *contains* the action name. `Counter`
+    // overrides `execute_action` but declares no `action_registry`, so
+    // `resolve_action` returns `None`, the focused-node branch is skipped, and
+    // the action falls through to the root (which does not handle it). The
+    // binding came FROM the Counter, so the intended target is unambiguous: the
+    // runtime should fall back to executing the binding on its source node when
+    // `resolve_action` finds no registry owner. Flip this test to active once
+    // that fallback lands. Tracking: widget-BINDINGS-without-action_registry.
+    #[ignore = "DEAD: widget BINDINGS action not run without action_registry() entry; see comment"]
+    #[test]
+    fn liveness_up_key_increments_visible_count() {
+        textual::run_test(CounterApp, |pilot| {
+            // Focus the first Counter so its key bindings are active.
+            pilot.press(&["tab"])?;
+            let before = pilot.app().frame_fingerprint();
+            pilot.press(&["up"])?;
+            let after = pilot.app().frame_fingerprint();
+            assert_ne!(
+                before, after,
+                "pressing `up` on a focused Counter must change the rendered \
+                 frame (count incremented)"
+            );
+            Ok(())
+        })
+        .unwrap();
+    }
 }

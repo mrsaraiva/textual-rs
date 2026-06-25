@@ -491,4 +491,85 @@ mod tests {
         let b = TimeDisplay::new();
         assert_ne!(a.display_id, b.display_id);
     }
+
+    // -- LIVENESS PROBES (Pilot run_test) -------------------------------------
+    // The final stopwatch app's headline interactions are dynamic add/remove
+    // (`a` mounts a Stopwatch under #timers, `r` removes the last one) and the
+    // Start button (`started` class toggle). Both are deterministic structural/
+    // style changes, so each must change the rendered frame.
+    //
+    // NOTE: the running-clock digit advance is NOT probed — the displayed time
+    // derives from a wall-clock `Instant::elapsed()`, not the manual timer
+    // clock, so `Pilot::advance_clock` cannot reproduce it deterministically
+    // (the demo flags this as "NON-PROMOTABLE: timer-driven").
+
+    #[test]
+    fn liveness_press_a_adds_stopwatch() {
+        textual::run_test(StopwatchApp, |pilot| {
+            let before_count = pilot
+                .app()
+                .query("Stopwatch")
+                .map(|q| q.into_ids().len())
+                .unwrap_or(0);
+            let before = pilot.app().frame_fingerprint();
+            pilot.press(&["a"])?;
+            let after = pilot.app().frame_fingerprint();
+            let after_count = pilot
+                .app()
+                .query("Stopwatch")
+                .map(|q| q.into_ids().len())
+                .unwrap_or(0);
+            assert_eq!(
+                after_count,
+                before_count + 1,
+                "pressing `a` must mount one more Stopwatch"
+            );
+            assert_ne!(
+                before, after,
+                "pressing `a` must add a Stopwatch and change the rendered frame"
+            );
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn liveness_press_r_removes_stopwatch() {
+        textual::run_test(StopwatchApp, |pilot| {
+            let before_count = pilot
+                .app()
+                .query("Stopwatch")
+                .map(|q| q.into_ids().len())
+                .unwrap_or(0);
+            pilot.press(&["r"])?;
+            let after_count = pilot
+                .app()
+                .query("Stopwatch")
+                .map(|q| q.into_ids().len())
+                .unwrap_or(0);
+            assert_eq!(
+                after_count,
+                before_count.saturating_sub(1),
+                "pressing `r` must remove one Stopwatch"
+            );
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn liveness_click_start_toggles_started_class() {
+        textual::run_test(StopwatchApp, |pilot| {
+            let before = pilot.app().frame_fingerprint();
+            pilot.click("#start")?;
+            let after = pilot.app().frame_fingerprint();
+            assert_ne!(
+                before, after,
+                "clicking Start must add the `started` class and change the \
+                 rendered frame"
+            );
+            Ok(())
+        })
+        .unwrap();
+    }
 }

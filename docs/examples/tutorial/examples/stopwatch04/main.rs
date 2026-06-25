@@ -264,4 +264,25 @@ mod tests {
         let sw = Stopwatch::new();
         assert!(!sw.started);
     }
+
+    // -- LIVENESS PROBE (Pilot run_test) --------------------------------------
+    // stopwatch04 wires the buttons: clicking Start posts ButtonPressed, which
+    // the Stopwatch catches and toggles the `started` class. The CSS `.started`
+    // rules flip Start/Stop `display` and recolour the row, so clicking Start
+    // must change the rendered frame.
+    #[test]
+    fn liveness_click_start_toggles_started_class() {
+        textual::run_test(StopwatchApp, |pilot| {
+            let before = pilot.app().frame_fingerprint();
+            pilot.click("#start")?;
+            let after = pilot.app().frame_fingerprint();
+            assert_ne!(
+                before, after,
+                "clicking Start must add the `started` class and change the \
+                 rendered frame (Start hidden / Stop shown / row recoloured)"
+            );
+            Ok(())
+        })
+        .unwrap();
+    }
 }
