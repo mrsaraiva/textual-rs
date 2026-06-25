@@ -9,6 +9,45 @@ until the API stabilizes.
 
 ### Added
 
+- **`@click` action-link routing in the headless click path** — the headless
+  click path now mirrors the live loop's `@click` routing: after the synthesized
+  Click it consults `App::click_action_at` at the clicked cell and dispatches any
+  baked `[@click=...]` action with the clicked widget as the namespace. Flips the
+  `guide/actions/actions03` liveness probe from UNCLEAR to LIVE.
+- **`Pilot::hover(selector)` / `Pilot::move_to(x, y)`** — headless mouse-move
+  injection (Python `pilot.hover` / `pilot.move`). Routes a `MouseMove` through
+  the same headless dispatch as click injection: updates hover state (`:hover`,
+  Enter/Leave), arms/refreshes the shared system tooltip, and dispatches the
+  `MouseMove` to the widget under the cursor. Flips the `guide/input/mouse01`,
+  `guide/widgets/checker04`, `guide/widgets/tooltip01`, and
+  `guide/widgets/tooltip02` liveness probes from UNCLEAR to LIVE.
+- **`Pilot::advance_ticks(n)` + animator on the manual clock** — `advance_ticks`
+  delivers `root.on_tick(tick)` (and the active arena widgets' `on_tick`) n times
+  with a strictly-increasing counter, mirroring the live loop's per-frame tick, so
+  on-tick-driven motion (LoadingIndicator spinner) advances deterministically
+  headless. The animator is now anchored to the timer clock (`App::clock_now`)
+  for enqueue and step, so under `run_test` animations follow the deterministic
+  manual clock that `advance_clock` drives instead of racing `Instant::now()`;
+  `advance_clock` also delivers a frame tick per wake. Flips the
+  `widgets/loading_indicator` liveness probe from UNCLEAR to LIVE.
+- **Headless worker pump** — the in-process `Pilot` pump (`headless_pump`) now
+  owns a `WorkerRegistry` and runs a worker phase each pass (mirroring the live
+  `run_with` loop): newly-requested workers are spawned, their (bounded)
+  completion is awaited deterministically, and `WorkerStateChanged` is routed
+  through the runtime so worker-driven demos reach a settled frame by the time
+  the pump returns to idle. Flips the `weather02`/`weather03`/`weather04`/
+  `weather05`, `events/dictionary`, and `guide/screens/questions01` liveness
+  probes from UNCLEAR to LIVE.
+- **`App::is_dark()`** — public read accessor for the app's dark-mode flag
+  (Python `App.dark`), so headless `Pilot` tests can assert a `toggle_dark`
+  actually flipped the state even when the rendered frame shows no per-cell
+  color change. Flips the `events/on_decorator01` / `events/on_decorator02`
+  toggle-dark liveness probes from UNCLEAR to LIVE.
+- **Headless-safe suspend + `App::headless_suspend_count()`** — under the `Pilot`
+  harness `action_suspend_process` records the request (instead of sending a real
+  `SIGTSTP` that would suspend the test runner) and exposes the count, so
+  suspend-on-interaction demos are assertable headless. Flips the `app/suspend`
+  and `app/suspend_process` liveness probes from UNCLEAR to LIVE.
 - **`App::headless_stop_requested()`** — a Pilot/test helper that reports whether
   any interaction dispatched under the headless pump requested the app to stop
   (`ctx.request_stop()`), e.g. a "press a button to quit" demo. The live loop

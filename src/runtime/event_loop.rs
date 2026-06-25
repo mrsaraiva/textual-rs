@@ -4219,12 +4219,40 @@ impl App {
             }
         }
 
+        let mut pending = PendingInvalidation::default();
         {
             let mut mount_ctx = crate::event::EventCtx::default();
             root.on_app_mount(self, &mut mount_ctx);
+            // Absorb the mount ctx so its outcome (worker requests, messages,
+            // invalidation, recompositions) flows into the runtime — in
+            // particular, worker requests issued from `on_mount_with_app`
+            // (e.g. questions01's `push_screen_wait` worker) reach the headless
+            // worker phase via the accumulator instead of being dropped.
+            let mut mount_outcome = DispatchOutcome {
+                handled: mount_ctx.handled(),
+                repaint_requested: mount_ctx.repaint_requested(),
+                invalidation: mount_ctx.invalidation(),
+                stop_requested: mount_ctx.stop_requested(),
+                messages: mount_ctx.take_messages(),
+                animation_requests: mount_ctx.take_animation_requests(),
+                worker_requests: mount_ctx.take_worker_requests(),
+                recompose_nodes: mount_ctx.take_recompose_nodes(),
+                default_prevented: false,
+                class_ops: mount_ctx.take_class_ops(),
+            };
+            self.absorb_outcome(&mut mount_outcome, &mut pending, InvalidationScope::Global);
+            // Explicit `ctx.animate_style(...)` requests issued from
+            // `on_mount_with_app` (e.g. animation01's opacity fade) are carried
+            // on the ctx separately from the numeric `animation_requests` above;
+            // enqueue them into the animator so the animation runs under the
+            // headless pump (anchored to the manual clock).
+            let style_anims = mount_ctx.take_style_animation_requests();
+            self.enqueue_style_animation_requests(style_anims);
+            let mut msg_outcome =
+                self.dispatch_message_queue_with_runtime(root, mount_outcome.messages);
+            self.absorb_outcome(&mut msg_outcome, &mut pending, InvalidationScope::Global);
         }
 
-        let mut pending = PendingInvalidation::default();
         self.render_widget(root)?;
         self.apply_layout_info_to_tree();
 
@@ -4274,6 +4302,20 @@ impl App {
         const MAX_ITERATIONS: usize = 10_000;
         for _ in 0..MAX_ITERATIONS {
             let mut progressed = false;
+
+            // `call_from_thread` jobs posted by worker threads. Run each with
+            // `&mut App` so the worker (blocked on its result channel) unblocks,
+            // exactly as the live loop does once per tick. Only when THIS app
+            // registered the (process-global) UI thread — i.e. it actually
+            // spawned a worker — so a worker-free `run_test` does not drain jobs
+            // belonging to a concurrent test sharing the singleton bridge.
+            if self.headless_ui_thread_registered {
+                for job in crate::runtime::tasks::drain_call_from_thread_jobs() {
+                    progressed = true;
+                    job(self);
+                    pending.request_full_content();
+                }
+            }
 
             // App-level / broadcast messages (set_title etc.).
             let app_messages = self.drain_pending_app_messages();
@@ -4331,10 +4373,37 @@ impl App {
                 self.absorb_outcome(&mut outcome, pending, InvalidationScope::Global);
             }
 
-            // Animation frame (advances active animations toward completion).
-            if self.animator.has_animations() {
+            // Worker requests + completions. The live loop owns a function-local
+            // `WorkerRegistry` and runs this phase each pass (see `run_with`);
+            // headless has no such loop-local state, so it keeps its registry on
+            // the `App` and processes it here. We spawn newly-requested workers
+            // and, while any worker is still active, block briefly for its
+            // completion — so a "type a city → background fetch → update Static"
+            // demo reaches a settled, deterministic result by the time the pump
+            // returns to idle, instead of leaving the request un-run.
+            if self.headless_process_workers(root, pending) {
                 progressed = true;
+            }
+
+            // Animation frame (advances active animations toward completion).
+            //
+            // Only count it as progress when the frame actually produced an
+            // update. Under the manual clock (run_test) time does not advance
+            // within a single pump, so a still-active animation that yields no
+            // new value this instant must NOT keep the pump spinning — otherwise
+            // the loop would burn MAX_ITERATIONS until `advance_clock` moves time
+            // forward. (On the wall clock, `clock_now()` always advances, so an
+            // active animation keeps producing frames and progress, as before.)
+            if self.animator.has_animations() {
                 let mut anim_outcome = self.dispatch_animation_frame(root);
+                if anim_outcome.repaint_requested
+                    || anim_outcome.invalidation.layout
+                    || anim_outcome.invalidation.style
+                    || anim_outcome.invalidation.content
+                    || !anim_outcome.messages.is_empty()
+                {
+                    progressed = true;
+                }
                 self.absorb_outcome(&mut anim_outcome, pending, InvalidationScope::Global);
             }
 
@@ -4399,6 +4468,185 @@ impl App {
             }
         }
         Ok(())
+    }
+
+    /// Headless worker phase: spawn newly-requested workers into the App-owned
+    /// [`WorkerRegistry`], deterministically await any still-running worker, and
+    /// route the resulting [`WorkerStateChanged`] messages through the runtime.
+    ///
+    /// Returns `true` if any work progressed (a request was spawned or a state
+    /// change was routed), so the pump loop keeps iterating until idle.
+    ///
+    /// Determinism: worker jobs run on OS threads (as in production), but a
+    /// headless test must reach a settled frame before the pump returns. So
+    /// while any worker remains active we block — bounded by a wall-clock
+    /// deadline — polling for completions. This is the one place the headless
+    /// harness touches the wall clock; it is confined to "wait for the
+    /// background thread I just spawned to finish," which a real `pilot.pause`
+    /// would also observe in Python (its event loop yields until the worker's
+    /// awaitable resolves).
+    fn headless_process_workers(
+        &mut self,
+        root: &mut dyn Widget,
+        pending: &mut PendingInvalidation,
+    ) -> bool {
+        let pending_workers = drain_accumulated_worker_requests();
+        let has_new = !pending_workers.is_empty();
+
+        // Lazily create the registry the first time a worker is requested, and
+        // register this (the test) thread as the UI thread so the spawned
+        // worker's `App::call_from_thread` posts are serviced. Done here (not at
+        // startup) so worker-free `run_test` runs never touch the process-global
+        // `call_from_thread` bridge — avoiding contention with other tests that
+        // share the singleton.
+        if has_new && self.headless_worker_registry.is_none() {
+            self.headless_worker_registry = Some(WorkerRegistry::new());
+            if !self.headless_ui_thread_registered {
+                crate::runtime::tasks::register_ui_thread();
+                self.headless_ui_thread_registered = true;
+            }
+        }
+
+        let Some(mut registry) = self.headless_worker_registry.take() else {
+            // No registry and nothing requested → nothing to do.
+            return false;
+        };
+
+        let mut progressed = false;
+
+        // Spawn newly-requested workers and collect any synchronous changes
+        // (e.g. exclusive-mode cancellations) plus completions already ready.
+        let mut changes = process_worker_requests(&mut registry, pending_workers);
+        if has_new {
+            progressed = true;
+        }
+
+        // Deterministically drive workers toward quiescence: while any worker is
+        // still active, run `call_from_thread` jobs it posts and collect its
+        // state changes. We do NOT block indefinitely for a worker — a worker
+        // can deliberately *park* (e.g. `push_screen_wait`, which suspends the
+        // worker on the UI until a screen is dismissed). So we stop waiting once
+        // the worker has gone quiescent: no `call_from_thread` job ran and no
+        // state change landed within a short grace window while the worker stays
+        // active. Fast workers (weather) complete within the window; parked
+        // workers (questions01) yield control back to the pump so the test body
+        // can drive the next interaction (the click that dismisses the screen).
+        const WORKER_WAIT_BUDGET: std::time::Duration = std::time::Duration::from_secs(10);
+        const QUIESCENCE_GRACE: std::time::Duration = std::time::Duration::from_millis(25);
+        let deadline = Instant::now() + WORKER_WAIT_BUDGET;
+        let mut last_activity = Instant::now();
+        while !registry.active_workers().is_empty() && Instant::now() < deadline {
+            let mut activity = false;
+
+            // Run any `call_from_thread` jobs the worker posted while we wait —
+            // otherwise a worker that calls `App::call_from_thread` (weather04/05,
+            // and the screen push in questions01) would deadlock against this
+            // spin, each waiting on the other.
+            for job in crate::runtime::tasks::drain_call_from_thread_jobs() {
+                job(self);
+                pending.request_full_content();
+                activity = true;
+            }
+
+            let mut batch = registry.drain_state_changes();
+            if !batch.is_empty() {
+                changes.append(&mut batch);
+                activity = true;
+            }
+
+            if activity {
+                last_activity = Instant::now();
+            } else if last_activity.elapsed() >= QUIESCENCE_GRACE {
+                // Worker still active but idle (parked waiting on the UI, or
+                // simply slow between posts): hand control back to the pump.
+                break;
+            } else {
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+        }
+        // Final non-blocking sweep for any completions that landed last.
+        changes.extend(registry.drain_state_changes());
+
+        if !changes.is_empty() {
+            progressed = true;
+            let worker_messages = worker_state_runtime_messages(&registry, changes);
+            let mut worker_outcome =
+                self.dispatch_message_queue_with_runtime(root, worker_messages);
+            // `absorb_outcome` records a sticky `headless_stop_requested` if the
+            // worker-driven handler requested app exit.
+            self.absorb_outcome(&mut worker_outcome, pending, InvalidationScope::Global);
+        }
+
+        registry.cleanup();
+
+        // Keep the registry only if it still tracks workers; otherwise drop it
+        // so a fully-idle app does not carry empty worker state.
+        if !registry.active_workers().is_empty() {
+            self.headless_worker_registry = Some(registry);
+        }
+
+        progressed
+    }
+
+    /// Deliver `count` frame ticks to the widget tree, then pump to idle.
+    ///
+    /// Mirrors the live loop's per-frame `root.on_tick(tick)` / `on_app_tick`
+    /// (which the headless pump otherwise never fires). Each tick uses a
+    /// strictly-increasing counter (`headless_tick`), so on-tick-driven
+    /// animations (LoadingIndicator's spinner phase, button flash, …) advance
+    /// frame-by-frame deterministically. This is the headless analogue of the
+    /// real loop ticking once per `tick_rate`.
+    pub(crate) fn headless_advance_ticks(
+        &mut self,
+        root: &mut dyn Widget,
+        count: u64,
+    ) -> crate::Result<()> {
+        let mut pending = PendingInvalidation::default();
+        for _ in 0..count {
+            self.headless_tick = self.headless_tick.wrapping_add(1);
+            let tick = self.headless_tick;
+
+            // Widget-level tick. `root.on_tick` reaches the AppRoot wrapper, but
+            // the widgets that actually animate (LoadingIndicator, …) live in the
+            // arena tree, so deliver the tick to every active arena node too.
+            root.on_tick(tick);
+            if let Some(tree) = self.active_widget_tree_mut()
+                && let Some(tree_root) = tree.root()
+            {
+                for node in tree.walk_depth_first(tree_root) {
+                    if let Some(widget_node) = tree.get_mut(node) {
+                        let widget = &mut widget_node.widget;
+                        if widget.is_active() {
+                            widget.on_tick(tick);
+                        }
+                    }
+                }
+            }
+            // Any on-tick widget repaint is content-level; request it so the
+            // pump re-renders and the rendered frame reflects the new phase.
+            pending.request_full_content();
+
+            // App-level tick hook (mirrors the live loop's `on_app_tick`).
+            let mut app_tick_ctx = EventCtx::default();
+            root.on_app_tick(self, tick, &mut app_tick_ctx);
+            let mut app_tick_outcome = DispatchOutcome {
+                handled: app_tick_ctx.handled(),
+                repaint_requested: app_tick_ctx.repaint_requested(),
+                invalidation: app_tick_ctx.invalidation(),
+                stop_requested: app_tick_ctx.stop_requested(),
+                messages: app_tick_ctx.take_messages(),
+                animation_requests: app_tick_ctx.take_animation_requests(),
+                worker_requests: app_tick_ctx.take_worker_requests(),
+                recompose_nodes: app_tick_ctx.take_recompose_nodes(),
+                default_prevented: false,
+                class_ops: app_tick_ctx.take_class_ops(),
+            };
+            self.absorb_outcome(&mut app_tick_outcome, &mut pending, InvalidationScope::Global);
+            let mut msg_outcome =
+                self.dispatch_message_queue_with_runtime(root, app_tick_outcome.messages);
+            self.absorb_outcome(&mut msg_outcome, &mut pending, InvalidationScope::Global);
+        }
+        self.headless_pump(root, &mut pending)
     }
 
     /// Inject a single key press through the same dispatch cascade the live
@@ -4719,7 +4967,27 @@ impl App {
         {
             let mut click_outcome =
                 self.dispatch_event_to_target_auto(root, click_target, &click_event);
+            let click_stopped = click_outcome.stop_requested;
             self.absorb_outcome(&mut click_outcome, pending, InvalidationScope::Global);
+
+            // `@click` action-link routing (mirrors the live loop's
+            // `MouseEventKind::Up` arm): consult the style meta baked into the
+            // clicked cell. If a `[@click=...]` span stamped an action string
+            // there, dispatch it with the clicked widget as the default action
+            // namespace — so headless clicks on action-link spans (actions03's
+            // `app.set_background('red')`) fire the action, not just MouseUp/Click.
+            if !click_stopped
+                && let Some(action) = self.click_action_at(screen_x, screen_y)
+            {
+                let msg = MessageEvent::new(
+                    click_target,
+                    crate::message::ActionDispatchRequested { action },
+                );
+                let mut action_outcome =
+                    self.dispatch_message_queue_with_runtime(root, vec![msg]);
+                self.absorb_outcome(&mut action_outcome, pending, InvalidationScope::Global);
+            }
+
             let mut click_msg_outcome =
                 self.dispatch_message_queue_with_runtime(root, click_outcome.messages);
             self.absorb_outcome(&mut click_msg_outcome, pending, InvalidationScope::Global);
@@ -4727,6 +4995,83 @@ impl App {
         let mut msg_outcome =
             self.dispatch_message_queue_with_runtime(root, outcome.messages);
         self.absorb_outcome(&mut msg_outcome, pending, InvalidationScope::Global);
+    }
+
+    /// Inject a mouse move to absolute screen `(x, y)` through the same cascade
+    /// the live loop runs on a `MouseEventKind::Moved`: update hover + dispatch
+    /// Enter/Leave, arm/update the system tooltip, then dispatch a `MouseMove`
+    /// to the widget under the cursor. Mirrors `pilot.hover` / `pilot.move_to`.
+    pub(crate) fn headless_inject_mouse_move(
+        &mut self,
+        root: &mut dyn Widget,
+        screen_x: u16,
+        screen_y: u16,
+    ) -> crate::Result<()> {
+        let mut pending = PendingInvalidation::default();
+        self.with_headless_style_context(|app| {
+            app.headless_process_mouse_move(root, screen_x, screen_y, &mut pending);
+        });
+        self.headless_pump(root, &mut pending)
+    }
+
+    fn headless_process_mouse_move(
+        &mut self,
+        root: &mut dyn Widget,
+        screen_x: u16,
+        screen_y: u16,
+        pending: &mut PendingInvalidation,
+    ) {
+        // Hover transition (drives `:hover` pseudo + Enter/Leave events), exactly
+        // as the live `MouseEventKind::Moved` arm does.
+        let before = self.hovered;
+        if self.update_hover_from_frame(screen_x, screen_y, root) {
+            if let Some(id) = before {
+                pending.request_widget_rect(&self.hit_test, id);
+            }
+            if let Some(id) = self.hovered {
+                pending.request_widget_rect(&self.hit_test, id);
+            } else {
+                pending.request_full_content();
+            }
+            let enter_leave = generate_enter_leave_events(
+                before, self.hovered, screen_x, screen_y, screen_x, screen_y,
+            );
+            for (target, event) in enter_leave {
+                let mut outcome = self.dispatch_event_to_target_auto(root, target, &event);
+                self.absorb_outcome(&mut outcome, pending, InvalidationScope::Global);
+                let mut msg_outcome =
+                    self.dispatch_message_queue_with_runtime(root, outcome.messages);
+                self.absorb_outcome(&mut msg_outcome, pending, InvalidationScope::Global);
+            }
+        }
+
+        // Arm/refresh the shared system tooltip for the hovered owner.
+        if self.update_hover_tooltip(screen_x, screen_y) {
+            pending.request_flags(crate::event::InvalidationFlags::layout());
+            pending.request_full_content();
+        }
+
+        // Dispatch the MouseMove to the widget under the cursor (the demo-facing
+        // event: mouse01's RichLog write + ball offset both fire here).
+        if let Some(target) = self.widget_at_auto(screen_x, screen_y) {
+            let changed = self.call_on_mouse_move_auto(root, target, screen_x, screen_y, false);
+            let (x, y) = self.content_local_coords_auto(target, screen_x, screen_y);
+            let move_event = Event::MouseMove(crate::event::MouseMoveEvent {
+                target,
+                screen_x,
+                screen_y,
+                x,
+                y,
+            });
+            let mut outcome = self.dispatch_event_to_target_auto(root, target, &move_event);
+            self.absorb_outcome(&mut outcome, pending, InvalidationScope::Global);
+            let mut msg_outcome =
+                self.dispatch_message_queue_with_runtime(root, outcome.messages);
+            self.absorb_outcome(&mut msg_outcome, pending, InvalidationScope::Global);
+            if changed {
+                pending.request_full_content();
+            }
+        }
     }
 
     /// Headless: advance to idle without injecting input. Mirrors `pilot.pause`.
@@ -4816,6 +5161,17 @@ impl App {
     /// Headless unmount + finish (returns the app to a clean state).
     pub(crate) fn headless_finish(&mut self, root: &mut dyn Widget) -> crate::Result<()> {
         root.on_unmount();
+        // Cancel any still-active headless workers so a leftover background
+        // thread can't post into a torn-down app, then unregister the UI thread
+        // (dropping pending `call_from_thread` jobs, which unblocks any worker
+        // still parked on `call_from_thread`) — but only if we registered it
+        // (i.e. a worker was actually spawned). Mirrors `CallFromThreadGuard::drop`
+        // in the live loop.
+        self.headless_worker_registry = None;
+        if self.headless_ui_thread_registered {
+            crate::runtime::tasks::unregister_ui_thread();
+            self.headless_ui_thread_registered = false;
+        }
         self.finish()
     }
 
@@ -4917,7 +5273,10 @@ impl App {
         if requests.is_empty() {
             return;
         }
-        self.animator.enqueue_many(requests, Instant::now());
+        // Anchor to the timer clock so animations follow the manual clock under
+        // `run_test` (deterministic) and the wall clock otherwise.
+        let now = self.clock_now();
+        self.animator.enqueue_many(requests, now);
     }
 
     pub(super) fn enqueue_style_animation_requests(
@@ -4927,7 +5286,8 @@ impl App {
         if requests.is_empty() {
             return;
         }
-        self.animator.enqueue_style_many(requests, Instant::now());
+        let now = self.clock_now();
+        self.animator.enqueue_style_many(requests, now);
     }
 
     fn absorb_outcome(
@@ -5114,7 +5474,9 @@ impl App {
     }
 
     pub(super) fn dispatch_animation_frame(&mut self, root: &mut dyn Widget) -> DispatchOutcome {
-        let now = Instant::now();
+        // Step against the timer clock so animation progress is deterministic
+        // under `run_test` (driven by `advance_clock`) and wall-clock otherwise.
+        let now = self.clock_now();
         let updates = self.animator.step(now, self.animation_level);
         let style_updates = self.animator.step_style(now, self.animation_level);
 

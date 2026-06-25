@@ -196,13 +196,11 @@ mod tests {
     /// weather03 mirrors `@work(exclusive=True)`: typing a city spawns an
     /// exclusive worker that fetches the weather and updates the `Static`.
     ///
-    /// UNCLEAR ROOT: identical to weather02 — the headless `Pilot` pump does not
-    /// own/poll a `WorkerRegistry`, so the spawned worker never runs and the
-    /// Static stays empty (workers also run on real OS threads, so completion is
-    /// non-deterministic for an instant test). NOT a dead demo; flip this
-    /// `#[ignore]` once the headless harness pumps workers.
+    /// Now LIVE: the headless `Pilot` pump owns a `WorkerRegistry` and runs the
+    /// worker phase each pass, spawning the exclusive worker, awaiting its
+    /// (bounded) completion deterministically, and routing `WorkerStateChanged`
+    /// so the `Static` is populated by the time the pump returns to idle.
     #[test]
-    #[ignore = "UNCLEAR: headless Pilot pump does not process background worker requests; worker never runs so the Static never updates"]
     fn liveness_worker_updates_weather() {
         textual::run_test(WeatherApp::new(), |pilot| {
             pilot.click("Input")?;

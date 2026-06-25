@@ -600,6 +600,39 @@ pub struct App {
     modes: HashMap<String, Box<dyn Fn() -> Box<dyn crate::screen::Screen> + Send + Sync>>,
     /// The name of the currently active mode, if any.
     current_mode: Option<String>,
+    /// Count of suspend-process requests observed while headless.
+    ///
+    /// The live `action_suspend_process` sends a real `SIGTSTP` to the current
+    /// process; under the headless [`Pilot`] harness that would suspend the test
+    /// runner itself. So `run_test` installs a no-op suspend impl (see
+    /// `headless_startup`), and `action_suspend_process` bumps this counter when
+    /// headless instead of suspending — giving exit/suspend-on-interaction demos
+    /// an observable signal via [`App::headless_suspend_count`].
+    headless_suspend_count: u32,
+    /// Monotonic tick counter delivered to `root.on_tick(tick)` by the headless
+    /// [`Pilot::advance_ticks`]. The live loop keeps this counter loop-local; the
+    /// headless harness keeps it on the `App` so successive `advance_ticks` /
+    /// `advance_clock` calls deliver strictly-increasing tick values (mirroring
+    /// the live loop's `tick += 1` per frame), which on-tick-driven animations
+    /// (LoadingIndicator, button flash, …) rely on to progress.
+    headless_tick: u64,
+    /// Whether the headless pump has registered this thread as the UI thread.
+    ///
+    /// Done lazily — only when the first worker is spawned headless — so that the
+    /// (process-global) `call_from_thread` bridge is left untouched by worker-free
+    /// `run_test` runs, which would otherwise contend with other tests sharing
+    /// the singleton. Unregistered in `headless_finish`.
+    headless_ui_thread_registered: bool,
+    /// Worker registry used by the headless [`Pilot`] pump.
+    ///
+    /// The live event loop (`run_with`) owns a function-local [`WorkerRegistry`]
+    /// and calls `process_worker_requests` each pass; the headless pump has no
+    /// such loop-local state, so it keeps its registry here (created lazily on
+    /// first use). When set, [`App::headless_pump`] drains accumulated worker
+    /// requests into it, spawns/awaits their (bounded) completion deterministically,
+    /// and routes the resulting `WorkerStateChanged` messages — mirroring the
+    /// live loop's worker phase so worker-driven demos are probeable headlessly.
+    headless_worker_registry: Option<crate::worker::WorkerRegistry>,
 }
 
 impl App {
@@ -703,6 +736,10 @@ impl App {
             data_bindings: Vec::new(),
             dynamic_watchers: Vec::new(),
             suspend_process_impl: suspend_process_default,
+            headless_suspend_count: 0,
+            headless_tick: 0,
+            headless_ui_thread_registered: false,
+            headless_worker_registry: None,
             pending_highlight_clear: None,
             widget_tree: None,
             screen_stack: ScreenStack::new(),
@@ -882,6 +919,17 @@ impl App {
     /// True if any app-level timer callback is awaiting invocation.
     pub(crate) fn has_pending_timer_fires(&self) -> bool {
         !self.pending_timer_fires.is_empty()
+    }
+
+    /// The runtime "now", read from the timer clock so it follows the manual
+    /// clock under `run_test` (and the wall clock otherwise).
+    ///
+    /// The animator is anchored to this — `enqueue_*`/`step*` all use it — so
+    /// inside `run_test` animations advance deterministically with
+    /// [`Pilot::advance_clock`] / [`Pilot::advance_ticks`] instead of racing
+    /// `Instant::now()`.
+    pub(crate) fn clock_now(&self) -> Instant {
+        self.timers.now()
     }
 
     /// Run the callbacks for every app-level timer that fired this turn.
@@ -1932,6 +1980,13 @@ impl App {
     }
 
     pub fn action_suspend_process(&mut self) -> bool {
+        // Headless (run_test): never SIGTSTP the test runner. Record the request
+        // so suspend-on-interaction demos are observable via
+        // `headless_suspend_count`, and return without touching the driver.
+        if self.headless {
+            self.headless_suspend_count = self.headless_suspend_count.saturating_add(1);
+            return true;
+        }
         let was_started = self.driver.started();
         if was_started && self.driver.stop().is_err() {
             self.action_notify(
@@ -2962,6 +3017,25 @@ impl App {
     /// The currently active theme name.
     pub fn theme_name(&self) -> &str {
         &self.theme_name
+    }
+
+    /// Whether the app is currently in dark mode (Python `App.dark`).
+    ///
+    /// Flipped by [`App::action_toggle_dark`] / `action_change_theme`. Exposed
+    /// publicly so headless `Pilot` tests can assert a `toggle_dark` actually
+    /// flipped the state, even when the rendered frame (e.g. a blank screen with
+    /// default-styled chrome) shows no per-cell color change.
+    pub fn is_dark(&self) -> bool {
+        self.dark_mode
+    }
+
+    /// How many times a suspend-process action has been observed while headless.
+    ///
+    /// Under the `Pilot` harness `action_suspend_process` records the request
+    /// (instead of sending a real `SIGTSTP`) so suspend-on-interaction demos can
+    /// assert the trigger fired without suspending the test runner.
+    pub fn headless_suspend_count(&self) -> u32 {
+        self.headless_suspend_count
     }
 
     /// Activate a named theme by name (Python `App.theme = name`).

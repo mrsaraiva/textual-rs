@@ -104,6 +104,30 @@ impl<'a> Pilot<'a> {
         self.app.headless_inject_click(self.root, x, y)
     }
 
+    /// Move the mouse to the centre of the widget matched by `selector`,
+    /// updating hover state (`:hover`, Enter/Leave, the system tooltip) and
+    /// dispatching a `MouseMove` to it, then advance to idle. Mirrors
+    /// `pilot.hover(selector)`.
+    pub fn hover(&mut self, selector: &str) -> Result<()> {
+        let node = self
+            .app
+            .query_one(selector)
+            .map_err(|e| crate::Error::Message(format!("hover selector {selector}: {e:?}")))?;
+        let rect = self
+            .app
+            .node_screen_rect(node)
+            .ok_or_else(|| crate::Error::Message(format!("no rendered region for {selector}")))?;
+        let cx = rect.0 + (rect.2.saturating_sub(rect.0)) / 2;
+        let cy = rect.1 + (rect.3.saturating_sub(rect.1)) / 2;
+        self.app.headless_inject_mouse_move(self.root, cx, cy)
+    }
+
+    /// Move the mouse to an absolute screen coordinate (hover + `MouseMove`),
+    /// then advance to idle. Mirrors `pilot.hover((x, y))` / `pilot.move`.
+    pub fn move_to(&mut self, x: u16, y: u16) -> Result<()> {
+        self.app.headless_inject_mouse_move(self.root, x, y)
+    }
+
     /// Advance the app to idle (process queued messages/timers/animations and
     /// render). Mirrors `pilot.pause()`.
     pub fn pause(&mut self) -> Result<()> {
@@ -150,18 +174,37 @@ impl<'a> Pilot<'a> {
                     let advanced = step.max(Duration::from_nanos(1)).min(remaining);
                     self.app.advance_timers(advanced);
                     remaining -= advanced;
-                    self.app.headless_pause(self.root)?;
+                    // Deliver one frame tick per wake and pump. The live loop
+                    // ticks once per frame as time elapses; mirroring that here
+                    // lets `on_tick`-driven motion (LoadingIndicator, button
+                    // flash) progress while time advances, alongside the timer
+                    // and animator (both now anchored to this manual clock).
+                    self.app.headless_advance_ticks(self.root, 1)?;
                 }
                 _ => break,
             }
         }
         // Consume any sub-deadline remainder so the clock ends exactly `delta`
-        // ahead, then pump once more to settle.
+        // ahead, then deliver a final tick + pump to settle.
         if !remaining.is_zero() {
             self.app.advance_timers(remaining);
-            self.app.headless_pause(self.root)?;
+            self.app.headless_advance_ticks(self.root, 1)?;
         }
         Ok(())
+    }
+
+    /// Deliver `count` frame ticks to the widget tree, then advance to idle.
+    ///
+    /// Mirrors the live loop's per-frame `on_tick` / `on_app_tick`, which the
+    /// headless pump does not otherwise fire. Each tick carries a
+    /// strictly-increasing counter, so on-tick-driven animations
+    /// (`LoadingIndicator`'s spinner phase, button flash, the progress-bar
+    /// pulse, …) advance frame-by-frame deterministically — the analogue of
+    /// Python's animation frames firing while the loop runs. Use this (instead
+    /// of [`Pilot::advance_clock`]) for demos whose motion is driven purely by
+    /// `on_tick` rather than by elapsed time.
+    pub fn advance_ticks(&mut self, count: u64) -> Result<()> {
+        self.app.headless_advance_ticks(self.root, count)
     }
 
     /// True while the harness is running on the deterministic manual clock

@@ -39,20 +39,21 @@ mod tests {
         );
     }
 
-    /// UNCLEAR under the headless Pilot harness — `#[ignore]`d. ROOT: the
-    /// `ctrl+z` binding runs the `suspend_process` action, whose runtime handler
-    /// (`App::action_suspend_process`) sends a real `SIGTSTP` to the *current
-    /// process*. Pressing `ctrl+z` through `run_test` would suspend the test
-    /// runner itself, and the suspend-impl override seam is crate-private, so the
-    /// effect cannot be safely or observably exercised headless from the demo
-    /// crate. The static check above proves the binding is wired to the trigger.
-    /// TODO: expose a public test seam to stub the suspend impl, then drive the
-    /// keypress headless and assert the stub fired; drop `#[ignore]`.
-    #[ignore = "UNCLEAR: real SIGTSTP suspend is not headless-safe / observable"]
+    /// Now LIVE: under the headless `Pilot` harness `action_suspend_process`
+    /// records the request (instead of sending a real `SIGTSTP`) and exposes it
+    /// via `App::headless_suspend_count`. Pressing `ctrl+z` runs the
+    /// `suspend_process` action, bumping the count — an observable, headless-safe
+    /// signal that the binding fired without suspending the test runner.
     #[test]
     fn suspend_process_ctrl_z_is_live() {
         run_test(SuspendKeysApp, |pilot| {
+            assert_eq!(pilot.app().headless_suspend_count(), 0, "no suspend before ctrl+z");
             pilot.press(&["ctrl+z"])?;
+            assert_eq!(
+                pilot.app().headless_suspend_count(),
+                1,
+                "pressing ctrl+z must request a process suspend"
+            );
             Ok(())
         })
         .expect("suspend_process keypress harness should run");

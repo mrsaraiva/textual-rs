@@ -51,21 +51,22 @@ mod tests {
         );
     }
 
-    /// UNCLEAR under the headless Pilot harness — `#[ignore]`d. ROOT: clicking
-    /// the button posts `AppSuspendProcess`, whose runtime handler
-    /// (`App::action_suspend_process`) sends a real `SIGTSTP` to the *current
-    /// process* via the default `suspend_process_impl`. Driving this through
-    /// `run_test` would suspend the test runner itself, and the override seam
-    /// (`set_suspend_process_impl_for_test`) is crate-private, so the suspend
-    /// effect cannot be safely or observably exercised headless from the demo
-    /// crate. The safe check above proves the button is wired to the trigger.
-    /// TODO: expose a public test seam to stub the suspend impl, then drive the
-    /// click headless and assert the stub fired; drop `#[ignore]`.
-    #[ignore = "UNCLEAR: real SIGTSTP suspend is not headless-safe / observable"]
+    /// Now LIVE: under the headless `Pilot` harness `action_suspend_process`
+    /// records the request (instead of sending a real `SIGTSTP` that would
+    /// suspend the test runner) and exposes it via `App::headless_suspend_count`.
+    /// Clicking the button posts `AppSuspendProcess`, which the runtime routes to
+    /// `action_suspend_process`, bumping the count — an observable, headless-safe
+    /// signal that the suspend trigger fired.
     #[test]
     fn suspend_button_click_is_live() {
         run_test(SuspendingApp, |pilot| {
+            assert_eq!(pilot.app().headless_suspend_count(), 0, "no suspend before click");
             pilot.click("#edit")?;
+            assert_eq!(
+                pilot.app().headless_suspend_count(),
+                1,
+                "clicking the button must request a process suspend"
+            );
             Ok(())
         })
         .expect("suspend click harness should run");

@@ -178,17 +178,12 @@ mod tests {
 
     /// LIVENESS probe (Pilot, headless) for the full lookup → result render.
     ///
-    /// UNCLEAR under the headless harness — `#[ignore]`d. ROOT: the actual
-    /// dictionary lookup runs in a background *worker thread*
-    /// (`ctx.request_exclusive_worker_task(...)`) that sleeps to simulate network
-    /// latency, then posts the result back. The headless pump
-    /// (`runtime/event_loop.rs:4269`) never spawns worker requests
-    /// (`process_worker_requests` runs only in the live loop), so the lookup
-    /// never executes headless and the results pane is never populated. This is a
-    /// harness limitation, not a demo defect (the input front-end above is live).
-    /// TODO: drive worker spawning from the headless pump (or add a Pilot
-    /// worker-step), then assert the results render; drop `#[ignore]`.
-    #[ignore = "UNCLEAR: headless pump does not spawn the worker thread that performs the lookup"]
+    /// Now LIVE: the dictionary lookup runs in a background *worker thread*
+    /// (`ctx.request_exclusive_worker_task(...)`). The headless pump now owns a
+    /// `WorkerRegistry` and runs the worker phase each pass — spawning the
+    /// lookup, awaiting its (bounded) completion deterministically, and routing
+    /// `WorkerStateChanged` — so the results pane is populated by the time the
+    /// pump returns to idle and the rendered frame changes.
     #[test]
     fn dictionary_lookup_result_is_live() {
         run_test(DictionaryApp::new(), |pilot| {

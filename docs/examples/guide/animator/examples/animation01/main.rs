@@ -55,16 +55,19 @@ mod tests {
     /// The on-mount opacity animation should progress, changing the rendered
     /// `#box` over time.
     ///
-    /// UNCLEAR ROOT: the animator advances on the wall clock — `Animator::step`
-    /// and `enqueue` use `Instant::now()` (see `src/animation.rs`), independent
-    /// of the deterministic manual timer clock that `Pilot::advance_clock`
-    /// drives. In an instant headless test no real wall time elapses, so the
-    /// animation fraction stays ~0 and the frame never changes. This is NOT a
-    /// dead demo — it cannot be probed deterministically until the animator is
-    /// put on the manual clock (the timer subsystem already is). Flip this
-    /// `#[ignore]` once `advance_clock` also advances animations.
+    /// PARTIALLY UNBLOCKED — still `#[ignore]`d on a distinct rendering gap.
+    ///
+    /// The animator is now anchored to the timer clock (`App::clock_now`), so
+    /// under `run_test` the opacity animation *does* run deterministically with
+    /// `advance_clock` (the pump steps `step_style` to completion). The remaining
+    /// blocker is NOT the clock: the in-memory `FrameBuffer` does not composite a
+    /// widget's animated `opacity` into per-cell colors, so the rendered frame
+    /// fingerprint is unchanged as opacity fades 100→0. This needs opacity
+    /// compositing in the headless render path (a render gap, not a harness
+    /// timing gap). Flip this `#[ignore]` once opacity is composited into the
+    /// frame cells.
     #[test]
-    #[ignore = "UNCLEAR: animator runs on Instant::now() (wall clock), not the manual timer clock, so advance_clock cannot deterministically step it headless"]
+    #[ignore = "DEFERRED(opacity-compositing): animator now runs on the manual clock (advance_clock steps it), but animated widget opacity is not composited into the in-memory FrameBuffer cells, so the frame fingerprint never changes"]
     fn liveness_opacity_animation_progresses() {
         textual::run_test(AnimationApp, |pilot| {
             let before = pilot.app().frame_fingerprint();

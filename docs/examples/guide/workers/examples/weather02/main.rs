@@ -185,22 +185,18 @@ mod tests {
         assert!(guard.is_none());
     }
 
-    /// LIVENESS PROBE (UNCLEAR under the headless harness — see note).
+    /// LIVENESS PROBE (Pilot run_test) — now LIVE.
     ///
     /// Typing a city spawns an exclusive background worker that "fetches" the
     /// weather and (on Success) updates the `Static`.
     ///
-    /// UNCLEAR ROOT: the worker subsystem is only pumped by the live `run_with`
-    /// loop, which owns a function-local `WorkerRegistry` and calls
-    /// `process_worker_requests` each pass. The headless `Pilot` pump
-    /// (`headless_pump`) has no worker registry, so `request_exclusive_worker_task`
-    /// requests accumulate but never run — the Static stays empty. Additionally,
-    /// workers run on real OS threads, so even if pumped, completion is
-    /// non-deterministic for an instant test. This is NOT a dead demo; it cannot
-    /// be probed deterministically until the headless harness pumps workers (and
-    /// ideally runs them inline/deterministically). Flip this `#[ignore]` then.
+    /// Previously UNCLEAR: the headless `Pilot` pump had no `WorkerRegistry`, so
+    /// `request_exclusive_worker_task` requests accumulated but never ran. The
+    /// pump now owns a registry and runs `headless_process_workers` each pass,
+    /// spawning the worker, awaiting its (bounded) completion deterministically,
+    /// and routing `WorkerStateChanged` so the `Static` is populated by the time
+    /// the pump returns to idle.
     #[test]
-    #[ignore = "UNCLEAR: headless Pilot pump does not process background worker requests (no WorkerRegistry in headless_pump); worker never runs so the Static never updates"]
     fn liveness_worker_updates_weather() {
         textual::run_test(WeatherApp::new(), |pilot| {
             pilot.click("Input")?;
