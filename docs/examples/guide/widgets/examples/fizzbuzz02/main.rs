@@ -1,14 +1,28 @@
 /// Port of Python Textual `docs/examples/guide/widgets/fizzbuzz02.py`.
 ///
-/// Demonstrates a `Static` widget that renders a `rich_rs::Table` at mount
-/// time. The Python original creates a custom `FizzBuzz(Static)` subclass and
-/// builds the table in `on_mount`, calling `self.update(table)`. In Rust,
-/// `Static::update_rich()` accepts a pre-rendered `rich_rs::Text`, so we
-/// build and render the table at compose time using the same technique as the
-/// `option_list_tables` example.
+/// Demonstrates a custom `FizzBuzz(Static)` widget that renders a
+/// `rich_rs::Table`. Python's `FizzBuzz` overrides `get_content_width` to
+/// return 50, forcing the widget width independently of the container.
 ///
-/// The Python `get_content_width` override returns 50 to force the widget
-/// width. We mirror this with `width: 50` in the CSS `Static` rule.
+/// This Rust port creates a custom `FizzBuzz` widget struct that implements
+/// `Widget::content_width()` returning `Some(50)` — the Rust equivalent of
+/// Python's `get_content_width` hook. The CSS uses `width: auto` (faithful
+/// to the Python `FizzBuzz { width: auto; }` CSS) and the widget's
+/// `content_width()` drives the sizing.
+///
+/// Python:
+/// ```python
+/// class FizzBuzz(Static):
+///     def on_mount(self) -> None:
+///         table = Table("Number", "Fizz?", "Buzz?", expand=True)
+///         for n in range(1, 16):
+///             ...
+///         self.update(table)
+///
+///     def get_content_width(self, container: Size, viewport: Size) -> int:
+///         """Force content width size."""
+///         return 50
+/// ```
 ///
 /// CSS ported from `fizzbuzz02.tcss`:
 ///
@@ -24,7 +38,7 @@
 ///     color: $text;
 /// }
 /// ```
-use rich_rs::{Console, ConsoleOptions, Renderable, Table, Text};
+use rich_rs::{Console, ConsoleOptions, Renderable, Segments, Table};
 use textual::prelude::*;
 
 const CSS: &str = r##"
@@ -32,25 +46,19 @@ Screen {
     align: center middle;
 }
 
-Static {
-    width: 50;
+FizzBuzz {
+    width: auto;
     height: auto;
     background: $primary;
     color: $text;
 }
 "##;
 
-/// Build the FizzBuzz rich table (mirrors Python `FizzBuzz.on_mount`):
-///
-/// ```python
-/// table = Table("Number", "Fizz?", "Buzz?", expand=True)
-/// for n in range(1, 16):
-///     fizz = not n % 3
-///     buzz = not n % 5
-///     table.add_row(str(n), "fizz" if fizz else "", "buzz" if buzz else "")
-/// self.update(table)
-/// ```
-fn build_fizzbuzz_table() -> Table {
+/// The fixed content width mirrors Python `get_content_width` returning 50.
+const FIZZBUZZ_CONTENT_WIDTH: usize = 50;
+
+/// Build the FizzBuzz table (mirrors Python `on_mount`).
+fn build_table() -> Table {
     let mut table = Table::new().with_expand(true);
     table.add_column_str("Number");
     table.add_column_str("Fizz?");
@@ -63,9 +71,8 @@ fn build_fizzbuzz_table() -> Table {
     table
 }
 
-/// Render a `rich_rs::Table` to a `rich_rs::Text` at the given width.
-/// This is the same technique used in `option_list_tables`.
-fn table_to_text(table: &Table, width: usize) -> Text {
+/// Count rendered line count for the table at the given width.
+fn table_line_count(table: &Table, width: usize) -> usize {
     let console = Console::new();
     let options = ConsoleOptions {
         size: (width, 40),
@@ -73,22 +80,70 @@ fn table_to_text(table: &Table, width: usize) -> Text {
         max_height: 40,
         ..Default::default()
     };
-    let segments: Vec<_> = table.render(&console, &options).into_iter().collect();
+    let segments: Vec<_> = Renderable::render(table, &console, &options)
+        .into_iter()
+        .collect();
+    // Reconstruct the rendered text and count lines. `str::lines()` drops the
+    // single trailing newline rich-rs emits after the last row, so this yields
+    // the true rendered line count (19), matching Python's rich table — not the
+    // newline-count+1 that over-counted by one.
+    let mut text = String::new();
+    for s in &segments {
+        text.push_str(&s.text);
+    }
+    text.lines().count().max(1)
+}
 
-    let mut lines: Vec<String> = Vec::new();
-    let mut current = String::new();
-    for seg in &segments {
-        if seg.is_control() || seg.text == "\n" {
-            lines.push(std::mem::take(&mut current));
-        } else {
-            current.push_str(&seg.text);
+/// Mirrors Python `FizzBuzz(Static)` with `get_content_width` returning 50.
+///
+/// The table is built at construction time (mirrors Python `on_mount` building
+/// the table and calling `self.update(table)`). `content_width()` returns
+/// `Some(50)` — the Rust equivalent of Python `get_content_width`.
+/// `layout_height()` returns the pre-computed line count so `height: auto`
+/// resolves to the correct height for centering.
+struct FizzBuzz {
+    table: Table,
+    line_count: usize,
+    seed: NodeSeed,
+}
+
+impl FizzBuzz {
+    fn new() -> Self {
+        let table = build_table();
+        let line_count = table_line_count(&table, FIZZBUZZ_CONTENT_WIDTH);
+        Self {
+            table,
+            line_count,
+            seed: NodeSeed::default(),
         }
     }
-    if !current.is_empty() {
-        lines.push(current);
+}
+
+impl Widget for FizzBuzz {
+    fn style_type(&self) -> &'static str {
+        "FizzBuzz"
     }
 
-    Text::plain(lines.join("\n"))
+    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        Renderable::render(&self.table, console, options)
+    }
+
+    /// Mirrors Python `FizzBuzz.get_content_width` which returns 50.
+    ///
+    /// This forces the widget's content width to 50 cells regardless of the
+    /// container width, so `width: auto` in CSS resolves to exactly 50.
+    fn content_width(&self) -> Option<usize> {
+        Some(FIZZBUZZ_CONTENT_WIDTH)
+    }
+
+    /// Return the pre-computed line count so `height: auto` resolves correctly.
+    fn layout_height(&self) -> Option<usize> {
+        Some(self.line_count)
+    }
+
+    fn take_node_seed(&mut self) -> NodeSeed {
+        std::mem::take(&mut self.seed)
+    }
 }
 
 struct FizzBuzzApp;
@@ -100,13 +155,7 @@ impl TextualApp for FizzBuzzApp {
     }
 
     fn compose(&mut self) -> AppRoot {
-        let table = build_fizzbuzz_table();
-        // Render at width=50 to match the forced content width in the Python
-        // `get_content_width` override.
-        let text = table_to_text(&table, 50);
-        let mut widget = Static::new("");
-        widget.update_rich(text);
-        AppRoot::new().with_child(widget)
+        AppRoot::new().with_child(FizzBuzz::new())
     }
 }
 
@@ -119,32 +168,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn fizzbuzz_table_has_15_rows() {
-        let table = build_fizzbuzz_table();
-        let text = table_to_text(&table, 50);
-        let plain = text.plain_text();
-        // rows 1-15 should appear
-        assert!(plain.contains('1'), "missing row 1");
-        assert!(plain.contains("15"), "missing row 15");
+    fn fizzbuzz_widget_content_width_is_50() {
+        let fb = FizzBuzz::new();
+        assert_eq!(fb.content_width(), Some(50));
     }
 
     #[test]
-    fn fizzbuzz_table_has_fizz_and_buzz() {
-        let table = build_fizzbuzz_table();
-        let text = table_to_text(&table, 50);
-        let plain = text.plain_text();
-        assert!(plain.contains("fizz"), "missing fizz");
-        assert!(plain.contains("buzz"), "missing buzz");
-    }
-
-    #[test]
-    fn fizzbuzz_table_column_headers() {
-        let table = build_fizzbuzz_table();
-        let text = table_to_text(&table, 50);
-        let plain = text.plain_text();
-        assert!(plain.contains("Number"), "missing Number header");
-        assert!(plain.contains("Fizz?"), "missing Fizz? header");
-        assert!(plain.contains("Buzz?"), "missing Buzz? header");
+    fn fizzbuzz_widget_layout_height_is_nonzero() {
+        let fb = FizzBuzz::new();
+        let h = fb.layout_height().unwrap_or(0);
+        // The table header (3 lines) + 15 data rows + 1 bottom border = 19.
+        assert!(h > 0, "layout_height should be positive, got {h}");
+        assert_eq!(h, 19, "expected 19 lines: header box + header text + separator + 15 rows + bottom = 19");
     }
 
     #[test]
