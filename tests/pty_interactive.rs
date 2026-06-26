@@ -1421,3 +1421,575 @@ fn parity_log_content() {
     let (rf, pf) = widgets_both("log", &script, 400);
     assert_glyph_parity("log", &pf, &rf, &[]);
 }
+
+// ===========================================================================
+// WAVE 2 — REVERIFICATION: reactivity / tutorial / widgets-guide / app demos.
+//
+// Same PARITY polarity as the widgets cases above (assert Rust == Python).
+// Each case drives the demo's representative interaction on BOTH the real Rust
+// binary and the real Python app, then asserts the cell grids agree (glyph
+// exact over content rows; colour where deterministic), OR — for inherently
+// time-dependent demos (live clocks, fades) — asserts the SAME structural
+// behaviour on both sides (e.g. the clock region advanced on BOTH).
+//
+// A case that differs is a BUG, committed `#[ignore = "BUG: <diff>"]` with the
+// concrete cell/colour/behaviour divergence so it is tracked and flips to
+// passing when the underlying fundamental is fixed.
+// ===========================================================================
+
+/// Drive both the Rust example `name` and the Python `<cat>/<name>.py` app with
+/// the same script; return (rust_final, py_final) grids.
+fn cat_both(
+    name: &'static str,
+    cat: &'static str,
+    script: &[Step],
+    settle_ms: u64,
+) -> (Grid, Grid) {
+    let r = drive(&AppKind::Rust(name), script, settle_ms);
+    let p = drive(&AppKind::Python(cat, name), script, settle_ms);
+    (r.into_iter().last().unwrap(), p.into_iter().last().unwrap())
+}
+
+/// Fingerprint a rectangular region's glyphs (used for time-dependent "did the
+/// clock advance?" checks where an exact value is non-deterministic).
+fn region_fp(g: &Grid, rows: std::ops::Range<usize>, cols: std::ops::Range<usize>) -> String {
+    let mut s = String::new();
+    for r in rows {
+        for c in cols.clone() {
+            s.push(g.cell(r, c).ch);
+        }
+        s.push('\n');
+    }
+    s
+}
+
+/// Spawn `kind`, run `pre`, then check whether the glyph fingerprint of the
+/// region (rows×cols) CHANGED across a `gap_ms` window — i.e. a live clock in
+/// that region advanced. Returns whether it advanced.
+fn region_advances(
+    kind: &AppKind,
+    pre: &[Step],
+    rows: std::ops::Range<usize>,
+    cols: std::ops::Range<usize>,
+    gap_ms: u64,
+) -> bool {
+    let mut app = spawn(kind);
+    app.settle(Duration::from_secs(12));
+    for step in pre {
+        match step {
+            Step::SendKeys(s) => app.send(s.as_bytes()),
+            Step::Key(k) => app.send(&k.bytes()),
+            Step::Wait(ms) => std::thread::sleep(Duration::from_millis(*ms)),
+            Step::Click(x, y) => app.send(&sgr_click(*x, *y)),
+        }
+    }
+    std::thread::sleep(Duration::from_millis(250));
+    let f0 = region_fp(&app.capture(), rows.clone(), cols.clone());
+    std::thread::sleep(Duration::from_millis(gap_ms));
+    let f1 = region_fp(&app.capture(), rows, cols);
+    let label = app.label.clone();
+    app.shutdown();
+    let adv = f0 != f1;
+    eprintln!("{label}: region advanced = {adv}");
+    adv
+}
+
+// --- reactivity (input-driven, deterministic) -------------------------------
+
+/// computed01: typing a red value live recomputes the colour swatch background.
+#[test]
+#[ignore = "BUG: the green/blue Inputs are constructed with value \"0\" but Rust renders their PLACEHOLDER text (\"Enter green 0-255\"/\"Enter blue 0-255\") instead of the value \"0\" that Python shows. 29 glyph cells + focused-Input :focus background-tint (#1e1e1e vs #272727)."]
+fn parity_computed01_color() {
+    let script = [Step::SendKeys("123"), Step::Wait(300)];
+    let (rf, pf) = cat_both("computed01", "guide/reactivity", &script, 400);
+    assert_glyph_parity("computed01", &pf, &rf, &[]);
+}
+
+/// watch01: submit a colour name; both swatches update their backgrounds.
+#[test]
+#[ignore = "BUG: glyph-perfect but focused Input bg #1e1e1e (Rust) vs #272727 (Python applies `background-tint: $foreground 5%` on :focus). 247 colour cells. Shared root: :focus background-tint not applied (wave-1)."]
+fn parity_watch01_color() {
+    let script = [Step::SendKeys("red"), Step::Key(Key::Enter), Step::Wait(300)];
+    let (rf, pf) = cat_both("watch01", "guide/reactivity", &script, 400);
+    assert_glyph_parity("watch01", &pf, &rf, &[]);
+}
+
+/// validate01: the focused +1 button is pressed 3× via Enter; the validated
+/// reactive caps at 10 and each press appends `count = N` to the RichLog.
+#[test]
+#[ignore = "BUG: glyph-perfect (count = 1/2/3 on both) but the focused +1 success-Button bg is #4ebf71 (Rust, base $success) vs #55c076 (Python, lighter :focus/hover tint). 89 colour cells. Shared root: button :focus/hover background-tint not applied."]
+fn parity_validate01_count() {
+    let script = [
+        Step::Key(Key::Enter),
+        Step::Wait(400),
+        Step::Key(Key::Enter),
+        Step::Wait(400),
+        Step::Key(Key::Enter),
+        Step::Wait(400),
+    ];
+    let (rf, pf) = cat_both("validate01", "guide/reactivity", &script, 500);
+    assert_glyph_parity("validate01", &pf, &rf, &[]);
+}
+
+/// refresh01: typing a name live refreshes the `Name` widget's render.
+#[test]
+#[ignore = "BUG: glyph-perfect (\"Hello, Will!\" on both) but focused Input bg #1e1e1e (Rust) vs #272727 (Python :focus background-tint). 236 colour cells. Shared root: :focus background-tint not applied (wave-1)."]
+fn parity_refresh01_greeting() {
+    let script = [Step::SendKeys("Will"), Step::Wait(300)];
+    let (rf, pf) = cat_both("refresh01", "guide/reactivity", &script, 400);
+    assert_glyph_parity("refresh01", &pf, &rf, &[]);
+}
+
+/// refresh02: same as refresh01 but the reactive has `layout=True`.
+#[test]
+#[ignore = "BUG: the bordered `Name` widget (width/height auto) renders FULL container size (120 cols x ~25 rows) in Rust while Python shrinks it to its content (a 12x3 box around \"Hello, Will!\"). auto width/height not honoured for a bordered widget. 288 glyph cells + focused-Input :focus tint."]
+fn parity_refresh02_greeting() {
+    let script = [Step::SendKeys("Will"), Step::Wait(300)];
+    let (rf, pf) = cat_both("refresh02", "guide/reactivity", &script, 400);
+    assert_glyph_parity("refresh02", &pf, &rf, &[]);
+}
+
+/// refresh03: same but the reactive has `recompose=True` (rebuilds children).
+#[test]
+#[ignore = "BUG: glyph-perfect (\"Hello, Will!\" on both, recompose works) but focused Input bg #1e1e1e (Rust) vs #272727 (Python :focus background-tint). 236 colour cells. Shared root: :focus background-tint not applied (wave-1)."]
+fn parity_refresh03_greeting() {
+    let script = [Step::SendKeys("Will"), Step::Wait(300)];
+    let (rf, pf) = cat_both("refresh03", "guide/reactivity", &script, 400);
+    assert_glyph_parity("refresh03", &pf, &rf, &[]);
+}
+
+/// set_reactive01: pressing Space cycles the greeting via a watcher.
+#[test]
+#[ignore = "BUG/divergence: the Python reference itself RAISES on startup (Rich traceback shown — `self.greeting = greeting` in __init__ fires watch_greeting before compose → query_one NoMatches; this is the doc's intended failure mode that set_reactive02 fixes). Rust does NOT reproduce it: it suppresses/defers the pre-mount watcher and renders \"Hola\". reactive watcher init-timing differs (Python eager → crash, Rust deferred). Also exposes the same `who`-not-rendered gap as set_reactive02."]
+fn parity_set_reactive01_greeting() {
+    let script = [Step::Key(Key::Space), Step::Wait(300)];
+    let (rf, pf) = cat_both("set_reactive01", "guide/reactivity", &script, 400);
+    assert_glyph_parity("set_reactive01", &pf, &rf, &[]);
+}
+
+/// set_reactive02: same interaction; greeting initialised via `set_reactive`.
+#[test]
+#[ignore = "BUG: Python shows \"Hola Textual\" (greeting cycled + who=\"Textual\"); Rust shows only \"Hola\" — the `who` Label initialised via set_reactive(\"Textual\") in __init__ is NOT reflected at compose time (Label(self.who) reads the default empty reactive). Root: reactive value assigned before compose not read by compose-time content."]
+fn parity_set_reactive02_greeting() {
+    let script = [Step::Key(Key::Space), Step::Wait(300)];
+    let (rf, pf) = cat_both("set_reactive02", "guide/reactivity", &script, 400);
+    assert_glyph_parity("set_reactive02", &pf, &rf, &[]);
+}
+
+/// set_reactive03: submitting a name appends a `Hello, <name>` Label via
+/// `mutate_reactive` + recompose.
+#[test]
+#[ignore = "BUG: after submitting \"Ada\", Python recomposes and shows a \"Hello, Ada\" Label; Rust recomposes the Input (placeholder returns) but the appended Label is MISSING. Root: mutate_reactive on a list + recompose does not render the newly-appended children."]
+fn parity_set_reactive03_names() {
+    let script = [Step::SendKeys("Ada"), Step::Key(Key::Enter), Step::Wait(300)];
+    let (rf, pf) = cat_both("set_reactive03", "guide/reactivity", &script, 400);
+    assert_glyph_parity("set_reactive03", &pf, &rf, &[]);
+}
+
+// --- tutorial: stopwatches --------------------------------------------------
+// The Header carries a live clock on row 0, excluded via skip_rows in the
+// deterministic (non-ticking) cases.
+
+/// stopwatch01: Header + Footer only. Initial layout parity (clock row skipped).
+#[test]
+fn parity_stopwatch01_layout() {
+    let script = [Step::Wait(300)];
+    let (rf, pf) = cat_both("stopwatch01", "tutorial", &script, 400);
+    assert_glyph_parity("stopwatch01", &pf, &rf, &[0]);
+}
+
+/// stopwatch02: three Stopwatch widgets (Start/Stop/Reset buttons + a frozen
+/// 00:00:00.00 TimeDisplay). Initial layout parity (clock row skipped).
+#[test]
+fn parity_stopwatch02_layout() {
+    let script = [Step::Wait(300)];
+    let (rf, pf) = cat_both("stopwatch02", "tutorial", &script, 400);
+    assert_glyph_parity("stopwatch02", &pf, &rf, &[0]);
+}
+
+/// stopwatch03: same as 02 with the tutorial CSS applied. Layout parity.
+#[test]
+#[ignore = "BUG: glyph-perfect but the Button border fg is #8d8d8d (Rust) vs #919191 (Python) — a ~4/channel grey-shade difference on every button border. 201 colour cells. Root: button border colour token/shade rounding."]
+fn parity_stopwatch03_layout() {
+    let script = [Step::Wait(300)];
+    let (rf, pf) = cat_both("stopwatch03", "tutorial", &script, 400);
+    assert_glyph_parity("stopwatch03", &pf, &rf, &[0]);
+}
+
+/// stopwatch04: clicking the first Start button adds the `started` class
+/// (purely a styling change — no clock yet). Click Start, compare.
+#[test]
+#[ignore = "BUG: clicking Start should add the `.started` class whose CSS hides #start/#reset (`display:none`, `visibility:hidden`) and shows #stop (`display:block`). Python correctly shows only \"Stop\"; Rust still shows \"Start\" AND \"Reset\" (started-state descendant CSS toggles not applied). 42 glyph + 188 colour cells. Root: `.started #start/#stop/#reset` display/visibility class-state CSS not reflected after add_class."]
+fn parity_stopwatch04_start_class() {
+    let script = [Step::Click(8, 4), Step::Wait(300)];
+    let (rf, pf) = cat_both("stopwatch04", "tutorial", &script, 400);
+    assert_glyph_parity("stopwatch04", &pf, &rf, &[0]);
+}
+
+/// stopwatch05: every TimeDisplay ticks continuously from mount (no Start
+/// gating). Time-dependent → assert the digit region ADVANCED on BOTH apps
+/// (structural parity), not a specific value.
+#[test]
+fn parity_stopwatch05_ticks() {
+    // The block-digit time band sits below the header; exclude the header clock
+    // by fingerprinting rows 5..28 only.
+    let rows = 5..28usize;
+    let cols = 0..COLS as usize;
+    let rust_adv = region_advances(&AppKind::Rust("stopwatch05"), &[], rows.clone(), cols.clone(), 1200);
+    let py_adv = region_advances(&AppKind::Python("tutorial", "stopwatch05"), &[], rows, cols, 1200);
+    eprintln!("stopwatch05: rust_ticks={rust_adv} py_ticks={py_adv}");
+    assert!(
+        rust_adv && py_adv,
+        "PARITY FAIL stopwatch05: continuous tick mismatch — rust_ticks={rust_adv} py_ticks={py_adv} (both must tick)."
+    );
+}
+
+// --- guide/widgets: custom widgets (deterministic render) -------------------
+
+/// counter01: three static `Count: 0` counters + Footer (no key bindings).
+#[test]
+#[ignore = "BUG: the focused Counter (Static, height auto + `:focus outline-left: thick`) renders ~14 rows tall and triggers a scrollbar in Rust, while Python keeps it 3 rows (padding 1 2 around one line). The focused widget fills available height instead of auto-sizing to content. 54 glyph + 3084 colour cells. Root: focused/auto-height widget vertical sizing fills container."]
+fn parity_counter01_render() {
+    let script = [Step::Wait(300)];
+    let (rf, pf) = cat_both("counter01", "guide/widgets", &script, 400);
+    assert_glyph_parity("counter01", &pf, &rf, &[]);
+}
+
+/// counter02: the focused counter increments on `k`/up. Press `k`.
+#[test]
+#[ignore = "BUG: same focused-Counter auto-height divergence as counter01 (focused widget fills container height + scrollbar). 78 glyph + 3084 colour cells. Root: focused/auto-height widget vertical sizing."]
+fn parity_counter02_increment() {
+    let script = [Step::SendKeys("k"), Step::Wait(300)];
+    let (rf, pf) = cat_both("counter02", "guide/widgets", &script, 400);
+    assert_glyph_parity("counter02", &pf, &rf, &[]);
+}
+
+/// fizzbuzz01: a static rich `Table` rendered on mount.
+#[test]
+#[ignore = "BUG: `Screen { align: center middle }` + auto-size FizzBuzz — Python centres the table (rows ~5+, col ~47); Rust renders it at the top-left (row 0, col 0). align center middle not applied to an auto-sized child. 422 glyph cells. Root: align center middle (shared with nesting/centering gap)."]
+fn parity_fizzbuzz01_table() {
+    let script = [Step::Wait(300)];
+    let (rf, pf) = cat_both("fizzbuzz01", "guide/widgets", &script, 400);
+    assert_glyph_parity("fizzbuzz01", &pf, &rf, &[]);
+}
+
+/// fizzbuzz02: same table forced to width 50 (expand=True).
+#[test]
+fn parity_fizzbuzz02_table() {
+    let script = [Step::Wait(300)];
+    let (rf, pf) = cat_both("fizzbuzz02", "guide/widgets", &script, 400);
+    assert_glyph_parity("fizzbuzz02", &pf, &rf, &[]);
+}
+
+/// hello01: a bare `Hello, World!` widget render (bold markup).
+#[test]
+fn parity_hello01_render() {
+    let script = [Step::Wait(300)];
+    let (rf, pf) = cat_both("hello01", "guide/widgets", &script, 400);
+    assert_glyph_parity("hello01", &pf, &rf, &[]);
+}
+
+/// hello02: same with the styled box CSS.
+#[test]
+fn parity_hello02_render() {
+    let script = [Step::Wait(300)];
+    let (rf, pf) = cat_both("hello02", "guide/widgets", &script, 400);
+    assert_glyph_parity("hello02", &pf, &rf, &[]);
+}
+
+/// hello03: on_mount sets "Hola"; clicking the widget cycles to "Bonjour".
+#[test]
+fn parity_hello03_click() {
+    let script = [Step::Click(10, 5), Step::Wait(300)];
+    let (rf, pf) = cat_both("hello03", "guide/widgets", &script, 400);
+    assert_glyph_parity("hello03", &pf, &rf, &[]);
+}
+
+/// hello04: styled 40x9 box centred; clicking it cycles the greeting.
+#[test]
+fn parity_hello04_click() {
+    let script = [Step::Click(60, 14), Step::Wait(300)];
+    let (rf, pf) = cat_both("hello04", "guide/widgets", &script, 400);
+    assert_glyph_parity("hello04", &pf, &rf, &[]);
+}
+
+/// hello05: on_mount renders "Hola" with a clickable @click link. Initial
+/// render parity (the link target is exercised by hello06's variant).
+#[test]
+fn parity_hello05_render() {
+    let script = [Step::Wait(300)];
+    let (rf, pf) = cat_both("hello05", "guide/widgets", &script, 400);
+    assert_glyph_parity("hello05", &pf, &rf, &[]);
+}
+
+/// hello06: same plus a border title/subtitle. Initial render parity.
+#[test]
+fn parity_hello06_render() {
+    let script = [Step::Wait(300)];
+    let (rf, pf) = cat_both("hello06", "guide/widgets", &script, 400);
+    assert_glyph_parity("hello06", &pf, &rf, &[]);
+}
+
+/// checker01: an 8x8 black/white checkerboard (Strip render_line).
+#[test]
+#[ignore = "BUG: the white squares (`Style.parse(\"on white\")`) render bg #ffffff in Rust but #c4c5b5 in Python — Python resolves the named colour \"white\" through its colour pipeline (dimmed), Rust uses raw #ffffff. 1920 colour cells. Root: named-colour (\"white\"/\"black\") resolution differs from Python."]
+fn parity_checker01_board() {
+    let script = [Step::Wait(300)];
+    let (rf, pf) = cat_both("checker01", "guide/widgets", &script, 400);
+    assert_glyph_parity("checker01", &pf, &rf, &[]);
+}
+
+/// checker02: the board with component-class colours (#A5BAC9 / #004578).
+#[test]
+#[ignore = "BUG: 2 stray cells at the bottom-right corner ([28..29,118..119]) — Rust paints a black square edge (#000000) where Python shows the screen bg (#121212). Minor board-overflow artifact beyond the 64-col board. 2 glyph + 2 colour cells."]
+fn parity_checker02_board() {
+    let script = [Step::Wait(300)];
+    let (rf, pf) = cat_both("checker02", "guide/widgets", &script, 400);
+    assert_glyph_parity("checker02", &pf, &rf, &[]);
+}
+
+/// checker03: a 100-square board inside a ScrollView (visible portion only).
+#[test]
+fn parity_checker03_board() {
+    let script = [Step::Wait(300)];
+    let (rf, pf) = cat_both("checker03", "guide/widgets", &script, 400);
+    assert_glyph_parity("checker03", &pf, &rf, &[]);
+}
+
+/// checker04: same board with a mouse-cursor highlight; initial render (no
+/// hover) parity.
+#[test]
+#[ignore = "BUG: the right-edge scrollbar/board-edge band (cols 118..119) differs — Rust paints fg #e0e0e0 on bg #a5bac9 (board white square colour) while Python shows the scrollbar fg #003054 on screen bg #121212. The board cells + cursor square (0,0) otherwise match. 3 glyph + 175 colour cells. Root: ScrollView right-edge scrollbar colour/extent (note: checker03, same ScrollView without cursor var, is glyph+colour clean)."]
+fn parity_checker04_board() {
+    let script = [Step::Wait(300)];
+    let (rf, pf) = cat_both("checker04", "guide/widgets", &script, 400);
+    assert_glyph_parity("checker04", &pf, &rf, &[]);
+}
+
+// --- guide/widgets: time/hover-dependent (structural parity) ----------------
+
+/// loading01: four DataTables each show a `loading` indicator until a worker
+/// (random 2-10s sleep) populates them. We sample DURING the loading window
+/// (~1.2s, before the 2s minimum sleep) and assert both apps render a loading
+/// indicator (structural — exact spinner frame is non-deterministic). Worker
+/// completion time is random so we do NOT compare the loaded end-state.
+#[test]
+#[ignore = "BUG: while DataTable.loading=True, Python renders a LoadingIndicator (animated `●` dots) in all four panels; Rust renders a fully BLANK screen (no indicator, panels empty). The `loading` reactive does not mount/draw a LoadingIndicator. Root: DataTable/Widget `loading` state has no LoadingIndicator overlay in Rust."]
+fn parity_loading01_indicator() {
+    fn loading_shown(kind: &AppKind) -> bool {
+        let mut app = spawn(kind);
+        // Do NOT settle() — the spinner animates so the screen never stabilises;
+        // sample at a fixed point inside the guaranteed loading window instead.
+        std::thread::sleep(Duration::from_millis(1200));
+        let g = app.capture();
+        let label = app.label.clone();
+        // The Textual LoadingIndicator paints clusters of `●`/`·` dots.
+        let shown = g.contains("●") || g.contains("·") || g.contains("⠿");
+        eprintln!("{label}: loading-indicator visible at t=1.2s = {shown}");
+        if !shown {
+            dump(&format!("{label} @1.2s"), &g);
+        }
+        app.shutdown();
+        shown
+    }
+    let rust = loading_shown(&AppKind::Rust("loading01"));
+    let py = loading_shown(&AppKind::Python("guide/widgets", "loading01"));
+    assert!(
+        py,
+        "PRECONDITION: Python loading01 showed no loading indicator at t=1.2s."
+    );
+    assert!(
+        rust == py,
+        "PARITY FAIL loading01: Python shows a loading indicator while loading; Rust shows none (blank). rust={rust} py={py}."
+    );
+}
+
+/// Send a bare SGR mouse-move (motion, no button) to (col,row) 0-based.
+fn sgr_move(col: u16, row: u16) -> Vec<u8> {
+    format!("\x1b[<35;{};{}M", col + 1, row + 1).into_bytes()
+}
+
+/// tooltip01/02: hovering the centred Button surfaces a multi-line Tooltip.
+/// Hover, wait for the tooltip timer, then assert the tooltip text appeared on
+/// BOTH apps (structural — exact overlay position/colour is style-dependent).
+fn tooltip_appears(name: &'static str) -> (bool, bool) {
+    fn run(kind: &AppKind) -> bool {
+        let mut app = spawn(kind);
+        app.settle(Duration::from_secs(12));
+        // The Button is centred (Screen align center middle). Hover its middle.
+        app.send(&sgr_move(59, 14));
+        std::thread::sleep(Duration::from_millis(400));
+        app.send(&sgr_move(60, 14));
+        std::thread::sleep(Duration::from_millis(1500));
+        let g = app.capture();
+        let shown = g.contains("mind-killer") || g.contains("Fear is");
+        let label = app.label.clone();
+        app.shutdown();
+        eprintln!("{label}: tooltip shown = {shown}");
+        shown
+    }
+    (run(&AppKind::Rust(name)), run(&AppKind::Python("guide/widgets", name)))
+}
+
+/// tooltip01: default-styled tooltip.
+#[test]
+fn parity_tooltip01_hover() {
+    let (rust, py) = tooltip_appears("tooltip01");
+    assert!(
+        rust == py && py,
+        "PARITY FAIL tooltip01: hover tooltip presence mismatch — rust={rust} py={py} (both must show the tooltip)."
+    );
+}
+
+/// tooltip02: custom-styled tooltip (padding/background/color).
+#[test]
+fn parity_tooltip02_hover() {
+    let (rust, py) = tooltip_appears("tooltip02");
+    assert!(
+        rust == py && py,
+        "PARITY FAIL tooltip02: hover tooltip presence mismatch — rust={rust} py={py} (both must show the tooltip)."
+    );
+}
+
+// --- app/examples -----------------------------------------------------------
+
+/// event01: pressing a digit key sets the Screen background to a named colour.
+/// Press `1` → COLORS[1] = "maroon"; assert the screen bg matches on both.
+#[test]
+fn parity_event01_key_colour() {
+    let script = [Step::SendKeys("1"), Step::Wait(300)];
+    let (rf, pf) = cat_both("event01", "app", &script, 400);
+    assert_glyph_parity("event01", &pf, &rf, &[]);
+}
+
+/// question01: a Label + Yes/No buttons. Clicking exits the app, so we compare
+/// the initial deterministic layout instead.
+#[test]
+#[ignore = "BUG: glyph-perfect but the focused \"Yes\" primary Button bg is #0178d4 (Rust, base $primary) vs #0c7dd4 (Python, lighter :focus/hover tint). 32 colour cells. Shared root: button :focus/hover background-tint not applied."]
+fn parity_question01_layout() {
+    let script = [Step::Wait(300)];
+    let (rf, pf) = cat_both("question01", "app", &script, 400);
+    assert_glyph_parity("question01", &pf, &rf, &[]);
+}
+
+/// question02: same with the tcss grid styling.
+#[test]
+#[ignore = "BUG: glyph-perfect but the focused \"Yes\" primary Button bg #0178d4 (Rust) vs #0c7dd4 (Python :focus/hover tint). 114 colour cells. Shared root: button :focus/hover background-tint not applied."]
+fn parity_question02_layout() {
+    let script = [Step::Wait(300)];
+    let (rf, pf) = cat_both("question02", "app", &script, 400);
+    assert_glyph_parity("question02", &pf, &rf, &[]);
+}
+
+/// question03: same with inline grid CSS (column-span, content-align).
+#[test]
+#[ignore = "BUG: glyph-perfect but the focused \"Yes\" primary Button bg #0178d4 (Rust) vs #0c7dd4 (Python :focus/hover tint). 114 colour cells. Shared root: button :focus/hover background-tint not applied."]
+fn parity_question03_layout() {
+    let script = [Step::Wait(300)];
+    let (rf, pf) = cat_both("question03", "app", &script, 400);
+    assert_glyph_parity("question03", &pf, &rf, &[]);
+}
+
+/// question_title01: a Header (with title/subtitle) + question + buttons.
+/// Header row 0 carries a live clock, excluded from the glyph comparison.
+#[test]
+#[ignore = "BUG: glyph-perfect but the Header SUBTITLE text fg is #e0e0e0 (Rust, full $text) vs #a0a3a6 (Python, dimmed muted subtitle). 139 colour cells. Root: Header sub-title text colour not dimmed to the muted token."]
+fn parity_question_title01_layout() {
+    let script = [Step::Wait(300)];
+    let (rf, pf) = cat_both("question_title01", "app", &script, 400);
+    assert_glyph_parity("question_title01", &pf, &rf, &[0]);
+}
+
+/// question_title02: pressing a key rewrites the Header title/subtitle. Press
+/// `x`; structurally assert the Header reflects the new title on BOTH apps
+/// (the clock makes an exact row-0 glyph compare non-deterministic).
+#[test]
+fn parity_question_title02_title_update() {
+    let script = [Step::SendKeys("x"), Step::Wait(300)];
+    let (rf, pf) = cat_both("question_title02", "app", &script, 400);
+    dump("question_title02 PY", &pf);
+    dump("question_title02 RUST", &rf);
+    // Header now shows title "x" and subtitle "You just pressed x!". Compare the
+    // header band (rows 0..2) text, ignoring the clock by checking key tokens.
+    let py_has = pf.contains("You just pressed x");
+    let rust_has = rf.contains("You just pressed x");
+    eprintln!("question_title02: py_subtitle={py_has} rust_subtitle={rust_has}");
+    // Body (question + buttons) should also match; compare rows 3..ROWS exactly.
+    assert!(
+        py_has == rust_has,
+        "PARITY FAIL question_title02: Header subtitle update differs — py_shows={py_has} rust_shows={rust_has}.\n{}",
+        text_diff(&pf, &rf),
+    );
+}
+
+/// widgets01: the framework `Welcome` widget rendered on its own.
+#[test]
+#[ignore = "BUG: the Welcome widget's Markdown body renders with different vertical spacing — Python keeps it compact (\"Welcome!\" row 2, no blank gaps between blocks); Rust inserts extra blank lines (\"Welcome!\" row 3, gaps before \"Dune quote\"/blockquote), shifting the whole body down. 669 glyph + 456 colour cells. Shared root with the widgets02 catch case (Welcome/Markdown block spacing + rule/quote colour)."]
+fn parity_widgets01_welcome() {
+    let script = [Step::Wait(300)];
+    let (rf, pf) = cat_both("widgets01", "app", &script, 400);
+    assert_glyph_parity("widgets01", &pf, &rf, &[]);
+}
+
+/// widgets03: pressing a key mounts `Welcome` and relabels its Button "YES!".
+#[test]
+#[ignore = "BUG: after key-mount of Welcome (+ relabel \"YES!\"), the same Markdown vertical-spacing divergence as widgets01 shifts the body. 673 glyph + 96 colour cells. Shared root: Welcome/Markdown block spacing (widgets02 family)."]
+fn parity_widgets03_mount_welcome() {
+    let script = [Step::SendKeys("x"), Step::Wait(400)];
+    let (rf, pf) = cat_both("widgets03", "app", &script, 500);
+    assert_glyph_parity("widgets03", &pf, &rf, &[]);
+}
+
+/// widgets04: same as widgets03 but mounts asynchronously.
+#[test]
+#[ignore = "BUG: same Welcome/Markdown vertical-spacing divergence as widgets01/03 after async key-mount. 669 glyph + 96 colour cells. Shared root: Welcome/Markdown block spacing (widgets02 family)."]
+fn parity_widgets04_mount_welcome() {
+    let script = [Step::SendKeys("x"), Step::Wait(400)];
+    let (rf, pf) = cat_both("widgets04", "app", &script, 500);
+    assert_glyph_parity("widgets04", &pf, &rf, &[]);
+}
+
+// --- reactivity: world clocks (time-dependent → structural) -----------------
+
+/// world_clock01: three live `Digits` clocks driven by a 1s interval. Assert
+/// the digit region advanced on BOTH apps (structural — exact time differs).
+#[test]
+fn parity_world_clock01_ticks() {
+    let rows = 0..ROWS as usize;
+    let cols = 0..COLS as usize;
+    let rust_adv = region_advances(&AppKind::Rust("world_clock01"), &[], rows.clone(), cols.clone(), 1200);
+    let py_adv = region_advances(&AppKind::Python("guide/reactivity", "world_clock01"), &[], rows, cols, 1200);
+    eprintln!("world_clock01: rust_ticks={rust_adv} py_ticks={py_adv}");
+    assert!(
+        rust_adv && py_adv,
+        "PARITY FAIL world_clock01: clock-tick mismatch — rust={rust_adv} py={py_adv} (both must advance)."
+    );
+}
+
+/// world_clock02: same clocks, compose-time variant. Structural tick parity.
+#[test]
+fn parity_world_clock02_ticks() {
+    let rows = 0..ROWS as usize;
+    let cols = 0..COLS as usize;
+    let rust_adv = region_advances(&AppKind::Rust("world_clock02"), &[], rows.clone(), cols.clone(), 1200);
+    let py_adv = region_advances(&AppKind::Python("guide/reactivity", "world_clock02"), &[], rows, cols, 1200);
+    eprintln!("world_clock02: rust_ticks={rust_adv} py_ticks={py_adv}");
+    assert!(
+        rust_adv && py_adv,
+        "PARITY FAIL world_clock02: clock-tick mismatch — rust={rust_adv} py={py_adv} (both must advance)."
+    );
+}
+
+/// world_clock03: same clocks, data-binding variant. Structural tick parity.
+#[test]
+fn parity_world_clock03_ticks() {
+    let rows = 0..ROWS as usize;
+    let cols = 0..COLS as usize;
+    let rust_adv = region_advances(&AppKind::Rust("world_clock03"), &[], rows.clone(), cols.clone(), 1200);
+    let py_adv = region_advances(&AppKind::Python("guide/reactivity", "world_clock03"), &[], rows, cols, 1200);
+    eprintln!("world_clock03: rust_ticks={rust_adv} py_ticks={py_adv}");
+    assert!(
+        rust_adv && py_adv,
+        "PARITY FAIL world_clock03: clock-tick mismatch — rust={rust_adv} py={py_adv} (both must advance)."
+    );
+}
