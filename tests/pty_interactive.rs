@@ -1993,3 +1993,361 @@ fn parity_world_clock03_ticks() {
         "PARITY FAIL world_clock03: clock-tick mismatch — rust={rust_adv} py={py_adv} (both must advance)."
     );
 }
+
+// ===========================================================================
+// WAVE 3 — guide/input, guide/actions, guide/screens, guide/command_palette,
+// events. Each case drives the demo's representative interaction on BOTH the
+// real Rust example binary and the real Python app, then asserts parity (glyph
+// exact where deterministic, structural where not). BUGs are committed
+// `#[ignore = "BUG: <diff>"]` with the concrete divergence.
+// ===========================================================================
+
+// --- guide/input ------------------------------------------------------------
+
+/// key01: a single RichLog that writes every Key event. Type "ab"; the log
+/// renders the two Key event objects. Exact glyph+colour parity.
+#[test]
+#[ignore = "BUG: glyph-perfect (`Key(key='a', character='a', name='a', is_printable=True)` on both) but the RichLog repr-syntax-highlight colours differ — py fg #f4005f/#fd971f/#98e024 (Rich repr theme) vs rust #b73763/#f5a623/#98d168. 148 colour cells. Root: rich-rs repr highlighter colour palette differs from Python Rich."]
+fn parity_input_key01_log() {
+    let script = [Step::SendKeys("ab"), Step::Wait(300)];
+    let (rf, pf) = cat_both("key01", "guide/input", &script, 400);
+    assert_glyph_parity("key01", &pf, &rf, &[]);
+}
+
+/// key02: same as key01 plus a `key_space` bell handler (bell is inaudible in
+/// the grid). Type "a"; the log renders one Key event. Exact parity.
+#[test]
+#[ignore = "BUG: glyph-perfect but same RichLog repr-highlight colour divergence as key01 (py #f4005f/#fd971f/#98e024 vs rust #b73763/#f5a623/#98d168). 104 colour cells. Root: rich-rs repr highlighter palette differs from Python Rich."]
+fn parity_input_key02_log() {
+    let script = [Step::SendKeys("a"), Step::Wait(300)];
+    let (rf, pf) = cat_both("key02", "guide/input", &script, 400);
+    assert_glyph_parity("key02", &pf, &rf, &[]);
+}
+
+/// key03: four KeyLogger RichLogs in a CSS grid; only the focused one logs.
+/// Type "a"; compare the whole grid (which pane logged + its content).
+#[test]
+#[ignore = "BUG: the custom KeyLogger writes the Rust Debug form `Key(key=\"a\", character=Some('a'), is_printable=true)` while Python writes the event repr `Key(key='a', character='a', name='a', is_printable=True)` (34 glyph cells) + the same repr-highlight colour divergence as key01. Root: KeyLogger event formatting (Rust Debug vs Python repr; note key01/02's single RichLog DOES match text — only the subclassed logger diverges)."]
+fn parity_input_key03_grid() {
+    let script = [Step::SendKeys("a"), Step::Wait(300)];
+    let (rf, pf) = cat_both("key03", "guide/input", &script, 400);
+    assert_glyph_parity("key03", &pf, &rf, &[]);
+}
+
+/// binding01: Footer with r/g/b bindings; each press mounts a coloured Bar with
+/// a 50%-alpha background. Press r, g, b; compare the three stacked bars + the
+/// Footer.
+#[test]
+#[ignore = "BUG: the bars are coloured + the Footer matches, but the per-Bar top margin (`margin: 1 2`, height 5) is not applied — Rust packs the stacked Bars one row higher than Python (red at row2 vs row3, etc.). 24 glyph cells. Root: vertical (top) margin on stacked mounted widgets not honoured."]
+fn parity_input_binding01_bars() {
+    let script = [
+        Step::SendKeys("r"),
+        Step::Wait(200),
+        Step::SendKeys("g"),
+        Step::Wait(200),
+        Step::SendKeys("b"),
+        Step::Wait(300),
+    ];
+    let (rf, pf) = cat_both("binding01", "guide/input", &script, 400);
+    assert_glyph_parity("binding01", &pf, &rf, &[]);
+}
+
+/// mouse01: a Ball that follows the mouse; a RichLog records every MouseMove
+/// (non-deterministic count/content). STRUCTURAL: move the mouse and assert the
+/// "Textual" ball is rendered and the log became non-empty on BOTH apps.
+#[test]
+#[ignore = "BUG: after mouse moves Python renders the RichLog full of MouseMove events + the moved `Textual` Ball; Rust renders a fully BLANK screen (no log, Ball never appears). Root: App-level `on_mouse_move` does not drive updates — the handler's RichLog.write + Ball.offset are never reflected (mouse-move not reaching the app handler / Ball offset not applied)."]
+fn parity_input_mouse01_ball() {
+    fn run(kind: &AppKind) -> (bool, bool) {
+        let mut app = spawn(kind);
+        app.settle(Duration::from_secs(12));
+        app.send(&sgr_move(40, 12));
+        std::thread::sleep(Duration::from_millis(200));
+        app.send(&sgr_move(60, 18));
+        std::thread::sleep(Duration::from_millis(400));
+        let g = app.capture();
+        let ball = g.contains("Textual");
+        let log = g.contains("MouseMove") || g.contains("Mouse");
+        app.shutdown();
+        (ball, log)
+    }
+    let (rb, rl) = run(&AppKind::Rust("mouse01"));
+    let (pb, pl) = run(&AppKind::Python("guide/input", "mouse01"));
+    eprintln!("mouse01: rust(ball={rb},log={rl}) py(ball={pb},log={pl})");
+    assert!(rb && pb, "mouse01: Ball missing — rust={rb} py={pb}");
+    assert!(rl && pl, "mouse01: MouseMove log empty — rust={rl} py={pl}");
+}
+
+// --- guide/actions ----------------------------------------------------------
+
+/// actions01: pressing `r` sets the screen background to "red" via an action.
+/// Compare the resulting (mostly-empty) screen's bg colour.
+#[test]
+fn parity_actions01_red_bg() {
+    let script = [Step::SendKeys("r"), Step::Wait(300)];
+    let (rf, pf) = cat_both("actions01", "guide/actions", &script, 400);
+    assert_glyph_parity("actions01", &pf, &rf, &[]);
+}
+
+/// actions02: same as actions01 but the action runs via `run_action`.
+#[test]
+fn parity_actions02_red_bg() {
+    let script = [Step::SendKeys("r"), Step::Wait(300)];
+    let (rf, pf) = cat_both("actions02", "guide/actions", &script, 400);
+    assert_glyph_parity("actions02", &pf, &rf, &[]);
+}
+
+/// actions03: a Static with `@click` markup links (Red/Green/Blue). Click the
+/// "Red" link; the screen bg turns red.
+#[test]
+#[ignore = "BUG: the Static's multi-line markup TEXT begins with a newline; Python renders that leading blank line (content starts row1) while Rust drops it (content starts row0), shifting the whole Static up one row. 46 glyph cells. Root: leading empty line of multi-line Static/markup content not rendered (vertical shift)."]
+fn parity_actions03_click_red() {
+    let script = [Step::Click(0, 2), Step::Wait(300)];
+    let (rf, pf) = cat_both("actions03", "guide/actions", &script, 400);
+    assert_glyph_parity("actions03", &pf, &rf, &[]);
+}
+
+/// actions04: same markup links plus r/g/b key bindings. Press `r`.
+#[test]
+#[ignore = "BUG: same leading-empty-line shift as actions03 — the Static's content starts row0 in Rust vs row1 in Python. 46 glyph cells. Root: leading empty line of multi-line Static content not rendered."]
+fn parity_actions04_red_bg() {
+    let script = [Step::SendKeys("r"), Step::Wait(300)];
+    let (rf, pf) = cat_both("actions04", "guide/actions", &script, 400);
+    assert_glyph_parity("actions04", &pf, &rf, &[]);
+}
+
+/// actions05: two ColorSwitcher widgets + r/g/b app bindings. Press `r` (sets
+/// the screen bg red behind both switchers).
+#[test]
+#[ignore = "BUG: same leading-empty-line shift as actions03/04 across both ColorSwitcher Statics. 138 glyph cells. Root: leading empty line of multi-line Static content not rendered."]
+fn parity_actions05_red_bg() {
+    let script = [Step::SendKeys("r"), Step::Wait(300)];
+    let (rf, pf) = cat_both("actions05", "guide/actions", &script, 400);
+    assert_glyph_parity("actions05", &pf, &rf, &[]);
+}
+
+/// actions06: five Placeholder pages in a HorizontalScroll + Footer; `n`
+/// advances. Press `n` twice; the third page scrolls into view and the Footer
+/// reflects available bindings.
+#[test]
+#[ignore = "BUG: the page scroll works but the Placeholder's `Page N` label is not rendered by Rust (5 glyph cells blank where Python shows \"Page 2\") and the Placeholder colour palette diverges (3475 colour cells). Root: Placeholder widget label rendering + per-index colour palette parity."]
+fn parity_actions06_next_page() {
+    let script = [
+        Step::SendKeys("n"),
+        Step::Wait(300),
+        Step::SendKeys("n"),
+        Step::Wait(400),
+    ];
+    let (rf, pf) = cat_both("actions06", "guide/actions", &script, 500);
+    assert_glyph_parity("actions06", &pf, &rf, &[]);
+}
+
+/// actions07: same pages, bindings=True reactive (disabled bindings dim in the
+/// Footer rather than disappearing). Press `n` once.
+#[test]
+#[ignore = "BUG: same Placeholder divergence as actions06 — `Page 1` label missing (5 glyph) + Placeholder colour palette differs (3475 colour). Root: Placeholder widget label + colour palette parity."]
+fn parity_actions07_next_page() {
+    let script = [Step::SendKeys("n"), Step::Wait(400)];
+    let (rf, pf) = cat_both("actions07", "guide/actions", &script, 500);
+    assert_glyph_parity("actions07", &pf, &rf, &[]);
+}
+
+// --- guide/screens ----------------------------------------------------------
+
+/// modal01: Header + long Label + Footer; `q` pushes a (non-modal) QuitScreen
+/// with a dialog Grid. Press `q`; compare the dialog (Header clock row skipped).
+#[test]
+#[ignore = "BUG: glyph-perfect dialog but the focused error `Quit` Button bg is #b93c5b (Rust, base $error) vs #ba4461 (Python, lighter :focus/hover tint). 54 colour cells. Shared root: button :focus/hover background-tint not applied."]
+fn parity_screens_modal01_dialog() {
+    let script = [Step::SendKeys("q"), Step::Wait(400)];
+    let (rf, pf) = cat_both("modal01", "guide/screens", &script, 500);
+    assert_glyph_parity("modal01", &pf, &rf, &[0]);
+}
+
+/// modal02: same dialog but via ModalScreen (transparent overlay dimming the
+/// text behind). Press `q`.
+#[test]
+#[ignore = "BUG: same focused error `Quit` Button :focus/hover tint divergence as modal01 (#b93c5b vs #ba4461). 54 colour cells. Shared root: button :focus/hover background-tint not applied."]
+fn parity_screens_modal02_dialog() {
+    let script = [Step::SendKeys("q"), Step::Wait(400)];
+    let (rf, pf) = cat_both("modal02", "guide/screens", &script, 500);
+    assert_glyph_parity("modal02", &pf, &rf, &[0]);
+}
+
+/// modal03: ModalScreen[bool] with dismiss + callback. Press `q`; compare the
+/// dialog.
+#[test]
+#[ignore = "BUG: same focused error `Quit` Button :focus/hover tint divergence as modal01/02 (#b93c5b vs #ba4461). 54 colour cells. Shared root: button :focus/hover background-tint not applied."]
+fn parity_screens_modal03_dialog() {
+    let script = [Step::SendKeys("q"), Step::Wait(400)];
+    let (rf, pf) = cat_both("modal03", "guide/screens", &script, 500);
+    assert_glyph_parity("modal03", &pf, &rf, &[0]);
+}
+
+/// modes01: MODES with a Dashboard screen switched in on mount; each screen is a
+/// Placeholder + Footer. Compare the initial dashboard (user flagged the Footer
+/// as MISSING — this verifies it).
+#[test]
+#[ignore = "BUG (user-flagged, CONFIRMED): the Footer is MISSING the app's switch_mode bindings — Python shows ` d Dashboard  s Settings  h Help ... ^p palette`; Rust's Footer shows only `^p palette` (the d/s/h binding hints are absent). 24 glyph cells. Root: App BINDINGS not surfaced in the Footer when running under MODES/switch_mode screens."]
+fn parity_screens_modes01_dashboard() {
+    let script = [Step::Wait(400)];
+    let (rf, pf) = cat_both("modes01", "guide/screens", &script, 500);
+    assert_glyph_parity("modes01", &pf, &rf, &[]);
+}
+
+/// questions01: a worker pushes a QuestionScreen (Label + Yes/No buttons) via
+/// push_screen_wait on mount. Compare the initial question screen.
+#[test]
+#[ignore = "BUG: Rust renders a fully BLANK screen — the QuestionScreen (pushed from `@work async def on_mount` via `push_screen_wait`) never appears; Python shows the `Do you like Textual?` Label + Yes/No buttons. 246 glyph cells. Root: worker-driven `push_screen_wait` / `@work`-decorated `on_mount` screen push not supported."]
+fn parity_screens_questions01_dialog() {
+    let script = [Step::Wait(500)];
+    let (rf, pf) = cat_both("questions01", "guide/screens", &script, 600);
+    assert_glyph_parity("questions01", &pf, &rf, &[]);
+}
+
+/// screen01: SCREENS dict + `b` pushes a BSOD screen (blue bg, title bar).
+/// Press `b`; compare the BSOD screen.
+#[test]
+fn parity_screens_screen01_bsod() {
+    let script = [Step::SendKeys("b"), Step::Wait(400)];
+    let (rf, pf) = cat_both("screen01", "guide/screens", &script, 500);
+    assert_glyph_parity("screen01", &pf, &rf, &[]);
+}
+
+/// screen02: install_screen variant; `b` pushes the same BSOD screen.
+#[test]
+fn parity_screens_screen02_bsod() {
+    let script = [Step::SendKeys("b"), Step::Wait(400)];
+    let (rf, pf) = cat_both("screen02", "guide/screens", &script, 500);
+    assert_glyph_parity("screen02", &pf, &rf, &[]);
+}
+
+// --- guide/command_palette --------------------------------------------------
+
+/// command01: a custom "Bell" SystemCommand. Open the command palette (ctrl+p)
+/// and type "bell"; the palette should list the Bell command. STRUCTURAL: the
+/// palette overlay + "Bell" entry appear on BOTH apps.
+#[test]
+#[ignore = "BLOCKED/BUG: the Python reference CRASHES when the command palette opens in this venv — `AttributeError: 'Style' object has no attribute 'clear_meta_and_links'` (textual BackgroundScreen renderable vs rich 15.0.0 in /tmp/textual-venv), so it renders a Rich traceback instead of the palette. Rust renders a blank/empty palette (no `Bell` hit visible). Parity comparison is blocked by the Python-side crash; test asserts both sides show the `Bell` command without a traceback (currently fails on the Python crash)."]
+fn parity_command01_palette_bell() {
+    // Returns (palette_without_traceback, bell_listed).
+    fn run(kind: &AppKind) -> (bool, bool) {
+        let mut app = spawn(kind);
+        app.settle(Duration::from_secs(12));
+        app.send(b"\x10"); // ctrl+p
+        std::thread::sleep(Duration::from_millis(500));
+        app.send(b"bell");
+        std::thread::sleep(Duration::from_millis(600));
+        let g = app.capture();
+        let crashed = g.contains("Traceback") || g.contains("AttributeError");
+        // "Bell" (capitalised) is the command entry; the typed query is "bell".
+        let bell_entry = g.contains("Bell") && g.contains("Ring the bell");
+        app.shutdown();
+        (!crashed, bell_entry)
+    }
+    let (rok, rb) = run(&AppKind::Rust("command01"));
+    let (pok, pb) = run(&AppKind::Python("guide/command_palette", "command01"));
+    eprintln!("command01: rust(no_crash={rok},bell_entry={rb}) py(no_crash={pok},bell_entry={pb})");
+    assert!(pok, "command01: Python command palette crashed (rich clear_meta_and_links)");
+    assert!(rok, "command01: Rust command palette traceback");
+    assert!(pb && rb, "command01: both must list the Bell command — rust={rb} py={pb}");
+}
+
+/// command02: a Provider listing the *.py files in the cwd. Open the palette and
+/// type "open". STRUCTURAL: the palette opens and shows file hits on BOTH (the
+/// exact file list depends on the cwd glob, so structural only).
+#[test]
+#[ignore = "BLOCKED/BUG: same command-palette crash as command01 — the Python reference raises `AttributeError: 'Style' object has no attribute 'clear_meta_and_links'` on palette open in this venv (rich 15.0.0) and shows a traceback instead of the file-search palette. Parity blocked by the Python-side crash; test asserts neither side shows a traceback (currently fails on the Python crash)."]
+fn parity_command02_palette_open() {
+    fn run(kind: &AppKind) -> bool {
+        let mut app = spawn(kind);
+        app.settle(Duration::from_secs(12));
+        app.send(b"\x10"); // ctrl+p
+        std::thread::sleep(Duration::from_millis(500));
+        app.send(b"open");
+        std::thread::sleep(Duration::from_millis(700));
+        let g = app.capture();
+        let crashed = g.contains("Traceback") || g.contains("AttributeError");
+        app.shutdown();
+        !crashed
+    }
+    let rok = run(&AppKind::Rust("command02"));
+    let pok = run(&AppKind::Python("guide/command_palette", "command02"));
+    eprintln!("command02: rust_no_crash={rok} py_no_crash={pok}");
+    assert!(pok && rok, "command02 palette must open without a traceback — rust={rok} py={pok}");
+}
+
+// --- events -----------------------------------------------------------------
+
+/// custom01: four ColorButtons (transparent white bg, coloured border, render
+/// the colour hex). Click the first (#008080); the screen bg animates to that
+/// colour over 0.5s. Wait past the animation and compare the settled screen.
+#[test]
+#[ignore = "BUG: two divergences — (a) `ColorButton.render()` returns the hex `#008080` while Python returns `Color(0, 128, 128)` (str(Color)); (b) the bordered ColorButton gains extra vertical padding in Rust (content not flush under the border: ~5 rows vs Python's 3), shifting every button down. 1004 glyph cells. Root: render() string format + bordered widget auto-height/content padding."]
+fn parity_events_custom01_select() {
+    let script = [Step::Click(6, 2), Step::Wait(900)];
+    let (rf, pf) = cat_both("custom01", "events", &script, 600);
+    assert_glyph_parity("custom01", &pf, &rf, &[]);
+}
+
+/// dictionary: an Input + as-you-type lookup. Python queries a real dictionary
+/// API; the Rust port fabricates a response, so the RESULTS region diverges by
+/// design. STRUCTURAL: type a word and assert the Input shows the typed text on
+/// BOTH apps and each populates its results region.
+#[test]
+fn parity_events_dictionary_input() {
+    fn run(kind: &AppKind) -> (bool, bool) {
+        let mut app = spawn(kind);
+        app.settle(Duration::from_secs(12));
+        app.send(b"hello");
+        std::thread::sleep(Duration::from_millis(1500));
+        let g = app.capture();
+        let typed = g.contains("hello");
+        // results region is rows below the docked input; non-empty if any
+        // non-blank text appears below row 2 other than the input itself.
+        let results = (3..ROWS as usize)
+            .any(|r| !g.row_text(r).trim().is_empty());
+        app.shutdown();
+        (typed, results)
+    }
+    let (rt, rr) = run(&AppKind::Rust("dictionary"));
+    let (pt, pr) = run(&AppKind::Python("events", "dictionary"));
+    eprintln!("dictionary: rust(typed={rt},results={rr}) py(typed={pt},results={pr})");
+    assert!(rt && pt, "dictionary: typed text missing — rust={rt} py={pt}");
+    assert!(rr && pr, "dictionary: results region empty — rust={rr} py={pr}");
+}
+
+/// on_decorator01: three Buttons; `on_button_pressed` dispatches by id/class.
+/// Click "Toggle dark" (switches theme). Compare the post-toggle screen.
+#[test]
+#[ignore = "BUG: glyph-perfect (theme toggle + all three Buttons identical) but the focused `Bell` Button surface bg is #1e1e1e (Rust) vs #272727 (Python applies the :focus background-tint). 32 colour cells. Shared root: :focus/hover background-tint not applied."]
+fn parity_events_on_decorator01_toggle() {
+    let script = [Step::Click(20, 2), Step::Wait(400)];
+    let (rf, pf) = cat_both("on_decorator01", "events", &script, 500);
+    assert_glyph_parity("on_decorator01", &pf, &rf, &[]);
+}
+
+/// on_decorator02: same three Buttons via `@on` handlers. Click "Toggle dark".
+#[test]
+#[ignore = "BUG: same focused-Button :focus background-tint divergence as on_decorator01 (#1e1e1e vs #272727). 32 colour cells. Shared root: :focus/hover background-tint not applied."]
+fn parity_events_on_decorator02_toggle() {
+    let script = [Step::Click(20, 2), Step::Wait(400)];
+    let (rf, pf) = cat_both("on_decorator02", "events", &script, 500);
+    assert_glyph_parity("on_decorator02", &pf, &rf, &[]);
+}
+
+/// prevent: an Input + Clear button; typing rings a bell, clicking Clear empties
+/// the Input *without* re-firing Input.Changed. Type "abc", then click Clear;
+/// compare the cleared Input.
+#[test]
+#[ignore = "BUG: the Input is correctly cleared (prevent works, glyph-perfect) but after clicking Clear (focus moves to the Button) Python shows the now-blurred Input's grey border #191919 while Rust keeps the Input's focused-blue border #0178d4. 408 colour cells. Root: Input border colour not updated on blur when focus moves to the Button."]
+fn parity_events_prevent_clear() {
+    let script = [
+        Step::SendKeys("abc"),
+        Step::Wait(300),
+        Step::Click(4, 3),
+        Step::Wait(300),
+    ];
+    let (rf, pf) = cat_both("prevent", "events", &script, 400);
+    assert_glyph_parity("prevent", &pf, &rf, &[]);
+}
