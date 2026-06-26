@@ -2351,3 +2351,227 @@ fn parity_events_prevent_clear() {
     let (rf, pf) = cat_both("prevent", "events", &script, 400);
     assert_glyph_parity("prevent", &pf, &rf, &[]);
 }
+
+// ===========================================================================
+// WAVE 4 — workers / animator / compound / how-to INTERACTIVE PARITY
+//
+// Categories whose Python sources pull live network data (workers) or animate on
+// a wall clock (animator/how-to render_compose, inline clocks) are NON-
+// deterministic by construction. For those we assert STRUCTURAL parity (both
+// apps echo the same input, neither leaks internal event text, both populate the
+// same regions / produce the same kind of output). Where a demo IS deterministic
+// (compound byte editors, compound01) we assert glyph+colour parity exactly.
+// ===========================================================================
+
+// --- workers (weather02..05) ------------------------------------------------
+//
+// The Rust weather ports are built WITHOUT the `http-examples` feature, so they
+// render FABRICATED weather; Python fetches REAL data from wttr.in. The weather
+// CONTENT therefore diverges by design. The deterministic, parity-relevant axes
+// are: (a) the docked Input echoes the typed city on BOTH apps, and (b) neither
+// app leaks an internal `WorkerStateChanged` message onto the visible screen.
+
+/// Probe a workers/weather app: type a city, wait, and report
+/// (input echoed the city, internal event text leaked, weather region non-empty).
+fn weather_probe(kind: &AppKind, city: &str, wait_ms: u64) -> (bool, bool, bool) {
+    let mut app = spawn(kind);
+    app.settle(Duration::from_secs(12));
+    app.send(city.as_bytes());
+    std::thread::sleep(Duration::from_millis(wait_ms));
+    let g = app.capture();
+    let echo = g.contains(city);
+    let leak = g.contains("WorkerStateChanged") || g.contains("StateChanged");
+    // Anything rendered below the docked Input (rows >= 3) counts as a populated
+    // weather region.
+    let weather = (3..ROWS as usize).any(|r| !g.row_text(r).trim().is_empty());
+    let label = app.label.clone();
+    app.shutdown();
+    eprintln!("  {label}: echo={echo} leak={leak} weather_region_nonempty={weather}");
+    (echo, leak, weather)
+}
+
+fn weather_parity(stem: &'static str, city: &str) {
+    let (re, rl, rw) = weather_probe(&AppKind::Rust(stem), city, 3000);
+    let (pe, pl, pw) = weather_probe(&AppKind::Python("guide/workers", stem), city, 3000);
+    eprintln!(
+        "{stem}: rust(echo={re},leak={rl},weather={rw}) py(echo={pe},leak={pl},weather={pw})"
+    );
+    assert!(
+        pe && re,
+        "{stem}: typed city did not echo on both apps (py_echo={pe}, rust_echo={re}); \
+         input did not reach the apps."
+    );
+    assert!(
+        !pl,
+        "{stem}: PYTHON leaked internal event text onto the screen — harness misread."
+    );
+    assert!(
+        !rl,
+        "{stem}: RUST leaked internal `WorkerStateChanged` text onto the visible screen \
+         (Python does not)."
+    );
+}
+
+#[test]
+fn parity_workers_weather02() {
+    weather_parity("weather02", "Tokyo");
+}
+
+#[test]
+fn parity_workers_weather03() {
+    weather_parity("weather03", "Tokyo");
+}
+
+#[test]
+fn parity_workers_weather04() {
+    weather_parity("weather04", "Tokyo");
+}
+
+#[test]
+#[ignore = "BUG: Rust leaks the internal `WorkerStateChanged` message onto the visible \
+            screen — weather05/main.rs logs it via `eprintln!(\"[weather05] WorkerStateChanged: \
+            ...\")`, which writes to the PTY and corrupts the frame; Python's `self.log(event)` \
+            routes to the devtools log, never the screen. Structural axis: rust leak=true, \
+            py leak=false. Root: worker-state logging must use a non-screen log sink, not eprintln."]
+fn parity_workers_weather05() {
+    weather_parity("weather05", "Tokyo");
+}
+
+// --- animator (animation01) -------------------------------------------------
+
+/// animator/animation01: a red "Hello, World!" box fades to opacity 0 over 2s.
+/// After the fade completes the box is fully transparent (shows the screen
+/// background) on Python. Parity: the settled (faded) screen should match.
+#[test]
+#[ignore = "BUG: no fade in the real (run_sync) app. After the 2s opacity animation the Python \
+            box has faded fully to the screen background (bg #121212); Rust still paints the box \
+            solid red (bg #ff0000) — the opacity animation never runs/composites in the live event \
+            loop (glyphs match, 360 colour cells differ). NB the headless Pilot liveness test in \
+            animation01/main.rs passes, so the gap is live-loop animation driving / opacity \
+            compositing in run_sync, not the animator math. Root: on-mount `animate_style` opacity \
+            not applied in the live render path."]
+fn parity_animator_animation01() {
+    let script = [Step::Wait(2600)];
+    let (rf, pf) = cat_both("animation01", "guide/animator", &script, 200);
+    assert_glyph_parity("animation01", &pf, &rf, &[]);
+}
+
+// --- compound (byte01/02/03, compound01) ------------------------------------
+
+/// compound/byte01: 8 BitSwitches + an Input (not wired). Tab from the Input to
+/// the first Switch and toggle it with Space; compare the rendered grid.
+#[test]
+#[ignore = "BUG: `:focus-within` heavy border ABSENT in Rust. After Tab+Space (a Switch is \
+            focused) Python draws the `ByteInput:focus-within { border: heavy $secondary }` frame \
+            (┏━━┓…┗━━┛) around the 8 switches; Rust draws no border at all, so the switch row band \
+            shifts 1 column and rows 19/24 diverge entirely (176 glyph cells). Secondary: Rust \
+            shows the Input placeholder `byte` while Python renders it blank in this state; Switch \
+            indicator slot bg is #ffffff (Rust) vs #1b1b1b (Python). Root: `:focus-within` \
+            pseudo-class not matched/applied + Switch white-slot indicator."]
+fn parity_compound_byte01() {
+    let script = [Step::Key(Key::Tab), Step::Key(Key::Space), Step::Wait(300)];
+    let (rf, pf) = cat_both("byte01", "guide/compound", &script, 400);
+    assert_glyph_parity("byte01", &pf, &rf, &[]);
+}
+
+/// compound/byte02: toggling a Switch posts BitChanged up to ByteEditor, which
+/// writes the integer value into the Input. Tab to the first (bit 7) Switch and
+/// toggle it; the Input should read "128" on both.
+#[test]
+#[ignore = "BUG: same `:focus-within` heavy-border gap as byte01 — after Tab+Space (Switch \
+            focused) Python frames the ByteInput with `border: heavy $secondary`; Rust draws no \
+            border (175 glyph cells, switch band shifts 1 col). Plus Switch indicator slot bg \
+            #ffffff (Rust) vs #1b1b1b (Python). Root: `:focus-within` pseudo not applied + Switch \
+            white-slot indicator."]
+fn parity_compound_byte02() {
+    let script = [Step::Key(Key::Tab), Step::Key(Key::Space), Step::Wait(400)];
+    let (rf, pf) = cat_both("byte02", "guide/compound", &script, 400);
+    assert_glyph_parity("byte02", &pf, &rf, &[]);
+}
+
+/// compound/byte03: bidirectional — typing a number into the Input updates the
+/// ByteEditor.value reactive, whose watcher flips the Switches. Type "5" → bits
+/// 0 and 2 turn on. Compare the rendered grid.
+#[test]
+#[ignore = "BUG (colour only): typing `5` into the Input flips bits 0 and 2 on BOTH apps — \
+            glyph-perfect (0 glyph diffs), confirming the reactive Input→ByteEditor.value→Switch \
+            watcher path works. 42 colour cells differ: the toggled Switch indicator slot bg is \
+            #ffffff (Rust) vs #1b1b1b (Python), and the focused Input surface/border carries the \
+            :focus background-tint #272727 in Python vs #1e1e1e in Rust. Shared roots: Switch \
+            white-slot indicator + :focus background-tint not applied."]
+fn parity_compound_byte03() {
+    let script = [Step::SendKeys("5"), Step::Wait(400)];
+    let (rf, pf) = cat_both("byte03", "guide/compound", &script, 400);
+    assert_glyph_parity("byte03", &pf, &rf, &[]);
+}
+
+/// compound/compound01: three InputWithLabel compound widgets, centered. Type
+/// into the first Input; compare the rendered grid.
+#[test]
+#[ignore = "BUG: the whole `InputWithLabel` block is shifted 1 column LEFT in Rust vs Python on \
+            every row (70 glyph cells). The compound widget is `width: 80%` inside a \
+            `Screen { align: center middle }`; Rust computes the centering left-margin one column \
+            short, so the label (`text-align: right`, width 12) and the 1fr Input both land 1 col \
+            early. Root: percent-width + `align: center middle` horizontal centering off-by-one."]
+fn parity_compound_compound01() {
+    let script = [Step::SendKeys("Marcos"), Step::Wait(300)];
+    let (rf, pf) = cat_both("compound01", "guide/compound", &script, 400);
+    assert_glyph_parity("compound01", &pf, &rf, &[]);
+}
+
+// --- how-to (inline01/02, render_compose) -----------------------------------
+
+/// how-to/render_compose: a custom Container whose `render()` paints an animated
+/// `LinearGradient`, with a centered Static on top. The gradient angle is driven
+/// by a refresh clock (non-deterministic), so we assert STRUCTURAL parity: both
+/// apps show the splash text and a multi-colour gradient background.
+#[test]
+fn parity_howto_render_compose() {
+    fn probe(kind: &AppKind) -> (bool, usize) {
+        let app = spawn(kind);
+        std::thread::sleep(Duration::from_millis(600));
+        let g = app.capture();
+        let text = g.contains("Making a splash with Textual!");
+        let bgs = g.bg_palette().len();
+        let label = app.label.clone();
+        app.shutdown();
+        eprintln!("  {label}: splash_text={text} distinct_bg={bgs}");
+        (text, bgs)
+    }
+    let (rt, rb) = probe(&AppKind::Rust("render_compose"));
+    let (pt, pb) = probe(&AppKind::Python("how-to", "render_compose"));
+    eprintln!("render_compose: rust(text={rt},bgs={rb}) py(text={pt},bgs={pb})");
+    assert!(rt && pt, "render_compose: splash text missing — rust={rt} py={pt}");
+    assert!(
+        rb >= 8 && pb >= 8,
+        "render_compose: gradient background not multi-colour — rust_bgs={rb} py_bgs={pb}"
+    );
+}
+
+/// how-to/inline01: a centered `Digits` clock. Python runs in INLINE terminal
+/// mode (`app.run(inline=True)`); Rust has no inline render mode and runs
+/// full-screen. The clock is also wall-clock live. Parity ideal: identical
+/// rendering — currently blocked on inline render mode (KNOWN 1.1).
+#[test]
+#[ignore = "KNOWN 1.1: inline render mode unsupported — Python runs `app.run(inline=True)` \
+            (renders a few inline rows); Rust renders full-screen centered. Also wall-clock \
+            live (HH:MM:SS), so the digit art is non-deterministic. Structural: both render a \
+            Digits clock; full parity needs inline render mode."]
+fn parity_howto_inline01() {
+    let script = [Step::Wait(400)];
+    let (rf, pf) = cat_both("inline01", "how-to", &script, 200);
+    assert_glyph_parity("inline01", &pf, &rf, &[]);
+}
+
+/// how-to/inline02: same as inline01 plus an `&:inline` CSS block (border:none,
+/// height:50vh, success-coloured Digits) that only applies in inline mode. Same
+/// KNOWN 1.1 inline-render-mode gap.
+#[test]
+#[ignore = "KNOWN 1.1: inline render mode unsupported — Python `app.run(inline=True)` applies \
+            the `&:inline` rules (no border, 50vh height, $success Digits) Rust never enters; \
+            Rust renders full-screen. Wall-clock live clock too. Full parity needs inline mode."]
+fn parity_howto_inline02() {
+    let script = [Step::Wait(400)];
+    let (rf, pf) = cat_both("inline02", "how-to", &script, 200);
+    assert_glyph_parity("inline02", &pf, &rf, &[]);
+}
