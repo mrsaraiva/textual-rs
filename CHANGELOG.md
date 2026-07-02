@@ -106,6 +106,26 @@ until the API stabilizes.
   non-empty initial value renders as the input text (not the placeholder). Regression tests:
   `with_value_renders_value_not_placeholder`, `empty_input_renders_placeholder`.
 
+### Examples & parity diagnosis
+
+- **`guide/actions` `actions03`/`04`/`05` now use the Python-faithful multi-line `Static`
+  markup** — the demos previously used a `"\`-line-continuation `TEXT` constant that stripped
+  the intended leading blank line (a workaround), so the whole `Static` rendered one row
+  higher than Python. Restoring the literal leading+trailing newline (matching Python's
+  triple-quoted `TEXT`) brings the framework's already-correct leading-blank rendering into
+  play and makes `actions03`/`actions04` glyph-identical to Python. Their parity tests stay
+  `#[ignore]`d on a **re-diagnosed, out-of-scope residual**: the transparent `Static`'s text
+  is composed over the *live* ancestor background (the red screen bg set by the binding after
+  first paint), whereas Python bakes the *cached* `visual_style` background (the first-render
+  ancestor composite) — a render-time live-vs-cached composition difference in the runtime,
+  not in `text.rs`.
+- **`actions06`/`actions07` ignore reasons corrected** — the `Placeholder` label and per-index
+  colour palette are in fact correct (verified at rest: page-0 bg `#4d1144` == Python and the
+  `Page N` label renders). The real failure is that `scroll_visible` over-scrolls the
+  `HorizontalScroll` so the target page's placeholder area goes blank, plus a
+  `content-align: middle` vertical-centering off-by-one — both in the layout/scroll runtime,
+  not in the `Placeholder` widget.
+
 ### Runtime fixes
 
 - **Live event loop now absorbs the app-mount ctx (worker/animation/message requests)** —

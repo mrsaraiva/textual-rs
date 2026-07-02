@@ -22,11 +22,12 @@
 /// ```
 use textual::prelude::*;
 
-const TEXT: &str = "\
+const TEXT: &str = "
 [b]Set your background[/b]
 [@click=app.set_background('red')]Red[/]
 [@click=app.set_background('green')]Green[/]
-[@click=app.set_background('blue')]Blue[/]";
+[@click=app.set_background('blue')]Blue[/]
+";
 
 struct ActionsApp;
 
