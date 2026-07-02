@@ -1189,7 +1189,6 @@ fn parity_radio_set_changed() {
 
 /// collapsible: press 'e' to expand all, then 'c' to collapse all.
 #[test]
-#[ignore = "GLYPH PARITY (class-state root FIXED in pc2-classstate): after expand-all('e')/collapse-all('c') the ▼/▶ symbol + body display now match Python exactly (glyph_diffs=0). Residual is colour-only: the focused Collapsible's `&:focus-within { background-tint: $foreground 5% }` surface (#272727 py vs #1e1e1e rust) is not applied by Rust — owned by the focus-tint root (pc2-focustint), out of this root's allowed files."]
 fn parity_collapsible_expand_collapse() {
     let script = [
         Step::Key(Key::Char('e')),
@@ -1203,7 +1202,6 @@ fn parity_collapsible_expand_collapse() {
 
 /// collapsible_nested: Enter on the focused (outer) collapsible toggles it.
 #[test]
-#[ignore = "GLYPH PARITY (class-state root FIXED in pc2-classstate): Enter on the focused Collapsible now toggles it — the ▼/▶ symbol + body display match Python (glyph_diffs=0). Residual is colour-only: the `&:focus-within { background-tint: $foreground 5% }` surface (#272727 py vs #1e1e1e rust) is not applied by Rust — owned by the focus-tint root (pc2-focustint), out of this root's allowed files."]
 fn parity_collapsible_nested_toggle() {
     let script = [Step::Key(Key::Enter), Step::Wait(250)];
     let (rf, pf) = widgets_both("collapsible_nested", &script, 400);
@@ -1213,7 +1211,6 @@ fn parity_collapsible_nested_toggle() {
 /// collapsible_custom_symbol: static after compose; assert initial parity (the
 /// custom >>> / v symbols and one expanded/one collapsed panel).
 #[test]
-#[ignore = "GLYPH PARITY (class-state root FIXED in pc2-classstate): the custom >>>/v symbols + one-expanded/one-collapsed layout match Python (glyph_diffs=0). Residual is colour-only: the focused Collapsible's `&:focus-within { background-tint: $foreground 5% }` surface (#272727 py vs #1e1e1e rust) is not applied by Rust — owned by the focus-tint root (pc2-focustint), out of this root's allowed files."]
 fn parity_collapsible_custom_symbol() {
     let script = [Step::Wait(250)];
     let (rf, pf) = widgets_both("collapsible_custom_symbol", &script, 400);
