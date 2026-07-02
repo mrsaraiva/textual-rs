@@ -9,6 +9,34 @@ until the API stabilizes.
 
 ### Framework fundamentals
 
+- **Closure-posted messages now bubble (`PostUp`) + `#[on]` hardening** (WidgetCtx
+  build, step 5) — a message posted from an `update_via` / timer / `on_mount_ctx`
+  closure (via the fresh `WidgetCtx`) is no longer debug-logged-and-dropped: the
+  shared flush now bubbles it from the closure's node to ancestor handlers, after
+  its rounds converge. `#[on]` hardening: the generated `__on_dispatch_*` carries
+  NO `#[allow(dead_code)]` (a handler you forgot to list in `#[widget(on(..))]`
+  now warns as an unused method), plus rustdoc clarifying that `#[on]` does not
+  auto-consume the message (it keeps bubbling — stop with `ctx.set_handled()`),
+  that overriding `on_message` replaces the generated glue, and that the base
+  forward runs the base's own behavior (not a re-dispatch to children).
+  NOTE: the post-mount drain-hook *retirement* (the plan's step-5 deletion) is
+  deferred to the RA-2 trait migration — those hooks still have live producers
+  (`ctx.add_class` in `on_event`, `set_inline_style`, `Tabs::add_tab`, `Select`
+  mount messages) because `on_event`/`Handle::update` do not hand out a `WidgetCtx`
+  yet.
+
+- **ACCEPTANCE: `stopwatch06` rewritten on the WidgetCtx surface** (WidgetCtx
+  build, step 6) — the tutorial stopwatch now uses ONLY `std` + `textual::prelude::*`
+  (ZERO runtime internals): each `TimeDisplay` owns its 1/60s interval via
+  `ctx.set_interval` in `on_mount_ctx`, `#[widget(base = Digits)]` delegation gives
+  it the Digits surface, a reactive `watch_time` renders the elapsed time, and the
+  `Stopwatch` handles button presses via `#[on(ButtonPressed)]` + `ctx.query_one`
+  + `TimerHandle::pause()/resume()`. Because the timer is widget-owned and
+  tick-based, `Pilot::advance_clock` drives the clock deterministically (Start
+  advances / Stop freezes / Reset zeroes are now a promotable in-crate test). This
+  is the milestone that demonstrates the WidgetCtx handler surface is usable end to
+  end without touching runtime plumbing.
+
 - **Widget-owned interval timers** (WidgetCtx build, step 4) — a widget can own
   a repeating timer via `ctx.set_interval(interval, paused, |w, ctx| ...)` from
   the new additive `Widget::on_mount_ctx(&mut self, &mut WidgetCtx)` hook (default

@@ -57,19 +57,34 @@ mod on_handler;
 
 /// Attribute macro for typed message handler dispatch.
 ///
-/// Apply to a method to generate a companion dispatch method that
-/// pattern-matches against the `Message` enum and calls the handler
-/// with the typed event payload.
+/// Apply to a method to generate a companion `__on_dispatch_<name>` dispatch
+/// method that pattern-matches the `Message` type and calls the handler with the
+/// typed payload and a `&mut WidgetCtx`.
 ///
 /// # Usage
 ///
 /// ```ignore
 /// #[on(ButtonPressed)]
-/// fn handle_button(&mut self, event: &ButtonPressed, ctx: &mut EventCtx) { ... }
+/// fn handle_button(&mut self, event: &ButtonPressed, ctx: &mut WidgetCtx) { ... }
 ///
-/// #[on(ButtonPressed, selector = "#save")]
-/// fn handle_save(&mut self, event: &ButtonPressed, ctx: &mut EventCtx) { ... }
+/// #[on(ButtonPressed, selector = "#save")]  // selector matching is deferred
+/// fn handle_save(&mut self, event: &ButtonPressed, ctx: &mut WidgetCtx) { ... }
 /// ```
+///
+/// # Wiring
+///
+/// The dispatcher is only *called* when you list the handler in the widget's
+/// delegation derive: `#[widget(base = .., on(handle_button, ..))]`. If the
+/// compiler warns that `__on_dispatch_<name>` is never used, you forgot to add
+/// `<name>` to `#[widget(on(..))]` (the dispatcher deliberately carries NO
+/// `#[allow(dead_code)]` so that omission is a compile-time warning).
+///
+/// # Semantics
+///
+/// `#[on]` does NOT auto-consume the message — like Python Textual, the message
+/// keeps bubbling to ancestors after your handler runs. Call `ctx.set_handled()`
+/// to stop propagation. Handlers see the message via routing's bubble phase, not
+/// via the base-forward.
 #[proc_macro_attribute]
 pub fn on(attr: TokenStream, item: TokenStream) -> TokenStream {
     on_handler::on_handler_impl(attr.into(), item.into()).into()
