@@ -104,6 +104,46 @@ impl ChildDecl {
         self.children = children;
         self
     }
+
+    /// Set the handle sink fired with the mounted node's identity.
+    pub(crate) fn set_handle_sink(&mut self, sink: crate::handle::HandleSink) {
+        self.handle_sink = Some(sink);
+    }
+}
+
+/// Re-assemble a widget's declared children into self-describing [`ChildDecl`]s
+/// from the legacy parallel arrays (`children` + index-keyed decl-meta +
+/// index-keyed handle sinks).
+///
+/// RA2.1 makes `compose(&mut self)` the single child-declaration path. Widgets
+/// that historically stored children plus `with_compose`/`with_child_handle`
+/// side metadata drain all three here and fold them back into one `ChildDecl`
+/// per child (id + classes + handle sink bundled), so the runtime never has to
+/// consult a parallel side channel again.
+pub(crate) fn zip_child_decls(
+    children: Vec<Box<dyn Widget>>,
+    meta: Vec<crate::widgets::ChildDeclMeta>,
+    sinks: Vec<(usize, crate::handle::HandleSink)>,
+) -> ComposeResult {
+    let mut meta_map: std::collections::HashMap<usize, (Option<String>, Vec<String>)> =
+        meta.into_iter().map(|(i, id, c)| (i, (id, c))).collect();
+    let mut sink_map: std::collections::HashMap<usize, crate::handle::HandleSink> =
+        sinks.into_iter().collect();
+    children
+        .into_iter()
+        .enumerate()
+        .map(|(i, w)| {
+            let mut decl = ChildDecl::new(w);
+            if let Some((id, classes)) = meta_map.remove(&i) {
+                decl.id = id;
+                decl.classes = classes;
+            }
+            if let Some(sink) = sink_map.remove(&i) {
+                decl.handle_sink = Some(sink);
+            }
+            decl
+        })
+        .collect()
 }
 
 impl std::fmt::Debug for ChildDecl {
