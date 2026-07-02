@@ -7,6 +7,22 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### Styling fixes
+
+- **`background-tint` now tints a widget's BORDER + fill, not just its content** —
+  Python composites borders over `widget.background_colors`, a background that already
+  folds in `styles.background.tint(styles.background_tint)` (`_styles_cache.render_line`
+  → `dom.py:background_colors`). Rust already tinted the widget interior via
+  `apply_style_to_segments`, but `apply_border_edges` computed its inner background from
+  the raw `bg` and skipped the tint, so a focused widget's border/fill kept the untinted
+  surface. As a result the default `:focus { background-tint: $foreground 5% }` (and the
+  Button `:focus`/`:hover` tints) lightened the content row but not the border — e.g. a
+  focused `Input`'s `$surface` #1e1e1e stayed #1e1e1e on its border instead of #272727.
+  The border/fill inner background now applies `background_tint` the same way the
+  interior does, so focused/hovered bordered widgets match Python exactly. Flips 10
+  real dual-app `pty_interactive` parity cases (refresh01/03, question01/02/03,
+  modal01/02/03, on_decorator01/02) from BUG to Rust==Python.
+
 ### Interactive functional verification (the 1.0 functional gate)
 
 Static-render parity (85/87 styled, 186/186 PTY) proved demos *look* right but not that

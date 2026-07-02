@@ -274,10 +274,24 @@ pub(crate) fn apply_border_edges(
     // Inner (widget) and outer (parent) backgrounds used for border blending.
     let fallback_bg = parse_color_like("$background").unwrap_or(crate::style::Color::rgb(0, 0, 0));
     let parent_bg = parent_style.and_then(|s| s.bg).unwrap_or(fallback_bg);
-    let inner_bg = style
-        .bg
-        .map(|c| c.flatten_over(parent_bg))
-        .unwrap_or(parent_bg);
+    // Mirror Python `_styles_cache.render_line`, which draws the border over
+    // `widget.background_colors` — a background that already folds in
+    // `styles.background.tint(styles.background_tint)` (dom.py `background_colors`).
+    // `apply_style_to_segments` already tints the widget's INTERIOR fill this way,
+    // so the border rows + the interior fill painted here must use the SAME tinted
+    // surface (e.g. a focused Input's `:focus { background-tint: $foreground 5% }`
+    // lightens $surface #1e1e1e -> #272727 on the border, not just the content row).
+    let inner_bg = {
+        let base = style
+            .bg
+            .map(|c| c.flatten_over(parent_bg))
+            .unwrap_or(parent_bg);
+        if let Some(tint) = style.background_tint {
+            crate::renderables::Tint::<()>::blend_color_with_percent(base, tint.color, tint.percent)
+        } else {
+            base
+        }
+    };
     let outer_bg = parent_bg;
 
     // Pre-blend opacity for border colors: when `opacity_percent` is set,
