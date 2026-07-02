@@ -12,8 +12,8 @@
 //!
 //! ## What is forwarded (the STRUCTURAL / PROPAGATION surface)
 //!
-//! render / measure / layout, `take_composed_children` + the compose meta
-//! hooks, `on_event` / `on_event_capture` / `on_message` (PROPAGATION to the
+//! render / measure / layout, `compose` (child declaration),
+//! `on_event` / `on_event_capture` / `on_message` (PROPAGATION to the
 //! base's arena children), `on_tick` / lifecycle, scroll, bindings/actions,
 //! selection, tooltip/help, styles, etc. — exactly the 63-method list the
 //! deprecated `delegate_widget_to!` forwarded.
