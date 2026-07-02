@@ -127,8 +127,8 @@ impl Widget for Stopwatch {
         "Stopwatch"
     }
 
-    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
-        self.inner.take_composed_children()
+    fn compose(&mut self) -> textual::compose::ComposeResult {
+        self.inner.compose()
     }
 
     fn render(

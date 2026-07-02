@@ -65,8 +65,8 @@ impl Widget for KeyLogger {
         self.log.render(console, options)
     }
 
-    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
-        self.log.take_composed_children()
+    fn compose(&mut self) -> textual::compose::ComposeResult {
+        self.log.compose()
     }
 
     fn on_node_state_changed(&mut self, old: NodeState, new: NodeState) {

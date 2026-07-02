@@ -70,8 +70,8 @@ impl Widget for BitSwitch {
         "BitSwitch"
     }
 
-    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
-        self.inner.take_composed_children()
+    fn compose(&mut self) -> textual::compose::ComposeResult {
+        self.inner.compose()
     }
 
     fn render(
@@ -135,8 +135,8 @@ impl Widget for ByteInput {
         "ByteInput"
     }
 
-    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
-        self.inner.take_composed_children()
+    fn compose(&mut self) -> textual::compose::ComposeResult {
+        self.inner.compose()
     }
 
     fn render(
@@ -202,8 +202,8 @@ impl Widget for ByteEditor {
         "ByteEditor"
     }
 
-    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
-        self.inner.take_composed_children()
+    fn compose(&mut self) -> textual::compose::ComposeResult {
+        self.inner.compose()
     }
 
     fn render(
