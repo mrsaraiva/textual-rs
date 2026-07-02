@@ -231,3 +231,78 @@ fn derive_propagates_click_to_composed_child() {
          reach it and bubble ButtonPressed (proves render + take_composed_children forwarding)"
     );
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// (6) #[on(..)] runtime wiring: a composed widget handles its OWN child's
+// ButtonPressed via #[on(ButtonPressed)] with NO hand-written on_message.
+// `#[widget(.., on(on_button))]` generates an on_message that materializes a
+// WidgetCtx over the real bubble EventCtx, calls `__on_dispatch_on_button`, and
+// forwards to the base. Proves the sub-step-3 macro glue end-to-end via Pilot.
+// ─────────────────────────────────────────────────────────────────────────
+
+#[textual::widget(base = VerticalGroup, on(on_button))]
+struct ClickCard {
+    base: VerticalGroup,
+    presses: Arc<AtomicU32>,
+}
+
+impl ClickCard {
+    fn new(presses: Arc<AtomicU32>) -> Self {
+        Self {
+            base: VerticalGroup::new().with_child(Button::new("Go").id("go")),
+            presses,
+        }
+    }
+
+    #[textual::on(ButtonPressed)]
+    fn on_button(&mut self, event: &ButtonPressed, ctx: &mut WidgetCtx) {
+        if event.button_id.as_deref() == Some("go") {
+            self.presses.fetch_add(1, Ordering::SeqCst);
+            ctx.set_handled();
+        }
+    }
+}
+
+const CLICK_CARD_CSS: &str = r#"
+Screen { align: center middle; }
+ClickCard { width: auto; height: auto; }
+"#;
+
+struct ClickCardApp {
+    presses: Arc<AtomicU32>,
+}
+
+impl TextualApp for ClickCardApp {
+    fn configure(&mut self, app: &mut App) -> textual::Result<()> {
+        app.load_stylesheet(CLICK_CARD_CSS);
+        Ok(())
+    }
+
+    fn compose(&mut self) -> AppRoot {
+        AppRoot::new().with_child(ClickCard::new(Arc::clone(&self.presses)))
+    }
+    // NB: NO on_message / on_message_with_app — ClickCard handles ButtonPressed
+    // itself via #[on(ButtonPressed)] + the generated on_message glue.
+}
+
+#[test]
+fn on_handler_widget_receives_child_button_pressed_without_hand_written_on_message() {
+    let presses = Arc::new(AtomicU32::new(0));
+    let app = ClickCardApp {
+        presses: Arc::clone(&presses),
+    };
+
+    textual::run_test(app, |pilot: &mut Pilot| {
+        pilot.click("#go")?;
+        pilot.click("#go")?;
+        Ok(())
+    })
+    .expect("headless run_test must succeed");
+
+    assert_eq!(
+        presses.load(Ordering::SeqCst),
+        2,
+        "#[on(ButtonPressed)] on the compound (wired via #[widget(.., on(on_button))]) must \
+         receive the child Button's ButtonPressed with NO hand-written on_message"
+    );
+}

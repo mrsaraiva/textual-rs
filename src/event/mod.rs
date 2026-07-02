@@ -673,22 +673,41 @@ impl EventCtx {
     }
 
     pub fn post_message_boxed(&mut self, message: Box<dyn Message>) {
+        let node = self.node_id;
+        self.post_message_boxed_from(node, message);
+    }
+
+    /// Post `message` with an explicit sender/control `node`, **without** mutating
+    /// this ctx's current `node_id`.
+    ///
+    /// The bare [`post_message`](EventCtx::post_message) uses `self.node_id` as the
+    /// sender. `WidgetCtx::post_message` needs the *widget's* node as sender while
+    /// sharing one live dispatch `EventCtx`; routing through this method attributes
+    /// the post correctly without leaving the shared ctx's `node_id` clobbered for
+    /// whatever the runtime does next (which previously mis-attributed subsequent
+    /// operations on the same dispatch ctx).
+    pub fn post_message_from<M: Message>(&mut self, node: NodeId, message: M) {
+        self.post_message_boxed_from(node, Box::new(message));
+    }
+
+    /// Boxed form of [`post_message_from`](EventCtx::post_message_from).
+    pub fn post_message_boxed_from(&mut self, node: NodeId, message: Box<dyn Message>) {
         // Honour active `prevent(...)` scopes, mirroring Python's
         // `MessagePump.post_message` `_is_prevented` check: a prevented message
         // type is silently dropped (never queued).
         if self.is_type_prevented(message.as_any().type_id()) {
             debug_message(&format!(
                 "[post_message] PREVENTED sender={} payload={message:?}",
-                node_id_to_ffi(self.node_id)
+                node_id_to_ffi(node)
             ));
             return;
         }
         debug_message(&format!(
             "[post_message] sender={} payload={message:?}",
-            node_id_to_ffi(self.node_id)
+            node_id_to_ffi(node)
         ));
         self.messages
-            .push(MessageEvent::from_boxed(self.node_id, message).with_control(self.node_id));
+            .push(MessageEvent::from_boxed(node, message).with_control(node));
     }
 
     /// Whether a concrete message type id is currently suppressed by an active
@@ -1074,6 +1093,35 @@ impl<'a> WidgetCtx<'a> {
         self.reactive
     }
 
+    /// Construct a `WidgetCtx` over a live dispatch `EventCtx`. **Macro use only**
+    /// — the `#[widget(base=.., on(..))]`-generated `Widget::on_message` calls
+    /// this to materialize the handler context around the REAL dispatch ctx.
+    /// Hidden from docs; do not call by hand (handlers receive a `WidgetCtx`).
+    #[doc(hidden)]
+    pub fn __from_dispatch(node_id: NodeId, event_ctx: &'a mut EventCtx) -> Self {
+        Self::new(node_id, event_ctx)
+    }
+
+    /// If this context recorded any reactive changes/flags, enqueue them so the
+    /// shared post-dispatch flush dispatches the node's `watch_*`. **Macro use
+    /// only** — called at the end of the generated `on_message` glue after the
+    /// `#[on]` handlers run. Hidden from docs.
+    #[doc(hidden)]
+    pub fn __enqueue_reactive_if_dirty(self) {
+        let node = self.node_id;
+        let reactive = self.reactive;
+        if reactive.has_changes()
+            || reactive.needs_repaint()
+            || reactive.needs_layout()
+            || reactive.needs_recompose()
+            || reactive.needs_styles()
+        {
+            crate::reactive::enqueue_runtime_reactive_entry(
+                crate::reactive::RuntimeReactiveEntry::new(node, reactive),
+            );
+        }
+    }
+
     /// The arena-assigned identity of this widget.
     #[inline]
     pub fn node_id(&self) -> NodeId {
@@ -1112,11 +1160,38 @@ impl<'a> WidgetCtx<'a> {
         self.event_ctx.request_stop();
     }
 
-    /// Post a message from this widget (sender = self).
+    /// Post a message from this widget (sender = self), without disturbing the
+    /// shared dispatch `EventCtx`'s current `node_id`.
     #[inline]
     pub fn post_message<M: Message>(&mut self, message: M) {
-        self.event_ctx.set_node_id(self.node_id);
-        self.event_ctx.post_message(message);
+        self.event_ctx.post_message_from(self.node_id, message);
+    }
+
+    // ── Invalidation shadows (footgun closers) ─────────────────────────
+    //
+    // `WidgetCtx` `DerefMut`s to `ReactiveCtx`, which has same-named
+    // `request_layout`/`request_recompose`/`request_styles` methods that only set
+    // reactive flags. Without these inherent shadows, `ctx.request_layout()` would
+    // silently take the reactive-flag path while the sibling `ctx.request_repaint()`
+    // takes the EventCtx path — two behaviours for one call shape. Route them all
+    // through the ONE canonical EventCtx path (same as `request_repaint` above).
+
+    /// Request a layout/style/content invalidation (canonical EventCtx path).
+    #[inline]
+    pub fn request_layout(&mut self) {
+        self.event_ctx.request_layout_invalidation();
+    }
+
+    /// Request style recomputation (canonical EventCtx path).
+    #[inline]
+    pub fn request_styles(&mut self) {
+        self.event_ctx.request_style_invalidation();
+    }
+
+    /// Request subtree recomposition of this widget (canonical EventCtx path).
+    #[inline]
+    pub fn request_recompose(&mut self) {
+        self.event_ctx.request_recompose_node(self.node_id);
     }
 }
 
@@ -1748,5 +1823,33 @@ mod tests {
             Some(sender_id),
             "post_message should set control to Some(sender)"
         );
+    }
+
+    #[test]
+    fn widgetctx_post_message_uses_widget_node_without_clobbering_dispatch_ctx() {
+        // The shared dispatch EventCtx currently points at some other node.
+        let dispatch_node = node_id_from_ffi(7);
+        let mut ectx = EventCtx::default();
+        ectx.set_node_id(dispatch_node);
+
+        // A WidgetCtx for a different widget posts a message through the shared ctx.
+        let widget_node = node_id_from_ffi(42);
+        {
+            let mut wctx = WidgetCtx::new(widget_node, &mut ectx);
+            wctx.post_message(crate::message::ClearRequested);
+        }
+
+        // Fix: the shared dispatch ctx's node id is NOT clobbered (it used to be
+        // left set to widget_node, mis-attributing whatever the runtime did next).
+        assert_eq!(
+            ectx.node_id(),
+            dispatch_node,
+            "WidgetCtx::post_message must not mutate the shared dispatch EventCtx node id"
+        );
+        // The message is still attributed to the posting widget.
+        let messages = ectx.take_messages();
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].sender, widget_node);
+        assert_eq!(messages[0].control, Some(widget_node));
     }
 }

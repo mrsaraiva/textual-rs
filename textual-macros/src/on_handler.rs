@@ -108,9 +108,11 @@ pub fn on_handler_impl(attr: TokenStream, item: TokenStream) -> TokenStream {
     };
 
     // All dispatch methods share a uniform signature:
-    //   fn __on_dispatch_<name>(&mut self, event: &MessageEvent, ctx: &mut EventCtx) -> bool
-    // This allows the runtime to call any generated dispatcher through a single
-    // interface regardless of whether a selector was specified.
+    //   fn __on_dispatch_<name>(&mut self, event: &MessageEvent, ctx: &mut WidgetCtx) -> bool
+    // This allows the runtime (and the `#[widget]`-generated `on_message` glue) to
+    // call any generated dispatcher through a single interface regardless of
+    // whether a selector was specified. The handler receives a `WidgetCtx` (the
+    // handler context) — its reactive mutations flow into the shared flush.
     // The `#msg_variant` is now a *type* in the caller's scope (not an enum variant),
     // so `#[on(MyCustomMessage)]` works for third-party messages too.
     let selector_items = if let Some(ref selector_str) = args.selector {
@@ -134,7 +136,7 @@ pub fn on_handler_impl(attr: TokenStream, item: TokenStream) -> TokenStream {
         fn #dispatch_name(
             &mut self,
             event: &textual::message::MessageEvent,
-            ctx: &mut textual::event::EventCtx,
+            ctx: &mut textual::event::WidgetCtx,
         ) -> bool {
             if let Some(payload) = event.downcast_ref::<#msg_variant>() {
                 #call_expr
@@ -200,8 +202,9 @@ mod tests {
         assert!(output_str.contains("__on_dispatch_handle_button"));
         assert!(output_str.contains("ButtonPressed"));
         assert!(!output_str.contains("__ON_SELECTOR"));
-        // New signature: takes &MessageEvent, not (_sender, &Message).
+        // New signature: takes &MessageEvent + &mut WidgetCtx, not (_sender, &Message).
         assert!(output_str.contains("MessageEvent"));
+        assert!(output_str.contains("WidgetCtx"));
         assert!(!output_str.contains("_sender"));
     }
 
@@ -218,8 +221,9 @@ mod tests {
         assert!(output_str.contains("__on_dispatch_handle_save"));
         assert!(output_str.contains("__ON_SELECTOR_HANDLE_SAVE"));
         assert!(output_str.contains("\"#save\""));
-        // New signature: takes &MessageEvent, not (_sender, &Message).
+        // New signature: takes &MessageEvent + &mut WidgetCtx, not (_sender, &Message).
         assert!(output_str.contains("MessageEvent"));
+        assert!(output_str.contains("WidgetCtx"));
         assert!(!output_str.contains("_sender"));
     }
 }

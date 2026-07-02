@@ -9047,6 +9047,51 @@ mod tests {
         );
     }
 
+    /// Unit-1 fixup (Fable): an update closure that requests recompose via the
+    /// REACTIVE path only (no field change) must NOT be silently dropped by the
+    /// flush. Before the fix, `run_update_widget`'s enqueue condition omitted
+    /// `needs_recompose()`/`needs_styles()`, so a recompose-only ctx was discarded.
+    #[test]
+    fn update_via_recompose_only_reactive_ctx_is_not_dropped() {
+        let _ = take_runtime_reactive_entries();
+        let _ = crate::runtime::commands::take_widget_commands();
+
+        let mut tree = crate::widget_tree::WidgetTree::new();
+        let a = tree.set_root(Box::new(ParentA));
+        let watched = Arc::new(AtomicUsize::new(0));
+        let b = tree.mount(
+            a,
+            Box::new(ChildB {
+                watched: Arc::clone(&watched),
+                n: 0,
+            }),
+        );
+        let handle = crate::handle::Handle::<ChildB>::resolve(&tree, b).unwrap();
+
+        {
+            let mut ectx = EventCtx::default();
+            ectx.set_node_id(a);
+            let mut wctx = crate::event::WidgetCtx::new(a, &mut ectx);
+            handle.update_via(&mut wctx, |_b, bctx| {
+                // Reactive-path recompose only (no `record_change`) — reach the
+                // ReactiveCtx flag directly, bypassing the inherent EventCtx shadow,
+                // to exercise the branch the flush previously dropped.
+                use std::ops::DerefMut;
+                bctx.deref_mut().request_recompose();
+            });
+        }
+
+        let mut app = test_app_with_tree(tree);
+        let mut pending = super::PendingInvalidation::default();
+        let mut root = StyleNode::new("Root");
+        app.run_event_loop_reactive_phase(&mut root, &mut pending);
+
+        assert!(
+            pending.flags.layout,
+            "recompose-only reactive ctx must be enqueued + processed (drives layout), not dropped"
+        );
+    }
+
     // SPEC-P2 Step 6a (option b): test for on_app_unhandled_action fallback.
     // dispatch_simulated_key_like_input is private; test lives here where it is in scope.
     #[test]

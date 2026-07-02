@@ -8,7 +8,7 @@
 use std::sync::{Arc, Mutex};
 
 use rich_rs::{Console, ConsoleOptions};
-use textual::event::EventCtx;
+use textual::event::{EventCtx, WidgetCtx};
 use textual::message::{ButtonPressed, MessageEvent};
 use textual::message_handlers::MessageHandlers;
 use textual::node_id::node_id_from_ffi;
@@ -418,7 +418,7 @@ impl MyApp {
     }
 
     #[on(Ping)]
-    fn handle_ping(&mut self, msg: &Ping, ctx: &mut EventCtx) {
+    fn handle_ping(&mut self, msg: &Ping, ctx: &mut WidgetCtx) {
         let _ = ctx;
         self.ping_total += msg.n;
     }
@@ -429,7 +429,8 @@ fn t5_8_on_macro_dispatches_custom_message_type() {
     let mut app = MyApp::new();
     let sender = node_id_from_ffi(1);
     let event = MessageEvent::new(sender, Ping { n: 3 });
-    let mut ctx = EventCtx::default();
+    let mut ectx = EventCtx::default();
+    let mut ctx = WidgetCtx::__from_dispatch(sender, &mut ectx);
 
     let matched = app.__on_dispatch_handle_ping(&event, &mut ctx);
     assert!(matched, "#[on(Ping)] dispatcher must match a Ping event");
