@@ -209,7 +209,7 @@ impl Container {
 }
 
 impl Widget for Container {
-    fn compose(&self) -> ComposeResult {
+    fn compose(&mut self) -> ComposeResult {
         Vec::new()
     }
 
@@ -543,7 +543,7 @@ mod tests {
 
     #[test]
     fn compose_returns_empty() {
-        let c = Container::new().with_child(Label::new("a"));
+        let mut c = Container::new().with_child(Label::new("a"));
         assert!(c.compose().is_empty());
     }
 

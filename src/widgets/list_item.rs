@@ -158,7 +158,7 @@ fn widget_text(child: &(impl Widget + 'static)) -> String {
 }
 
 impl Widget for ListItem {
-    fn compose(&self) -> ComposeResult {
+    fn compose(&mut self) -> ComposeResult {
         Vec::new()
     }
 

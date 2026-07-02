@@ -7,7 +7,7 @@
 //! # Example
 //!
 //! ```ignore
-//! fn compose(&self) -> ComposeResult {
+//! fn compose(&mut self) -> ComposeResult {
 //!     compose![
 //!         Header::new(),
 //!         Button::new("Click me").with_id("btn"),

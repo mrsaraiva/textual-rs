@@ -608,7 +608,7 @@ impl Widget for ProgressBar {
     ///
     /// ProgressBar sub-components are logical rendering helpers, not mountable
     /// children, so compose returns an empty list.
-    fn compose(&self) -> ComposeResult {
+    fn compose(&mut self) -> ComposeResult {
         Vec::new()
     }
 
@@ -1185,7 +1185,7 @@ mod tests {
 
     #[test]
     fn compose_returns_empty() {
-        let bar = ProgressBar::new(Some(100.0));
+        let mut bar = ProgressBar::new(Some(100.0));
         let result = bar.compose();
         assert!(result.is_empty());
     }
@@ -1199,7 +1199,7 @@ mod tests {
 
     #[test]
     fn compose_returns_empty_indeterminate() {
-        let bar = ProgressBar::new(None);
+        let mut bar = ProgressBar::new(None);
         assert!(bar.compose().is_empty());
     }
 

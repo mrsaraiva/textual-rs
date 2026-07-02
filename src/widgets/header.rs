@@ -554,7 +554,7 @@ impl Header {
 }
 
 impl Widget for Header {
-    fn compose(&self) -> ComposeResult {
+    fn compose(&mut self) -> ComposeResult {
         Vec::new()
     }
 

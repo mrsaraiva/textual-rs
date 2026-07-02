@@ -197,7 +197,7 @@ pub enum RowAlign {
 }
 
 impl Widget for Row {
-    fn compose(&self) -> ComposeResult {
+    fn compose(&mut self) -> ComposeResult {
         Vec::new()
     }
 
@@ -1058,7 +1058,7 @@ impl Dock {
 }
 
 impl Widget for Dock {
-    fn compose(&self) -> ComposeResult {
+    fn compose(&mut self) -> ComposeResult {
         Vec::new()
     }
 
@@ -1957,7 +1957,7 @@ impl Grid {
 }
 
 impl Widget for Grid {
-    fn compose(&self) -> ComposeResult {
+    fn compose(&mut self) -> ComposeResult {
         Vec::new()
     }
 
@@ -2339,7 +2339,7 @@ mod tests {
 
     #[test]
     fn row_compose_returns_empty() {
-        let r = Row::new().with_child(Label::new("a"));
+        let mut r = Row::new().with_child(Label::new("a"));
         assert!(r.compose().is_empty());
     }
 

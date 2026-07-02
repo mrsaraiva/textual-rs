@@ -361,7 +361,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for Select<T> {
     ///
     /// Select's inner OptionList is managed internally (not a mountable child),
     /// so compose returns an empty list.
-    fn compose(&self) -> ComposeResult {
+    fn compose(&mut self) -> ComposeResult {
         Vec::new()
     }
 
@@ -1284,7 +1284,7 @@ mod tests {
 
     #[test]
     fn compose_returns_empty() {
-        let sel = make_select();
+        let mut sel = make_select();
         let result = sel.compose();
         assert!(result.is_empty());
     }

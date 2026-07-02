@@ -156,7 +156,7 @@ impl ReactiveWidget for Checkbox {
 }
 
 impl Widget for Checkbox {
-    fn compose(&self) -> ComposeResult {
+    fn compose(&mut self) -> ComposeResult {
         Vec::new()
     }
 
@@ -449,7 +449,7 @@ mod tests {
 
     #[test]
     fn checkbox_compose_returns_empty() {
-        let checkbox = Checkbox::new("Test");
+        let mut checkbox = Checkbox::new("Test");
         assert!(checkbox.compose().is_empty());
     }
 

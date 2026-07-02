@@ -197,7 +197,7 @@ impl Widget for MarkdownTableOfContents {
         "MarkdownTableOfContents"
     }
 
-    fn compose(&self) -> ComposeResult {
+    fn compose(&mut self) -> ComposeResult {
         vec![MarkdownTableOfContentsTree::with_shared_headings(self.shared_headings.clone()).into()]
     }
 
@@ -1016,7 +1016,7 @@ mod tests {
 
     #[test]
     fn toc_compose_returns_tree_child() {
-        let toc = MarkdownTableOfContents::new(vec![
+        let mut toc = MarkdownTableOfContents::new(vec![
             (1, "Chapter".to_string(), "chapter".to_string()),
             (2, "Section".to_string(), "section".to_string()),
         ]);

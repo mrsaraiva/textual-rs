@@ -140,7 +140,7 @@ macro_rules! delegate_widget_method {
     // ── Composition ────────────────────────────────────────────────────
 
     ($field:ident, compose) => {
-        fn compose(&self) -> $crate::compose::ComposeResult {
+        fn compose(&mut self) -> $crate::compose::ComposeResult {
             self.$field.compose()
         }
     };

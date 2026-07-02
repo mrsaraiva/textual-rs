@@ -226,7 +226,7 @@ impl ContentSwitcher {
 }
 
 impl Widget for ContentSwitcher {
-    fn compose(&self) -> ComposeResult {
+    fn compose(&mut self) -> ComposeResult {
         Vec::new()
     }
 

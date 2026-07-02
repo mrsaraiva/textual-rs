@@ -54,7 +54,7 @@ fn welcome_unmount_does_not_panic() {
 fn welcome_compose_yields_two_top_level_children() {
     // Cross-check accessible from integration tests: compose() returns non-empty.
     // The concrete id values are tested in the unit tests (src/widgets/welcome.rs).
-    let welcome = Welcome::new();
+    let mut welcome = Welcome::new();
     let children = welcome.compose();
     assert_eq!(
         children.len(),

@@ -207,7 +207,7 @@ pub trait Widget: Send + Sync + Any {
     ///
     /// The runtime materializes these declarations into arena nodes during
     /// mount. The default implementation returns an empty list (leaf widget).
-    fn compose(&self) -> ComposeResult {
+    fn compose(&mut self) -> ComposeResult {
         Vec::new()
     }
 

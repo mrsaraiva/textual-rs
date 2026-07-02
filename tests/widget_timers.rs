@@ -194,7 +194,7 @@ impl Widget for Host {
         Some(self)
     }
 
-    fn compose(&self) -> ComposeResult {
+    fn compose(&mut self) -> ComposeResult {
         if *self.show() {
             vec![ChildDecl::new(Box::new(Countdown::new(
                 10,

@@ -563,7 +563,7 @@ impl TabbedContent {
 }
 
 impl Widget for TabbedContent {
-    fn compose(&self) -> ComposeResult {
+    fn compose(&mut self) -> ComposeResult {
         if self.children_extracted.load(Ordering::SeqCst) {
             return Vec::new();
         }

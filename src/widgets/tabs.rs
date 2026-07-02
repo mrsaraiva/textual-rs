@@ -1341,7 +1341,7 @@ impl Widget for Tabs {
         false
     }
 
-    fn compose(&self) -> ComposeResult {
+    fn compose(&mut self) -> ComposeResult {
         let underline = Underline::new(self.underline.clone());
         let tabs_list = ChildDecl::from(Horizontal::new())
             .with_id("tabs-list")

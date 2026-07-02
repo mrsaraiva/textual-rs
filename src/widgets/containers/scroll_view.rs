@@ -648,7 +648,7 @@ struct ResolvedScrollbar {
 }
 
 impl Widget for ScrollView {
-    fn compose(&self) -> crate::compose::ComposeResult {
+    fn compose(&mut self) -> crate::compose::ComposeResult {
         Vec::new()
     }
 

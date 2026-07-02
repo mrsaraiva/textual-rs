@@ -239,7 +239,7 @@ fn method_table() -> Vec<MethodSpec> {
         // ── Composition ────────────────────────────────────────────────
         m!(
             "compose",
-            quote! { fn compose(&self) -> textual::compose::ComposeResult },
+            quote! { fn compose(&mut self) -> textual::compose::ComposeResult },
             quote! { compose() }
         ),
         m!(

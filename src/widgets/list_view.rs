@@ -451,7 +451,7 @@ impl ListView {
 }
 
 impl Widget for ListView {
-    fn compose(&self) -> ComposeResult {
+    fn compose(&mut self) -> ComposeResult {
         Vec::new()
     }
 
@@ -1117,7 +1117,7 @@ mod tests {
 
     #[test]
     fn compose_returns_empty() {
-        let list = ListView::new(vec!["A".into()]);
+        let mut list = ListView::new(vec!["A".into()]);
         assert!(list.compose().is_empty());
     }
 }

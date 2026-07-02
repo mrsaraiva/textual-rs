@@ -278,7 +278,7 @@ impl Default for AppRoot {
 }
 
 impl Widget for AppRoot {
-    fn compose(&self) -> ComposeResult {
+    fn compose(&mut self) -> ComposeResult {
         Vec::new()
     }
 

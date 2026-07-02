@@ -252,7 +252,7 @@ impl RadioSet {
 }
 
 impl Widget for RadioSet {
-    fn compose(&self) -> ComposeResult {
+    fn compose(&mut self) -> ComposeResult {
         Vec::new()
     }
 
@@ -651,7 +651,7 @@ mod tests {
 
     #[test]
     fn compose_returns_empty() {
-        let set = RadioSet::from_labels(&["A", "B"]);
+        let mut set = RadioSet::from_labels(&["A", "B"]);
         assert!(set.compose().is_empty());
     }
 

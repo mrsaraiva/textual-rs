@@ -111,7 +111,7 @@ impl CollapsibleTitle {
 }
 
 impl Widget for CollapsibleTitle {
-    fn compose(&self) -> ComposeResult {
+    fn compose(&mut self) -> ComposeResult {
         Vec::new()
     }
 
@@ -270,7 +270,7 @@ impl CollapsibleContents {
 }
 
 impl Widget for CollapsibleContents {
-    fn compose(&self) -> ComposeResult {
+    fn compose(&mut self) -> ComposeResult {
         Vec::new()
     }
 
@@ -513,7 +513,7 @@ impl Collapsible {
 }
 
 impl Widget for Collapsible {
-    fn compose(&self) -> ComposeResult {
+    fn compose(&mut self) -> ComposeResult {
         Vec::new()
     }
 
@@ -747,7 +747,7 @@ mod tests {
 
     #[test]
     fn collapsible_title_compose_returns_empty() {
-        let title = CollapsibleTitle::new("Test", ">", "v", true);
+        let mut title = CollapsibleTitle::new("Test", ">", "v", true);
         assert!(title.compose().is_empty());
     }
 
@@ -755,7 +755,7 @@ mod tests {
 
     #[test]
     fn collapsible_compose_returns_empty() {
-        let c = Collapsible::new("Section");
+        let mut c = Collapsible::new("Section");
         assert!(c.compose().is_empty());
     }
 
