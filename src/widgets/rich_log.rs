@@ -697,14 +697,14 @@ impl RichLog {
 }
 
 impl Widget for RichLog {
-    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+    fn compose(&mut self) -> crate::compose::ComposeResult {
         if self.scrollbar_extracted {
             return Vec::new();
         }
         self.scrollbar_extracted = true;
         let mut vbar = ScrollBar::new(true, 2);
         vbar.seed.css_id = Some(RICH_LOG_VSCROLLBAR_ID.to_string());
-        vec![Box::new(vbar)]
+        vec![crate::compose::ChildDecl::new(Box::new(vbar))]
     }
 
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
@@ -946,10 +946,10 @@ mod tests {
     #[test]
     fn tree_mode_extracts_dedicated_scrollbar_child() {
         let mut log = RichLog::new();
-        let mut children = log.take_composed_children();
+        let mut children = log.compose();
         assert_eq!(children.len(), 1);
         assert_eq!(
-            children[0].take_node_seed().css_id.as_deref(),
+            children[0].widget_mut().take_node_seed().css_id.as_deref(),
             Some(RICH_LOG_VSCROLLBAR_ID)
         );
     }
@@ -963,7 +963,7 @@ mod tests {
         log.write("line 2");
         log.write("line 3");
         log.write("line 4");
-        let _ = log.take_composed_children();
+        let _ = log.compose();
         let _ = log.render(&console, &options);
 
         let mut ctx = EventCtx::default();

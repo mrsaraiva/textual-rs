@@ -362,10 +362,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for Select<T> {
     /// Select's inner OptionList is managed internally (not a mountable child),
     /// so compose returns an empty list.
     fn compose(&mut self) -> ComposeResult {
-        Vec::new()
-    }
-
-    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+        // Monolithic widget: renders its own overlay/dropdown, no arena children.
         Vec::new()
     }
 
@@ -1290,13 +1287,6 @@ mod tests {
     }
 
     #[test]
-    fn take_composed_children_returns_empty() {
-        let mut sel = make_select();
-        let children = sel.take_composed_children();
-        assert!(children.is_empty());
-    }
-
-    #[test]
     fn compose_stable_across_state_changes() {
         let mut sel = make_select();
         let id = make_node_id();
@@ -1311,7 +1301,7 @@ mod tests {
 
         // compose() should still return empty even when open
         assert!(sel.compose().is_empty());
-        assert!(sel.take_composed_children().is_empty());
+        assert!(sel.compose().is_empty());
     }
 
     #[test]
