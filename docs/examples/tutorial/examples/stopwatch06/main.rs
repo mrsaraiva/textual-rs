@@ -1,8 +1,7 @@
-//! Port of Python Textual `docs/examples/tutorial/stopwatch06.py`, rewritten on
-//! the WidgetCtx surface. Imports are ONLY `std` + `textual::prelude::*` — ZERO
-//! runtime internals (no `enqueue_runtime_reactive_entry` / `RuntimeReactiveEntry`
-//! / `ReactiveCtx::new` / `with_widget_mut_as`). Each `TimeDisplay` owns its 1/60s
-//! interval, so `Pilot::advance_clock` drives the clock deterministically.
+//! Port of Python Textual `docs/examples/tutorial/stopwatch06.py`, on the
+//! WidgetCtx surface. Imports are ONLY `std` + `textual::prelude::*` — ZERO
+//! runtime internals. Each `TimeDisplay` owns its 1/60s interval, so
+//! `Pilot::advance_clock` drives the clock deterministically.
 use std::time::Duration;
 use textual::prelude::*;
 
@@ -27,46 +26,35 @@ fn format_time(secs: f64) -> String {
 }
 
 /// A `Digits` showing elapsed time, advanced by its own paused 1/60s interval.
+/// The timer's paused state IS the running state (start/stop resume/pause it).
 #[textual::widget(base = Digits, reactive, override(on_mount_ctx))]
 #[derive(textual::Reactive)]
 struct TimeDisplay {
     base: Digits,
     #[reactive(watch, init = false)]
     time: f64,
-    running: bool,
     timer: Option<TimerHandle>,
 }
 
 impl TimeDisplay {
     fn new() -> Self {
-        Self { base: Digits::new("00:00:00.00"), time: 0.0, running: false, timer: None }
+        Self { base: Digits::new("00:00:00.00"), time: 0.0, timer: None }
     }
-    /// Python `TimeDisplay.on_mount`: `set_interval(1/60, update_time, pause=True)`.
+    /// Python `on_mount`: `set_interval(1/60, update_time, pause=True)`.
     fn on_mount_ctx(&mut self, ctx: &mut WidgetCtx) {
-        let dt = Duration::from_secs_f64(1.0 / 60.0);
-        self.timer = Some(ctx.set_interval::<Self, _>(dt, true, |w, c| w.tick(c)));
+        let sixtieth = Duration::from_secs_f64(1.0 / 60.0);
+        self.timer = Some(ctx.set_interval(sixtieth, true, |w: &mut Self, c| w.tick(c)));
     }
-    /// Deterministic tick: `time` is the accumulator (advances 1/60s per fire).
+    /// `time` is the accumulator; each tick adds 1/60s (deterministic).
     fn tick(&mut self, ctx: &mut WidgetCtx) {
-        if self.running {
-            let t = self.time + 1.0 / 60.0;
-            self.set_time(t, ctx);
-        }
+        self.set_time(self.time + 1.0 / 60.0, ctx);
     }
     fn watch_time(&mut self, _old: &f64, new: &f64, _ctx: &mut ReactiveCtx) {
         self.base.update(format_time(*new));
     }
-    fn start(&mut self, _ctx: &mut WidgetCtx) {
-        self.running = true;
-        if let Some(t) = self.timer { t.resume(); }
-    }
-    fn stop(&mut self, _ctx: &mut WidgetCtx) {
-        self.running = false;
-        if let Some(t) = self.timer { t.pause(); }
-    }
-    fn reset(&mut self, ctx: &mut WidgetCtx) {
-        self.set_time(0.0, ctx);
-    }
+    fn start(&mut self) { if let Some(t) = self.timer { t.resume(); } }
+    fn stop(&mut self) { if let Some(t) = self.timer { t.pause(); } }
+    fn reset(&mut self, ctx: &mut WidgetCtx) { self.set_time(0.0, ctx); }
 }
 
 /// A stopwatch: three buttons + a `TimeDisplay`, wired via `#[on]` + `query_one`.
@@ -86,13 +74,13 @@ impl Stopwatch {
             ]),
         }
     }
-    /// Python `Stopwatch.on_button_pressed`: query the `TimeDisplay`, drive it.
+    /// Python `on_button_pressed`: query the `TimeDisplay`, drive it, toggle class.
     #[textual::on(ButtonPressed)]
     fn on_button(&mut self, event: &ButtonPressed, ctx: &mut WidgetCtx) {
         let td = ctx.query_one::<TimeDisplay>();
         match event.button_id.as_deref() {
-            Some("start") => { td.update_via(ctx, |d, c| d.start(c)); ctx.add_class("started"); }
-            Some("stop") => { td.update_via(ctx, |d, c| d.stop(c)); ctx.remove_class("started"); }
+            Some("start") => { td.update_via(ctx, |d, _| d.start()); ctx.add_class("started"); }
+            Some("stop") => { td.update_via(ctx, |d, _| d.stop()); ctx.remove_class("started"); }
             Some("reset") => td.update_via(ctx, |d, c| d.reset(c)),
             _ => {}
         }
