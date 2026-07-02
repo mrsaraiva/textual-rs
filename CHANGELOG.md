@@ -9,6 +9,21 @@ until the API stabilizes.
 
 ### Runtime fixes
 
+- **`:focus-within` background-tint is now applied during render** — the render
+  pipeline never installed the `:focus-within` node set, so rules like
+  `Collapsible:focus-within { background-tint: $foreground 5% }` (also on
+  `RadioSet`, `OptionList`, `Select`, `Tree`, `DataTable`, `ListView`, checkbox,
+  input) silently resolved to nothing and focused container surfaces stayed the
+  untinted `$surface` instead of Python's tinted `$surface + $foreground 5%`
+  (`#1e1e1e` vs `#272727`). The tree render path (`render_tree_composed` and the
+  test harness `render_tree_to_frame`) now computes the focused node plus its
+  ancestor chain (`routing::focus_within_ids_tree`) and installs it via
+  `set_focus_within` before style resolution, matching Python's `:focus-within`
+  semantics (a node matches if it or a descendant holds focus). Cuts the focused
+  `collapsible` surface colour residual from ~350 cells to the separate
+  `CollapsibleTitle:focus` background gap. Regression test:
+  `tests/focus_within_tint.rs`.
+
 - **A runtime CSS class change now re-resolves CSS + relayouts the owning subtree** —
   Python `DOMNode.add_class`/`remove_class` runs `_update_styles()` → `refresh(layout=True)`,
   so a class toggle that flips descendant `display`/`visibility` (or any layout-affecting

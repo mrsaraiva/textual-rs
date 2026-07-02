@@ -22,6 +22,7 @@ pub(crate) use selectors::{
     node_selector_meta, node_selector_meta_from_node, parse_selector_list, pop_style_context,
     push_style_context,
     resolve_node_style, resolve_style, resolve_style_for_meta,
-    selector_meta_component, selector_meta_generic, take_layout_affected_style_changes,
+    selector_meta_component, selector_meta_generic, set_focus_within,
+    take_layout_affected_style_changes,
     with_style_stack,
 };
