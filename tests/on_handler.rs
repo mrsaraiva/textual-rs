@@ -1,6 +1,6 @@
 //! Integration tests for the `#[on(MessageType)]` attribute macro.
 
-use textual::event::EventCtx;
+use textual::event::{EventCtx, WidgetCtx};
 use textual::message::{ButtonPressed, CheckboxChanged, MessageEvent};
 use textual::node_id::node_id_from_ffi;
 use textual::on;
@@ -26,21 +26,21 @@ impl MyApp {
 
     // Type-only handler: matches any ButtonPressed message.
     #[on(ButtonPressed)]
-    fn handle_button(&mut self, event: &ButtonPressed, ctx: &mut EventCtx) {
+    fn handle_button(&mut self, event: &ButtonPressed, ctx: &mut WidgetCtx) {
         let _ = (event, ctx);
         self.button_count += 1;
     }
 
     // Type-only handler for CheckboxChanged.
     #[on(CheckboxChanged)]
-    fn handle_checkbox(&mut self, event: &CheckboxChanged, ctx: &mut EventCtx) {
+    fn handle_checkbox(&mut self, event: &CheckboxChanged, ctx: &mut WidgetCtx) {
         let _ = ctx;
         self.last_checkbox = Some(event.checked);
     }
 
     // Selector handler: matches ButtonPressed from widget matching "#save".
     #[on(ButtonPressed, selector = "#save")]
-    fn handle_save(&mut self, event: &ButtonPressed, ctx: &mut EventCtx) {
+    fn handle_save(&mut self, event: &ButtonPressed, ctx: &mut WidgetCtx) {
         let _ = (event, ctx);
         self.save_count += 1;
     }
@@ -80,7 +80,8 @@ fn checkbox_event(checked: bool) -> MessageEvent {
 fn dispatch_matches_correct_message_type() {
     let mut app = MyApp::new();
     let event = button_event();
-    let mut ctx = test_ctx();
+    let mut ectx = test_ctx();
+    let mut ctx = WidgetCtx::__from_dispatch(dummy_sender(), &mut ectx);
 
     let matched = app.__on_dispatch_handle_button(&event, &mut ctx);
     assert!(matched);
@@ -91,7 +92,8 @@ fn dispatch_matches_correct_message_type() {
 fn dispatch_ignores_wrong_message_type() {
     let mut app = MyApp::new();
     let event = checkbox_event(true);
-    let mut ctx = test_ctx();
+    let mut ectx = test_ctx();
+    let mut ctx = WidgetCtx::__from_dispatch(dummy_sender(), &mut ectx);
 
     let matched = app.__on_dispatch_handle_button(&event, &mut ctx);
     assert!(!matched);
@@ -102,7 +104,8 @@ fn dispatch_ignores_wrong_message_type() {
 fn dispatch_checkbox_handler() {
     let mut app = MyApp::new();
     let event = checkbox_event(true);
-    let mut ctx = test_ctx();
+    let mut ectx = test_ctx();
+    let mut ctx = WidgetCtx::__from_dispatch(dummy_sender(), &mut ectx);
 
     let matched = app.__on_dispatch_handle_checkbox(&event, &mut ctx);
     assert!(matched);
@@ -113,7 +116,8 @@ fn dispatch_checkbox_handler() {
 fn dispatch_checkbox_ignores_button() {
     let mut app = MyApp::new();
     let event = button_event();
-    let mut ctx = test_ctx();
+    let mut ectx = test_ctx();
+    let mut ctx = WidgetCtx::__from_dispatch(dummy_sender(), &mut ectx);
 
     let matched = app.__on_dispatch_handle_checkbox(&event, &mut ctx);
     assert!(!matched);
@@ -135,7 +139,8 @@ fn selector_dispatch_matches_message_type() {
             button_id: None,
         },
     );
-    let mut ctx = test_ctx();
+    let mut ectx = test_ctx();
+    let mut ctx = WidgetCtx::__from_dispatch(dummy_sender(), &mut ectx);
 
     let matched = app.__on_dispatch_handle_save(&event, &mut ctx);
     assert!(matched);
@@ -147,7 +152,8 @@ fn selector_dispatch_ignores_wrong_type() {
     let mut app = MyApp::new();
     let sender = node_id_from_ffi(42);
     let event = MessageEvent::new(sender, CheckboxChanged { checked: false });
-    let mut ctx = test_ctx();
+    let mut ectx = test_ctx();
+    let mut ctx = WidgetCtx::__from_dispatch(dummy_sender(), &mut ectx);
 
     let matched = app.__on_dispatch_handle_save(&event, &mut ctx);
     assert!(!matched);
@@ -167,7 +173,8 @@ fn selector_const_is_generated() {
 fn multiple_dispatches_accumulate() {
     let mut app = MyApp::new();
     let event = button_event();
-    let mut ctx = test_ctx();
+    let mut ectx = test_ctx();
+    let mut ctx = WidgetCtx::__from_dispatch(dummy_sender(), &mut ectx);
 
     app.__on_dispatch_handle_button(&event, &mut ctx);
     app.__on_dispatch_handle_button(&event, &mut ctx);

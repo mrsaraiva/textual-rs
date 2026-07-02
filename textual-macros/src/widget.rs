@@ -89,6 +89,11 @@ struct WidgetArgs {
     reactive: bool,
     /// Methods the user overrides via an inherent method.
     overrides: Vec<Ident>,
+    /// `#[on(..)]` handler method names to wire into the generated `on_message`
+    /// (e.g. `on(on_button, on_checkbox)`). The generated `on_message` calls each
+    /// `__on_dispatch_<name>` with a materialized `WidgetCtx` before forwarding to
+    /// the base. Empty = keep the plain forward-to-base `on_message`.
+    on_handlers: Vec<Ident>,
 }
 
 impl Parse for WidgetArgs {
@@ -98,6 +103,7 @@ impl Parse for WidgetArgs {
         let mut style_type: Option<String> = None;
         let mut reactive = false;
         let mut overrides: Vec<Ident> = Vec::new();
+        let mut on_handlers: Vec<Ident> = Vec::new();
 
         while !input.is_empty() {
             // `override` is a reserved keyword, so it does not parse as an
@@ -115,6 +121,18 @@ impl Parse for WidgetArgs {
             }
 
             let key: Ident = input.parse()?;
+            // `on(handler1, handler2)` — list of `#[on(..)]` handler methods to
+            // wire into the generated `on_message`.
+            if key == "on" {
+                let content;
+                syn::parenthesized!(content in input);
+                let names = Punctuated::<Ident, Token![,]>::parse_terminated(&content)?;
+                on_handlers.extend(names);
+                if input.peek(Token![,]) {
+                    input.parse::<Token![,]>()?;
+                }
+                continue;
+            }
             match key.to_string().as_str() {
                 "base" => {
                     input.parse::<Token![=]>()?;
@@ -148,7 +166,7 @@ impl Parse for WidgetArgs {
                         &key,
                         format!(
                             "unknown `#[widget]` argument `{other}`; expected one of: \
-                             base, field, style_type, reactive, override(..)"
+                             base, field, style_type, reactive, override(..), on(..)"
                         ),
                     ));
                 }
@@ -172,6 +190,7 @@ impl Parse for WidgetArgs {
             style_type,
             reactive,
             overrides,
+            on_handlers,
         })
     }
 }
@@ -549,6 +568,17 @@ pub fn widget_impl(attr: TokenStream, item: TokenStream) -> TokenStream {
     let overrides: std::collections::HashSet<String> =
         args.overrides.iter().map(|i| i.to_string()).collect();
 
+    // `on(..)` wires the generated `on_message`; `override(on_message)` replaces
+    // it. Both at once is contradictory.
+    if !args.on_handlers.is_empty() && overrides.contains("on_message") {
+        return syn::Error::new_spanned(
+            &args.on_handlers[0],
+            "`on(..)` cannot be combined with `override(on_message)`; the override \
+             replaces the generated `on_message` that `on(..)` would wire",
+        )
+        .to_compile_error();
+    }
+
     // Validate the target field exists on the struct.
     let field_exists = item_struct.fields.iter().any(|f| {
         f.ident
@@ -578,6 +608,40 @@ pub fn widget_impl(attr: TokenStream, item: TokenStream) -> TokenStream {
             methods.push(quote! {
                 fn reactive_widget(&mut self) -> Option<&mut dyn textual::reactive::ReactiveWidget> {
                     Some(self)
+                }
+            });
+            continue;
+        }
+
+        // `on_message` with an `on(..)` handler list: run the widget's own
+        // `#[on(..)]` handlers (with a WidgetCtx materialized over the REAL
+        // dispatch EventCtx so handler-posted messages route normally), enqueue
+        // any reactive changes, THEN forward to the base for propagation.
+        if spec.name == "on_message" && !args.on_handlers.is_empty() && !overridden {
+            let dispatch_calls: Vec<TokenStream> = args
+                .on_handlers
+                .iter()
+                .map(|h| {
+                    let dispatch = format_ident!("__on_dispatch_{}", h);
+                    quote! { let _ = self.#dispatch(message, &mut __wctx); }
+                })
+                .collect();
+            methods.push(quote! {
+                fn on_message(
+                    &mut self,
+                    message: &textual::message::MessageEvent,
+                    ctx: &mut textual::event::EventCtx,
+                ) {
+                    {
+                        let __node = ctx.node_id();
+                        let mut __wctx =
+                            textual::event::WidgetCtx::__from_dispatch(__node, &mut *ctx);
+                        #(#dispatch_calls)*
+                        __wctx.__enqueue_reactive_if_dirty();
+                    }
+                    // Propagate to the base (children) exactly as the plain
+                    // forwarding row would.
+                    self.#field.on_message(message, ctx);
                 }
             });
             continue;
@@ -642,6 +706,37 @@ mod tests {
         assert!(args.reactive);
         let ov: Vec<String> = args.overrides.iter().map(|i| i.to_string()).collect();
         assert_eq!(ov, vec!["render".to_string(), "on_message".to_string()]);
+    }
+
+    #[test]
+    fn parse_on_handler_list() {
+        let args: WidgetArgs =
+            parse2(quote! { base = Vertical, on(on_button, on_checkbox) }).unwrap();
+        let on: Vec<String> = args.on_handlers.iter().map(|i| i.to_string()).collect();
+        assert_eq!(on, vec!["on_button".to_string(), "on_checkbox".to_string()]);
+    }
+
+    #[test]
+    fn on_message_glue_emitted_for_on_list() {
+        let out = widget_impl(
+            quote! { base = Vertical, on(on_button) },
+            quote! { struct W { base: Vertical } },
+        )
+        .to_string();
+        // Generated on_message calls the dispatch method with a materialized ctx.
+        assert!(out.contains("__on_dispatch_on_button"));
+        assert!(out.contains("__from_dispatch"));
+        assert!(out.contains("__enqueue_reactive_if_dirty"));
+    }
+
+    #[test]
+    fn on_list_with_override_on_message_is_an_error() {
+        let out = widget_impl(
+            quote! { base = Vertical, on(on_button), override(on_message) },
+            quote! { struct W { base: Vertical } },
+        )
+        .to_string();
+        assert!(out.contains("cannot be combined"));
     }
 
     #[test]

@@ -1093,6 +1093,35 @@ impl<'a> WidgetCtx<'a> {
         self.reactive
     }
 
+    /// Construct a `WidgetCtx` over a live dispatch `EventCtx`. **Macro use only**
+    /// — the `#[widget(base=.., on(..))]`-generated `Widget::on_message` calls
+    /// this to materialize the handler context around the REAL dispatch ctx.
+    /// Hidden from docs; do not call by hand (handlers receive a `WidgetCtx`).
+    #[doc(hidden)]
+    pub fn __from_dispatch(node_id: NodeId, event_ctx: &'a mut EventCtx) -> Self {
+        Self::new(node_id, event_ctx)
+    }
+
+    /// If this context recorded any reactive changes/flags, enqueue them so the
+    /// shared post-dispatch flush dispatches the node's `watch_*`. **Macro use
+    /// only** — called at the end of the generated `on_message` glue after the
+    /// `#[on]` handlers run. Hidden from docs.
+    #[doc(hidden)]
+    pub fn __enqueue_reactive_if_dirty(self) {
+        let node = self.node_id;
+        let reactive = self.reactive;
+        if reactive.has_changes()
+            || reactive.needs_repaint()
+            || reactive.needs_layout()
+            || reactive.needs_recompose()
+            || reactive.needs_styles()
+        {
+            crate::reactive::enqueue_runtime_reactive_entry(
+                crate::reactive::RuntimeReactiveEntry::new(node, reactive),
+            );
+        }
+    }
+
     /// The arena-assigned identity of this widget.
     #[inline]
     pub fn node_id(&self) -> NodeId {

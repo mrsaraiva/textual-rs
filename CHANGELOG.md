@@ -9,6 +9,22 @@ until the API stabilizes.
 
 ### Framework fundamentals
 
+- **`#[on(..)]` handlers now receive `&mut WidgetCtx` and are wired into
+  `Widget::on_message`** (WidgetCtx build, step 3) — the `#[on(MessageType)]`
+  attribute's generated `__on_dispatch_*` dispatcher now takes `&mut WidgetCtx`
+  (was `&mut EventCtx`), so a typed message handler can mutate reactive state
+  through the same context that flows into the shared flush. The
+  `#[widget(base = <C>, on(handler1, handler2))]` delegation derive gained an
+  `on(..)` list: the generated `Widget::on_message` materializes a `WidgetCtx`
+  over the REAL dispatch `EventCtx` (so handler-posted messages route normally),
+  calls each named `#[on]` dispatcher, enqueues any reactive changes, then forwards
+  to the base for propagation. A composed widget can now handle its child's
+  message (e.g. `#[on(ButtonPressed)]`) with NO hand-written `on_message`. `on(..)`
+  and `override(on_message)` are mutually exclusive (compile error). Selector-form
+  `#[on(.., selector = "..")]` remains deferred (the const is emitted but not yet
+  matched). Migration: `#[on]` handler methods change their `ctx` parameter from
+  `&mut EventCtx` to `&mut WidgetCtx`.
+
 - **Deferred widget-command queue + shared post-dispatch flush** (WidgetCtx
   build, step 1) — handlers run while the runtime holds a live `&mut` borrow of
   the widget tree, so a handler cannot mutate a different node (or its own DOM
