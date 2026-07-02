@@ -2104,7 +2104,6 @@ fn parity_actions02_red_bg() {
 /// actions03: a Static with `@click` markup links (Red/Green/Blue). Click the
 /// "Red" link; the screen bg turns red.
 #[test]
-#[ignore = "BUG (leading-newline glyph shift FIXED: the demo TEXT is now the Python-faithful leading+trailing-newline string instead of the `\\`-continuation workaround; the framework already renders leading blank lines, so glyph parity is now 0). RESIDUAL (out of this root's text.rs/placeholder.rs scope): 31 colour cells — clicking `Red` sets the SCREEN background red AFTER first paint, and Rust bakes that LIVE ancestor background into the transparent Static's text (bg #ff0000) while Python bakes the CACHED visual_style background (#121212 — the ancestor composite at first render; Python's `visual_style` is keyed on the widget's OWN style key, so a later ancestor-bg change is not re-baked into child text). Root: render-time live vs cached ancestor-background composition (runtime/composition layer); reproducing it risks the documented live-composition invariant."]
 fn parity_actions03_click_red() {
     let script = [Step::Click(0, 2), Step::Wait(300)];
     let (rf, pf) = cat_both("actions03", "guide/actions", &script, 400);
@@ -2113,7 +2112,6 @@ fn parity_actions03_click_red() {
 
 /// actions04: same markup links plus r/g/b key bindings. Press `r`.
 #[test]
-#[ignore = "BUG (leading-newline glyph shift FIXED: demo TEXT restored to the Python-faithful leading+trailing-newline string; framework already renders leading blanks, so glyph parity is now 0). RESIDUAL (out of text.rs/placeholder.rs scope): 31 colour cells — pressing `r` sets the SCREEN background red AFTER first paint; Rust bakes the LIVE ancestor bg (#ff0000) into the transparent Static's text while Python bakes the CACHED visual_style bg (#121212, the first-render ancestor composite). Root: render-time live vs cached ancestor-background composition (runtime/composition, not text.rs)."]
 fn parity_actions04_red_bg() {
     let script = [Step::SendKeys("r"), Step::Wait(300)];
     let (rf, pf) = cat_both("actions04", "guide/actions", &script, 400);
@@ -2123,7 +2121,7 @@ fn parity_actions04_red_bg() {
 /// actions05: two ColorSwitcher widgets + r/g/b app bindings. Press `r` (sets
 /// the screen bg red behind both switchers).
 #[test]
-#[ignore = "BUG (leading-newline shift FIXED in demo TEXT). MULTIPLE residual roots, all outside text.rs/placeholder.rs: (1) the Rust demo composes an extra `Footer` that Python's actions05 has NOT — Python yields only two ColorSwitchers (the `r Red g Green b Blue` footer row + its #242f38 band are Rust-only); (2) the second ColorSwitcher shows a cumulative 1-row layout shift; (3) the same live-vs-cached ancestor-background composition as actions03/04 (Rust bakes the live red screen bg into transparent ColorSwitcher text, Python keeps the cached #121212). Fixes belong in the demo (drop Footer) + layout + runtime composition, not this root's scope."]
+#[ignore = "BUG. The live-vs-cached GLYPH composition of actions03/04 is FIXED (render.rs frozen-ancestor-bg re-keys the ColorSwitcher text back to #121212). Residual roots are OUT of render.rs scope: (1) the Rust demo composes an extra `Footer` that Python's actions05 has NOT — Python yields only two ColorSwitchers (the `r Red g Green b Blue` footer row + its #242f38 band are Rust-only, ~80 glyph diffs on rows 18-22/29); (2) the second ColorSwitcher shows a cumulative 1-row layout shift; (3) `height: 100%` makes each ColorSwitcher taller than its text, so Python fills the VERTICAL-EXTEND rows with the cached `visual_style` (#121212) while Rust fills them from the LIVE `background_colors` (red) — that split lives in the widget content-fill path (widgets/core.rs `vfill_style`), not the transparent-glyph composite this root owns. Fixes belong in the demo (drop Footer) + layout + the widget vertical-extend fill."]
 fn parity_actions05_red_bg() {
     let script = [Step::SendKeys("r"), Step::Wait(300)];
     let (rf, pf) = cat_both("actions05", "guide/actions", &script, 400);
