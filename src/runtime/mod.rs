@@ -2491,7 +2491,8 @@ impl App {
         // widget struct (e.g. MarkdownViewer.toc_class_pending). These are ops the
         // widget cannot apply itself because it has no EventCtx reference.
         let pending = node.widget.drain_pending_class_ops();
-        if !pending.is_empty() {
+        let class_changed = !pending.is_empty();
+        if class_changed {
             for (class, add) in pending {
                 if add {
                     tree.add_class(node_id, &class);
@@ -2509,6 +2510,14 @@ impl App {
             if let Some(writethrough) = node.widget.take_inline_style_writethrough() {
                 node.styles.style = node.styles.style.combine(&writethrough);
             }
+        }
+        // A runtime class change can flip descendant `display`/`visibility` and
+        // other layout-affecting CSS. Force a relayout on the next loop iteration
+        // so the affected subtree re-resolves CSS + re-arranges (Python
+        // `add_class`/`remove_class` -> `refresh(layout=True)`). Set after the
+        // `tree` borrow ends to avoid aliasing `self`.
+        if class_changed {
+            self.pending_force_relayout = true;
         }
         Some(result)
     }

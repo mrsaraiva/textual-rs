@@ -3171,6 +3171,43 @@ fn hide_host_scrollbar_children_for_flow_layout(tree: &mut WidgetTree) {
     }
 }
 
+/// Keep every `Collapsible`'s title child in sync with the parent's `collapsed`
+/// state so the rendered ▼/▶ symbol is correct after a runtime toggle.
+///
+/// The `CollapsibleTitle` is a separate arena node that renders its glyph from
+/// its own `collapsed` field. Python keeps them in sync via
+/// `Collapsible._update_collapsed` (`self._title.collapsed = collapsed`); in the
+/// arena the parent no longer owns the child post-mount, so the runtime performs
+/// the same propagation here — idempotent and driven from the Collapsible's own
+/// state (not a runtime-only source of truth).
+fn sync_collapsible_titles(tree: &mut WidgetTree) {
+    let Some(root) = tree.root() else {
+        return;
+    };
+    for node_id in tree.walk_depth_first(root) {
+        let collapsed = match tree.get(node_id) {
+            Some(node) => {
+                let any = node.widget.as_ref() as &dyn std::any::Any;
+                match any.downcast_ref::<crate::widgets::Collapsible>() {
+                    Some(collapsible) => collapsible.is_collapsed(),
+                    None => continue,
+                }
+            }
+            None => continue,
+        };
+        // The CollapsibleTitle is the Collapsible's first composed child.
+        let Some(&title_id) = tree.children(node_id).first() else {
+            continue;
+        };
+        if let Some(title_node) = tree.get_mut(title_id) {
+            let any = title_node.widget.as_mut() as &mut dyn std::any::Any;
+            if let Some(title) = any.downcast_mut::<crate::widgets::CollapsibleTitle>() {
+                title.set_collapsed(collapsed);
+            }
+        }
+    }
+}
+
 /// Run the CSS-layout pass on the widget tree.
 ///
 /// Sets the root node's `layout_rect`/`content_rect` to the full viewport,
@@ -3191,6 +3228,12 @@ pub fn run_layout_pass(tree: &mut WidgetTree, viewport: (u16, u16)) {
     // is auto/scroll (must precede display sync + flow layout so the new nodes
     // are visible to the rest of the pass).
     ensure_container_scrollbar_lanes(tree);
+
+    // Propagate each Collapsible's `collapsed` state to its title child so the
+    // rendered ▼/▶ symbol tracks the parent (Python `Collapsible._update_collapsed`
+    // -> `self._title.collapsed = collapsed`). Runs before the display sync so a
+    // runtime toggle repaints the correct glyph in the same relayout pass.
+    sync_collapsible_titles(tree);
 
     // Sync CSS display/visibility values to WidgetNode fields before layout.
     crate::css::apply_display_visibility_to_tree(tree);
@@ -4431,6 +4474,65 @@ Parent.show > Child { display: block; }
         assert!(
             tree.get(child_id).expect("child exists").display,
             "child should become visible when parent class toggles matching rule"
+        );
+    }
+
+    #[test]
+    fn run_layout_pass_syncs_collapsible_title_symbol() {
+        use crate::widget_tree::WidgetTree;
+        use crate::widgets::{AppRoot, Collapsible, Widget};
+
+        let _guard = crate::css::set_style_context(crate::css::default_widget_stylesheet());
+
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(Box::new(AppRoot::new()));
+
+        // Mount an expanded Collapsible + its composed children (title + contents).
+        let mut collapsible = Collapsible::new("Section").collapsed(false);
+        let children = collapsible.take_composed_children();
+        let collapsible_id = tree.mount(root, Box::new(collapsible));
+        for child in children {
+            tree.mount(collapsible_id, child);
+        }
+
+        let title_id = *tree
+            .children(collapsible_id)
+            .first()
+            .expect("collapsible has a title child");
+
+        let title_symbol = |tree: &WidgetTree, id| -> String {
+            let node = tree.get(id).expect("title node exists");
+            let console = rich_rs::Console::new();
+            let mut opts = rich_rs::ConsoleOptions::default();
+            opts.size = (20, 1);
+            opts.max_width = 20;
+            opts.max_height = 1;
+            Widget::render(node.widget.as_ref(), &console, &opts)
+                .iter()
+                .map(|s| s.text.to_string())
+                .collect::<String>()
+        };
+
+        // Expanded: layout sync leaves the expanded (▼) symbol on the title.
+        run_layout_pass(&mut tree, (80, 24));
+        assert!(
+            title_symbol(&tree, title_id).contains('\u{25bc}'),
+            "expanded Collapsible title should render the ▼ symbol"
+        );
+
+        // Toggle the parent to collapsed; the title child must follow (▶) after
+        // the next layout pass, mirroring Python `_update_collapsed`.
+        {
+            let node = tree.get_mut(collapsible_id).expect("collapsible node exists");
+            let any = node.widget.as_mut() as &mut dyn std::any::Any;
+            any.downcast_mut::<Collapsible>()
+                .expect("node is a Collapsible")
+                .toggle();
+        }
+        run_layout_pass(&mut tree, (80, 24));
+        assert!(
+            title_symbol(&tree, title_id).contains('\u{25b6}'),
+            "collapsed Collapsible title should render the ▶ symbol after relayout"
         );
     }
 

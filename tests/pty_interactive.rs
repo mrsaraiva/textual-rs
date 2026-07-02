@@ -1189,7 +1189,7 @@ fn parity_radio_set_changed() {
 
 /// collapsible: press 'e' to expand all, then 'c' to collapse all.
 #[test]
-#[ignore = "BUG: after expand-all('e') then collapse-all('c') Rust stays expanded (▼) while Python collapses (▶) — action_collapse_or_expand / `collapsed` reactive not applied. 2 glyph + surface tint cells."]
+#[ignore = "GLYPH PARITY (class-state root FIXED in pc2-classstate): after expand-all('e')/collapse-all('c') the ▼/▶ symbol + body display now match Python exactly (glyph_diffs=0). Residual is colour-only: the focused Collapsible's `&:focus-within { background-tint: $foreground 5% }` surface (#272727 py vs #1e1e1e rust) is not applied by Rust — owned by the focus-tint root (pc2-focustint), out of this root's allowed files."]
 fn parity_collapsible_expand_collapse() {
     let script = [
         Step::Key(Key::Char('e')),
@@ -1203,7 +1203,7 @@ fn parity_collapsible_expand_collapse() {
 
 /// collapsible_nested: Enter on the focused (outer) collapsible toggles it.
 #[test]
-#[ignore = "BUG: Enter on the focused Collapsible does not toggle it — Python collapses (▶), Rust stays expanded (▼). 1 glyph + surface tint cells."]
+#[ignore = "GLYPH PARITY (class-state root FIXED in pc2-classstate): Enter on the focused Collapsible now toggles it — the ▼/▶ symbol + body display match Python (glyph_diffs=0). Residual is colour-only: the `&:focus-within { background-tint: $foreground 5% }` surface (#272727 py vs #1e1e1e rust) is not applied by Rust — owned by the focus-tint root (pc2-focustint), out of this root's allowed files."]
 fn parity_collapsible_nested_toggle() {
     let script = [Step::Key(Key::Enter), Step::Wait(250)];
     let (rf, pf) = widgets_both("collapsible_nested", &script, 400);
@@ -1213,7 +1213,7 @@ fn parity_collapsible_nested_toggle() {
 /// collapsible_custom_symbol: static after compose; assert initial parity (the
 /// custom >>> / v symbols and one expanded/one collapsed panel).
 #[test]
-#[ignore = "BUG: Collapsible header/title surface colour differs from Python (180 cells, fg/bg tint on the custom-symbol header band)."]
+#[ignore = "GLYPH PARITY (class-state root FIXED in pc2-classstate): the custom >>>/v symbols + one-expanded/one-collapsed layout match Python (glyph_diffs=0). Residual is colour-only: the focused Collapsible's `&:focus-within { background-tint: $foreground 5% }` surface (#272727 py vs #1e1e1e rust) is not applied by Rust — owned by the focus-tint root (pc2-focustint), out of this root's allowed files."]
 fn parity_collapsible_custom_symbol() {
     let script = [Step::Wait(250)];
     let (rf, pf) = widgets_both("collapsible_custom_symbol", &script, 400);
@@ -1616,7 +1616,7 @@ fn parity_stopwatch03_layout() {
 /// stopwatch04: clicking the first Start button adds the `started` class
 /// (purely a styling change — no clock yet). Click Start, compare.
 #[test]
-#[ignore = "BUG: clicking Start should add the `.started` class whose CSS hides #start/#reset (`display:none`, `visibility:hidden`) and shows #stop (`display:block`). Python correctly shows only \"Stop\"; Rust still shows \"Start\" AND \"Reset\" (started-state descendant CSS toggles not applied). 42 glyph + 188 colour cells. Root: `.started #start/#stop/#reset` display/visibility class-state CSS not reflected after add_class."]
+#[ignore = "GLYPH PARITY (class-state root FIXED in pc2-classstate): clicking Start now adds `.started`, whose `.started #start { display:none }` / `.started #stop { display:block }` / `.started #reset { visibility:hidden }` descendant CSS is re-resolved + relaid-out. Python and Rust now both show only \"Stop\" (glyph_diffs=0). Residual is colour-only: the revealed error `#stop` button surface rounds #b93c5b (rust) vs #ba4461 (py) — the Color.a u8-vs-float blend keystone, out of this root's allowed files."]
 fn parity_stopwatch04_start_class() {
     let script = [Step::Click(8, 4), Step::Wait(300)];
     let (rf, pf) = cat_both("stopwatch04", "tutorial", &script, 400);
