@@ -10,6 +10,19 @@ use crate::message::*;
 use super::{NodeSeed, Widget};
 use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
 
+/// Internal message posted by a focused/clicked [`CollapsibleTitle`] asking its
+/// parent [`Collapsible`] to toggle.
+///
+/// Mirrors Python `_collapsible.CollapsibleTitle.Toggle`: the title is the
+/// focusable node and, on `enter`/click, posts a `Toggle` message that bubbles
+/// to the enclosing `Collapsible`, which flips its `collapsed` state. Keeping
+/// the toggle on the title (rather than the container) is what makes `:focus`
+/// land on the title so its `&:focus { background: $block-cursor-background }`
+/// rule applies (Python parity for the focused header surface).
+#[derive(Debug, Clone)]
+struct CollapsibleTitleToggle;
+crate::impl_message!(CollapsibleTitleToggle);
+
 /// Tag a segment with `textual:no_text_style = true` so `apply_style_to_segments`
 /// skips re-applying CSS text attributes that have already been baked in by
 /// `Content::render_strips`.
@@ -117,6 +130,38 @@ impl Widget for CollapsibleTitle {
 
     fn is_active(&self) -> bool {
         self.pressed && self.hovered
+    }
+
+    /// The title is the focusable node (Python `CollapsibleTitle`), so it owns
+    /// the toggle interaction: `enter` while focused, or a click, posts a
+    /// [`CollapsibleTitleToggle`] that bubbles to the parent `Collapsible`.
+    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        match event {
+            Event::MouseDown(mouse) if mouse.target == self.node_id() => {
+                self.pressed = true;
+                ctx.request_repaint();
+                ctx.set_handled();
+            }
+            Event::MouseUp(mouse) if self.pressed => {
+                self.pressed = false;
+                ctx.request_repaint();
+                if mouse.target.is_some_and(|t| t == self.node_id()) {
+                    ctx.post_message(CollapsibleTitleToggle);
+                }
+                ctx.set_handled();
+            }
+            Event::AppFocus(false) if self.pressed => {
+                self.pressed = false;
+                ctx.request_repaint();
+            }
+            Event::Key(key) if self.focused => {
+                if matches!(key.code, KeyCode::Enter | KeyCode::Char(' ')) {
+                    ctx.post_message(CollapsibleTitleToggle);
+                    ctx.set_handled();
+                }
+            }
+            _ => {}
+        }
     }
 
     fn style_type(&self) -> &'static str {
@@ -311,7 +356,6 @@ pub struct Collapsible {
     collapsed_symbol: String,
     expanded_symbol: String,
     collapsed: bool,
-    focused: bool,
     hovered: bool,
     pressed: bool,
     children: Vec<Box<dyn Widget>>,
@@ -336,7 +380,6 @@ impl Collapsible {
             collapsed_symbol: "\u{25b6}".to_string(),
             expanded_symbol: "\u{25bc}".to_string(),
             collapsed: true,
-            focused: false,
             hovered: false,
             pressed: false,
             children: Vec::new(),
@@ -496,16 +539,18 @@ impl Widget for Collapsible {
         ]
     }
 
-    fn focusable(&self) -> bool {
-        true
-    }
+    // NOTE: `Collapsible` is intentionally NOT focusable (Python parity —
+    // `class Collapsible(Widget)` has `can_focus=False`). The focusable node is
+    // the child `CollapsibleTitle`, so `:focus` lands on the title and its
+    // `&:focus { background: $block-cursor-background }` rule applies to the
+    // header surface. `can_focus_children()` (default `true`) still lets focus
+    // traversal descend into the title.
 
     fn on_node_state_changed(
         &mut self,
         _old: crate::widgets::NodeState,
         new: crate::widgets::NodeState,
     ) {
-        self.focused = new.focused;
         self.hovered = new.hovered;
     }
 
@@ -563,33 +608,15 @@ impl Widget for Collapsible {
         out
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
-        match event {
-            Event::MouseDown(mouse) if mouse.target == self.node_id()
-                && mouse.y == 0 => {
-                    self.pressed = true;
-                    ctx.request_repaint();
-                    ctx.set_handled();
-                }
-            Event::MouseUp(mouse)
-                if self.pressed => {
-                    self.pressed = false;
-                    ctx.request_repaint();
-                    if mouse.target.is_some_and(|t| t == self.node_id()) && mouse.y == 0 {
-                        self.toggle_with_ctx(ctx);
-                    }
-                }
-            Event::AppFocus(false)
-                if self.pressed => {
-                    self.pressed = false;
-                    ctx.request_repaint();
-                }
-            Event::Key(key) if self.focused => {
-                if matches!(key.code, KeyCode::Enter | KeyCode::Char(' ')) {
-                    self.toggle_with_ctx(ctx);
-                }
-            }
-            _ => {}
+    /// Handle the toggle request bubbled up from our `CollapsibleTitle`.
+    ///
+    /// Mirrors Python `Collapsible._on_collapsible_title_toggle`: the title
+    /// (the focusable node) posts a toggle message on `enter`/click, and the
+    /// enclosing `Collapsible` flips its `collapsed` state and stops
+    /// propagation (so a nested outer `Collapsible` is not also toggled).
+    fn on_message(&mut self, message: &crate::message::MessageEvent, ctx: &mut EventCtx) {
+        if message.is::<CollapsibleTitleToggle>() {
+            self.toggle_with_ctx(ctx);
         }
     }
 
@@ -809,17 +836,67 @@ mod tests {
     }
 
     #[test]
-    fn collapsible_focus_syncs_state() {
-        use crate::widgets::NodeState;
-        let mut c = Collapsible::new("Section");
-        assert!(!c.focused);
-        c.on_node_state_changed(
-            NodeState::default(),
-            NodeState {
+    fn collapsible_is_not_focusable_title_is() {
+        // Python parity: `Collapsible` (a plain `Widget`) is not focusable; the
+        // focusable node is the child `CollapsibleTitle`, so `:focus` lands on
+        // the title and lightens the header surface.
+        let c = Collapsible::new("Section");
+        assert!(!c.focusable(), "Collapsible must not be focusable");
+        assert!(c.can_focus_children(), "focus must descend into the title");
+        let title = CollapsibleTitle::new("Section", "\u{25b6}", "\u{25bc}", true);
+        assert!(title.focusable(), "CollapsibleTitle must be focusable");
+    }
+
+    #[test]
+    fn collapsible_title_enter_posts_toggle_when_focused() {
+        use crate::event::{Event, EventCtx};
+        use crate::keys::KeyEventData;
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+        let mut title = CollapsibleTitle::new("Section", "\u{25b6}", "\u{25bc}", true);
+        title.on_node_state_changed(
+            crate::widgets::NodeState::default(),
+            crate::widgets::NodeState {
                 focused: true,
                 ..Default::default()
             },
         );
-        assert!(c.focused);
+        let mut ctx = EventCtx::default();
+        let key = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()));
+        title.on_event(&Event::Key(key), &mut ctx);
+        let messages = ctx.take_messages();
+        assert_eq!(messages.len(), 1, "focused title must post one toggle message");
+        assert!(messages[0].is::<CollapsibleTitleToggle>());
+    }
+
+    #[test]
+    fn collapsible_title_enter_ignored_when_blurred() {
+        use crate::event::{Event, EventCtx};
+        use crate::keys::KeyEventData;
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+        let mut title = CollapsibleTitle::new("Section", "\u{25b6}", "\u{25bc}", true);
+        let mut ctx = EventCtx::default();
+        let key = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()));
+        title.on_event(&Event::Key(key), &mut ctx);
+        assert!(
+            ctx.take_messages().is_empty(),
+            "an unfocused title must not post a toggle message"
+        );
+    }
+
+    #[test]
+    fn collapsible_toggles_on_title_message() {
+        use crate::event::EventCtx;
+        use crate::message::MessageEvent;
+
+        let mut c = Collapsible::new("Section");
+        assert!(c.is_collapsed());
+        let mut ctx = EventCtx::default();
+        let sender = crate::node_id::node_id_from_ffi(1);
+        let msg = MessageEvent::new(sender, CollapsibleTitleToggle);
+        c.on_message(&msg, &mut ctx);
+        assert!(!c.is_collapsed(), "toggle message must flip collapsed state");
+        assert!(ctx.handled(), "handling the toggle must stop propagation");
     }
 }

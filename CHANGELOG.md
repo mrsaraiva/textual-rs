@@ -9,6 +9,23 @@ until the API stabilizes.
 
 ### Runtime fixes
 
+- **`Collapsible` focus now lands on the `CollapsibleTitle`, not the container** —
+  Python's `CollapsibleTitle` is the focusable node (`can_focus=True`), while
+  `Collapsible` itself is a plain `Widget` (not focusable); it toggles when the
+  focused/clicked title posts its `Toggle` message. Rust had made the
+  `Collapsible` container focusable and handled `enter`/mouse there, so `:focus`
+  landed on the container and the title's `&:focus { background:
+  $block-cursor-background; color: $block-cursor-foreground }` rule never
+  applied — the focused header stayed the `:focus-within`-tinted `$surface`
+  (`#272727`) instead of Python's block-cursor blue (`bg #0178d4` / `fg
+  #ddedf9`). `Collapsible` is now non-focusable (focus descends into the title
+  via the default `can_focus_children`), the `CollapsibleTitle` handles `enter`
+  (while focused) and clicks by posting an internal toggle message, and the
+  parent `Collapsible` flips `collapsed` on that message (stopping propagation so
+  a nested outer collapsible is not also toggled). Makes `collapsible`,
+  `collapsible_nested`, and `collapsible_custom_symbol` glyph- and colour-exact
+  vs Python (the previous `:focus-within` residual of ~10 cells is now zero).
+
 - **`:focus-within` background-tint is now applied during render** — the render
   pipeline never installed the `:focus-within` node set, so rules like
   `Collapsible:focus-within { background-tint: $foreground 5% }` (also on
