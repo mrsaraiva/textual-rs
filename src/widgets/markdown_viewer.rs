@@ -939,7 +939,7 @@ mod tests {
     fn markdown_viewer_children_include_scrollbars() {
         // take_composed_children() should return user children + scrollbar widgets.
         let mut viewer = MarkdownViewer::new("# Test");
-        let children = viewer.take_composed_children();
+        let children = viewer.compose();
         // At minimum: Markdown, MarkdownTableOfContents, + scrollbar widgets.
         assert!(
             children.len() >= 2,
@@ -949,7 +949,7 @@ mod tests {
         // First child should be Markdown (or its contents from flattening).
         // Scrollbar widgets should be present.
         let has_scrollbar = children.iter().any(|c| {
-            let st = c.style_type();
+            let st = c.widget().style_type();
             st.contains("Scrollbar") || st.contains("ScrollBar")
         });
         assert!(
@@ -961,13 +961,13 @@ mod tests {
     #[test]
     fn markdown_viewer_composes_focusable_markdown_document_child() {
         let mut viewer = MarkdownViewer::new("# Test");
-        let children = viewer.take_composed_children();
+        let children = viewer.compose();
         let markdown_child = children
             .iter()
-            .find(|child| child.style_type() == "Markdown")
+            .find(|child| child.widget().style_type() == "Markdown")
             .expect("expected Markdown child in MarkdownViewer composition");
         assert!(
-            markdown_child.focusable(),
+            markdown_child.widget().focusable(),
             "MarkdownViewer should compose a focusable Markdown child (Python parity)"
         );
     }
