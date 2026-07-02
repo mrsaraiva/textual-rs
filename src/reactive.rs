@@ -183,6 +183,20 @@ impl ReactiveFlags {
             recompose: true,
         }
     }
+
+    /// Return a copy of these flags with `recompose` cleared.
+    ///
+    /// Used for the init phase: Python's `Reactive._initialize_reactive` fires
+    /// watchers via `_check_watchers` (reactive.py:377) which never triggers a
+    /// refresh/recompose — recompose only happens in `Reactive._set` on an actual
+    /// change (or via `mutate_reactive`). So an init-phase synthetic change for a
+    /// `recompose=True` reactive must NOT recompose the subtree at mount (doing so
+    /// would rebuild the freshly-composed tree and discard auto-focus). The
+    /// watcher still fires and repaint/layout are preserved.
+    pub const fn without_recompose(mut self) -> Self {
+        self.recompose = false;
+        self
+    }
 }
 
 /// Records a single field change during an event dispatch cycle.
@@ -718,6 +732,59 @@ mod tests {
         assert!(!flags.repaint);
         assert!(!flags.layout);
         assert!(!flags.init);
+    }
+
+    #[test]
+    fn without_recompose_clears_only_recompose() {
+        let flags = ReactiveFlags::reactive_recompose();
+        assert!(flags.recompose);
+        let stripped = flags.without_recompose();
+        assert!(!stripped.recompose, "recompose must be cleared");
+        // Repaint/layout/init are preserved so the init watcher still fires and
+        // a first render still happens.
+        assert_eq!(stripped.repaint, flags.repaint);
+        assert_eq!(stripped.layout, flags.layout);
+        assert_eq!(stripped.init, flags.init);
+    }
+
+    /// Regression: an init-phase synthetic change for a `recompose=True` reactive
+    /// must NOT request a recompose (Python's `_initialize_reactive` fires
+    /// watchers via `_check_watchers`, which never recomposes — recompose only
+    /// happens in `_set`/`mutate_reactive`). A mount-time recompose would rebuild
+    /// the freshly-composed subtree and discard auto-focus (set_reactive03).
+    #[test]
+    fn derived_recompose_reactive_does_not_recompose_at_init() {
+        #[derive(crate::Reactive, Default)]
+        struct Model {
+            #[reactive(recompose)]
+            names: Vec<String>,
+        }
+        let model = Model::default();
+        let mut ctx = ReactiveCtx::new(make_node_id());
+        model.reactive_record_init(&mut ctx);
+        // The init change is recorded (so the watcher can run) but must not carry
+        // a recompose request.
+        assert!(ctx.has_changes(), "init still records the field change");
+        assert!(
+            !ctx.needs_recompose(),
+            "init-phase recompose reactive must NOT request a recompose at mount"
+        );
+    }
+
+    /// A real change (via `mutate_*` or the setter) on a recompose reactive still
+    /// requests a recompose — only the init phase is suppressed.
+    #[test]
+    fn derived_recompose_reactive_recomposes_on_mutate() {
+        #[derive(crate::Reactive, Default)]
+        struct Model {
+            #[reactive(recompose)]
+            names: Vec<String>,
+        }
+        let mut model = Model::default();
+        model.names.push("Ada".to_string());
+        let mut ctx = ReactiveCtx::new(make_node_id());
+        model.mutate_names(&mut ctx);
+        assert!(ctx.needs_recompose(), "mutate must request a recompose");
     }
 
     #[test]

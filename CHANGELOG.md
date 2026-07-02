@@ -7,6 +7,22 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### Reactive fixes
+
+- **Reactive init phase no longer recomposes (preserves auto-focus at mount)** — an
+  `#[reactive(recompose)]` field (Python `reactive(default, recompose=True)`) recorded a
+  synthetic init-phase change carrying the `recompose` flag, so the app/widget performed a
+  full recompose *at mount*. That rebuilt the freshly-composed subtree and discarded the
+  auto-focused first widget, so e.g. `set_reactive03` (a recompose list app) never focused
+  its `Input` and typed names went nowhere. Python's `Reactive._initialize_reactive` fires
+  watchers via `_check_watchers` (`reactive.py`), which never refreshes/recomposes —
+  recompose only happens in `Reactive._set` (a real change) or `mutate_reactive`. The init
+  phase now strips the recompose flag (`ReactiveFlags::without_recompose`), so the initial
+  `compose()` is authoritative and auto-focus survives; later setter/`mutate_reactive`
+  changes still recompose. Makes `set_reactive03` glyph-perfect (the appended `Hello, {name}`
+  Label now renders after submit). Widget-level recompose-on-change (refresh03) is
+  unaffected.
+
 ### Styling fixes
 
 - **`background-tint` now tints a widget's BORDER + fill, not just its content** —
