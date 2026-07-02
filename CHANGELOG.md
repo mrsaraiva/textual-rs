@@ -89,6 +89,25 @@ demo to a verified-working state.
 
 ### Fixed
 
+- **Auto-size (`width: auto`/`height: auto`) now honoured for custom leaf widgets
+  that render content directly** — a childless widget with `width: auto`/`height:
+  auto` that reports no intrinsic size (e.g. a `Static`-subclass port rendering
+  text, or a widget rendering a `rich_rs::Table`) previously flex-filled the whole
+  container instead of shrinking to its content. The layout now renders such a leaf
+  to measure its natural content size (mirroring Python
+  `Widget.get_content_width`/`get_content_height`), so the box sizes to
+  content + chrome. Fixes the bordered auto `Name` box in `guide/reactivity/refresh02`
+  (now 12×3, was full-viewport) and un-blocks `align: center middle` on an auto-sized
+  child in `guide/widgets/fizzbuzz01` (the auto table now centers instead of rendering
+  full-size top-left). (Layout-only: `src/layout/common.rs`.)
+- **Explicit percentage width resolves against the margin-adjusted parent (Python
+  parity)** — an explicit `%` width now resolves against `parent_width − horizontal
+  margin` (matching Python `Widget._get_box_model`: `styles_width.resolve(container −
+  margin.totals, …)`), symmetric with the height path which already did this. A
+  `width: 80%; margin: 1` box in a 120-col parent is now `80% of 118`, not `80% of
+  120`, so `align: center middle` centers it exactly instead of one column early
+  (`guide/compound/compound01`). Margin-free widths are unchanged.
+
 - **`how-to/render_compose` gradient rotation is now live under `run_test`** — the
   `Splash` container's gradient angle was derived from wall-clock
   `SystemTime::now()` (`time() * 90`), so the deterministic Pilot clock

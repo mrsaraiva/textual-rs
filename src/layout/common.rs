@@ -503,9 +503,16 @@ pub(crate) fn extract_child_spec(
                 )
             }
         }
+        // Explicit width. Like the height arm above, a percentage resolves against
+        // the space available AFTER this widget's own horizontal margins (Python
+        // `Widget._get_box_model`: `styles_width.resolve(container - margin.totals,
+        // …)`). So `width: 80%; margin: 1` in an 80-col parent is `80% of 78` (=62),
+        // NOT `80% of 80` (=64) — which otherwise centers the box one column early
+        // (compound01). Margin-free widths are unaffected (`parent_width_adj ==
+        // parent_width`).
         _ => scalar_to_edge(
             style.width.as_ref(),
-            parent_width,
+            parent_width_adj,
             parent_width_adj,
             parent_height_adj,
             viewport,
@@ -597,14 +604,15 @@ pub(crate) fn extract_child_spec(
     });
     let frac_width = if box_sizing == BoxSizing::BorderBox && no_h_chrome {
         style.width.as_ref().and_then(|s| {
-            // NOTE: the integer width resolver (`scalar_to_edge` explicit arm)
-            // resolves a `%` width against the UNADJUSTED `parent_width` (the
-            // height path uses the margin-adjusted base). Mirror that here so a
-            // simple `width: 12.5%` produces an exact value whose floor equals the
-            // integer edge (the `.filter()` below would otherwise reject it).
+            // The integer width resolver (`scalar_to_edge` explicit arm) now
+            // resolves a `%` width against the margin-adjusted `parent_width_adj`
+            // (matching Python `container - margin.totals`, symmetric with the
+            // height path). Mirror that base here so a simple `width: 12.5%`
+            // produces an exact value whose floor equals the integer edge (the
+            // `.filter()` below would otherwise reject it).
             resolve_scalar_exact(
                 s,
-                parent_width,
+                parent_width_adj,
                 parent_width_adj,
                 parent_height_adj,
                 viewport.0,
@@ -655,6 +663,71 @@ pub(crate) fn extract_child_spec(
 /// The returned value is PURE CONTENT width/height (chrome added by the caller
 /// via `extract_child_spec`'s `full_h_chrome`/margin handling), so it slots
 /// directly into the `intrinsic_width`/`intrinsic_height` parameters.
+/// Render a childless LEAF widget to measure its natural content size, mirroring
+/// Python `Widget.get_content_width`/`get_content_height` (which render the
+/// widget's `render()` result and measure the produced lines).
+///
+/// Used ONLY for a leaf whose widget reports no `auto_content_width`/
+/// `auto_content_height` hint AND has no arena children — i.e. a custom widget
+/// that draws content directly (e.g. a `Static`-subclass port such as `Counter`/
+/// `ColorButton`/`Name`, or a widget rendering a `rich_rs::Table` like
+/// `FizzBuzz`). Without this a `width: auto`/`height: auto` leaf with no reported
+/// intrinsic flex-fills the whole container instead of shrinking to its content
+/// (Python `Widget._get_box_model`: `is_auto_*` → `get_content_*`), which also
+/// defeats `align: center middle` (the full-size box has nothing to center).
+///
+/// Returns `(content_width, content_height)` in cells. `render_width` is the width
+/// the widget is rendered at; trailing padding on each rendered line is trimmed so
+/// a widget that pads its output to the render width (e.g. `Static`/`Label`) still
+/// reports its true content width.
+fn measure_rendered_leaf(
+    tree: &WidgetTree,
+    node: NodeId,
+    render_width: u16,
+) -> Option<(u16, u16)> {
+    let node_ref = tree.get(node)?;
+    let console = rich_rs::Console::new();
+    let mut opts = rich_rs::ConsoleOptions::default();
+    let w = usize::from(render_width.max(1));
+    opts.size = (w, 1);
+    opts.max_width = w;
+    // Do not clip height: a tall auto widget (e.g. a 19-row table) must report
+    // ALL its lines, not just the seeded single-row hint.
+    opts.max_height = usize::from(u16::MAX);
+    let segments = node_ref.widget.render(&console, &opts);
+    let lines = rich_rs::Segment::split_lines(segments);
+    if lines.is_empty() {
+        return None;
+    }
+    // Drop a single trailing blank line produced by a content-terminating newline
+    // (Rust `render()` output often ends with a line break) so the reported height
+    // matches the visible line count.
+    let mut height = lines.len();
+    if height > 1
+        && lines
+            .last()
+            .map(|l| rich_rs::Segment::get_line_length(l) == 0)
+            .unwrap_or(false)
+    {
+        height -= 1;
+    }
+    // Natural content width = the widest line after trimming trailing fill (a
+    // padding widget renders spaces out to `render_width`; those are not content).
+    let mut width = 0usize;
+    for line in lines.iter().take(height) {
+        let text: String = line
+            .iter()
+            .filter(|s| s.control.is_none())
+            .map(|s| s.text.as_ref())
+            .collect();
+        width = width.max(rich_rs::cell_len(text.trim_end()));
+    }
+    Some((
+        u16::try_from(width).unwrap_or(u16::MAX),
+        u16::try_from(height).unwrap_or(u16::MAX),
+    ))
+}
+
 pub(crate) fn measure_intrinsic_content_width(
     tree: &WidgetTree,
     node: NodeId,
@@ -674,7 +747,11 @@ pub(crate) fn measure_intrinsic_content_width(
     }
     let children: Vec<NodeId> = tree.children(node).to_vec();
     if children.is_empty() {
-        return None;
+        // Childless leaf with no reported intrinsic: render it to measure its
+        // natural content width (Python `get_content_width`). Rendered at the full
+        // viewport width so non-wrapping content (e.g. a `Table`) reports its true
+        // width; trailing padding is trimmed inside the helper.
+        return measure_rendered_leaf(tree, node, viewport.0).map(|(w, _)| w);
     }
     let style = get_node_style(tree, node);
     let layout = style.layout.unwrap_or(crate::style::Layout::Vertical);
@@ -739,7 +816,11 @@ pub(crate) fn measure_intrinsic_content_height(
     }
     let children: Vec<NodeId> = tree.children(node).to_vec();
     if children.is_empty() {
-        return None;
+        // Childless leaf with no reported intrinsic: render it to measure its
+        // natural content height (Python `get_content_height`). Rendered at the
+        // full viewport width so a wrapping leaf counts the right number of lines;
+        // a non-wrapping leaf (a `Table` or single line) is unaffected.
+        return measure_rendered_leaf(tree, node, viewport.0).map(|(_, h)| h);
     }
     let style = get_node_style(tree, node);
     let layout = style.layout.unwrap_or(crate::style::Layout::Vertical);

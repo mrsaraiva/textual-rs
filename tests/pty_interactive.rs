@@ -1136,7 +1136,7 @@ fn parity_checkbox_toggle() {
 
 /// switch: the focused switch toggles on Enter/Space.
 #[test]
-#[ignore = "BUG: switch.tcss centers content (`align: center middle` on the container); Rust left-aligns every row (no horizontal align). 250 glyph cells shifted."]
+#[ignore = "DEMO-PORT GAP (framework align/auto-size root FIXED in pc1-autosize): vertical `middle` align + auto-width container centering now work. Residual is a demo-port omission: the Rust `switch` demo builds the top `Static(\"[b]Example switches\\n\")` WITHOUT `.class(\"label\")` (Python passes `classes=\"label\"`), so it has UNSET width and fills 120 cols, making the align bounding box full-width and defeating horizontal centering. Fix requires the demo to add `.class(\"label\")` — outside this root's allowed files (src/layout only)."]
 fn parity_switch_toggle() {
     let script = [Step::Key(Key::Enter), Step::Wait(250)];
     let (rf, pf) = widgets_both("switch", &script, 400);
@@ -1541,7 +1541,7 @@ fn parity_refresh01_greeting() {
 
 /// refresh02: same as refresh01 but the reactive has `layout=True`.
 #[test]
-#[ignore = "BUG: the bordered `Name` widget (width/height auto) renders FULL container size (120 cols x ~25 rows) in Rust while Python shrinks it to its content (a 12x3 box around \"Hello, Will!\"). auto width/height not honoured for a bordered widget. 288 glyph cells + focused-Input :focus tint."]
+#[ignore = "PARTIAL: auto-size root FIXED (pc1-autosize) — the bordered `Name` widget (width/height auto) now shrinks to its 12x3 content box instead of filling the container; glyph_diffs=0. Residual is the SEPARATE `:focus background-tint` colour root (focused Input bg #1e1e1e vs #272727, 236 colour cells) owned by style.rs, not this layout root."]
 fn parity_refresh02_greeting() {
     let script = [Step::SendKeys("Will"), Step::Wait(300)];
     let (rf, pf) = cat_both("refresh02", "guide/reactivity", &script, 400);
@@ -1646,7 +1646,7 @@ fn parity_stopwatch05_ticks() {
 
 /// counter01: three static `Count: 0` counters + Footer (no key bindings).
 #[test]
-#[ignore = "BUG: the focused Counter (Static, height auto + `:focus outline-left: thick`) renders ~14 rows tall and triggers a scrollbar in Rust, while Python keeps it 3 rows (padding 1 2 around one line). The focused widget fills available height instead of auto-sizing to content. 54 glyph + 3084 colour cells. Root: focused/auto-height widget vertical sizing fills container."]
+#[ignore = "DEMO-PORT GAP (framework auto-size root FIXED in pc1-autosize): a `height: auto` custom leaf now renders at its content height (verified — with `height: auto` the Rust Counter matches Python's 3 rows exactly). BUT the Rust `counter01` demo CSS omits `height: auto` on `Counter` (Python inherits it from `Static`'s DEFAULT_CSS), so the leaf keeps its UNSET height and correctly fills the container. Fix requires the demo CSS to add `Counter { height: auto }` — outside this root's allowed files (src/layout only)."]
 fn parity_counter01_render() {
     let script = [Step::Wait(300)];
     let (rf, pf) = cat_both("counter01", "guide/widgets", &script, 400);
@@ -1655,7 +1655,7 @@ fn parity_counter01_render() {
 
 /// counter02: the focused counter increments on `k`/up. Press `k`.
 #[test]
-#[ignore = "BUG: same focused-Counter auto-height divergence as counter01 (focused widget fills container height + scrollbar). 78 glyph + 3084 colour cells. Root: focused/auto-height widget vertical sizing."]
+#[ignore = "DEMO-PORT GAP (framework auto-size root FIXED in pc1-autosize): same as counter01 — the Rust `counter02` demo CSS omits `Counter { height: auto }` (Python inherits it from `Static`), so the leaf's UNSET height correctly fills the container. Framework `height: auto` measurement is fixed; the demo CSS fix is outside this root's allowed files (src/layout only)."]
 fn parity_counter02_increment() {
     let script = [Step::SendKeys("k"), Step::Wait(300)];
     let (rf, pf) = cat_both("counter02", "guide/widgets", &script, 400);
@@ -1664,7 +1664,6 @@ fn parity_counter02_increment() {
 
 /// fizzbuzz01: a static rich `Table` rendered on mount.
 #[test]
-#[ignore = "BUG: `Screen { align: center middle }` + auto-size FizzBuzz — Python centres the table (rows ~5+, col ~47); Rust renders it at the top-left (row 0, col 0). align center middle not applied to an auto-sized child. 422 glyph cells. Root: align center middle (shared with nesting/centering gap)."]
 fn parity_fizzbuzz01_table() {
     let script = [Step::Wait(300)];
     let (rf, pf) = cat_both("fizzbuzz01", "guide/widgets", &script, 400);
@@ -2275,7 +2274,7 @@ fn parity_command02_palette_open() {
 /// the colour hex). Click the first (#008080); the screen bg animates to that
 /// colour over 0.5s. Wait past the animation and compare the settled screen.
 #[test]
-#[ignore = "BUG: two divergences — (a) `ColorButton.render()` returns the hex `#008080` while Python returns `Color(0, 128, 128)` (str(Color)); (b) the bordered ColorButton gains extra vertical padding in Rust (content not flush under the border: ~5 rows vs Python's 3), shifting every button down. 1004 glyph cells. Root: render() string format + bordered widget auto-height/content padding."]
+#[ignore = "DEMO-PORT GAP (framework auto-size root FIXED in pc1-autosize): a `height: auto` bordered leaf now sizes to content+chrome. Residual is two demo-port divergences, both outside this root's allowed files (src/layout only): (a) the Rust `ColorButton.render()` returns the hex `#008080` while Python returns `Color(0, 128, 128)` (str(Color)); (b) the Rust demo CSS hardcodes `ColorButton { height: 5 }` instead of Python's inherited `Static { height: auto }` (which sizes to 3 rows). Fixing needs the demo render() + CSS `height: auto`."]
 fn parity_events_custom01_select() {
     let script = [Step::Click(6, 2), Step::Wait(900)];
     let (rf, pf) = cat_both("custom01", "events", &script, 600);
@@ -2498,11 +2497,7 @@ fn parity_compound_byte03() {
 /// compound/compound01: three InputWithLabel compound widgets, centered. Type
 /// into the first Input; compare the rendered grid.
 #[test]
-#[ignore = "BUG: the whole `InputWithLabel` block is shifted 1 column LEFT in Rust vs Python on \
-            every row (70 glyph cells). The compound widget is `width: 80%` inside a \
-            `Screen { align: center middle }`; Rust computes the centering left-margin one column \
-            short, so the label (`text-align: right`, width 12) and the 1fr Input both land 1 col \
-            early. Root: percent-width + `align: center middle` horizontal centering off-by-one."]
+#[ignore = "PARTIAL: percent-width centering root FIXED (pc1-autosize) — the `width: 80%` `InputWithLabel` now resolves against `parent - margin` (Python parity), so the block centers exactly; glyph_diffs=0 (was 70). Residual is the SEPARATE `:focus background-tint` colour root (focused Input bg #1e1e1e vs #272727, 160 colour cells) owned by style.rs, not this layout root."]
 fn parity_compound_compound01() {
     let script = [Step::SendKeys("Marcos"), Step::Wait(300)];
     let (rf, pf) = cat_both("compound01", "guide/compound", &script, 400);
