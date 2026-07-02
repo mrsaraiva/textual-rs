@@ -9,6 +9,24 @@ until the API stabilizes.
 
 ### Widget fixes
 
+- **`background-tint` is now applied per-node (Python parity), fixing the focused
+  `Switch` slider over-tint** — `apply_style_to_segments` previously blanket-applied the
+  widget's `background-tint` to *every* segment the widget emitted that carried an explicit
+  background, including child/component renderables that already carry their own opaque
+  colour. Python folds `background-tint` into each node's *own* `background`
+  (`DOMNode.rich_style`/`background_colors`: `styles.background.tint(styles.background_tint)`)
+  and only applies it where that node has its own `background-tint` rule — e.g.
+  `DataTable:focus > .datatable--header` sets its own tint, but `Switch`'s `switch--slider`
+  does not. The result was that a focused `Switch`'s slider track was double-tinted
+  (`#0b1922` vs Python `#000f18`). `background-tint` now tints only the widget's *own*
+  surface fill (segments whose background equals the widget's resolved `background`),
+  leaving component/renderable segments (which already carry their final colour) untouched.
+  `DataTable` correspondingly folds its focused header's own `background-tint` into the
+  header cell colour at the source (tagged `textual:no_style`), matching the existing
+  cursor/zebra/fill composition, so the header still renders `#2d3740` when focused.
+  Validated by the `compound/byte03` real-app parity demo (colour parity exact) and keeps
+  `parity_tree_navigate`/`parity_data_table_navigate`/`_sort`/`_cursors_cycle` green.
+
 - **`DataTable`/`Tree` cursor, guide-line and header-fill colours now match Python** —
   the `Tree:focus`/`DataTable:focus` `background-tint: $foreground 5%` was being composited
   onto the opaque `$block-cursor-background` (`$primary`) cursor fill by the widget-level

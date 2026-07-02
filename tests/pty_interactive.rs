@@ -2442,15 +2442,12 @@ fn parity_animator_animation01() {
 /// compound/byte01: 8 BitSwitches + an Input (not wired). Tab from the Input to
 /// the first Switch and toggle it with Space; compare the rendered grid.
 #[test]
-#[ignore = "BUG (multi-root; on/off-swap + :focus-within roots FIXED): the switch slider on/off \
-            painting is fixed (Switch now exposes `reactive_widget()` so programmatic set_value runs \
-            watch_value) and the `:focus-within` heavy border now renders. Residual (4 cells): (1) Rust \
-            shows the Input placeholder `byte` while Python renders it blank (Input root — out of \
-            scope), and (2) the focused Switch slider track is #0b1922 in Rust vs #000f18 in Python \
-            (2 cells). Root of (2): `background-tint` is over-applied in src/css/selectors/segments.rs \
-            — the switch `:focus { background-tint }` tints the slider's OWN explicit-bg cells; Python \
-            tints only the widget-surface fill, not renderable segments carrying their own opaque bg. \
-            Fix belongs in segments.rs (gate the tint block on explicit_bg.is_none())."]
+#[ignore = "BUG (background-tint over-tint FIXED in pc6-segtint): the focused Switch slider track \
+            now matches Python (#000f18, colour_diffs=0; BG palettes identical) — `background-tint` \
+            is folded into the widget's OWN surface only (src/css/selectors/segments.rs), so the \
+            slider's opaque `$panel-darken-2` renderable bg is no longer double-tinted. Residual \
+            (4 glyph cells): Rust renders the Input placeholder `byte` while Python renders it blank \
+            (Input placeholder root — explicitly out of scope for this task's allowed files)."]
 fn parity_compound_byte01() {
     let script = [Step::Key(Key::Tab), Step::Key(Key::Space), Step::Wait(300)];
     let (rf, pf) = cat_both("byte01", "guide/compound", &script, 400);
@@ -2461,13 +2458,12 @@ fn parity_compound_byte01() {
 /// writes the integer value into the Input. Tab to the first (bit 7) Switch and
 /// toggle it; the Input should read "128" on both.
 #[test]
-#[ignore = "BUG (multi-root; on/off-swap + :focus-within roots FIXED): switch slider on/off painting \
-            and the `:focus-within` heavy border now render. Residual (3 cells): (1) Rust shows the \
-            Input placeholder `byte` while Python renders it blank (Input root — out of scope), and \
-            (2) the focused Switch slider track is #0b1922 in Rust vs #000f18 in Python (2 cells). \
-            Root of (2): `background-tint` over-applied in src/css/selectors/segments.rs (tints the \
-            slider's own explicit-bg cells; Python tints only the surface fill). Fix belongs in \
-            segments.rs (gate the tint block on explicit_bg.is_none())."]
+#[ignore = "BUG (background-tint over-tint FIXED in pc6-segtint): the focused Switch slider track \
+            now matches Python (#000f18, colour_diffs=0; BG palettes identical) — `background-tint` \
+            is folded into the widget's OWN surface only (src/css/selectors/segments.rs), so the \
+            slider's opaque `$panel-darken-2` renderable bg is no longer double-tinted. Residual \
+            (3 glyph cells): Rust renders the Input value `128` while Python renders it blank \
+            (Input placeholder/value root — explicitly out of scope for this task's allowed files)."]
 fn parity_compound_byte02() {
     let script = [Step::Key(Key::Tab), Step::Key(Key::Space), Step::Wait(400)];
     let (rf, pf) = cat_both("byte02", "guide/compound", &script, 400);
