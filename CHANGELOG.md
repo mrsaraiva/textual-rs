@@ -9,6 +9,26 @@ until the API stabilizes.
 
 ### Widget fixes
 
+- **A transparent widget's text now composites over the CACHED ancestor surface
+  after a live ancestor-background change (Python `visual_style` parity)** — Python
+  `Widget.visual_style` bakes the composited ancestor background into a widget's
+  transparent glyph segments and caches it keyed on the widget's *own*
+  `styles._cache_key`; a later ancestor-only background change (e.g. the
+  `guide/actions` demos setting `self.screen.styles.background = "red"` from an
+  action) bumps the ancestor's cache key but not the child's, so the child's text
+  keeps the base surface it captured at its last content render, while its
+  surface/padding fill (`background_colors`) turns live. Rust baked the glyph
+  background *live*, so an ancestor bg change leaked into the child's text
+  (`ColorSwitcher`/`Static` text cells went red instead of `#121212`). The
+  compositor now captures, per node, the composited ancestor surface at the node's
+  last own-style change (`FROZEN_ANCESTOR_BG`, keyed on a fingerprint of the node's
+  own non-inherited style) and, when the live surface has since diverged, re-keys
+  only the node's already-baked content glyph segments (tagged
+  `textual:no_text_style`) back to the frozen surface — leaving the widget's own
+  surface/pad fill live, preserving the render-time live-composition invariant for
+  surfaces. Un-ignores the `guide/actions` `actions03`/`actions04` real-app parity
+  cases (Rust == Python, colour-exact).
+
 - **`background-tint` is now applied per-node (Python parity), fixing the focused
   `Switch` slider over-tint** — `apply_style_to_segments` previously blanket-applied the
   widget's `background-tint` to *every* segment the widget emitted that carried an explicit

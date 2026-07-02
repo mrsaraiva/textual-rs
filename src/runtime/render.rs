@@ -32,6 +32,128 @@ use super::types::{
     resize_trace_enabled,
 };
 
+// ===========================================================================
+// Frozen ancestor-composited background (Python `visual_style` caching parity)
+// ===========================================================================
+//
+// Python `Widget.visual_style` bakes the composited ancestor background into a
+// widget's text (transparent) segments and CACHES it keyed on the widget's OWN
+// `styles._cache_key`. A later ANCESTOR-only background change (e.g. an action
+// setting `self.screen.styles.background = "red"`) bumps the ancestor's cache
+// key but NOT the child's, so the child's cached `visual_style` keeps the base
+// background it captured at its own last content render. Meanwhile the widget's
+// SURFACE/padding fill uses `background_colors`, which IS live. Result: the
+// child's glyph cells keep the cached ancestor surface while the surrounding
+// pad turns to the live colour.
+//
+// Rust bakes the child glyph background LIVE (text.rs `effective_bg` from
+// `current_ancestor_composited_background()`), so an ancestor bg change leaks
+// into the child's text. To match Python we cache, per node, the composited
+// ancestor background captured when the node last re-rendered its own content
+// (detected via a fingerprint of the node's OWN, non-inherited style identity).
+// When the live ancestor composite diverges from that frozen value we push a
+// synthetic opaque style entry (a clone of the parent style with its bg forced
+// to the frozen value) so the child's transparent segments composite over the
+// frozen ancestor surface — exactly as Python's cached `visual_style` does.
+thread_local! {
+    static FROZEN_ANCESTOR_BG: std::cell::RefCell<
+        std::collections::HashMap<NodeId, (u64, Option<Color>)>,
+    > = std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
+/// Fingerprint of a node's OWN (non-inherited) style identity — the render-time
+/// analogue of Python's `styles._cache_key`. It must change when the node's own
+/// styling changes (so it re-captures the live ancestor surface) but stay stable
+/// under ancestor-only background changes (so those do NOT leak into the child).
+/// `background` is not an inherited property, so a child's own `bg`/tint/opacity
+/// plus interaction state capture the cases that would re-bake `visual_style`.
+fn node_own_style_fingerprint(
+    resolved: &crate::style::Style,
+    node: &crate::widget_tree::WidgetNode,
+) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    if let Some(bg) = resolved.bg {
+        (bg.r, bg.g, bg.b, bg.a.to_bits()).hash(&mut h);
+    } else {
+        0u8.hash(&mut h);
+    }
+    if let Some(tint) = resolved.background_tint {
+        (
+            tint.color.r,
+            tint.color.g,
+            tint.color.b,
+            tint.color.a.to_bits(),
+            tint.percent,
+        )
+            .hash(&mut h);
+    }
+    if let Some(op) = resolved.opacity {
+        op.hash(&mut h);
+    }
+    if let Some(fg) = resolved.fg {
+        (fg.r, fg.g, fg.b, fg.a.to_bits()).hash(&mut h);
+    }
+    (
+        node.state.focused,
+        node.state.hovered,
+        node.state.disabled,
+        node.state.loading,
+    )
+        .hash(&mut h);
+    node.css_id.hash(&mut h);
+    let mut classes: Vec<&str> = node.classes.iter().map(|s| s.as_str()).collect();
+    classes.sort_unstable();
+    classes.hash(&mut h);
+    h.finish()
+}
+
+/// Re-key the FROZEN ancestor surface into a node's already-baked content glyph
+/// segments (Python `visual_style` cache parity). Only segments that (a) belong
+/// to this node, (b) are tagged `textual:no_text_style` (the text renderer's
+/// glyph strips — NOT the surface/pad fill, which is untagged), and (c) still
+/// carry the LIVE surface as their baked bg are re-keyed to the frozen surface.
+/// Condition (c) keeps segments that carry their own opaque bg (spans, per-cell
+/// backgrounds) untouched. See `FROZEN_ANCESTOR_BG` for the rationale.
+fn recolor_frozen_content_bg(
+    segments: Segments,
+    node_id: NodeId,
+    live: Color,
+    frozen: Color,
+) -> Segments {
+    let live_simple = live.to_simple_opaque();
+    let frozen_simple = frozen.to_simple_opaque();
+    let want_id = node_id_to_ffi(node_id) as i64;
+    segments
+        .into_iter()
+        .map(|mut seg| {
+            if seg.control.is_some() {
+                return seg;
+            }
+            let is_content = seg
+                .meta
+                .as_ref()
+                .and_then(|m| m.meta.as_ref())
+                .map(|map| {
+                    matches!(map.get("textual:widget_id"), Some(MetaValue::Int(v)) if *v == want_id)
+                        && matches!(
+                            map.get("textual:no_text_style"),
+                            Some(MetaValue::Bool(true))
+                        )
+                })
+                .unwrap_or(false);
+            if is_content {
+                if let Some(style) = seg.style.as_mut() {
+                    if style.bgcolor == Some(live_simple) {
+                        style.bgcolor = Some(frozen_simple);
+                    }
+                }
+            }
+            seg
+        })
+        .collect()
+}
+
 fn scrollbar_drag_trace_enabled() -> bool {
     static ENABLED: OnceLock<bool> = OnceLock::new();
     *ENABLED.get_or_init(|| {
@@ -798,9 +920,27 @@ fn render_tree_node(
         // (§T-6, step 3a): widgets can call self.node_state() inside render().
         let _dispatch_guard = set_dispatch_recipient(node_id, node.state);
 
+        // Python `visual_style` caching parity: capture/refresh the composited
+        // ancestor surface this node bakes into its transparent glyph segments,
+        // keyed on the node's OWN style identity (`node_own_style_fingerprint`,
+        // the render-time analogue of Python `styles._cache_key`). See the note
+        // on `FROZEN_ANCESTOR_BG` above.
+        let live_ancestor_bg = crate::css::current_composited_background();
+        let own_fp = node_own_style_fingerprint(&resolved, node);
+        let frozen_ancestor_bg = FROZEN_ANCESTOR_BG.with(|cache| {
+            let mut cache = cache.borrow_mut();
+            match cache.get(&node_id) {
+                Some(&(fp, bg)) if fp == own_fp => bg,
+                _ => {
+                    cache.insert(node_id, (own_fp, live_ancestor_bg));
+                    live_ancestor_bg
+                }
+            }
+        });
+
         // render_widget_with_meta handles CSS composition, border rendering,
         // segment tagging with the real arena NodeId, and style stack push/pop.
-        let segments = crate::widgets::render_widget_with_meta(
+        let mut segments = crate::widgets::render_widget_with_meta(
             node.widget.as_ref(),
             console,
             &opts,
@@ -810,6 +950,23 @@ fn render_tree_node(
             &resolved,
             &debug_label,
         );
+
+        // When the composited ancestor surface has DIVERGED from what this node
+        // captured at its own last content render (an ancestor-only background
+        // change, e.g. `guide/actions` pressing `r` to set the screen bg), Rust
+        // baked the LIVE surface into the node's transparent glyph segments while
+        // Python keeps the CACHED base surface in `visual_style`. Re-key ONLY the
+        // content glyph segments (`textual:no_text_style`, tagged by the text
+        // renderer) whose baked bg still equals the live surface back to the
+        // frozen surface — Python's cached `visual_style`. The node's own
+        // surface/padding fill (computed after self is popped, from
+        // `background_colors`) is untagged and stays LIVE, preserving the
+        // documented render-time live-composition invariant for surfaces.
+        if let (Some(frozen), Some(live)) = (frozen_ancestor_bg, live_ancestor_bg) {
+            if frozen != live {
+                segments = recolor_frozen_content_bg(segments, node_id, live, frozen);
+            }
+        }
         if node.widget.preserve_underlay() && !segments.is_empty() {
             if let Some(bg) = resolved.bg {
                 let widget_clip = ClipRect {
