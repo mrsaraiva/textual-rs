@@ -1,6 +1,8 @@
+mod commands;
 mod devtools;
 pub mod dispatch_ctx;
 mod event_loop;
+mod widget_ctx;
 mod helpers;
 pub mod pilot;
 mod render;
@@ -23,6 +25,7 @@ pub use routing::{
     focused_node_id_tree,
 };
 pub use types::DispatchOutcome;
+pub use widget_ctx::WidgetQuery;
 
 use crate::animation::{Animator, animation_level_from_env};
 use crate::compose::{ChildDecl, WidgetBuilder};
