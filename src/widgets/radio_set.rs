@@ -1,5 +1,5 @@
 use crossterm::event::KeyCode;
-use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
+use rich_rs::{Console, ConsoleOptions, MetaValue, Renderable, Segment, Segments};
 
 use crate::event::{Event, EventCtx};
 use crate::message::*;
@@ -30,6 +30,23 @@ impl Default for RadioSet {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Tag a segment with `textual:no_style = true` so the widget-level style pass
+/// (`apply_style_to_segments`) leaves it untouched. Used for the inner glyph and
+/// the selected label, whose backgrounds are fully composed here; without this,
+/// the `RadioSet:focus` `background-tint: $foreground 5%` would be re-applied to
+/// their opaque backgrounds (Python does not tint component-painted surfaces).
+fn tag_segment_no_style(seg: &mut Segment) {
+    let mut meta = seg.meta.take().unwrap_or_default();
+    let mut map: std::collections::BTreeMap<String, MetaValue> = meta
+        .meta
+        .as_ref()
+        .map(|m| (**m).clone())
+        .unwrap_or_default();
+    map.insert("textual:no_style".to_string(), MetaValue::Bool(true));
+    meta.meta = Some(std::sync::Arc::new(map));
+    seg.meta = Some(meta);
 }
 
 impl RadioSet {
@@ -357,66 +374,110 @@ impl Widget for RadioSet {
         let height = options.size.1.max(1);
         let mut out = Segments::new();
 
-        let base_style = crate::css::resolve_component_style(self, &["radio-button--label"])
-            .to_rich()
-            .unwrap_or_default();
+        // Python renders each `RadioButton` child via `ToggleButton._button` /
+        // `ToggleButton.render`, resolving the `toggle--button` / `toggle--label`
+        // component styles in the button's own DOM context. `RadioSet` here is a
+        // monolithic inline widget (its buttons are not arena children), so we
+        // reproduce the same CSS cascade manually: the RadioSet's own selector
+        // meta + resolved style are already on the selector/style stacks (pushed
+        // by `render_widget_with_meta`), and per row we push a synthetic
+        // `RadioButton` context carrying the live `-on` / `-selected` classes so
+        // that `RadioSet:focus/:blur > RadioButton.-on/.-selected > .toggle--*`
+        // rules resolve exactly as in Python.
+        let panel_bg = crate::style::parse_color_like("$panel")
+            .unwrap_or(crate::style::Color::rgb(0, 0, 0))
+            .to_simple_opaque();
+
+        // The RadioSet's own composited surface (its `$surface` bg plus the
+        // `:focus` `background-tint`, if focused). Python composes the
+        // `$block-cursor-blurred-background` (`$primary 30%`) selected-label
+        // background over this surface; resolving it standalone would flatten the
+        // alpha over black instead. Computed once (constant for this widget).
+        let surface_bg = crate::css::current_composited_background();
 
         for row in 0..height {
             if row >= self.buttons.len() {
-                // Empty row padding.
-                out.push(Segment::styled(" ".repeat(width), base_style));
+                // Padding rows below the buttons: transparent so the widget's
+                // (tinted) surface composites through.
+                out.push(Segment::styled(" ".repeat(width), rich_rs::Style::new()));
             } else {
                 let button = &self.buttons[row];
                 let is_selected = self.cursor.highlighted() == Some(row);
-                let is_pressed = self.cursor.selected() == Some(row);
-                let is_hovered_row = self.hovered_index == Some(row);
+                let is_pressed = self.cursor.selected() == Some(row) || button.value();
 
-                // Python's ToggleButton always renders the inner glyph (`●`);
-                // the selected state is conveyed by the button color (the `-on`
-                // class below), not by swapping the glyph for an empty `○`.
-                let glyph = "●";
-
-                // Build component-style classes for the glyph and label.
-                let mut glyph_classes = vec!["radio-button--button"];
-                let mut label_classes = vec!["radio-button--label"];
-                if is_pressed || button.value() {
-                    glyph_classes.push("-on");
-                    label_classes.push("-on");
-                }
-                if is_selected && self.node_state().focused {
-                    glyph_classes.push("-focus");
-                    label_classes.push("-focus");
-                }
-                if is_hovered_row {
-                    glyph_classes.push("-hover");
-                    label_classes.push("-hover");
+                // Synthetic RadioButton context for this row. `-on` == pressed
+                // (value), `-selected` == navigation cursor (highlighted).
+                let mut rb_classes: Vec<&str> = Vec::new();
+                if is_pressed {
+                    rb_classes.push("-on");
                 }
                 if is_selected {
-                    label_classes.push("-selected");
+                    rb_classes.push("-selected");
+                }
+                let rb_meta = crate::css::selector_meta_component("RadioButton", &rb_classes);
+                let rb_resolved = crate::css::resolve_style_for_meta(&rb_meta);
+                crate::css::push_style_context(rb_meta, rb_resolved);
+
+                // Leaf metas use an empty type so only the component-class-scoped
+                // rules match (not the `RadioButton { border; background }` base
+                // rule, which would otherwise pollute the glyph/label surface).
+                let button_rich = crate::css::resolve_style_for_meta(
+                    &crate::css::selector_meta_component("", &["toggle--button"]),
+                )
+                .to_rich()
+                .unwrap_or_else(rich_rs::Style::new);
+                let label_style = crate::css::resolve_style_for_meta(
+                    &crate::css::selector_meta_component("", &["toggle--label"]),
+                );
+
+                crate::css::pop_style_context();
+
+                let mut label_rich = label_style.to_rich().unwrap_or_else(rich_rs::Style::new);
+                // Flatten the (possibly semi-transparent) selected-label
+                // background over the widget's composited surface, matching
+                // Python's `background_colors` compositing.
+                if let (Some(bg), Some(surf)) = (label_style.bg, surface_bg) {
+                    label_rich.bgcolor = Some(bg.flatten_over(surf).to_simple_opaque());
                 }
 
-                let glyph_style = crate::css::resolve_component_style(self, &glyph_classes)
-                    .to_rich()
-                    .unwrap_or_else(rich_rs::Style::new);
-                let label_style = crate::css::resolve_component_style(self, &label_classes)
-                    .to_rich()
-                    .unwrap_or_else(rich_rs::Style::new);
+                // Python's ToggleButton always renders the inner glyph (`●`);
+                // the on/off state is conveyed by the glyph colour (`-on`), not by
+                // swapping to an empty `○`.
+                let glyph = "●";
 
-                // Render the half-block framed glyph: "▐●▌ label"
-                let glyph_bg = glyph_style.bgcolor;
-                let outer_bg = crate::style::parse_color_like("$surface")
-                    .unwrap_or(crate::style::Color::rgb(0, 0, 0))
-                    .to_simple_opaque();
-                let left_style = rich_rs::Style::new()
-                    .with_color(glyph_bg.unwrap_or(outer_bg))
-                    .with_bgcolor(outer_bg);
-                let right_style = left_style;
+                // The side half-blocks take the button's *background* as their
+                // foreground (Python `side_style.foreground = button_style.background`)
+                // over the widget surface, so they blend into the rounded button.
+                // Their background is left transparent so the RadioSet surface —
+                // and its `:focus` `background-tint` — composites through, exactly
+                // like Python's `background_colors[1]`.
+                let side_fg = button_rich.bgcolor.unwrap_or(panel_bg);
+                let side_style = rich_rs::Style::new().with_color(side_fg);
+
+                // Inner glyph carries the fully-resolved `toggle--button` style
+                // (opaque `$panel` background). Tag `no_style` so the RadioSet's
+                // `:focus` `background-tint` is NOT re-applied to it — Python does
+                // not tint component-painted backgrounds.
+                let mut inner_seg = Segment::styled(glyph.to_string(), button_rich);
+                tag_segment_no_style(&mut inner_seg);
+
+                // Label is padded (1, 1) and stylised like Python's
+                // `self._label.pad(1, 1).stylize_before(label_style)`.
+                let mut label_seg =
+                    Segment::styled(format!(" {} ", button.label()), label_rich);
+                // The selected row's label has an opaque `$block-cursor(-blurred)`
+                // background; tag it `no_style` for the same reason as the glyph.
+                // Non-selected labels have no explicit background and must stay
+                // transparent so the surface (tint) shows through.
+                if label_rich.bgcolor.is_some() {
+                    tag_segment_no_style(&mut label_seg);
+                }
 
                 let segments = vec![
-                    Segment::styled("▐".to_string(), left_style),
-                    Segment::styled(glyph.to_string(), glyph_style),
-                    Segment::styled("▌".to_string(), right_style),
-                    Segment::styled(format!(" {}", button.label()), label_style),
+                    Segment::styled("▐".to_string(), side_style),
+                    inner_seg,
+                    Segment::styled("▌".to_string(), side_style),
+                    label_seg,
                 ];
 
                 let line = adjust_line_length_no_bg(&segments, width);

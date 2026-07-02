@@ -9,6 +9,31 @@ until the API stabilizes.
 
 ### Widget fixes
 
+- **`RadioSet` focus/selection colours now match Python** — the monolithic inline
+  `RadioSet::render` resolved its glyph/label component styles as `radio-button--*`
+  classes against a `RadioSet` leaf, so none of the `RadioSet(:focus/:blur) > RadioButton.-on/.-selected
+  > .toggle--*` cascade rules matched and it hardcoded the frame/`▐●▌` background to `$surface`.
+  It now reproduces Python's `ToggleButton` composition: per row it pushes a synthetic
+  `RadioButton` selector context (carrying the live `-on`/`-selected` classes) so the
+  `.toggle--button`/`.toggle--label` rules resolve exactly, the side half-blocks take the
+  button background as their foreground (`$panel`), the inner glyph and selected-label cells
+  are composed to their final colour and tagged `textual:no_style` (so the `:focus`
+  `background-tint` is not re-applied to the opaque `$panel`/`$block-cursor` fills), and the
+  semi-transparent `$block-cursor-blurred-background` is flattened over the widget's composited
+  surface. Flips `parity_radio_button_select` to full Rust==Python; `parity_radio_set_navigate`
+  now matches on every colour (remaining diff is a demo-only Rich-markup gap).
+- **`OptionList` highlighted / disabled / separator colours now match Python** — the render
+  built `["option-list--option", "-highlighted"]` classes, but the default CSS uses the single
+  component classes `.option-list--option-highlighted` / `-disabled` / `-hover` /
+  `.option-list--separator`, so the highlighted cursor colours never resolved and options fell
+  back to the (tinted) surface. It now requests the correct component classes via an empty-type
+  leaf meta (so the `OptionList { background: $surface }` base rule no longer pollutes every
+  component with an opaque surface bg), composes the highlighted `$block-cursor(-blurred)`
+  background over the widget's composited surface, fills the whole highlighted row and tags it
+  `textual:no_style` (no tint re-application), flattens semi-transparent foregrounds
+  (`$foreground 15%` separators) over the tinted surface, and resolves auto-contrast foregrounds
+  (`$text-disabled`) against that surface. Flips `parity_option_list_strings_navigate` and
+  `parity_option_list_options_navigate` to full Rust==Python.
 - **`DataTable`/`Tree` cursor, guide-line and header-fill colours now match Python** —
   the `Tree:focus`/`DataTable:focus` `background-tint: $foreground 5%` was being composited
   onto the opaque `$block-cursor-background` (`$primary`) cursor fill by the widget-level
