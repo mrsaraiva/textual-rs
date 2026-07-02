@@ -78,6 +78,7 @@ pub mod prelude {
     pub use crate::runtime::{
         App, CallFromThreadError, DispatchOutcome, DomQuery, DomQueryMut, PushScreenWaitError,
         TimerHandle,
+        WidgetQuery,
         build_widget_tree_from_root,
         dispatch_event_to_target_tree, dispatch_event_tree, dispatch_message_queue_tree,
         focused_node_id_tree, render_tree_to_frame, render_tree_to_frame_with_stylesheet,

@@ -1656,7 +1656,7 @@ fn bool_flag(value: bool) -> &'static str {
 }
 
 #[derive(Clone, Copy)]
-enum InvalidationScope {
+pub(crate) enum InvalidationScope {
     Global,
     Widget(NodeId),
 }
@@ -5408,7 +5408,7 @@ impl App {
         self.animator.enqueue_style_many(requests, now);
     }
 
-    fn absorb_outcome(
+    pub(crate) fn absorb_outcome(
         &mut self,
         outcome: &mut DispatchOutcome,
         pending: &mut PendingInvalidation,
@@ -8865,6 +8865,186 @@ mod tests {
             "flush drains the residual entries on cycle detection"
         );
         assert!(!crate::runtime::commands::command_queue_is_nonempty());
+    }
+
+    // ── WidgetCtx build, sub-step 2: query_one + Handle::update_via ──
+
+    /// Parent widget A (no reactive state) — the query root.
+    struct ParentA;
+
+    impl Widget for ParentA {
+        fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+            Segments::new()
+        }
+
+        fn style_type(&self) -> &'static str {
+            "ParentA"
+        }
+    }
+
+    /// Child widget B: a reactive widget whose watcher increments `watched`.
+    /// `bump` records a change through the `WidgetCtx` (which `DerefMut`s to
+    /// `ReactiveCtx`), exactly as a generated `set_*` setter would.
+    struct ChildB {
+        watched: Arc<AtomicUsize>,
+        n: i32,
+    }
+
+    impl ChildB {
+        fn bump(&mut self, ctx: &mut crate::event::WidgetCtx) {
+            let old = self.n;
+            self.n += 1;
+            ctx.record_change(
+                "n",
+                ReactiveFlags::reactive(),
+                Box::new(old),
+                Box::new(self.n),
+            );
+        }
+    }
+
+    impl Widget for ChildB {
+        fn reactive_widget(&mut self) -> Option<&mut dyn ReactiveWidget> {
+            Some(self)
+        }
+
+        fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+            Segments::new()
+        }
+
+        fn style_type(&self) -> &'static str {
+            "ChildB"
+        }
+    }
+
+    impl ReactiveWidget for ChildB {
+        fn reactive_dispatch(&mut self, changes: &[ReactiveChange], _ctx: &mut ReactiveCtx) {
+            for c in changes {
+                if c.field_name == "n" {
+                    self.watched.fetch_add(1, Ordering::SeqCst);
+                }
+            }
+        }
+    }
+
+    /// GATE 2: widget A's handler updates child B via `query_one::<B>().update_via`;
+    /// B's watcher fires in the SAME flush pass (drain resolves B by type, runs the
+    /// closure with a fresh WidgetCtx, then dispatches B's reactive fixpoint).
+    #[test]
+    fn query_one_update_via_fires_target_watcher_same_pass() {
+        let _ = take_runtime_reactive_entries();
+        let _ = crate::runtime::commands::take_widget_commands();
+
+        let mut tree = crate::widget_tree::WidgetTree::new();
+        let a = tree.set_root(Box::new(ParentA));
+        let watched = Arc::new(AtomicUsize::new(0));
+        let _b = tree.mount(
+            a,
+            Box::new(ChildB {
+                watched: Arc::clone(&watched),
+                n: 0,
+            }),
+        );
+
+        // Simulate A's handler: build a WidgetCtx over its EventCtx, query the
+        // child by type, enqueue a deferred update.
+        {
+            let mut ectx = EventCtx::default();
+            ectx.set_node_id(a);
+            let mut wctx = crate::event::WidgetCtx::new(a, &mut ectx);
+            let q = wctx.query_one::<ChildB>();
+            q.update_via(&mut wctx, |b, bctx| b.bump(bctx));
+        }
+        // Deferred — nothing applied, watcher not fired yet.
+        assert_eq!(watched.load(Ordering::SeqCst), 0);
+
+        let mut app = test_app_with_tree(tree);
+        let mut pending = super::PendingInvalidation::default();
+        let mut root = StyleNode::new("Root");
+        app.run_event_loop_reactive_phase(&mut root, &mut pending);
+
+        assert_eq!(
+            watched.load(Ordering::SeqCst),
+            1,
+            "B's watcher fired in the same flush pass as A's deferred update"
+        );
+    }
+
+    /// GATE 2: an update targeting a removed node drops with a debug log and does
+    /// NOT panic (generational id → `get`/resolve returns `None`).
+    #[test]
+    fn update_via_removed_target_drops_no_panic() {
+        let _ = take_runtime_reactive_entries();
+        let _ = crate::runtime::commands::take_widget_commands();
+
+        let mut tree = crate::widget_tree::WidgetTree::new();
+        let a = tree.set_root(Box::new(ParentA));
+        let watched = Arc::new(AtomicUsize::new(0));
+        let b = tree.mount(
+            a,
+            Box::new(ChildB {
+                watched: Arc::clone(&watched),
+                n: 0,
+            }),
+        );
+        let handle = crate::handle::Handle::<ChildB>::resolve(&tree, b).unwrap();
+        tree.remove(b);
+
+        {
+            let mut ectx = EventCtx::default();
+            ectx.set_node_id(a);
+            let mut wctx = crate::event::WidgetCtx::new(a, &mut ectx);
+            handle.update_via(&mut wctx, |b, bctx| b.bump(bctx));
+        }
+
+        let mut app = test_app_with_tree(tree);
+        let mut pending = super::PendingInvalidation::default();
+        let mut root = StyleNode::new("Root");
+        // Must not panic.
+        app.run_event_loop_reactive_phase(&mut root, &mut pending);
+
+        assert_eq!(
+            watched.load(Ordering::SeqCst),
+            0,
+            "closure never ran for the removed target"
+        );
+    }
+
+    /// GATE 2: a downcast miss (target resolved to a different concrete type) is
+    /// logged loudly and dropped — no panic, no mutation.
+    #[test]
+    fn update_via_downcast_miss_drops_no_panic() {
+        let _ = take_runtime_reactive_entries();
+        let _ = crate::runtime::commands::take_widget_commands();
+
+        let mut tree = crate::widget_tree::WidgetTree::new();
+        let a = tree.set_root(Box::new(ParentA));
+        let ran = Arc::new(AtomicUsize::new(0));
+        // A Handle<ChildB> that actually names A's node (a ParentA) — wrong type.
+        let bad = crate::handle::Handle::<ChildB>::new(a, tree.tree_id());
+
+        {
+            let mut ectx = EventCtx::default();
+            ectx.set_node_id(a);
+            let mut wctx = crate::event::WidgetCtx::new(a, &mut ectx);
+            let ran_cb = Arc::clone(&ran);
+            bad.update_via(&mut wctx, move |b, bctx| {
+                ran_cb.fetch_add(1, Ordering::SeqCst);
+                b.bump(bctx);
+            });
+        }
+
+        let mut app = test_app_with_tree(tree);
+        let mut pending = super::PendingInvalidation::default();
+        let mut root = StyleNode::new("Root");
+        // Must not panic; closure body must not run (downcast fails first).
+        app.run_event_loop_reactive_phase(&mut root, &mut pending);
+
+        assert_eq!(
+            ran.load(Ordering::SeqCst),
+            0,
+            "closure body must not run on a downcast miss"
+        );
     }
 
     // SPEC-P2 Step 6a (option b): test for on_app_unhandled_action fallback.

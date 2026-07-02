@@ -3,6 +3,7 @@ use crate::keys::KeyEventData;
 use crate::keys::format_key_display;
 use crate::message::{AsyncTaskRequest, CommandPaletteCommand, Message, MessageEvent};
 use crate::node_id::{NodeId, node_id_to_ffi};
+use crate::reactive::ReactiveCtx;
 use crate::style::{Color, Scalar, Spacing, Tint};
 use crate::worker::{CancellationToken, WorkerRequest, WorkerRequestPayload};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -1049,16 +1050,28 @@ impl EventCtx {
 pub struct WidgetCtx<'a> {
     node_id: NodeId,
     event_ctx: &'a mut EventCtx,
+    /// The reactive recording surface. `WidgetCtx` `DerefMut`s to this so the
+    /// generated `#[derive(Reactive)]` setters — which take `&mut ReactiveCtx`
+    /// — accept `&mut WidgetCtx` unchanged (`w.set_field(v, ctx)`), and so a
+    /// handler's field mutations flow into the same post-dispatch flush.
+    reactive: ReactiveCtx,
 }
 
 impl<'a> WidgetCtx<'a> {
-    /// Create a new widget context. Called by the runtime, not by widgets.
-    ///
-    /// Public API — documented migration path from EventCtx for tree-aware
-    /// event handling. Not yet called from the runtime event loop.
-    #[allow(dead_code)]
+    /// Create a new widget context. Called by the runtime (event dispatch and
+    /// the post-dispatch flush), not by widgets.
     pub(crate) fn new(node_id: NodeId, event_ctx: &'a mut EventCtx) -> Self {
-        Self { node_id, event_ctx }
+        Self {
+            node_id,
+            event_ctx,
+            reactive: ReactiveCtx::new(node_id),
+        }
+    }
+
+    /// Consume the context and return its accumulated reactive changes, so the
+    /// runtime can drive the node's reactive fixpoint after a flush closure.
+    pub(crate) fn into_reactive(self) -> ReactiveCtx {
+        self.reactive
     }
 
     /// The arena-assigned identity of this widget.
@@ -1104,6 +1117,27 @@ impl<'a> WidgetCtx<'a> {
     pub fn post_message<M: Message>(&mut self, message: M) {
         self.event_ctx.set_node_id(self.node_id);
         self.event_ctx.post_message(message);
+    }
+}
+
+// `WidgetCtx` derefs to its `ReactiveCtx` so the generated reactive setters
+// (`w.set_field(v, ctx)`, `ctx: &mut ReactiveCtx`) accept `&mut WidgetCtx` via
+// deref coercion with zero macro change. The EventCtx surface stays reachable
+// through the inherent methods above (which shadow any same-named ReactiveCtx
+// method, e.g. `request_repaint`).
+impl<'a> std::ops::Deref for WidgetCtx<'a> {
+    type Target = ReactiveCtx;
+
+    #[inline]
+    fn deref(&self) -> &ReactiveCtx {
+        &self.reactive
+    }
+}
+
+impl<'a> std::ops::DerefMut for WidgetCtx<'a> {
+    #[inline]
+    fn deref_mut(&mut self) -> &mut ReactiveCtx {
+        &mut self.reactive
     }
 }
 

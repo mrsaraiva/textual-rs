@@ -21,8 +21,23 @@ until the API stabilizes.
   handler is dropped + logged rather than hanging). Because the live event loop
   and the headless pump both already call that one function, commands converge
   identically in both paths. Also adds `WidgetTree::query_within` /
-  `query_one_within` for subtree-scoped selector resolution. No public API yet;
-  `WidgetCtx` (which enqueues these) lands in the next step.
+  `query_one_within` for subtree-scoped selector resolution.
+
+- **`WidgetCtx` cross-node query/update surface** (WidgetCtx build, step 2) — the
+  handler context (`crate::event::WidgetCtx`, exported in the prelude) now carries
+  a `ReactiveCtx` and `DerefMut`s to it, so the generated `#[derive(Reactive)]`
+  setters (`w.set_field(v, ctx)`) accept `&mut WidgetCtx` unchanged while a
+  handler's field mutations flow into the shared flush. New surface:
+  `ctx.query_one::<W>()` (by type) and `ctx.query_one_id::<W>("#id")` return a
+  deferred `WidgetQuery<W>` whose `.update_via(ctx, |w, ctx| ...)` enqueues an
+  `UpdateWidget` command; `Handle::update_via(ctx, ...)` does the same for an
+  already-resolved handle; `ctx.add_class`/`remove_class` enqueue class ops on the
+  widget's own node. The target is resolved AT DRAIN (the tree is borrowed during
+  the handler), the closure's concrete type is captured AT ENQUEUE and downcast at
+  drain (a miss logs and drops, never panics), and the updated node's watchers
+  fire in the SAME flush pass. A removed target drops with a debug log. The flush
+  wraps each update closure in the dispatch-ctx guard so `self.node_id()` is
+  correct inside it, and passes no `&mut App` into the closure.
 
 - **New `#[widget(base = <Container>)]` delegation derive** — a compound widget
   can now "inherit" the full structural / propagation `Widget` surface from a
