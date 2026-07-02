@@ -49,13 +49,13 @@ impl Widget for Panel {
         self.title.as_deref()
     }
 
-    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+    fn compose(&mut self) -> crate::compose::ComposeResult {
         if self.child_extracted {
             return Vec::new();
         }
         self.child_extracted = true;
         let child = std::mem::replace(&mut self.child, Box::new(Spacer::new(1)));
-        vec![child]
+        vec![crate::compose::ChildDecl::new(child)]
     }
 
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
@@ -363,21 +363,21 @@ mod tests {
     #[test]
     fn panel_extraction_returns_child() {
         let mut panel = Panel::new(Spacer::new(1));
-        let children = panel.take_composed_children();
+        let children = panel.compose();
         assert_eq!(children.len(), 1);
     }
 
     #[test]
     fn panel_extraction_idempotent() {
         let mut panel = Panel::new(Spacer::new(1));
-        let _ = panel.take_composed_children();
-        assert!(panel.take_composed_children().is_empty());
+        let _ = panel.compose();
+        assert!(panel.compose().is_empty());
     }
 
     #[test]
     fn panel_render_after_extraction_with_border() {
         let mut panel = Panel::new(Spacer::new(1)).title("Test");
-        let _ = panel.take_composed_children();
+        let _ = panel.compose();
         let console = Console::new();
         let options = ConsoleOptions {
             size: (20, 5),
@@ -391,7 +391,7 @@ mod tests {
     #[test]
     fn panel_render_after_extraction_no_border() {
         let mut panel = Panel::new(Spacer::new(1)).border(false);
-        let _ = panel.take_composed_children();
+        let _ = panel.compose();
         let console = Console::new();
         let options = ConsoleOptions {
             size: (20, 5),
@@ -406,7 +406,7 @@ mod tests {
     fn panel_uses_tree_path_after_extraction() {
         let mut panel = Panel::new(Spacer::new(1));
         assert!(!panel.child_extracted);
-        let _ = panel.take_composed_children();
+        let _ = panel.compose();
         assert!(panel.child_extracted);
     }
 }

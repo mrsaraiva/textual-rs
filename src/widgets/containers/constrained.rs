@@ -62,7 +62,7 @@ impl Widget for Constrained {
         true
     }
 
-    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+    fn compose(&mut self) -> crate::compose::ComposeResult {
         if self.child_extracted {
             return Vec::new();
         }
@@ -70,7 +70,7 @@ impl Widget for Constrained {
         self.extracted_child_layout_height = self.child.layout_height();
         self.extracted_child_content_width = self.child.content_width();
         let child = std::mem::replace(&mut self.child, Box::new(Spacer::new(1)));
-        vec![child]
+        vec![crate::compose::ChildDecl::new(child)]
     }
 
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
@@ -218,21 +218,21 @@ mod tests {
     #[test]
     fn constrained_extraction_returns_child() {
         let mut c = Constrained::new(Spacer::new(1));
-        let children = c.take_composed_children();
+        let children = c.compose();
         assert_eq!(children.len(), 1);
     }
 
     #[test]
     fn constrained_extraction_idempotent() {
         let mut c = Constrained::new(Spacer::new(1));
-        let _ = c.take_composed_children();
-        assert!(c.take_composed_children().is_empty());
+        let _ = c.compose();
+        assert!(c.compose().is_empty());
     }
 
     #[test]
     fn constrained_render_after_extraction() {
         let mut c = Constrained::new(Spacer::new(1));
-        let _ = c.take_composed_children();
+        let _ = c.compose();
         let console = Console::new();
         let options = ConsoleOptions {
             size: (20, 5),

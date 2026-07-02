@@ -37,13 +37,13 @@ impl Styled {
 }
 
 impl Widget for Styled {
-    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+    fn compose(&mut self) -> crate::compose::ComposeResult {
         if self.child_extracted {
             return Vec::new();
         }
         self.child_extracted = true;
         let child = std::mem::replace(&mut self.child, Box::new(Spacer::new(1)));
-        vec![child]
+        vec![crate::compose::ChildDecl::new(child)]
     }
 
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
@@ -131,21 +131,21 @@ mod tests {
     #[test]
     fn styled_extraction_returns_child() {
         let mut s = Styled::new(Spacer::new(1), Style::default());
-        let children = s.take_composed_children();
+        let children = s.compose();
         assert_eq!(children.len(), 1);
     }
 
     #[test]
     fn styled_extraction_idempotent() {
         let mut s = Styled::new(Spacer::new(1), Style::default());
-        let _ = s.take_composed_children();
-        assert!(s.take_composed_children().is_empty());
+        let _ = s.compose();
+        assert!(s.compose().is_empty());
     }
 
     #[test]
     fn styled_render_after_extraction() {
         let mut s = Styled::new(Spacer::new(1), Style::default());
-        let _ = s.take_composed_children();
+        let _ = s.compose();
         let console = Console::new();
         let options = ConsoleOptions {
             size: (20, 5),
@@ -159,7 +159,7 @@ mod tests {
     #[test]
     fn styled_style_type_after_extraction() {
         let mut s = Styled::new(Spacer::new(1), Style::default());
-        let _ = s.take_composed_children();
+        let _ = s.compose();
         assert_eq!(s.style_type(), "Styled");
     }
 }
