@@ -38,6 +38,13 @@ until the API stabilizes.
   fire in the SAME flush pass. A removed target drops with a debug log. The flush
   wraps each update closure in the dispatch-ctx guard so `self.node_id()` is
   correct inside it, and passes no `&mut App` into the closure.
+  Follow-up hardening: the flush now also enqueues a target's reactive ctx when it
+  requested only recompose/styles (was silently dropped); `WidgetCtx::post_message`
+  no longer clobbers the shared dispatch `EventCtx`'s node id (new
+  `EventCtx::post_message_from`); and `WidgetCtx` gained inherent shadows for the
+  `ReactiveCtx`-twin methods (`request_layout`/`request_styles`/`request_recompose`
+  route to the canonical EventCtx path; `set_class`/`add_class_to`/`remove_class_from`
+  route to the command queue) so a given call shape has one deterministic path.
 
 - **New `#[widget(base = <Container>)]` delegation derive** — a compound widget
   can now "inherit" the full structural / propagation `Widget` surface from a

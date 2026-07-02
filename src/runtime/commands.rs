@@ -222,7 +222,12 @@ impl App {
         // changes: the shared flush's rounds loop dispatches the node's
         // `watch_*` in the SAME pass (mirrors `Handle::update_in`).
         let reactive = wctx.into_reactive();
-        if reactive.has_changes() || reactive.needs_repaint() || reactive.needs_layout() {
+        if reactive.has_changes()
+            || reactive.needs_repaint()
+            || reactive.needs_layout()
+            || reactive.needs_recompose()
+            || reactive.needs_styles()
+        {
             crate::reactive::enqueue_runtime_reactive_entry(
                 crate::reactive::RuntimeReactiveEntry::new(node, reactive),
             );
