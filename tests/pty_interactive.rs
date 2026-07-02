@@ -1127,7 +1127,7 @@ fn parity_masked_input_typing() {
 /// checkbox: the focused checkbox toggles on Space. Initial focus is
 /// "#initial_focus" (Kaitain) per the demo.
 #[test]
-#[ignore = "BUG: Checkbox toggle-slot bg is #ffffff (Rust) vs #1b1b1b (Python) — the switch indicator paints a white background instead of the dark surface. 97 cells."]
+#[ignore = "BUG (multi-root; white border-slot root FIXED): the white toggle/border-edge slot bg (#ffffff vs #1b1b1b) is fixed (border outer-bg now composites the transparent $boost parent). Residual 55 colour cells are OTHER roots: `[magenta]Ginaz` markup label fg (#ff00ff vs #e0e0e0), `:focus` border colour + `background-tint` (#272727 vs #1e1e1e), and the `.-on` checked button colour (#8ad4a1 vs #000f18) — markup + pseudo-class resolution, out of the white-slot scope."]
 fn parity_checkbox_toggle() {
     let script = [Step::Key(Key::Space), Step::Wait(250)];
     let (rf, pf) = widgets_both("checkbox", &script, 400);
@@ -2461,13 +2461,15 @@ fn parity_animator_animation01() {
 /// compound/byte01: 8 BitSwitches + an Input (not wired). Tab from the Input to
 /// the first Switch and toggle it with Space; compare the rendered grid.
 #[test]
-#[ignore = "BUG: `:focus-within` heavy border ABSENT in Rust. After Tab+Space (a Switch is \
+#[ignore = "BUG (multi-root; white border-slot root FIXED): the Switch white border-edge slot \
+            (#ffffff vs #1b1b1b) is fixed (border outer-bg now composites the transparent parent). \
+            Residual: `:focus-within` heavy border ABSENT in Rust. After Tab+Space (a Switch is \
             focused) Python draws the `ByteInput:focus-within { border: heavy $secondary }` frame \
             (┏━━┓…┗━━┛) around the 8 switches; Rust draws no border at all, so the switch row band \
-            shifts 1 column and rows 19/24 diverge entirely (176 glyph cells). Secondary: Rust \
-            shows the Input placeholder `byte` while Python renders it blank in this state; Switch \
-            indicator slot bg is #ffffff (Rust) vs #1b1b1b (Python). Root: `:focus-within` \
-            pseudo-class not matched/applied + Switch white-slot indicator."]
+            shifts 1 column and rows 19/24 diverge (176 glyph cells). Plus Rust shows the Input \
+            placeholder `byte` while Python renders it blank, and the `:focus` background-tint \
+            (#272727 vs #1e1e1e, 18 colour cells). Root: `:focus-within`/`:focus` pseudo-class \
+            styling not applied (out of the white-slot scope)."]
 fn parity_compound_byte01() {
     let script = [Step::Key(Key::Tab), Step::Key(Key::Space), Step::Wait(300)];
     let (rf, pf) = cat_both("byte01", "guide/compound", &script, 400);
@@ -2478,11 +2480,13 @@ fn parity_compound_byte01() {
 /// writes the integer value into the Input. Tab to the first (bit 7) Switch and
 /// toggle it; the Input should read "128" on both.
 #[test]
-#[ignore = "BUG: same `:focus-within` heavy-border gap as byte01 — after Tab+Space (Switch \
+#[ignore = "BUG (multi-root; white border-slot root FIXED): the Switch white border-edge slot \
+            (#ffffff vs #1b1b1b) is fixed (border outer-bg now composites the transparent parent). \
+            Residual: same `:focus-within` heavy-border gap as byte01 — after Tab+Space (Switch \
             focused) Python frames the ByteInput with `border: heavy $secondary`; Rust draws no \
-            border (175 glyph cells, switch band shifts 1 col). Plus Switch indicator slot bg \
-            #ffffff (Rust) vs #1b1b1b (Python). Root: `:focus-within` pseudo not applied + Switch \
-            white-slot indicator."]
+            border (175 glyph cells, switch band shifts 1 col) plus the `:focus` background-tint \
+            (#272727 vs #1e1e1e, 18 colour cells). Root: `:focus-within`/`:focus` pseudo not applied \
+            (out of the white-slot scope)."]
 fn parity_compound_byte02() {
     let script = [Step::Key(Key::Tab), Step::Key(Key::Space), Step::Wait(400)];
     let (rf, pf) = cat_both("byte02", "guide/compound", &script, 400);
@@ -2493,12 +2497,13 @@ fn parity_compound_byte02() {
 /// ByteEditor.value reactive, whose watcher flips the Switches. Type "5" → bits
 /// 0 and 2 turn on. Compare the rendered grid.
 #[test]
-#[ignore = "BUG (colour only): typing `5` into the Input flips bits 0 and 2 on BOTH apps — \
-            glyph-perfect (0 glyph diffs), confirming the reactive Input→ByteEditor.value→Switch \
-            watcher path works. 42 colour cells differ: the toggled Switch indicator slot bg is \
-            #ffffff (Rust) vs #1b1b1b (Python), and the focused Input surface/border carries the \
-            :focus background-tint #272727 in Python vs #1e1e1e in Rust. Shared roots: Switch \
-            white-slot indicator + :focus background-tint not applied."]
+#[ignore = "BUG (colour only; white border-slot root FIXED): typing `5` into the Input flips bits \
+            0 and 2 on BOTH apps — glyph-perfect (0 glyph diffs), confirming the reactive \
+            Input→ByteEditor.value→Switch watcher path works. The Switch white border-edge slot \
+            (#ffffff vs #1b1b1b) is fixed (border outer-bg now composites the transparent parent). \
+            Residual 36 colour cells are all the focused Input's `:focus` background-tint (#272727 \
+            in Python vs #1e1e1e in Rust). Root: `:focus` background-tint not applied (out of the \
+            white-slot scope)."]
 fn parity_compound_byte03() {
     let script = [Step::SendKeys("5"), Step::Wait(400)];
     let (rf, pf) = cat_both("byte03", "guide/compound", &script, 400);

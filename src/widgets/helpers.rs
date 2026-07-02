@@ -272,8 +272,24 @@ pub(crate) fn apply_border_edges(
     }
 
     // Inner (widget) and outer (parent) backgrounds used for border blending.
+    //
+    // Python's `DOMNode.background_colors` composites the whole ancestor chain
+    // into an OPAQUE base background (`background += styles.background.tint(...)`
+    // from the App root down). The border's outer edge (`base_background`) is
+    // therefore always opaque. In Rust `parent_style.bg` is the parent widget's
+    // RAW resolved background token, which can be semi-transparent (e.g. a
+    // `$boost` container = white @ 4% alpha). Using that directly makes the
+    // outer border cell's `to_simple_opaque()` promote the un-composited alpha
+    // to solid white. When the parent background is not fully opaque, fold it
+    // over the composited ancestor surface (which already includes the parent's
+    // own contribution) to recover the true opaque base background.
     let fallback_bg = parse_color_like("$background").unwrap_or(crate::style::Color::rgb(0, 0, 0));
-    let parent_bg = parent_style.and_then(|s| s.bg).unwrap_or(fallback_bg);
+    let raw_parent_bg = parent_style.and_then(|s| s.bg).unwrap_or(fallback_bg);
+    let parent_bg = if raw_parent_bg.a >= 1.0 {
+        raw_parent_bg
+    } else {
+        crate::css::current_composited_background().unwrap_or(fallback_bg)
+    };
     let inner_bg = style
         .bg
         .map(|c| c.flatten_over(parent_bg))
