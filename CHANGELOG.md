@@ -9,6 +9,25 @@ until the API stabilizes.
 
 ### Widget fixes
 
+- **Composed children declared with `ChildDecl::with_id`/`with_classes` are now
+  addressable by `#id`/`.class` under every container** — `Row::with_compose` and
+  `Grid::with_compose` (in `src/widgets/layout.rs`) discarded the `ChildDecl`
+  `id`/`classes`/`handle_sink` metadata when building child nodes, so a composed
+  child (e.g. `ChildDecl::from(Digits::new(..)).with_id("disp")`) mounted as an
+  id-less arena node and `query("#disp")` returned no match. Additionally,
+  `ScrollableContainer` (the flatten path behind `VerticalScroll`/`HorizontalScroll`)
+  dropped the inner `Container`'s recorded `ChildDecl` metadata: it flattens the
+  content `Container` out of the tree during `take_composed_children` but never
+  forwarded that container's `take_child_decl_meta`/`take_child_handle_sinks`, so
+  ids/classes on composed scroll children (e.g. the `checkbox` demo's
+  `#initial_focus`) were lost and `query_mut("#initial_focus").focus()` silently
+  matched nothing. All three now thread the metadata onto the mounted node
+  (mirroring `Container::with_compose`), with the flatten path re-keying the
+  container's per-child indices into the flattened child list. This restores
+  mount-time focus/query wiring for composed scroll/grid/row children; the
+  `checkbox` real-app parity residual drops 55 → 8 colour cells (the `:focus`
+  border+tint now matches Python exactly).
+
 - **A transparent widget's text now composites over the CACHED ancestor surface
   after a live ancestor-background change (Python `visual_style` parity)** — Python
   `Widget.visual_style` bakes the composited ancestor background into a widget's
