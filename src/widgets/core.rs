@@ -386,6 +386,11 @@ pub trait Widget: Send + Sync + Any {
         self.render(console, options)
     }
     fn on_mount(&mut self) {}
+    /// Mount hook WITH a handler context (WidgetCtx build, step 4). Called once
+    /// when the node is mounted, after `on_mount()`. Additive and default no-op;
+    /// widgets that own timers register them here via
+    /// [`crate::event::WidgetCtx::set_interval`]. `on_mount()` is unchanged.
+    fn on_mount_ctx(&mut self, _ctx: &mut crate::event::WidgetCtx) {}
     fn on_unmount(&mut self) {}
     fn on_tick(&mut self, _tick: u64) {}
     fn on_resize(&mut self, _width: u16, _height: u16) {}

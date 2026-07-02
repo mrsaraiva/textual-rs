@@ -15,8 +15,12 @@
 
 use std::any::{Any, TypeId};
 use std::marker::PhantomData;
+use std::time::Duration;
 
-use super::commands::{CommandTarget, WidgetCommand, enqueue_widget_command};
+use super::TimerHandle;
+use super::commands::{
+    CommandTarget, WidgetCommand, WidgetTimerCallback, alloc_widget_timer_id, enqueue_widget_command,
+};
 use crate::event::WidgetCtx;
 use crate::handle::Handle;
 use crate::widgets::Widget;
@@ -141,6 +145,43 @@ impl<'a> WidgetCtx<'a> {
             target: CommandTarget::Node(node),
             class: class.to_string(),
         });
+    }
+
+    /// Register a **widget-owned** repeating interval timer on this widget's node
+    /// (Python `self.set_interval`). The callback receives the concrete widget
+    /// `&mut W` (downcast at fire) and a fresh `WidgetCtx`, so a reactive `set_*`
+    /// inside it flows to that node's watchers. With `paused = true` it starts
+    /// paused; control it via the returned [`TimerHandle`]'s
+    /// `pause()`/`resume()`/`stop()`.
+    ///
+    /// Runs on the SAME `TimerRuntime` as app timers, so `Pilot::advance_clock`
+    /// drives it deterministically. The timer is purged when its node unmounts.
+    /// Registration is deferred (enqueued, applied by the next flush); the handle
+    /// is valid immediately (its id is pre-allocated).
+    pub fn set_interval<W, F>(&mut self, interval: Duration, paused: bool, mut f: F) -> TimerHandle
+    where
+        W: Widget,
+        F: FnMut(&mut W, &mut WidgetCtx) + Send + 'static,
+    {
+        let timer_id = alloc_widget_timer_id();
+        let callback: WidgetTimerCallback =
+            Box::new(move |widget: &mut dyn Widget, wctx: &mut WidgetCtx| {
+                match (widget as &mut dyn Any).downcast_mut::<W>() {
+                    Some(concrete) => f(concrete, wctx),
+                    None => crate::debug::debug_render(&format!(
+                        "[widget-timer] fire downcast miss: node is not {}",
+                        std::any::type_name::<W>()
+                    )),
+                }
+            });
+        enqueue_widget_command(WidgetCommand::RegisterTimer {
+            node: self.node_id(),
+            timer_id,
+            interval,
+            paused,
+            callback,
+        });
+        TimerHandle::from_id(timer_id)
     }
 }
 

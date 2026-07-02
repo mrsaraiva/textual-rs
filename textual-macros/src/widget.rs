@@ -277,6 +277,11 @@ fn method_table() -> Vec<MethodSpec> {
         ),
         // ── Lifecycle ──────────────────────────────────────────────────
         m!("on_mount", quote! { fn on_mount(&mut self) }, quote! { on_mount() }),
+        m!(
+            "on_mount_ctx",
+            quote! { fn on_mount_ctx(&mut self, ctx: &mut textual::event::WidgetCtx) },
+            quote! { on_mount_ctx(ctx) }
+        ),
         m!("on_unmount", quote! { fn on_unmount(&mut self) }, quote! { on_unmount() }),
         m!("on_tick", quote! { fn on_tick(&mut self, tick: u64) }, quote! { on_tick(tick) }),
         m!(
@@ -761,13 +766,17 @@ mod tests {
 
     #[test]
     fn default_forwarded_surface_matches_delegate_widget_to() {
-        // The default-forwarded set must be exactly the 63-method surface the
-        // deprecated `delegate_widget_to!` forwarded (table minus the two
-        // non-forwarded style_type methods, which keep the trait default).
+        // The default-forwarded set is the 63-method surface the deprecated
+        // `delegate_widget_to!` forwarded, PLUS `on_mount_ctx` (added in the
+        // WidgetCtx build) = 64 (table minus the two non-forwarded style_type
+        // methods, which keep the trait default).
         let forwarded = method_table()
             .iter()
             .filter(|m| is_default_forwarded(m.name))
             .count();
-        assert_eq!(forwarded, 63, "default-forwarded surface must match delegate_widget_to! (63)");
+        assert_eq!(
+            forwarded, 64,
+            "default-forwarded surface = delegate_widget_to! (63) + on_mount_ctx"
+        );
     }
 }

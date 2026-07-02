@@ -3814,6 +3814,14 @@ impl App {
                 }
             }
 
+            // Widget-owned interval callbacks (WidgetCtx::set_interval). Same
+            // TimerRuntime as app timers; the background drain above stashed any
+            // due widget-timer ids. Fires run against each node's widget with a
+            // fresh WidgetCtx (reactive mutations flow to watchers via the flush).
+            if self.has_pending_widget_timer_fires() {
+                self.run_due_widget_timer_callbacks(&mut pending_invalidation);
+            }
+
             let phase_started = Instant::now();
             let mut focused_help_outcome = self.dispatch_focused_help_changed(root);
             focused_help_us = Some(
@@ -3876,6 +3884,17 @@ impl App {
                     &mut pending_invalidation,
                     InvalidationScope::Global,
                 );
+                // Widget-owned mount hook (registers set_interval timers, etc.)
+                // on mount; purge the node's timers on unmount (primary cleanup).
+                if is_mount {
+                    self.run_on_node_widget(
+                        node_id,
+                        |w, ctx| w.on_mount_ctx(ctx),
+                        &mut pending_invalidation,
+                    );
+                } else {
+                    self.purge_node_widget_timers(node_id);
+                }
                 if outcome.stop_requested
                     || msg_outcome.stop_requested
                     || mount_msg_outcome.stop_requested
@@ -4381,6 +4400,8 @@ impl App {
             self.absorb_outcome(&mut msg_outcome, &mut pending, InvalidationScope::Global);
             let mut mount_msg_outcome = self.drain_pending_mount_messages(root, node_id);
             self.absorb_outcome(&mut mount_msg_outcome, &mut pending, InvalidationScope::Global);
+            // Widget-owned mount hook (registers set_interval timers, etc.).
+            self.run_on_node_widget(node_id, |w, ctx| w.on_mount_ctx(ctx), &mut pending);
         }
 
         // Ready event after first render.
@@ -4470,6 +4491,14 @@ impl App {
                 let mut msg_outcome =
                     self.dispatch_message_queue_with_runtime(root, outcome.messages);
                 self.absorb_outcome(&mut msg_outcome, pending, InvalidationScope::Global);
+            }
+
+            // Widget-owned interval callbacks (WidgetCtx::set_interval). Same
+            // TimerRuntime as app timers; the drain above stashed due ids. Under
+            // the manual clock, Pilot::advance_clock drives these deterministically.
+            if self.has_pending_widget_timer_fires() {
+                progressed = true;
+                self.run_due_widget_timer_callbacks(pending);
             }
 
             // Async task completions.

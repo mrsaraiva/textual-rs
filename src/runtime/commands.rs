@@ -12,12 +12,14 @@
 //! live event loop (`run_widget_tree`) and the headless pump (`headless_pump`)
 //! converge commands with zero extra plumbing (the loop-convergence keystone).
 //!
-//! Only `AddClass` / `RemoveClass` exist in this sub-step; `UpdateWidget`
-//! (sub-step 2) and the mount/style/recompose/post commands (sub-step 5) are
-//! added as the build proceeds.
+//! Commands so far: `AddClass`/`RemoveClass` (step 1), `UpdateWidget` (step 2),
+//! and the widget-owned timer commands `RegisterTimer`/`PauseTimer`/
+//! `ResumeTimer`/`StopTimer` (step 4). The mount/style/recompose/post commands
+//! arrive in step 5.
 
 use std::any::{Any, TypeId};
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
+use std::time::Duration;
 
 use super::App;
 use super::event_loop::InvalidationScope;
@@ -25,6 +27,10 @@ use super::types::{DispatchOutcome, PendingInvalidation};
 use crate::event::{EventCtx, InvalidationFlags, WidgetCtx};
 use crate::node_id::NodeId;
 use crate::widgets::Widget;
+
+/// A widget-owned timer callback: runs against the concrete widget (downcast at
+/// enqueue, same pattern as `UpdateWidget`) with a fresh `WidgetCtx` on each fire.
+pub(crate) type WidgetTimerCallback = Box<dyn FnMut(&mut dyn Widget, &mut WidgetCtx) + Send>;
 
 /// Target of a deferred command. **Resolved at drain time**, never at enqueue
 /// time: the tree is borrowed during the enqueuing handler, and an earlier
@@ -57,6 +63,43 @@ pub(crate) enum WidgetCommand {
         target: CommandTarget,
         apply: Box<dyn FnOnce(&mut dyn Widget, &mut WidgetCtx) + Send>,
     },
+    /// Register a widget-owned interval timer on the SAME `TimerRuntime` as
+    /// app-level timers (so `enable_manual_timer_clock` / `Pilot::advance_clock`
+    /// drive it deterministically). `timer_id` is pre-allocated by
+    /// `alloc_widget_timer_id` so `set_interval` can return a stable `TimerHandle`.
+    RegisterTimer {
+        node: NodeId,
+        timer_id: u64,
+        interval: Duration,
+        paused: bool,
+        callback: WidgetTimerCallback,
+    },
+    /// Pause a timer by id (deferred `TimerHandle::pause`).
+    PauseTimer(u64),
+    /// Resume a timer by id (deferred `TimerHandle::resume`).
+    ResumeTimer(u64),
+    /// Stop + forget a timer by id (deferred `TimerHandle::stop`).
+    StopTimer(u64),
+}
+
+thread_local! {
+    /// Monotonic source of widget-owned timer ids, tagged into a high range
+    /// (bit 63 set) so they never collide with app-level ids (`[1<<32, ..)`) or
+    /// widget message-only ids (`[0, 1<<32)`). `set_interval` allocates here so
+    /// it can return a `TimerHandle` synchronously without `&mut App`.
+    static WIDGET_TIMER_ID: Cell<u64> = const { Cell::new(0) };
+}
+
+/// Bit 63 tag marking a timer id as a widget-owned-callback timer.
+const WIDGET_TIMER_TAG: u64 = 1u64 << 63;
+
+/// Allocate a fresh, process-unique widget-owned timer id (UI thread).
+pub(crate) fn alloc_widget_timer_id() -> u64 {
+    WIDGET_TIMER_ID.with(|c| {
+        let next = c.get().wrapping_add(1);
+        c.set(next);
+        WIDGET_TIMER_TAG | next
+    })
 }
 
 thread_local! {
@@ -180,29 +223,58 @@ impl App {
                 let Some(node) = self.resolve_command_target(&target) else {
                     return;
                 };
-                self.run_update_widget(node, apply, pending);
+                self.run_on_node_widget(node, |w, ctx| apply(w, ctx), pending);
+            }
+            WidgetCommand::RegisterTimer {
+                node,
+                timer_id,
+                interval,
+                paused,
+                callback,
+            } => {
+                // Same TimerRuntime as app timers (TRAP h: manual-clock coverage).
+                self.timers
+                    .schedule_interval(timer_id, node, interval, None, paused);
+                self.widget_timer_callbacks
+                    .insert(timer_id, (node, callback));
+            }
+            WidgetCommand::PauseTimer(id) => {
+                self.timers.pause(id);
+            }
+            WidgetCommand::ResumeTimer(id) => {
+                self.timers.resume(id);
+            }
+            WidgetCommand::StopTimer(id) => {
+                self.timers.cancel(id);
+                self.widget_timer_callbacks.remove(&id);
             }
         }
     }
 
-    /// Run an `UpdateWidget` closure against the resolved target node during the
-    /// flush. TRAP (b): the dispatch-ctx guard must wrap the closure call, else
+    /// Run a closure against the widget at `node` with a fresh `WidgetCtx`, then
+    /// drive that node's reactive fixpoint + absorb the synthesized EventCtx.
+    /// Shared by `UpdateWidget` and widget-timer fires. Returns `false` if the
+    /// node is not present (caller handles the miss).
+    ///
+    /// TRAP (b): the dispatch-ctx guard wraps the closure call, else
     /// `self.node_id()` returns `NodeId::default()` inside it. TRAP (a): no
     /// `&mut App` crosses into the closure — the `tree.get_mut` borrow is scoped
     /// to the call, and the closure only sees `&mut dyn Widget` + `&mut WidgetCtx`.
-    fn run_update_widget(
+    pub(crate) fn run_on_node_widget(
         &mut self,
         node: NodeId,
-        apply: Box<dyn FnOnce(&mut dyn Widget, &mut WidgetCtx) + Send>,
+        run: impl FnOnce(&mut dyn Widget, &mut WidgetCtx),
         pending: &mut PendingInvalidation,
-    ) {
+    ) -> bool {
         // Node interaction state for the dispatch guard (so `self.node_id()` /
         // `node_state()` are correct inside the closure).
-        let state = self
+        let Some(state) = self
             .active_widget_tree()
             .and_then(|t| t.get(node))
             .map(|n| n.state)
-            .unwrap_or_default();
+        else {
+            return false;
+        };
         let _guard = super::dispatch_ctx::set_dispatch_recipient(node, state);
 
         // No live EventCtx exists in the flush; synthesize one (TRAP f: the
@@ -212,10 +284,12 @@ impl App {
         synth_event.set_node_id(node);
         let mut wctx = WidgetCtx::new(node, &mut synth_event);
 
+        let mut ran = false;
         if let Some(tree) = self.active_widget_tree_mut()
             && let Some(n) = tree.get_mut(node)
         {
-            apply(n.widget.as_mut(), &mut wctx);
+            run(n.widget.as_mut(), &mut wctx);
+            ran = true;
         }
 
         // Drive the target node's reactive fixpoint by enqueueing its recorded
@@ -248,14 +322,15 @@ impl App {
             class_ops: synth_event.take_class_ops(),
         };
         if !outcome.messages.is_empty() {
-            // Routing messages posted from an update closure needs the
-            // `PostUp` command (sub-step 5); until then, surface the drop.
+            // Routing messages posted from an update/timer closure needs the
+            // `PostUp` command (step 5); until then, surface the drop.
             crate::debug::debug_message(&format!(
-                "[widget-command] UpdateWidget on {node:?} posted {} message(s) that are not yet \
+                "[widget-command] closure on {node:?} posted {} message(s) that are not yet \
                  routed (PostUp lands in a later step)",
                 outcome.messages.len()
             ));
         }
         self.absorb_outcome(&mut outcome, pending, InvalidationScope::Global);
+        ran
     }
 }

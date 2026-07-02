@@ -9,6 +9,20 @@ until the API stabilizes.
 
 ### Framework fundamentals
 
+- **Widget-owned interval timers** (WidgetCtx build, step 4) — a widget can own
+  a repeating timer via `ctx.set_interval(interval, paused, |w, ctx| ...)` from
+  the new additive `Widget::on_mount_ctx(&mut self, &mut WidgetCtx)` hook (default
+  no-op; `on_mount()` unchanged; the `#[widget]` derive forwards `on_mount_ctx`).
+  The callback receives the concrete widget `&mut W` (downcast at fire) and a
+  fresh `WidgetCtx`, so a reactive `set_*` inside it flows to that node's watchers
+  in the same pass. Timers run on the SAME `TimerRuntime` as app-level timers, so
+  `Pilot::advance_clock` drives them deterministically. The returned `TimerHandle`
+  gains `pause()` / `resume()` / `stop()` (deferred — applied by the next flush, so
+  they are callable from handlers). A widget's timers are purged when its node
+  unmounts (primary: the `Unmount` lifecycle drain; backstop: a fire into a gone
+  node cancels the timer). Registration + control are deferred through the widget
+  command queue, so `set_interval` needs no `&mut App` yet returns a usable handle.
+
 - **`#[on(..)]` handlers now receive `&mut WidgetCtx` and are wired into
   `Widget::on_message`** (WidgetCtx build, step 3) — the `#[on(MessageType)]`
   attribute's generated `__on_dispatch_*` dispatcher now takes `&mut WidgetCtx`
