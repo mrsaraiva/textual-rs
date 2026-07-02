@@ -688,6 +688,15 @@ fn collect_clipboard_runtime_messages_with_backend(
     generated
 }
 
+/// Result of [`App::drain_tree_lifecycle_events`]: whether any Mount/Unmount
+/// event was drained (progress for the headless pump's idle check) and whether
+/// a lifecycle handler requested app exit (the live loop breaks on it).
+#[derive(Default)]
+struct LifecycleDrainOutcome {
+    progressed: bool,
+    stop_requested: bool,
+}
+
 #[derive(Default)]
 struct RuntimeMessagePass {
     deliver: Vec<MessageEvent>,
@@ -3839,74 +3848,21 @@ impl App {
             }
 
             // Drain pending lifecycle events from the tree and dispatch
-            // Mount/Unmount events to affected widgets.
+            // Mount/Unmount events to affected widgets (this fires the
+            // widget-owned `on_mount_ctx` hook — set_interval registration).
+            // Shared with the headless pump so a subtree mounted via dynamic
+            // recompose registers its timers identically in both loops.
             let phase_started = Instant::now();
-            let lifecycle_events: Vec<(NodeId, bool)> = self
-                .active_widget_tree_mut()
-                .map(|tree| {
-                    tree.drain_lifecycle()
-                        .into_iter()
-                        .map(|evt| match evt {
-                            crate::widget_tree::LifecycleEvent::Mount { node } => (node, true),
-                            crate::widget_tree::LifecycleEvent::Unmount { node } => (node, false),
-                        })
-                        .collect()
-                })
-                .unwrap_or_default();
-            for (node_id, is_mount) in lifecycle_events {
-                let event = if is_mount {
-                    Event::Mount(MountEvent { node: node_id })
-                } else {
-                    Event::Unmount(UnmountEvent { node: node_id })
-                };
-                let mut outcome = self.dispatch_event_to_target_auto(root, node_id, &event);
-                self.absorb_outcome(
-                    &mut outcome,
-                    &mut pending_invalidation,
-                    InvalidationScope::Global,
-                );
-                let mut msg_outcome =
-                    self.dispatch_message_queue_with_runtime(root, outcome.messages);
-                self.absorb_outcome(
-                    &mut msg_outcome,
-                    &mut pending_invalidation,
-                    InvalidationScope::Global,
-                );
-                // For newly mounted nodes, route any messages staged at mount
-                // time (Widget::take_pending_mount_messages) through the bus.
-                let mut mount_msg_outcome = if is_mount {
-                    self.drain_pending_mount_messages(root, node_id)
-                } else {
-                    DispatchOutcome::default()
-                };
-                self.absorb_outcome(
-                    &mut mount_msg_outcome,
-                    &mut pending_invalidation,
-                    InvalidationScope::Global,
-                );
-                // Widget-owned mount hook (registers set_interval timers, etc.)
-                // on mount; purge the node's timers on unmount (primary cleanup).
-                if is_mount {
-                    self.run_on_node_widget(
-                        node_id,
-                        |w, ctx| w.on_mount_ctx(ctx),
-                        &mut pending_invalidation,
-                    );
-                } else {
-                    self.purge_node_widget_timers(node_id);
-                }
-                if outcome.stop_requested
-                    || msg_outcome.stop_requested
-                    || mount_msg_outcome.stop_requested
-                {
-                    break 'event_loop;
-                }
-            }
+            let lifecycle_outcome =
+                self.drain_tree_lifecycle_events(root, &mut pending_invalidation);
             lifecycle_us = Some(
                 lifecycle_us
                     .unwrap_or(0)
                     .saturating_add(phase_started.elapsed().as_micros()),
             );
+            if lifecycle_outcome.stop_requested {
+                break 'event_loop;
+            }
 
             // ── Reactive phase ────────────────────────────────────────
             // Run the reactive phase for widgets that accumulated changes
@@ -4582,6 +4538,21 @@ impl App {
                 pending.request_full_content();
             }
             self.absorb_pending_recompositions(pending);
+
+            // Drain tree lifecycle events produced by the recompose above (and
+            // any mount commands): dispatch Mount/Unmount and fire the
+            // widget-owned `on_mount_ctx` hook, via the SAME shared drain the
+            // live loop runs each tick. Without this, a widget mounted through a
+            // DYNAMIC RECOMPOSE never gets `on_mount_ctx` headlessly, so its
+            // `set_interval` timers never register (the last live-vs-headless
+            // mount divergence). A fresh mount counts as progress so the pump
+            // iterates again, letting the just-registered timer fire on the next
+            // `advance_clock`. `absorb_outcome` records the sticky headless stop
+            // flag internally, so an exit-on-mount handler is still observed.
+            if self.drain_tree_lifecycle_events(root, pending).progressed {
+                progressed = true;
+            }
+
             self.absorb_pending_query_refreshes(pending);
             if self.take_pending_force_relayout() {
                 pending.request_flags(crate::event::InvalidationFlags::layout());
@@ -5724,6 +5695,82 @@ impl App {
     /// Iterates over tree nodes that have a `ReactiveCtx` with pending changes,
     /// calls `run_reactive_phase()` for each, and feeds repaint/layout results
     /// into `pending_invalidation`.
+    /// Drain the tree's pending `Mount`/`Unmount` lifecycle events and dispatch
+    /// each: the `Mount`/`Unmount` event itself, any mount-staged messages
+    /// (`take_pending_mount_messages`), and — for mounts — the widget-owned
+    /// [`Widget::on_mount_ctx`] hook (which registers `set_interval` timers);
+    /// for unmounts, purge the node's timers.
+    ///
+    /// Shared by the live loop (`run_widget_tree`) and the headless pump
+    /// (`headless_pump`) so a widget mounted via **dynamic recompose** receives
+    /// `on_mount_ctx` in BOTH paths — closing the last live-vs-headless mount
+    /// divergence (initial mount is already dispatched by both loops; unmount is
+    /// covered by the `get_mut`-None backstop). Extending this ONE function is
+    /// what keeps the mount path from drifting between the two loops.
+    ///
+    /// Returns whether any event was drained (`progressed`, so the pump counts a
+    /// freshly-registered timer as progress and iterates again) and whether a
+    /// handler requested app exit (`stop_requested`). `absorb_outcome` also
+    /// records the sticky headless stop flag, so the pump observes exit even
+    /// though it does not break on the return value.
+    fn drain_tree_lifecycle_events(
+        &mut self,
+        root: &mut dyn Widget,
+        pending: &mut PendingInvalidation,
+    ) -> LifecycleDrainOutcome {
+        let lifecycle_events: Vec<(NodeId, bool)> = self
+            .active_widget_tree_mut()
+            .map(|tree| {
+                tree.drain_lifecycle()
+                    .into_iter()
+                    .map(|evt| match evt {
+                        crate::widget_tree::LifecycleEvent::Mount { node } => (node, true),
+                        crate::widget_tree::LifecycleEvent::Unmount { node } => (node, false),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let mut drain = LifecycleDrainOutcome::default();
+        for (node_id, is_mount) in lifecycle_events {
+            drain.progressed = true;
+            let event = if is_mount {
+                Event::Mount(MountEvent { node: node_id })
+            } else {
+                Event::Unmount(UnmountEvent { node: node_id })
+            };
+            let mut outcome = self.dispatch_event_to_target_auto(root, node_id, &event);
+            self.absorb_outcome(&mut outcome, pending, InvalidationScope::Global);
+            let mut msg_outcome =
+                self.dispatch_message_queue_with_runtime(root, outcome.messages);
+            self.absorb_outcome(&mut msg_outcome, pending, InvalidationScope::Global);
+            // For newly mounted nodes, route any messages staged at mount time
+            // (Widget::take_pending_mount_messages) through the bus.
+            let mut mount_msg_outcome = if is_mount {
+                self.drain_pending_mount_messages(root, node_id)
+            } else {
+                DispatchOutcome::default()
+            };
+            self.absorb_outcome(&mut mount_msg_outcome, pending, InvalidationScope::Global);
+            // Widget-owned mount hook (registers set_interval timers, etc.) on
+            // mount; purge the node's timers on unmount (primary cleanup).
+            if is_mount {
+                self.run_on_node_widget(node_id, |w, ctx| w.on_mount_ctx(ctx), pending);
+            } else {
+                self.purge_node_widget_timers(node_id);
+            }
+            if outcome.stop_requested
+                || msg_outcome.stop_requested
+                || mount_msg_outcome.stop_requested
+            {
+                // Match the live loop's early-out: stop processing further
+                // lifecycle events once app exit is requested.
+                drain.stop_requested = true;
+                break;
+            }
+        }
+        drain
+    }
+
     /// Shared post-dispatch flush: drain the runtime reactive queue **and** the
     /// deferred [`WidgetCommand`](crate::runtime::commands) queue to convergence.
     ///
