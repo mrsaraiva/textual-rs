@@ -100,15 +100,44 @@ pub(crate) fn apply_style_to_segments(
                 style_changed = true;
             }
 
-            if let Some(tint) = style.background_tint {
-                if let Some(bg) = s.bgcolor {
-                    let bg = crate::style::color_from_simple(bg);
-                    let blended =
-                        Tint::<()>::blend_color_with_percent(bg, tint.color, tint.percent);
-                    let flat = blended.flatten_over(under_bg);
-                    under_bg = flat;
-                    s.bgcolor = Some(flat.to_simple_opaque());
-                    style_changed = true;
+            // `background-tint` tints only the widget's OWN surface, mirroring
+            // Python's `styles.background.tint(styles.background_tint)` in
+            // `DOMNode.rich_style`/`background_colors`: the tint folds into each
+            // node's own `background` rule, not blanket over every segment the
+            // widget emits. Child/component renderables that carry their own
+            // opaque bg (e.g. a Switch slider's `$panel-darken-2`) must NOT be
+            // re-tinted by the parent widget's tint — doing so double-tints them
+            // (byte01/02 slider #0b1922 vs #000f18). The widget's own surface is
+            // the set of cells painting `style.bg` (its `background` rule) over
+            // the inherited parent surface; cells whose bg equals that surface
+            // (both the inherited fill we set above and any explicit surface
+            // fill the layout emits, e.g. the Switch `padding: 0 2` cells) get
+            // the tint, while cells with a different opaque bg keep their color.
+            if !no_bg {
+                if let Some(tint) = style.background_tint {
+                    // The widget's own surface color: its `background` rule
+                    // composited over the inherited parent surface. `None` when
+                    // the widget has no `background` rule — matching Python,
+                    // where tinting a transparent `styles.background` is a no-op.
+                    let own_surface_bg = style.bg.map(|bg| {
+                        bg.flatten_over(
+                            parent_bg.unwrap_or_else(|| crate::style::Color::rgb(0, 0, 0)),
+                        )
+                    });
+                    if let (Some(bg_simple), Some(surface)) = (s.bgcolor, own_surface_bg) {
+                        let bg = crate::style::color_from_simple(bg_simple);
+                        if bg == surface {
+                            let blended = Tint::<()>::blend_color_with_percent(
+                                bg,
+                                tint.color,
+                                tint.percent,
+                            );
+                            let flat = blended.flatten_over(under_bg);
+                            under_bg = flat;
+                            s.bgcolor = Some(flat.to_simple_opaque());
+                            style_changed = true;
+                        }
+                    }
                 }
             }
             let text_opacity = style.text_opacity.map(|value| value as f32 / 100.0);

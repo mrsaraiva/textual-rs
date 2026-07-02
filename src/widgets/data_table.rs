@@ -1925,7 +1925,32 @@ impl Widget for DataTable {
         // Per-cell visual base = background color + bold flag. The cell's own
         // foreground/italic/markup spans (carried by its `Content`) are composed
         // on top of this base by `Content::render_strips`.
-        let header_style = CellVisual::new(header_base, true);
+        //
+        // The header carries its OWN `background-tint` rule
+        // (`DataTable:focus > .datatable--header { background-tint: $foreground 5% }`),
+        // so Python folds the tint into the header component's own background
+        // (per-node in `rich_style`), NOT via a blanket widget pass. Mirror that
+        // here: fold the resolved `background-tint` (present only on `:focus`)
+        // into `header_base`, stamp the header `$foreground`, and tag the cells
+        // `no_style` so `apply_style_to_segments` (which now only tints the
+        // widget's own surface fill) does not re-tint the opaque header cells.
+        let header_bg_tint = crate::css::current_self_style().and_then(|s| s.background_tint);
+        let header_final = if let Some(tint) = header_bg_tint {
+            crate::renderables::Tint::<()>::blend_color_with_percent(
+                header_base,
+                tint.color,
+                tint.percent,
+            )
+        } else {
+            header_base
+        };
+        let header_fg = parse_color_like("$foreground").unwrap_or(Color::rgb(224, 224, 224));
+        let header_style = CellVisual {
+            bg: header_final,
+            fg: Some(header_fg),
+            bold: true,
+            no_style: true,
+        };
         let normal_style = CellVisual::new(row_base, false);
         let fixed_style = CellVisual::new(fixed_base, false);
         // Focused cursor cell: `$block-cursor-background` (opaque `$primary`) with
@@ -1946,11 +1971,6 @@ impl Widget for DataTable {
         // so it is not re-tinted. Only the header shows this (body rows share the
         // surface colour, so the 25% blend is a no-op there).
         let composited_bg = crate::css::current_composited_background().unwrap_or(row_base);
-        let header_final = parse_color_like("$foreground")
-            .map(|fg| {
-                crate::renderables::Tint::<()>::blend_color_with_percent(header_base, fg, 5)
-            })
-            .unwrap_or(header_base);
         let header_fill_bg = composited_bg.blend_over_float(header_final, 0.25);
         let header_fill_style = CellVisual {
             bg: header_fill_bg,
