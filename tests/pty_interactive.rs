@@ -1495,7 +1495,7 @@ fn region_advances(
 
 /// computed01: typing a red value live recomputes the colour swatch background.
 #[test]
-#[ignore = "BUG: the green/blue Inputs are constructed with value \"0\" but Rust renders their PLACEHOLDER text (\"Enter green 0-255\"/\"Enter blue 0-255\") instead of the value \"0\" that Python shows. 29 glyph cells + focused-Input :focus background-tint (#1e1e1e vs #272727)."]
+#[ignore = "BUG (2 blockers, both OUTSIDE this root's `src/widgets/input.rs` scope): Python's `Input(\"0\", ...)` pre-fills all three channels with \"0\" and relies on `select_on_focus=True` so typing \"123\" REPLACES the selected \"0\". Rust's demo (docs/examples/.../computed01/main.rs) constructs the Inputs with NO initial value (placeholder only), so green/blue render their placeholder instead of \"0\" (29 glyph cells). The framework now supports an initial value via `Input::with_value` (this root), but flipping computed01 also needs (a) the demo updated to pass `.with_value(\"0\")` and (b) `select_on_focus` on Input (select-all-on-focus) — neither is in the allowed file set."]
 fn parity_computed01_color() {
     let script = [Step::SendKeys("123"), Step::Wait(300)];
     let (rf, pf) = cat_both("computed01", "guide/reactivity", &script, 400);
@@ -1504,7 +1504,6 @@ fn parity_computed01_color() {
 
 /// watch01: submit a colour name; both swatches update their backgrounds.
 #[test]
-#[ignore = "BUG: glyph-perfect but focused Input bg #1e1e1e (Rust) vs #272727 (Python applies `background-tint: $foreground 5%` on :focus). 247 colour cells. Shared root: :focus background-tint not applied (wave-1)."]
 fn parity_watch01_color() {
     let script = [Step::SendKeys("red"), Step::Key(Key::Enter), Step::Wait(300)];
     let (rf, pf) = cat_both("watch01", "guide/reactivity", &script, 400);
@@ -1573,7 +1572,6 @@ fn parity_set_reactive02_greeting() {
 /// set_reactive03: submitting a name appends a `Hello, <name>` Label via
 /// `mutate_reactive` + recompose.
 #[test]
-#[ignore = "REACTIVE ROOT FIXED (glyph-perfect: \"Hello, Ada\" Label now renders after submit). The real root was NOT recompose dropping children: an init-phase `reactive(recompose=True)` fired a mount-time recompose that rebuilt the freshly-composed tree and DISCARDED auto-focus, so the Input never received the typed name. Fixed by suppressing recompose during the reactive init phase (Python's `_initialize_reactive`/`_check_watchers` never recomposes; recompose only fires in `_set`/`mutate_reactive`). Residual: 11 colour cells on the Input placeholder — Rust renders `input--placeholder` as $text (#e0e0e0) instead of $text-disabled (#737373). Pre-existing GLOBAL Input placeholder-colour bug (present at startup with no recompose; also affects the `input` demo), out of reactive scope (style)."]
 fn parity_set_reactive03_names() {
     let script = [Step::SendKeys("Ada"), Step::Key(Key::Enter), Step::Wait(300)];
     let (rf, pf) = cat_both("set_reactive03", "guide/reactivity", &script, 400);

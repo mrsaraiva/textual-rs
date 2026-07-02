@@ -7,6 +7,27 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### Widget fixes
+
+- **`Input` placeholder/suggestion now render the dimmed `$text-disabled` colour** —
+  `input--placeholder`/`input--suggestion` resolve `color: $text-disabled`, which is an
+  `auto 38%` (contrast) token stored as `fg_auto`, not a concrete `fg`. `Input::render`'s
+  component-style compositor (`resolve_component_rich`) only handled concrete `fg`, so the
+  placeholder foreground was left unset and then inherited the widget's opaque `$foreground`
+  (`#e0e0e0`) instead of the dimmed contrast colour. The compositor now resolves `fg_auto` by
+  contrasting against — and blending at the fractional alpha over — the widget's *painted*
+  surface. That surface is taken from the live composited background (`current_composited_background`),
+  so a focused Input contrasts the placeholder against its `:focus` `background-tint`ed surface
+  (`#272727`) and matches Python's `#797979` exactly. The base `Input { background }` rule leaks
+  into the component selector meta (typed `Input`); a component background equal to the widget's
+  own surface is now treated as that leak (left transparent for the compositor to tint) rather
+  than as a genuine `input--cursor`/`input--selection` override. Flips the `watch01` and
+  `set_reactive03` real-app parity demos to full Rust==Python (glyph + colour). Regression test:
+  `widgets::input::tests::placeholder_foreground_resolves_text_disabled_auto`.
+- **`Input::with_value` sets an initial value** — mirrors Python `Input(value, ...)`; a
+  non-empty initial value renders as the input text (not the placeholder). Regression tests:
+  `with_value_renders_value_not_placeholder`, `empty_input_renders_placeholder`.
+
 ### Runtime fixes
 
 - **`Collapsible` focus now lands on the `CollapsibleTitle`, not the container** —

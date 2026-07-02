@@ -207,6 +207,16 @@ impl Input {
         self
     }
 
+    /// Set an initial value for the input (Python `Input(value, ...)`).
+    ///
+    /// A non-empty initial value is rendered as the input's text — not the
+    /// placeholder. The cursor is placed at the end of the value, matching the
+    /// post-construction `set_text` behaviour.
+    pub fn with_value(mut self, value: impl Into<String>) -> Self {
+        self.set_text(value);
+        self
+    }
+
     pub fn with_type(mut self, input_type: InputType) -> Self {
         self.input_type = input_type;
         self
@@ -988,15 +998,36 @@ impl Widget for Input {
         let width = options.size.0.max(1);
         let mut out = Segments::new();
 
-        // Resolve base widget style so we can composite component colors (which may include alpha).
-        let base_meta = crate::css::selector_meta_generic(self);
-        let base_style = crate::css::resolve_style(self, &base_meta);
+        // Compute the Input's painted surface so component colours (which may include alpha or an
+        // `auto <pct>%` contrast token) composite over the correct background. During a live render
+        // the composited background reflects the widget's own state-aware surface — including the
+        // `:focus` `background-tint: $foreground 5%` — so a focused Input's placeholder contrasts
+        // against `#272727`, not the untinted `$surface`. This mirrors Python `dom.py`:
+        // `background += styles.background.tint(styles.background_tint)`.
         let fallback_bg = parse_color_like("$background").unwrap_or(Color::rgb(0, 0, 0));
-        let base_bg = match base_style.bg {
-            Some(bg) if bg.a <= 0.0 => fallback_bg,
-            Some(bg) => bg,
-            None => fallback_bg,
-        };
+        let base_bg = crate::css::current_composited_background().unwrap_or_else(|| {
+            // Off-tree callers (unit tests without a live style stack): resolve statelessly and
+            // apply any `background-tint` by hand.
+            let base_meta = crate::css::selector_meta_generic(self);
+            let base_style = crate::css::resolve_style(self, &base_meta);
+            let mut bg = match base_style.bg {
+                Some(bg) if bg.a <= 0.0 => fallback_bg,
+                Some(bg) => bg,
+                None => fallback_bg,
+            };
+            if let Some(tint) = base_style.background_tint {
+                bg = crate::renderables::Tint::<()>::blend_color_with_percent(
+                    bg, tint.color, tint.percent,
+                );
+            }
+            bg
+        });
+        // The widget's OWN (untinted) background. The base `Input { background: $surface }` rule
+        // also matches the component selector meta (which is typed `Input`), so component styles
+        // that don't set their own background inherit `$surface`. That leaked background must NOT
+        // be treated as a genuine component surface: the placeholder/suggestion text is painted on
+        // the widget's real (tinted) surface, so we keep `base_bg` for compositing in that case.
+        let widget_own_bg = crate::css::current_self_style().and_then(|s| s.bg);
 
         let resolve_component_rich = |class: &str| -> rich_rs::Style {
             let style = crate::css::resolve_component_style(self, &[class]);
@@ -1009,12 +1040,26 @@ impl Widget for Input {
                 if bg.a <= 0.0 {
                     return rich;
                 }
-                let flat = bg.flatten_over(under_bg);
-                under_bg = flat;
-                rich = rich.with_bgcolor(flat.to_simple_opaque());
+                // Only a component background that DIFFERS from the widget's own surface is a real
+                // override (e.g. `input--cursor`/`input--selection`); a background equal to the
+                // widget surface is the leaked base rule — leave the segment transparent so the
+                // compositor paints (and tints) it against the real surface.
+                if Some(bg) != widget_own_bg {
+                    let flat = bg.flatten_over(under_bg);
+                    under_bg = flat;
+                    rich = rich.with_bgcolor(flat.to_simple_opaque());
+                }
             }
             if let Some(fg) = style.fg {
                 let flat = fg.flatten_over(under_bg);
+                rich = rich.with_color(flat.to_simple_opaque());
+            } else if let Some(auto) = style.fg_auto {
+                // `auto <pct>%` foreground (e.g. `$text-disabled` = `auto 38%` used by
+                // `input--placeholder`/`input--suggestion`). Resolve the contrast colour of the
+                // under-background and composite it at the fractional alpha, matching Python's
+                // `background.get_contrast_text(alpha)` / the segment compositor's fg_auto path.
+                let contrast = crate::style::contrast_text(under_bg);
+                let flat = contrast.blend_over_float(under_bg, auto.alpha());
                 rich = rich.with_color(flat.to_simple_opaque());
             }
             rich
@@ -1233,6 +1278,79 @@ mod tests {
             focused: true,
             ..Default::default()
         }
+    }
+
+    fn render_plain(input: &Input, width: usize) -> String {
+        let console = Console::new();
+        let options = ConsoleOptions {
+            size: (width, 1),
+            max_width: width,
+            ..Default::default()
+        };
+        Widget::render(input, &console, &options)
+            .iter()
+            .map(|s| s.text.as_ref())
+            .collect::<String>()
+    }
+
+    #[test]
+    fn with_value_renders_value_not_placeholder() {
+        let _guard = crate::css::set_style_context(crate::css::default_widget_stylesheet());
+        let input = Input::new()
+            .with_value("0")
+            .with_placeholder("Enter red 0-255");
+        assert_eq!(input.text(), "0");
+        let rendered = render_plain(&input, 20);
+        assert!(
+            rendered.trim_end().ends_with('0') || rendered.contains('0'),
+            "a non-empty initial value must render as text, got {rendered:?}"
+        );
+        assert!(
+            !rendered.contains("Enter red"),
+            "placeholder must not render when an initial value is set, got {rendered:?}"
+        );
+    }
+
+    #[test]
+    fn empty_input_renders_placeholder() {
+        let _guard = crate::css::set_style_context(crate::css::default_widget_stylesheet());
+        let input = Input::new().with_placeholder("Enter red 0-255");
+        let rendered = render_plain(&input, 20);
+        assert!(
+            rendered.contains("Enter red"),
+            "an empty input must render its placeholder, got {rendered:?}"
+        );
+    }
+
+    #[test]
+    fn placeholder_foreground_resolves_text_disabled_auto() {
+        // Regression: `input--placeholder` resolves `color: $text-disabled` as an
+        // `auto 38%` (fg_auto) contrast colour, not a concrete `fg`. `resolve_component_rich`
+        // must composite the auto colour over the widget surface instead of leaving the
+        // placeholder foreground unset (which then inherited the opaque `$foreground`).
+        let _guard = crate::css::set_style_context(crate::css::default_widget_stylesheet());
+        let input = Input::new().with_placeholder("Enter a color");
+        let console = Console::new();
+        let options = ConsoleOptions {
+            size: (20, 1),
+            max_width: 20,
+            ..Default::default()
+        };
+        let segs = Widget::render(&input, &console, &options);
+        // The first non-space glyph segment carries the placeholder colour.
+        let placeholder_fg = segs
+            .iter()
+            .find(|s| s.text.trim() != "")
+            .and_then(|s| s.style.as_ref())
+            .and_then(|st| st.color.clone());
+        let fg = placeholder_fg.expect("placeholder segment must carry an explicit foreground");
+        // $text-disabled over $surface (#1e1e1e) ≈ #747474 (blurred, untinted); it must NOT be
+        // the opaque foreground #e0e0e0.
+        let rgb = format!("{fg:?}");
+        assert!(
+            !rgb.contains("224"),
+            "placeholder fg must be the dimmed $text-disabled, not opaque $foreground (#e0e0e0); got {rgb}"
+        );
     }
 
     #[test]
