@@ -655,12 +655,12 @@ mod tests {
     #[test]
     fn app_root_scrollbar_child_does_not_inherit_root_scroll_transform() {
         let mut root = AppRoot::new();
-        let extracted = root.take_composed_children();
+        let extracted = root.compose();
 
         let mut tree = WidgetTree::new();
         let root_id = tree.set_root(Box::new(root));
         for child in extracted {
-            tree.mount(root_id, child);
+            tree.mount(root_id, child.into_widget());
         }
 
         let vbar_id = tree
@@ -679,12 +679,12 @@ mod tests {
     #[test]
     fn app_root_scrollbar_local_coords_stay_stable_when_root_is_scrolled() {
         let mut root = AppRoot::new();
-        let extracted = root.take_composed_children();
+        let extracted = root.compose();
 
         let mut tree = WidgetTree::new();
         let root_id = tree.set_root(Box::new(root));
         for child in extracted {
-            tree.mount(root_id, child);
+            tree.mount(root_id, child.into_widget());
         }
 
         let vbar_id = tree

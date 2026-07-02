@@ -243,21 +243,6 @@ fn method_table() -> Vec<MethodSpec> {
             quote! { compose() }
         ),
         m!(
-            "take_composed_children",
-            quote! { fn take_composed_children(&mut self) -> Vec<Box<dyn textual::widgets::Widget>> },
-            quote! { take_composed_children() }
-        ),
-        m!(
-            "take_child_decl_meta",
-            quote! { fn take_child_decl_meta(&mut self) -> Vec<textual::widgets::ChildDeclMeta> },
-            quote! { take_child_decl_meta() }
-        ),
-        m!(
-            "take_child_handle_sinks",
-            quote! { fn take_child_handle_sinks(&mut self) -> Vec<(usize, textual::handle::HandleSink)> },
-            quote! { take_child_handle_sinks() }
-        ),
-        m!(
             "take_pending_mount_messages",
             quote! { fn take_pending_mount_messages(&mut self) -> Vec<Box<dyn textual::message::Message>> },
             quote! { take_pending_mount_messages() }

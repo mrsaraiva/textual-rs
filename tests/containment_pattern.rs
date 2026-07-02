@@ -51,12 +51,15 @@ impl Widget for OuterWidget {
         std::mem::take(&mut self.seed)
     }
 
-    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+    fn compose(&mut self) -> textual::compose::ComposeResult {
         if self.child_extracted {
             return vec![];
         }
         self.child_extracted = true;
-        vec![Box::new(std::mem::replace(&mut self.inner, Button::new("")))]
+        vec![textual::compose::ChildDecl::new(Box::new(std::mem::replace(
+            &mut self.inner,
+            Button::new(""),
+        )))]
     }
 
     fn focusable(&self) -> bool {
@@ -111,17 +114,17 @@ fn containment_style_type_aliases_match() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn containment_take_composed_children_idempotent() {
+fn containment_compose_idempotent() {
     let mut widget = OuterWidget::new();
 
-    let first = widget.take_composed_children();
+    let first = widget.compose();
     assert_eq!(
         first.len(),
         1,
         "first call to take_composed_children must return the inner Button child"
     );
 
-    let second = widget.take_composed_children();
+    let second = widget.compose();
     assert_eq!(
         second.len(),
         0,

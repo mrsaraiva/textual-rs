@@ -117,16 +117,16 @@ fn derive_default_style_type_is_own_type_name() {
 // ── (1) take_composed_children forwards ─────────────────────────────────
 
 #[test]
-fn derive_forwards_take_composed_children() {
+fn derive_forwards_compose() {
     let mut card = StatCard::new();
-    let children = card.take_composed_children();
+    let children = card.compose();
     assert_eq!(
         children.len(),
         2,
         "the two children built into `base` must surface through the forwarded take_composed_children"
     );
     // Idempotent: base drained, second call is empty.
-    assert_eq!(card.take_composed_children().len(), 0);
+    assert_eq!(card.compose().len(), 0);
 }
 
 // ── (4) override vs forward ─────────────────────────────────────────────
@@ -150,7 +150,7 @@ fn derive_override_calls_inherent_method() {
         "override(focusable) must call the user's inherent method (true)"
     );
     // A non-overridden method on the same widget still forwards.
-    assert_eq!(FocusableCard::new().take_composed_children().len(), 1);
+    assert_eq!(FocusableCard::new().compose().len(), 1);
 }
 
 // ── (3) composability with #[derive(Reactive)] ──────────────────────────

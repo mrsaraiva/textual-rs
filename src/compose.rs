@@ -105,6 +105,17 @@ impl ChildDecl {
         self
     }
 
+    /// The CSS id declared for this child (via [`with_id`](Self::with_id)), if any.
+    pub fn id(&self) -> Option<&str> {
+        self.id.as_deref()
+    }
+
+    /// The CSS classes declared for this child (via
+    /// [`with_classes`](Self::with_classes)).
+    pub fn classes(&self) -> &[String] {
+        &self.classes
+    }
+
     /// Borrow the declared widget (the `Ready` builder's payload).
     ///
     /// Used by tests that assert on a freshly-composed child's pre-mount state
@@ -123,6 +134,15 @@ impl ChildDecl {
     pub(crate) fn widget_mut(&mut self) -> &mut dyn Widget {
         let WidgetBuilder::Ready(w) = &mut self.builder;
         w.as_mut()
+    }
+
+    /// Consume the declaration, yielding just the boxed widget (dropping any
+    /// nested decls/id/classes). Used by test helpers that mount a single
+    /// leaf child directly into an arena tree.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn into_widget(self) -> Box<dyn Widget> {
+        let WidgetBuilder::Ready(w) = self.builder;
+        w
     }
 }
 

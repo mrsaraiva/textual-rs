@@ -96,7 +96,7 @@ fn key_panel_supports_scrollbar_drag() {
     let before_lines = before.as_plain_lines();
     assert!(before_lines.iter().all(|line| !line.contains("item 16")));
 
-    let _ = panel.take_composed_children();
+    let _ = panel.compose();
     let _ = panel.render(&console, &options);
 
     let mut ctx = EventCtx::default();

@@ -515,7 +515,6 @@ impl Widget for DirectoryTree {
             render_line,
             render_lines,
             compose,
-            take_composed_children,
             can_focus,
             can_focus_children,
             on_mount,

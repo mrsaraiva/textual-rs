@@ -810,15 +810,6 @@ pub(crate) fn recompose_node_subtree(tree: &mut crate::widget_tree::WidgetTree, 
     let Some(node) = tree.get_mut(node_id) else {
         return;
     };
-    let extracted = node.widget.take_composed_children();
-    let mut sinks: std::collections::HashMap<usize, crate::handle::HandleSink> =
-        node.widget.take_child_handle_sinks().into_iter().collect();
-    let mut decl_meta: std::collections::HashMap<usize, (Option<String>, Vec<String>)> = node
-        .widget
-        .take_child_decl_meta()
-        .into_iter()
-        .map(|(index, id, classes)| (index, (id, classes)))
-        .collect();
     let declarations = node.widget.compose();
 
     // Vanish diagnostic (trap 1): a recompose that produces NO children for a
@@ -826,7 +817,7 @@ pub(crate) fn recompose_node_subtree(tree: &mut crate::widget_tree::WidgetTree, 
     // asked to self-recompose (its drained `compose()` is empty) or a generative
     // widget's `compose()` is not state-pure. This is almost always a bug — the
     // children are about to be removed and never re-mounted.
-    if extracted.is_empty() && declarations.is_empty() && !tree.children(node_id).is_empty() {
+    if declarations.is_empty() && !tree.children(node_id).is_empty() {
         crate::debug::debug_render(&format!(
             "recompose-vanish: node {node_id:?} recompose produced no children \
              while it still had {} arena child(ren); a node that requests \
@@ -837,18 +828,7 @@ pub(crate) fn recompose_node_subtree(tree: &mut crate::widget_tree::WidgetTree, 
     }
 
     tree.remove_children(node_id);
-    for (index, child) in extracted.into_iter().enumerate() {
-        let child_id = App::mount_extracted_recursive(tree, node_id, child);
-        if let Some((id, classes)) = decl_meta.remove(&index) {
-            crate::widgets::apply_child_decl_meta(tree, child_id, id, &classes);
-        }
-        if let Some(sink) = sinks.remove(&index) {
-            sink(child_id, tree.tree_id());
-        }
-    }
-    if !declarations.is_empty() {
-        App::mount_declarations(tree, node_id, declarations);
-    }
+    App::mount_declarations(tree, node_id, declarations);
 }
 
 fn split_runtime_control_messages(
@@ -6520,12 +6500,12 @@ mod tests {
             vec![BindingDecl::new("l", "show_tab('leto')", "Leto")]
         }
 
-        fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+        fn compose(&mut self) -> crate::compose::ComposeResult {
             if self.extracted {
                 Vec::new()
             } else {
                 self.extracted = true;
-                vec![Box::new(FocusedProbe)]
+                vec![crate::compose::ChildDecl::new(Box::new(FocusedProbe))]
             }
         }
     }
