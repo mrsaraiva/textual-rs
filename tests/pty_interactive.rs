@@ -1533,7 +1533,6 @@ fn parity_validate01_count() {
 
 /// refresh01: typing a name live refreshes the `Name` widget's render.
 #[test]
-#[ignore = "BUG: glyph-perfect (\"Hello, Will!\" on both) but focused Input bg #1e1e1e (Rust) vs #272727 (Python :focus background-tint). 236 colour cells. Shared root: :focus background-tint not applied (wave-1)."]
 fn parity_refresh01_greeting() {
     let script = [Step::SendKeys("Will"), Step::Wait(300)];
     let (rf, pf) = cat_both("refresh01", "guide/reactivity", &script, 400);
@@ -1551,7 +1550,6 @@ fn parity_refresh02_greeting() {
 
 /// refresh03: same but the reactive has `recompose=True` (rebuilds children).
 #[test]
-#[ignore = "BUG: glyph-perfect (\"Hello, Will!\" on both, recompose works) but focused Input bg #1e1e1e (Rust) vs #272727 (Python :focus background-tint). 236 colour cells. Shared root: :focus background-tint not applied (wave-1)."]
 fn parity_refresh03_greeting() {
     let script = [Step::SendKeys("Will"), Step::Wait(300)];
     let (rf, pf) = cat_both("refresh03", "guide/reactivity", &script, 400);
@@ -1865,7 +1863,6 @@ fn parity_event01_key_colour() {
 /// question01: a Label + Yes/No buttons. Clicking exits the app, so we compare
 /// the initial deterministic layout instead.
 #[test]
-#[ignore = "BUG: glyph-perfect but the focused \"Yes\" primary Button bg is #0178d4 (Rust, base $primary) vs #0c7dd4 (Python, lighter :focus/hover tint). 32 colour cells. Shared root: button :focus/hover background-tint not applied."]
 fn parity_question01_layout() {
     let script = [Step::Wait(300)];
     let (rf, pf) = cat_both("question01", "app", &script, 400);
@@ -1874,7 +1871,6 @@ fn parity_question01_layout() {
 
 /// question02: same with the tcss grid styling.
 #[test]
-#[ignore = "BUG: glyph-perfect but the focused \"Yes\" primary Button bg #0178d4 (Rust) vs #0c7dd4 (Python :focus/hover tint). 114 colour cells. Shared root: button :focus/hover background-tint not applied."]
 fn parity_question02_layout() {
     let script = [Step::Wait(300)];
     let (rf, pf) = cat_both("question02", "app", &script, 400);
@@ -1883,7 +1879,6 @@ fn parity_question02_layout() {
 
 /// question03: same with inline grid CSS (column-span, content-align).
 #[test]
-#[ignore = "BUG: glyph-perfect but the focused \"Yes\" primary Button bg #0178d4 (Rust) vs #0c7dd4 (Python :focus/hover tint). 114 colour cells. Shared root: button :focus/hover background-tint not applied."]
 fn parity_question03_layout() {
     let script = [Step::Wait(300)];
     let (rf, pf) = cat_both("question03", "app", &script, 400);
@@ -2157,7 +2152,6 @@ fn parity_actions07_next_page() {
 /// modal01: Header + long Label + Footer; `q` pushes a (non-modal) QuitScreen
 /// with a dialog Grid. Press `q`; compare the dialog (Header clock row skipped).
 #[test]
-#[ignore = "BUG: glyph-perfect dialog but the focused error `Quit` Button bg is #b93c5b (Rust, base $error) vs #ba4461 (Python, lighter :focus/hover tint). 54 colour cells. Shared root: button :focus/hover background-tint not applied."]
 fn parity_screens_modal01_dialog() {
     let script = [Step::SendKeys("q"), Step::Wait(400)];
     let (rf, pf) = cat_both("modal01", "guide/screens", &script, 500);
@@ -2167,7 +2161,6 @@ fn parity_screens_modal01_dialog() {
 /// modal02: same dialog but via ModalScreen (transparent overlay dimming the
 /// text behind). Press `q`.
 #[test]
-#[ignore = "BUG: same focused error `Quit` Button :focus/hover tint divergence as modal01 (#b93c5b vs #ba4461). 54 colour cells. Shared root: button :focus/hover background-tint not applied."]
 fn parity_screens_modal02_dialog() {
     let script = [Step::SendKeys("q"), Step::Wait(400)];
     let (rf, pf) = cat_both("modal02", "guide/screens", &script, 500);
@@ -2177,7 +2170,6 @@ fn parity_screens_modal02_dialog() {
 /// modal03: ModalScreen[bool] with dismiss + callback. Press `q`; compare the
 /// dialog.
 #[test]
-#[ignore = "BUG: same focused error `Quit` Button :focus/hover tint divergence as modal01/02 (#b93c5b vs #ba4461). 54 colour cells. Shared root: button :focus/hover background-tint not applied."]
 fn parity_screens_modal03_dialog() {
     let script = [Step::SendKeys("q"), Step::Wait(400)];
     let (rf, pf) = cat_both("modal03", "guide/screens", &script, 500);
@@ -2320,7 +2312,6 @@ fn parity_events_dictionary_input() {
 /// on_decorator01: three Buttons; `on_button_pressed` dispatches by id/class.
 /// Click "Toggle dark" (switches theme). Compare the post-toggle screen.
 #[test]
-#[ignore = "BUG: glyph-perfect (theme toggle + all three Buttons identical) but the focused `Bell` Button surface bg is #1e1e1e (Rust) vs #272727 (Python applies the :focus background-tint). 32 colour cells. Shared root: :focus/hover background-tint not applied."]
 fn parity_events_on_decorator01_toggle() {
     let script = [Step::Click(20, 2), Step::Wait(400)];
     let (rf, pf) = cat_both("on_decorator01", "events", &script, 500);
@@ -2329,7 +2320,6 @@ fn parity_events_on_decorator01_toggle() {
 
 /// on_decorator02: same three Buttons via `@on` handlers. Click "Toggle dark".
 #[test]
-#[ignore = "BUG: same focused-Button :focus background-tint divergence as on_decorator01 (#1e1e1e vs #272727). 32 colour cells. Shared root: :focus/hover background-tint not applied."]
 fn parity_events_on_decorator02_toggle() {
     let script = [Step::Click(20, 2), Step::Wait(400)];
     let (rf, pf) = cat_both("on_decorator02", "events", &script, 500);
