@@ -9,6 +9,25 @@ until the API stabilizes.
 
 ### Widget fixes
 
+- **`Tabs::add_tab` (and `remove_tab`/`clear`) now re-render the tab bar** — the tab bar
+  is a composed arena subtree built from `Tabs`' internal state in `compose()`. Mutating
+  the tab set post-mount via `App::with_query_one_mut_as` (which has no `EventCtx`) changed
+  the state but never rebuilt the composed children, so an added tab stayed invisible
+  (Python `tabs.add_tab("Duke Leto Atreides")` mounts the tab itself and needs no caller
+  refresh). Runtime mutations now stage a self-recompose (new
+  `Widget::take_pending_self_recompose` hook, mirroring `drain_pending_class_ops`) that
+  `App::with_widget_mut` drains and honours, recomposing the node's subtree. Flips the
+  `tabs` real-app parity demo to full Rust==Python. Regression: `parity_tabs_add`.
+- **Footer now lists the app-root `BINDINGS` beneath an active screen/mode** — under
+  `MODES`/`switch_mode` (or any pushed screen), the Footer only walked the active
+  mode-screen tree for binding hints and dropped the App's own `BINDINGS`, so `modes01`
+  showed just `^p palette` instead of Python's ` d Dashboard  s Settings  h Help … ^p palette`.
+  `active_binding_hints_tree` now appends the app-root namespace bindings after the active
+  chain — the hint-collection analogue of `match_binding_chain`'s existing app-root walk,
+  faithful to Python's `Screen.active_bindings` chain ending at the App node. Flips the
+  `modes01` real-app parity demo to full Rust==Python. Regressions:
+  `parity_screens_modes01_dashboard`, `modes01_footer_row_lists_switch_mode_bindings`.
+
 - **`Input` placeholder/suggestion now render the dimmed `$text-disabled` colour** —
   `input--placeholder`/`input--suggestion` resolve `color: $text-disabled`, which is an
   `auto 38%` (contrast) token stored as `fg_auto`, not a concrete `fg`. `Input::render`'s

@@ -302,6 +302,12 @@ pub struct Tabs {
     /// True after the first event dispatch (widget is live in the tree).
     /// Used to gate runtime-only messages from `add_tab`.
     live: bool,
+    /// Staged "recompose myself" request. Set when the tab set is mutated at
+    /// runtime (`add_tab`/`remove_tab`/`clear`) via a no-`EventCtx` path such as
+    /// `App::with_query_one_mut_as`. The runtime drains it in `with_widget_mut`
+    /// (see `Widget::take_pending_self_recompose`) and rebuilds the composed tab
+    /// bar so the change is rendered — matching Python's self-mounting `add_tab`.
+    pending_self_recompose: bool,
 }
 
 impl Tabs {
@@ -337,6 +343,7 @@ impl Tabs {
             dock: None,
             pending_messages: Arc::new(Mutex::new(Vec::new())),
             live: false,
+            pending_self_recompose: false,
         }
     }
 
@@ -362,6 +369,11 @@ impl Tabs {
         });
         if state.active.is_none() {
             state.active = state.tabs.first().map(|entry| entry.tab_id.clone());
+        }
+        // Post-mount adds mutate the composed tab bar; stage a self-recompose so
+        // the runtime rebuilds it (pre-mount `with_tab` builds via `compose()`).
+        if self.live {
+            self.pending_self_recompose = true;
         }
         // Emit TabActivated when the first tab is added to a live (mounted)
         // empty Tabs, matching Python's behavior where add_tab fires
@@ -555,6 +567,7 @@ impl Tabs {
             }
         }
         drop(state);
+        self.pending_self_recompose = true;
         self.sync_underline_to_active();
         true
     }
@@ -565,6 +578,7 @@ impl Tabs {
         state.active = None;
         drop(state);
         self.hovered_tab = None;
+        self.pending_self_recompose = true;
         self.set_underline_range(0.0, 0.0);
         self.pending_messages
             .lock()
@@ -1147,6 +1161,10 @@ impl Widget for Tabs {
         std::mem::take(&mut self.seed)
     }
 
+    fn take_pending_self_recompose(&mut self) -> bool {
+        std::mem::take(&mut self.pending_self_recompose)
+    }
+
     fn style(&self) -> Option<crate::style::Style> {
         self.dock.map(|dock| crate::style::Style {
             dock: Some(dock),
@@ -1383,6 +1401,7 @@ impl Clone for Tabs {
             dock: self.dock,
             pending_messages: self.pending_messages.clone(),
             live: self.live,
+            pending_self_recompose: self.pending_self_recompose,
         }
     }
 }

@@ -2506,10 +2506,22 @@ impl App {
         // `set_inline_style` (e.g. a reactive `watch_color`) only touched the
         // detached widget seed. Cascade the staged style onto the node's inline
         // style so it reaches layout/render (Python `widget.styles.<prop> = v`).
+        let mut self_recompose = false;
         if let Some(node) = tree.get_mut(node_id) {
             if let Some(writethrough) = node.widget.take_inline_style_writethrough() {
                 node.styles.style = node.styles.style.combine(&writethrough);
             }
+            // A composed widget (e.g. `Tabs`) may have mutated internal state that
+            // its `compose()`/`take_composed_children()` derives its arena children
+            // from (e.g. `Tabs::add_tab`). Since this mutation path has no
+            // `EventCtx`, the widget stages a self-recompose request the runtime
+            // honours here — so the new children become visible without the caller
+            // triggering a refresh (matches Python `Tabs.add_tab` mounting itself).
+            self_recompose = node.widget.take_pending_self_recompose();
+        }
+        if self_recompose {
+            self.request_widget_recompose_nodes(&[node_id]);
+            self.pending_force_relayout = true;
         }
         // A runtime class change can flip descendant `display`/`visibility` and
         // other layout-affecting CSS. Force a relayout on the next loop iteration
