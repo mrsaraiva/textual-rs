@@ -48,6 +48,18 @@ demo to a verified-working state.
   animated opacity composites into the FrameBuffer. Plus tutorial stopwatch ports migrated
   onto real `set_interval`/reactive (clock ticks from mount).
 
+- **Border outer-edge background now composites transparent parent surfaces** — a
+  widget with a `tall`/`panel` (or any two-tone) border whose parent carries a
+  semi-transparent background token (e.g. a `VerticalScroll { background: $boost }`
+  container, `$boost` = white @ 4% alpha) painted its outer border cells solid
+  **white**: the raw parent token was used as the border's `outer` background and
+  `to_simple_opaque()` promoted the un-composited alpha to `#ffffff`. It now mirrors
+  Python `DOMNode.background_colors`, which accumulates the ancestor chain into an
+  OPAQUE base background — when the parent background is not fully opaque it is folded
+  over the composited ancestor surface before use. Fixes the white toggle/border slot
+  seen behind `Checkbox`/`Switch` (and the compound `byte01`/`byte02`/`byte03` demos):
+  border edges now render the dark surface (`#1b1b1b`) exactly like Python.
+
 - **`pty_interactive` real dual-app harness (the trustworthy interactive standard)** —
   a new test harness (`tests/pty_interactive.rs`) that runs BOTH the real cargo-built
   Rust example AND the real Python Textual app, each in its own PTY at the same size,

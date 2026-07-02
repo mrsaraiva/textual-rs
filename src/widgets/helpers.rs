@@ -272,14 +272,34 @@ pub(crate) fn apply_border_edges(
     }
 
     // Inner (widget) and outer (parent) backgrounds used for border blending.
+    //
+    // Python's `DOMNode.background_colors` composites the whole ancestor chain
+    // into an OPAQUE base background (`background += styles.background.tint(...)`
+    // from the App root down). The border's outer edge (`base_background`) is
+    // therefore always opaque. In Rust `parent_style.bg` is the parent widget's
+    // RAW resolved background token, which can be semi-transparent (e.g. a
+    // `$boost` container = white @ 4% alpha). Using that directly makes the
+    // outer border cell's `to_simple_opaque()` promote the un-composited alpha
+    // to solid white. When the parent background is not fully opaque, fold it
+    // over the composited ancestor surface (which already includes the parent's
+    // own contribution) to recover the true opaque base background.
     let fallback_bg = parse_color_like("$background").unwrap_or(crate::style::Color::rgb(0, 0, 0));
-    let parent_bg = parent_style.and_then(|s| s.bg).unwrap_or(fallback_bg);
-    // Mirror Python `_styles_cache.render_line`, which draws the border over
-    // `widget.background_colors` — a background that already folds in
-    // `styles.background.tint(styles.background_tint)` (dom.py `background_colors`).
-    // `apply_style_to_segments` already tints the widget's INTERIOR fill this way,
-    // so the border rows + the interior fill painted here must use the SAME tinted
-    // surface (e.g. a focused Input's `:focus { background-tint: $foreground 5% }`
+    // Parent (outer) background: Python's `DOMNode.background_colors` composites
+    // the whole ancestor chain into an OPAQUE base. Rust's `parent_style.bg` is a
+    // RAW token that can be semi-transparent (e.g. a `$boost` container = white @ 4%),
+    // and `to_simple_opaque()` would promote that alpha to solid white. When the
+    // parent bg is not opaque, fold it over the composited ancestor surface.
+    let raw_parent_bg = parent_style.and_then(|s| s.bg).unwrap_or(fallback_bg);
+    let parent_bg = if raw_parent_bg.a >= 1.0 {
+        raw_parent_bg
+    } else {
+        crate::css::current_composited_background().unwrap_or(fallback_bg)
+    };
+    // Inner (widget) background: draw the border over `widget.background_colors`,
+    // which already folds in `styles.background.tint(styles.background_tint)`
+    // (dom.py `background_colors`). `apply_style_to_segments` tints the INTERIOR
+    // fill the same way, so the border rows + interior fill must use the SAME tinted
+    // surface (e.g. focused Input `:focus { background-tint: $foreground 5% }`
     // lightens $surface #1e1e1e -> #272727 on the border, not just the content row).
     let inner_bg = {
         let base = style
