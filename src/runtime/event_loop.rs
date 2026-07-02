@@ -2232,6 +2232,8 @@ impl App {
                 tree.set_focus_state(first, true);
             }
         }
+        let mut pending_invalidation = PendingInvalidation::default();
+
         // Dispatch app-level reactive init phase.
         //
         // Called after the widget tree is built so that init-watcher dispatch
@@ -2240,6 +2242,48 @@ impl App {
         {
             let mut mount_ctx = crate::event::EventCtx::default();
             root.on_app_mount(self, &mut mount_ctx);
+            // Absorb the mount ctx so its outcome (worker requests, messages,
+            // invalidation, recompositions, animations) flows into the runtime.
+            // Without this the live loop dropped everything staged on the ctx —
+            // in particular worker requests issued from `on_mount_with_app`
+            // (e.g. questions01's `@work`-decorated `on_mount` that calls
+            // `push_screen_wait`) were silently discarded, so the QuestionScreen
+            // was never pushed and the app rendered blank. The headless startup
+            // (`headless_startup`) already absorbs the mount ctx the same way;
+            // the live loop must match so worker-driven screen pushes land.
+            let mut mount_outcome = DispatchOutcome {
+                handled: mount_ctx.handled(),
+                repaint_requested: mount_ctx.repaint_requested(),
+                invalidation: mount_ctx.invalidation(),
+                stop_requested: mount_ctx.stop_requested(),
+                messages: mount_ctx.take_messages(),
+                animation_requests: mount_ctx.take_animation_requests(),
+                worker_requests: mount_ctx.take_worker_requests(),
+                recompose_nodes: mount_ctx.take_recompose_nodes(),
+                default_prevented: false,
+                class_ops: mount_ctx.take_class_ops(),
+            };
+            self.absorb_outcome(
+                &mut mount_outcome,
+                &mut pending_invalidation,
+                InvalidationScope::Global,
+            );
+            // Explicit `ctx.animate_style(...)` requests ride the ctx separately
+            // from the numeric `animation_requests`; enqueue them too.
+            let style_anims = mount_ctx.take_style_animation_requests();
+            self.enqueue_style_animation_requests(style_anims);
+            let mut msg_outcome =
+                self.dispatch_message_queue_with_runtime(root, mount_outcome.messages);
+            self.absorb_outcome(
+                &mut msg_outcome,
+                &mut pending_invalidation,
+                InvalidationScope::Global,
+            );
+            if mount_outcome.stop_requested || msg_outcome.stop_requested {
+                root.on_unmount();
+                self.finish()?;
+                return Ok(());
+            }
         }
 
         self.publish_devtools_snapshot(root);
@@ -2254,7 +2298,6 @@ impl App {
         let idle_tick_rate = Duration::from_millis(100);
         let active_tick_rate = Duration::from_millis(16);
         let mut worker_registry = WorkerRegistry::new();
-        let mut pending_invalidation = PendingInvalidation::default();
         pending_invalidation.request_flags(initial_help_outcome.invalidation);
         if initial_help_outcome.should_repaint() {
             pending_invalidation.request_full_content();

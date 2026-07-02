@@ -30,6 +30,20 @@ until the API stabilizes.
 
 ### Runtime fixes
 
+- **Live event loop now absorbs the app-mount ctx (worker/animation/message requests)** —
+  `run_widget_tree` called `on_app_mount` but dropped the resulting `EventCtx` without
+  absorbing its outcome, so anything staged from `on_mount_with_app` in a *live* run —
+  worker requests, posted messages, style/numeric animation requests, recompositions,
+  class ops — was silently discarded (the headless startup already absorbed it). This
+  made `@work`-decorated on-mount flows blank: `questions01`'s worker calls
+  `push_screen_wait(QuestionScreen)` from `on_mount`, but the worker was never spawned,
+  so the "Do you like Textual?" dialog never appeared. The live loop now builds a
+  `DispatchOutcome` from the mount ctx and absorbs it (mirroring `headless_startup`), so
+  worker-driven screen pushes land and on-mount animations run live. Flips the
+  `questions01` real-app parity demo to full Rust==Python and makes `animation01`'s
+  on-mount opacity fade progress in the live loop (both demos previously rendered a static
+  or blank screen). Verified: `parity_screens_questions01_dialog` (glyph+colour = 0 diffs),
+  `animation01_opacity_progression_over_time` (both apps now progress).
 - **`Collapsible` focus now lands on the `CollapsibleTitle`, not the container** —
   Python's `CollapsibleTitle` is the focusable node (`can_focus=True`), while
   `Collapsible` itself is a plain `Widget` (not focusable); it toggles when the

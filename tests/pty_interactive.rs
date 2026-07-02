@@ -979,10 +979,12 @@ fn weather05_no_event_leak_structural() {
     );
 }
 
-/// animator/animation01: a red box fades in (opacity animates) over ~2s. Catch:
-/// the rendered box colour PROGRESSES over time on Python; the maintainer
-/// reported Rust shows no fade. Time-aware + colour-aware: sample the box cell at
-/// t0 and t+N and assert Python's colour changed; compare to Rust.
+/// animator/animation01: a red box fades in (opacity animates) over ~2s. The
+/// rendered box colour PROGRESSES over time on Python. Rust now matches: the
+/// live event loop absorbs the mount ctx (worker/animation/message requests
+/// issued from `on_mount_with_app`), so the on-mount opacity animation runs in
+/// the live loop just as it already did headless. Time-aware + colour-aware:
+/// sample the box cell across the fade and assert BOTH apps progress.
 #[test]
 fn animation01_opacity_progression_over_time() {
     // Sample a representative cell inside the box across the fade. The box is a
@@ -1032,9 +1034,10 @@ fn animation01_opacity_progression_over_time() {
     eprintln!("animation01: rust_progressed={rust_prog} py_progressed={py_prog}");
 
     assert!(
-        py_prog != rust_prog,
-        "HARNESS BLIND: animation01 fade progression looks identical on both apps.\n\
-         Expected Python's box bg colour to progress over the 2s fade and Rust's to be static (or vice versa)."
+        py_prog && rust_prog,
+        "animation01 fade must PROGRESS on BOTH apps over the 2s fade \
+         (py_progressed={py_prog}, rust_progressed={rust_prog}); \
+         the on-mount opacity animation should now run in the live loop on Rust too."
     );
 }
 
@@ -2044,7 +2047,7 @@ fn parity_input_binding01_bars() {
 /// (non-deterministic count/content). STRUCTURAL: move the mouse and assert the
 /// "Textual" ball is rendered and the log became non-empty on BOTH apps.
 #[test]
-#[ignore = "BUG: after mouse moves Python renders the RichLog full of MouseMove events + the moved `Textual` Ball; Rust renders a fully BLANK screen (no log, Ball never appears). Root: App-level `on_mouse_move` does not drive updates — the handler's RichLog.write + Ball.offset are never reflected (mouse-move not reaching the app handler / Ball offset not applied)."]
+#[ignore = "BUG (re-diagnosed): mouse-move dispatch NOW works — the RichLog fills with MouseMove events on both apps. Remaining gap is the `Textual` Ball: it never appears on Rust. Root: layers-flow layout isolation. Python `_arrange.py::arrange` groups children by `layer` and lays out EACH layer independently from the full region, so the Ball (layer: ball) sits at the container origin (+offset). Rust `src/layout/mod.rs::resolve_layout` puts ALL flow children in one vertical pass, so the Ball is stacked below the full-height RichLog at y=24 (off-screen). Fix belongs in src/layout (per-layer isolation of flow/layout widgets, mirroring the existing per-layer DOCK isolation) — out of scope for the runtime/mouse-dispatch pass."]
 fn parity_input_mouse01_ball() {
     fn run(kind: &AppKind) -> (bool, bool) {
         let mut app = spawn(kind);
@@ -2183,7 +2186,6 @@ fn parity_screens_modes01_dashboard() {
 /// questions01: a worker pushes a QuestionScreen (Label + Yes/No buttons) via
 /// push_screen_wait on mount. Compare the initial question screen.
 #[test]
-#[ignore = "BUG: Rust renders a fully BLANK screen — the QuestionScreen (pushed from `@work async def on_mount` via `push_screen_wait`) never appears; Python shows the `Do you like Textual?` Label + Yes/No buttons. 246 glyph cells. Root: worker-driven `push_screen_wait` / `@work`-decorated `on_mount` screen push not supported."]
 fn parity_screens_questions01_dialog() {
     let script = [Step::Wait(500)];
     let (rf, pf) = cat_both("questions01", "guide/screens", &script, 600);
