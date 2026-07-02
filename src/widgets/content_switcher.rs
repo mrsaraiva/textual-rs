@@ -17,12 +17,12 @@ pub struct ContentSwitcher {
     children: Vec<Box<dyn Widget>>,
     /// CSS ids of children in insertion order.  Populated when children are
     /// added via `with_child`, `add_child`, or `add_content`.  Retained after
-    /// `take_composed_children` drains `children` so that
+    /// `compose` drains `children` so that
     /// `child_display_for_tree` can still map indices to ids.
     child_ids: Vec<Option<String>>,
     current: Option<String>,
     seed: NodeSeed,
-    /// True once `take_composed_children` has been called (arena tree mode).
+    /// True once `compose` has been called (arena tree mode).
     children_extracted: bool,
 }
 
@@ -57,7 +57,6 @@ impl Widget for IdTaggedChild {
             render_line,
             render_lines,
             compose,
-            take_composed_children,
             focusable,
             can_focus,
             can_focus_children,
@@ -176,7 +175,7 @@ impl ContentSwitcher {
 
     /// Returns the 0-based index of the child whose id matches `self.current`.
     ///
-    /// Uses `child_ids` so it works both before and after `take_composed_children`.
+    /// Uses `child_ids` so it works both before and after `compose`.
     fn current_child_index(&self) -> Option<usize> {
         let current = self.current.as_deref()?;
         self.child_ids
@@ -226,11 +225,7 @@ impl ContentSwitcher {
 }
 
 impl Widget for ContentSwitcher {
-    fn compose(&self) -> ComposeResult {
-        Vec::new()
-    }
-
-    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+    fn compose(&mut self) -> ComposeResult {
         // Capture each child's CSS id from its `style_id()` before the children
         // are drained into the arena tree. `current_child_index()` (and thus
         // `child_display_for_tree`) matches `current` against `child_ids` AFTER
@@ -253,6 +248,9 @@ impl Widget for ContentSwitcher {
         }
         self.children_extracted = true;
         std::mem::take(&mut self.children)
+            .into_iter()
+            .map(crate::compose::ChildDecl::new)
+            .collect()
     }
 
     fn focusable(&self) -> bool {
@@ -267,7 +265,7 @@ impl Widget for ContentSwitcher {
     ///
     /// Called every frame by `sync_widget_controlled_child_display_tree`.
     /// Returns `Some(true)` for the active child, `Some(false)` for all others.
-    /// Returns `None` before `take_composed_children` is called (flat mode).
+    /// Returns `None` before `compose` is called (flat mode).
     fn child_display_for_tree(&self, child_index: usize) -> Option<bool> {
         if !self.children_extracted {
             return None;
@@ -469,7 +467,7 @@ mod tests {
     #[test]
     fn child_display_for_tree_inactive_before_extraction() {
         let switcher = ContentSwitcher::new().initial("a");
-        // Before take_composed_children, returns None (flat render mode).
+        // Before compose, returns None (flat render mode).
         assert_eq!(switcher.child_display_for_tree(0), None);
     }
 
@@ -483,7 +481,7 @@ mod tests {
         switcher.child_ids[0] = Some("a".to_string());
         switcher.child_ids[1] = Some("b".to_string());
 
-        let _ = switcher.take_composed_children(); // enter arena tree mode
+        let _ = switcher.compose(); // enter arena tree mode
         assert_eq!(switcher.child_display_for_tree(0), Some(false), "a hidden");
         assert_eq!(switcher.child_display_for_tree(1), Some(true), "b visible");
         assert_eq!(
@@ -497,7 +495,7 @@ mod tests {
     fn child_display_for_tree_all_hidden_when_no_current() {
         let mut switcher = ContentSwitcher::new().with_child(Probe);
         switcher.child_ids[0] = Some("x".to_string());
-        let _ = switcher.take_composed_children();
+        let _ = switcher.compose();
         // No current set → all hidden.
         assert_eq!(switcher.child_display_for_tree(0), Some(false));
     }
@@ -510,7 +508,7 @@ mod tests {
             .with_child(Probe);
         switcher.child_ids[0] = Some("a".to_string());
         switcher.child_ids[1] = Some("b".to_string());
-        let _ = switcher.take_composed_children();
+        let _ = switcher.compose();
 
         assert_eq!(switcher.child_display_for_tree(0), Some(true));
         assert_eq!(switcher.child_display_for_tree(1), Some(false));

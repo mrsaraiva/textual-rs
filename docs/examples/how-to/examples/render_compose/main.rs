@@ -107,8 +107,8 @@ impl Widget for Splash {
         gradient.render(console, options)
     }
 
-    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
-        self.container.take_composed_children()
+    fn compose(&mut self) -> textual::compose::ComposeResult {
+        self.container.compose()
     }
 
     fn is_active(&self) -> bool {

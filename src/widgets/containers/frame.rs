@@ -39,13 +39,13 @@ impl Frame {
 }
 
 impl Widget for Frame {
-    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+    fn compose(&mut self) -> crate::compose::ComposeResult {
         if self.child_extracted {
             return Vec::new();
         }
         self.child_extracted = true;
         let child = std::mem::replace(&mut self.child, Box::new(Spacer::new(1)));
-        vec![child]
+        vec![crate::compose::ChildDecl::new(child)]
     }
 
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
@@ -328,21 +328,21 @@ mod tests {
     #[test]
     fn frame_extraction_returns_child() {
         let mut frame = Frame::new(Spacer::new(1));
-        let children = frame.take_composed_children();
+        let children = frame.compose();
         assert_eq!(children.len(), 1);
     }
 
     #[test]
     fn frame_extraction_idempotent() {
         let mut frame = Frame::new(Spacer::new(1));
-        let _ = frame.take_composed_children();
-        assert!(frame.take_composed_children().is_empty());
+        let _ = frame.compose();
+        assert!(frame.compose().is_empty());
     }
 
     #[test]
     fn frame_render_after_extraction_with_border() {
         let mut frame = Frame::new(Spacer::new(1));
-        let _ = frame.take_composed_children();
+        let _ = frame.compose();
         let console = Console::new();
         let options = ConsoleOptions {
             size: (20, 5),
@@ -356,7 +356,7 @@ mod tests {
     #[test]
     fn frame_render_after_extraction_no_border() {
         let mut frame = Frame::new(Spacer::new(1)).border(false);
-        let _ = frame.take_composed_children();
+        let _ = frame.compose();
         let console = Console::new();
         let options = ConsoleOptions {
             size: (20, 5),
@@ -371,7 +371,7 @@ mod tests {
     fn frame_uses_tree_path_after_extraction() {
         let mut frame = Frame::new(Spacer::new(1));
         assert!(!frame.child_extracted);
-        let _ = frame.take_composed_children();
+        let _ = frame.compose();
         assert!(frame.child_extracted);
     }
 }

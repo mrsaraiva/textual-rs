@@ -193,8 +193,8 @@ fn list_view_append_after_mount_recomposes_all_items() {
     // recomposing must rebuild every item from the retained text, not just the
     // appended one.
     let mut list = ListView::new(vec!["A".to_string(), "B".to_string()]);
-    let _first = Widget::take_composed_children(&mut list);
+    let _first = Widget::compose(&mut list);
     list.append("C".to_string());
-    let children = Widget::take_composed_children(&mut list);
+    let children = Widget::compose(&mut list);
     assert_eq!(children.len(), 3, "all three items recomposed");
 }

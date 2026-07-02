@@ -66,7 +66,7 @@ impl Widget for Counter {
         false
     }
 
-    fn compose(&self) -> ComposeResult {
+    fn compose(&mut self) -> ComposeResult {
         vec![
             ChildDecl::from(Label::new("0")).with_id("counter-label"),
             ChildDecl::from(Button::new("+10")).with_id("plus-btn"),

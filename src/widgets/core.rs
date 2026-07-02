@@ -203,53 +203,37 @@ pub trait Widget: Send + Sync + Any {
             .collect()
     }
 
-    /// Declare child widgets for this widget.
+    /// Declare child widgets for this widget (the single child-declaration path).
     ///
-    /// The runtime materializes these declarations into arena nodes during
-    /// mount. The default implementation returns an empty list (leaf widget).
-    fn compose(&self) -> ComposeResult {
+    /// The runtime materializes the returned [`ChildDecl`](crate::compose::ChildDecl)s
+    /// into arena nodes during mount. Containers DRAIN their stored children here
+    /// (hence `&mut self` — `ChildDecl` isn't `Clone`); generative widgets build
+    /// their subtree from current state. The default returns an empty list (leaf
+    /// widget).
+    ///
+    /// # Recompose invariant (RA2.1)
+    ///
+    /// A widget that requests recompose (`ctx.request_recompose()`) MUST have a
+    /// generative, state-pure `compose()` that rebuilds its whole subtree every
+    /// call. A plain container that drained its children once must NEVER
+    /// self-request recompose — re-draining yields nothing and its arena children
+    /// would be silently deleted. See
+    /// [`recompose_node_subtree`](crate::runtime::event_loop::recompose_node_subtree).
+    fn compose(&mut self) -> ComposeResult {
         Vec::new()
     }
 
-    /// Move children out of this widget for tree mounting.
+    /// Elide a *purely structural* transparent wrapper out of the arena tree.
     ///
-    /// Containers override this to drain their owned children vec.
-    /// After calling, the container's children list is empty — the tree
-    /// takes ownership and tree-driven rendering handles child layout.
-    /// Leaf widgets return an empty vec (the default).
-    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
-        Vec::new()
-    }
-
-    /// Drain compose-time handle sinks for the children returned by the most
-    /// recent `take_composed_children()` call, as `(child_index, sink)` pairs.
-    /// Containers that offer `with_child_handle`-style builders override this.
-    /// Default: no sinks (leaf widgets and containers without handle builders).
-    ///
-    /// Migration-period shape — RA-2's node-record direction will eventually
-    /// fold child declaration metadata into `ChildDecl`-only compose, at which
-    /// point this hook is deleted together with `take_composed_children`.
-    fn take_child_handle_sinks(&mut self) -> Vec<(usize, crate::handle::HandleSink)> {
-        Vec::new()
-    }
-
-    /// Drain compose-time CSS id/class metadata for the children returned by the
-    /// most recent `take_composed_children()` call, as
-    /// `(child_index, css_id, classes)` tuples.
-    ///
-    /// Containers built via `with_compose` (which receive `ChildDecl`s carrying
-    /// `.with_id()` / `.with_classes()` metadata) override this so the runtime
-    /// mount path applies that metadata to the mounted node — keeping the same
-    /// effect as `App::mount_declarations` while children still flow through the
-    /// `take_composed_children()` extraction path. Default: no metadata.
-    ///
-    /// Migration-period shape (see `take_child_handle_sinks`): folds into
-    /// `ChildDecl`-only compose under RA-2.
-    fn take_child_decl_meta(&mut self) -> Vec<ChildDeclMeta> {
-        Vec::new()
-    }
-
-    /// Collapse a *purely structural* wrapper out of the arena tree.
+    /// This is a mount-time ELISION decision, NOT a child-drain hook — RA2.1
+    /// retired the legacy child-drain/meta/sink hooks (compose() is the sole
+    /// child path), but the transparent-wrapper elision is a real,
+    /// parity-sensitive placement decision that legitimately survives. Its exact
+    /// gating (id-only / scroll-host wrappers fold; border-titled or classed
+    /// non-scroll wrappers STAY as the rendered box) is preserved as-is. The
+    /// `Node` type — and this elision with it — is removed in RA2.6, when demos
+    /// migrate off `Node` onto seed `.id()`/`.class()` and the classed-wrapper
+    /// case disappears at the source.
     ///
     /// A transparent [`Node`](crate::widgets::Node) created only to attach an
     /// id/inline-style to a single child (e.g.
@@ -271,8 +255,8 @@ pub trait Widget: Send + Sync + Any {
     /// (the default) keeps the widget as its own arena node. A wrapper that
     /// carries a CSS *class* of its own (real styling, e.g.
     /// `Static.class("words")`) or a border must NOT collapse — it is the rendered
-    /// box and stays put. See [`Node::take_structural_collapse`] for the gating.
-    fn take_structural_collapse(&mut self) -> Option<(Box<dyn Widget>, NodeSeed)> {
+    /// box and stays put. See [`Node::elide_transparent_wrapper`] for the gating.
+    fn elide_transparent_wrapper(&mut self) -> Option<(Box<dyn Widget>, NodeSeed)> {
         None
     }
 
@@ -318,8 +302,7 @@ pub trait Widget: Send + Sync + Any {
     /// routes each message through the normal message bus with the mounted
     /// node as the sender/control — exactly as if the widget had called
     /// `ctx.post_message(..)`. This is a drain-at-mount adapter over the core
-    /// message flow (the same pattern as [`Widget::take_child_decl_meta`]); it
-    /// is **not** a separate dispatch path.
+    /// message flow; it is **not** a separate dispatch path.
     ///
     /// Default: no messages.
     fn take_pending_mount_messages(&mut self) -> Vec<Box<dyn crate::message::Message>> {
@@ -767,7 +750,7 @@ pub trait Widget: Send + Sync + Any {
     /// called outside of an event handler (e.g. via `App::with_query_one_mut_as`).
     ///
     /// Some composed widgets build their arena children from internal state in
-    /// `compose()`/`take_composed_children()` (e.g. `Tabs`, whose tab bar is a
+    /// `compose()`/`compose()` (e.g. `Tabs`, whose tab bar is a
     /// composed subtree). When such state is mutated post-mount through a
     /// `with_query_one_mut_as` call — which has no `EventCtx` — the widget cannot
     /// request its own recompose. It stages the request instead; the runtime
@@ -1395,30 +1378,13 @@ pub struct NodeState {
 }
 
 /// Compose-time CSS id/class metadata for a child, paired with its index in the
-/// most recent `take_composed_children()` result.
+/// child list a widget stores before draining.
 ///
-/// `(child_index, css_id, classes)`. Produced by `Widget::take_child_decl_meta`
-/// and applied to the mounted node by the runtime mount path (see
-/// `apply_child_decl_meta`), so `ChildDecl`-carried `.with_id()`/`.with_classes()`
-/// metadata reaches the tree even though children are mounted via the
-/// `take_composed_children()` extraction path.
+/// `(child_index, css_id, classes)`. Widgets that keep `with_compose`-supplied
+/// id/class metadata in a parallel array fold it back into per-child
+/// [`ChildDecl`](crate::compose::ChildDecl)s inside `compose()` (see
+/// [`zip_child_decls`](crate::compose::zip_child_decls)).
 pub type ChildDeclMeta = (usize, Option<String>, Vec<String>);
-
-/// Apply compose-time id/class metadata (from `take_child_decl_meta`) to a freshly
-/// mounted node, mirroring what `App::mount_declarations` does for `ChildDecl`s.
-pub(crate) fn apply_child_decl_meta(
-    tree: &mut crate::widget_tree::WidgetTree,
-    node_id: NodeId,
-    css_id: Option<String>,
-    classes: &[String],
-) {
-    if let Some(id) = css_id {
-        tree.set_css_id(node_id, Some(id));
-    }
-    for class in classes {
-        tree.add_class(node_id, class);
-    }
-}
 
 /// One-shot identity/style payload set by widget builder methods before mount
 /// and consumed exactly once by `WidgetTree::mount`/`set_root`. Not live state:

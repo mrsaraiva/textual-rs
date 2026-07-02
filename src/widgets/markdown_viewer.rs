@@ -136,7 +136,6 @@ impl Widget for MarkdownTableOfContentsTree {
             render_line,
             render_lines,
             compose,
-            take_composed_children,
             focusable,
             can_focus,
             can_focus_children,
@@ -197,7 +196,7 @@ impl Widget for MarkdownTableOfContents {
         "MarkdownTableOfContents"
     }
 
-    fn compose(&self) -> ComposeResult {
+    fn compose(&mut self) -> ComposeResult {
         vec![MarkdownTableOfContentsTree::with_shared_headings(self.shared_headings.clone()).into()]
     }
 
@@ -848,7 +847,6 @@ impl Widget for MarkdownViewer {
             render_line,
             render_lines,
             compose,
-            take_composed_children,
             on_mount,
             on_unmount,
             on_tick,
@@ -937,9 +935,9 @@ mod tests {
 
     #[test]
     fn markdown_viewer_children_include_scrollbars() {
-        // take_composed_children() should return user children + scrollbar widgets.
+        // compose() should return user children + scrollbar widgets.
         let mut viewer = MarkdownViewer::new("# Test");
-        let children = viewer.take_composed_children();
+        let children = viewer.compose();
         // At minimum: Markdown, MarkdownTableOfContents, + scrollbar widgets.
         assert!(
             children.len() >= 2,
@@ -949,7 +947,7 @@ mod tests {
         // First child should be Markdown (or its contents from flattening).
         // Scrollbar widgets should be present.
         let has_scrollbar = children.iter().any(|c| {
-            let st = c.style_type();
+            let st = c.widget().style_type();
             st.contains("Scrollbar") || st.contains("ScrollBar")
         });
         assert!(
@@ -961,13 +959,13 @@ mod tests {
     #[test]
     fn markdown_viewer_composes_focusable_markdown_document_child() {
         let mut viewer = MarkdownViewer::new("# Test");
-        let children = viewer.take_composed_children();
+        let children = viewer.compose();
         let markdown_child = children
             .iter()
-            .find(|child| child.style_type() == "Markdown")
+            .find(|child| child.widget().style_type() == "Markdown")
             .expect("expected Markdown child in MarkdownViewer composition");
         assert!(
-            markdown_child.focusable(),
+            markdown_child.widget().focusable(),
             "MarkdownViewer should compose a focusable Markdown child (Python parity)"
         );
     }
@@ -1016,7 +1014,7 @@ mod tests {
 
     #[test]
     fn toc_compose_returns_tree_child() {
-        let toc = MarkdownTableOfContents::new(vec![
+        let mut toc = MarkdownTableOfContents::new(vec![
             (1, "Chapter".to_string(), "chapter".to_string()),
             (2, "Section".to_string(), "section".to_string()),
         ]);

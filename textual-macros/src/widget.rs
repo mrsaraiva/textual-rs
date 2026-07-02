@@ -12,8 +12,8 @@
 //!
 //! ## What is forwarded (the STRUCTURAL / PROPAGATION surface)
 //!
-//! render / measure / layout, `take_composed_children` + the compose meta
-//! hooks, `on_event` / `on_event_capture` / `on_message` (PROPAGATION to the
+//! render / measure / layout, `compose` (child declaration),
+//! `on_event` / `on_event_capture` / `on_message` (PROPAGATION to the
 //! base's arena children), `on_tick` / lifecycle, scroll, bindings/actions,
 //! selection, tooltip/help, styles, etc. — exactly the 63-method list the
 //! deprecated `delegate_widget_to!` forwarded.
@@ -239,23 +239,8 @@ fn method_table() -> Vec<MethodSpec> {
         // ── Composition ────────────────────────────────────────────────
         m!(
             "compose",
-            quote! { fn compose(&self) -> textual::compose::ComposeResult },
+            quote! { fn compose(&mut self) -> textual::compose::ComposeResult },
             quote! { compose() }
-        ),
-        m!(
-            "take_composed_children",
-            quote! { fn take_composed_children(&mut self) -> Vec<Box<dyn textual::widgets::Widget>> },
-            quote! { take_composed_children() }
-        ),
-        m!(
-            "take_child_decl_meta",
-            quote! { fn take_child_decl_meta(&mut self) -> Vec<textual::widgets::ChildDeclMeta> },
-            quote! { take_child_decl_meta() }
-        ),
-        m!(
-            "take_child_handle_sinks",
-            quote! { fn take_child_handle_sinks(&mut self) -> Vec<(usize, textual::handle::HandleSink)> },
-            quote! { take_child_handle_sinks() }
         ),
         m!(
             "take_pending_mount_messages",

@@ -1581,8 +1581,11 @@ impl Widget for MarkdownListItemBlock {
         Some(self.item_inline_doc.rendered_height(content_width))
     }
 
-    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+    fn compose(&mut self) -> crate::compose::ComposeResult {
         std::mem::take(&mut self.children)
+            .into_iter()
+            .map(crate::compose::ChildDecl::new)
+            .collect()
     }
 }
 
@@ -1677,8 +1680,11 @@ impl Widget for MarkdownListBlock {
         Some(content_height)
     }
 
-    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+    fn compose(&mut self) -> crate::compose::ComposeResult {
         std::mem::take(&mut self.children)
+            .into_iter()
+            .map(crate::compose::ChildDecl::new)
+            .collect()
     }
 }
 
@@ -2124,8 +2130,11 @@ impl Widget for MarkdownTableContentBlock {
         ))
     }
 
-    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+    fn compose(&mut self) -> crate::compose::ComposeResult {
         std::mem::take(&mut self.children)
+            .into_iter()
+            .map(crate::compose::ChildDecl::new)
+            .collect()
     }
 
     fn take_node_seed(&mut self) -> NodeSeed {
@@ -2219,8 +2228,11 @@ impl Widget for MarkdownTableBlock {
         ))
     }
 
-    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+    fn compose(&mut self) -> crate::compose::ComposeResult {
         std::mem::take(&mut self.children)
+            .into_iter()
+            .map(crate::compose::ChildDecl::new)
+            .collect()
     }
 }
 
@@ -2505,8 +2517,11 @@ impl Widget for Markdown {
         self.can_focus
     }
 
-    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+    fn compose(&mut self) -> crate::compose::ComposeResult {
         std::mem::take(&mut self.composed_children)
+            .into_iter()
+            .map(crate::compose::ChildDecl::new)
+            .collect()
     }
 
     fn on_layout(&mut self, width: u16, _height: u16) {

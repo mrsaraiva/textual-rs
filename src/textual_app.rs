@@ -896,14 +896,17 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
         }
     }
 
-    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+    fn compose(&mut self) -> crate::compose::ComposeResult {
         if self.children_extracted {
             return Vec::new();
         }
         self.children_extracted = true;
         let app_child = std::mem::replace(&mut self.app_child, Box::new(Spacer::new(1)));
         let command_palette = Self::make_command_palette_host();
-        vec![app_child, Box::new(command_palette)]
+        vec![
+            crate::compose::ChildDecl::new(app_child),
+            crate::compose::ChildDecl::new(Box::new(command_palette)),
+        ]
     }
 
     fn child_display_for_tree(&self, child_index: usize) -> Option<bool> {
@@ -1943,35 +1946,35 @@ mod tests {
         }));
         let mut adapter = TextualAppAdapter::new(app, NoopWidget::new());
 
-        let mut first = adapter.take_composed_children();
+        let mut first = adapter.compose();
         assert_eq!(first.len(), 2);
         assert!(
             first
                 .iter()
-                .any(|child| child.style_type() == "CommandPalette"),
+                .any(|child| child.widget().style_type() == "CommandPalette"),
             "runtime root should include a live CommandPalette host child"
         );
         let palette = first
             .iter()
-            .find(|child| child.style_type() == "CommandPalette")
+            .find(|child| child.widget().style_type() == "CommandPalette")
             .expect("command palette child should be present");
         assert_eq!(
-            palette.style().and_then(|style| style.position),
+            palette.widget().style().and_then(|style| style.position),
             Some(Position::Absolute),
             "command palette host should be out-of-flow overlay in runtime root"
         );
         let palette = first
             .iter_mut()
-            .find(|child| child.style_type() == "CommandPalette")
+            .find(|child| child.widget().style_type() == "CommandPalette")
             .expect("command palette child should be present");
-        let palette_children = palette.take_composed_children();
+        let palette_children = palette.widget_mut().compose();
         assert_eq!(
             palette_children.len(),
             1,
             "command palette host should expose one wrapped child subtree"
         );
         assert_eq!(
-            palette.child_display_for_tree(0),
+            palette.widget().child_display_for_tree(0),
             Some(false),
             "command palette host wrapped child should stay hidden in tree mode"
         );
@@ -1981,7 +1984,7 @@ mod tests {
             "command palette host should be hidden in tree when closed"
         );
 
-        let second = adapter.take_composed_children();
+        let second = adapter.compose();
         assert!(second.is_empty());
     }
 
@@ -1996,7 +1999,7 @@ mod tests {
             hooks: HookState::default(),
         }));
         let mut adapter = TextualAppAdapter::new(app, NoopWidget::new());
-        let _ = adapter.take_composed_children();
+        let _ = adapter.compose();
         assert_eq!(adapter.child_display_for_tree(1), Some(false));
 
         let mut ctx = EventCtx::default();
@@ -2528,9 +2531,9 @@ mod tests {
         }));
         let mut root = build_textual_app_runtime_root(app, crate::widgets::AppRoot::new());
         assert!(
-            root.take_composed_children()
+            root.compose()
                 .iter()
-                .any(|child| child.style_type() == "CommandPalette"),
+                .any(|child| child.widget().style_type() == "CommandPalette"),
             "runtime root should compose a command palette host widget"
         );
     }

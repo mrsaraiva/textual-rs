@@ -152,14 +152,17 @@ impl Overlay {
 }
 
 impl Widget for Overlay {
-    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+    fn compose(&mut self) -> crate::compose::ComposeResult {
         if self.children_extracted {
             return Vec::new();
         }
         self.children_extracted = true;
         let base = std::mem::replace(&mut self.base, Box::new(Spacer::new(1)));
         let modal = std::mem::replace(&mut self.modal, Box::new(Spacer::new(1)));
-        vec![base, modal]
+        vec![
+            crate::compose::ChildDecl::new(base),
+            crate::compose::ChildDecl::new(modal),
+        ]
     }
 
     fn child_display_for_tree(&self, child_index: usize) -> Option<bool> {
@@ -507,7 +510,7 @@ mod tests {
         let base = crate::prelude::Label::new("base");
         let modal = crate::prelude::Label::new("modal");
         let mut overlay = Overlay::new(base, modal);
-        let children = overlay.take_composed_children();
+        let children = overlay.compose();
         assert_eq!(children.len(), 2);
     }
 
@@ -516,8 +519,8 @@ mod tests {
         let base = crate::prelude::Label::new("base");
         let modal = crate::prelude::Label::new("modal");
         let mut overlay = Overlay::new(base, modal);
-        let _ = overlay.take_composed_children();
-        assert!(overlay.take_composed_children().is_empty());
+        let _ = overlay.compose();
+        assert!(overlay.compose().is_empty());
     }
 
     #[test]
@@ -525,7 +528,7 @@ mod tests {
         let base = crate::prelude::Label::new("base");
         let modal = crate::prelude::Label::new("modal");
         let mut overlay = Overlay::new(base, modal);
-        let _ = overlay.take_composed_children();
+        let _ = overlay.compose();
         let console = Console::new();
         let options = ConsoleOptions {
             size: (20, 5),
@@ -543,7 +546,7 @@ mod tests {
         let base = crate::prelude::Label::new("base");
         let modal = crate::prelude::Label::new("modal");
         let mut overlay = Overlay::new(base, modal).visible(true);
-        let _ = overlay.take_composed_children();
+        let _ = overlay.compose();
         let mut ctx = EventCtx::default();
 
         // set_visible via message should not panic after extraction
@@ -566,7 +569,7 @@ mod tests {
         let base = crate::prelude::Label::new("base");
         let modal = crate::prelude::Label::new("modal");
         let mut overlay = Overlay::new(base, modal).visible(true);
-        let _ = overlay.take_composed_children();
+        let _ = overlay.compose();
         let mut ctx = EventCtx::default();
 
         let msg_event = MessageEvent::new(NodeId::default(), OverlayToggle { overlay: id });
@@ -581,7 +584,7 @@ mod tests {
         let modal = crate::prelude::Label::new("modal");
         let mut overlay = Overlay::new(base, modal);
         assert!(!overlay.children_extracted);
-        let _ = overlay.take_composed_children();
+        let _ = overlay.compose();
         assert!(overlay.children_extracted);
     }
 }

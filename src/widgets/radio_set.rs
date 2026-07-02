@@ -252,16 +252,12 @@ impl RadioSet {
 }
 
 impl Widget for RadioSet {
-    fn compose(&self) -> ComposeResult {
-        Vec::new()
-    }
-
-    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+    fn compose(&mut self) -> ComposeResult {
         // RadioSet renders its buttons INLINE (see `render`) and handles
-        // navigation/selection itself, so the buttons must stay in `self`.
-        // Draining them into the arena left `self.buttons` empty — `render`,
-        // `layout_height`, and `content_width` then saw no buttons (blank box,
-        // height 1). Keep them internal (monolithic widget); do not drain.
+        // navigation/selection itself, so the buttons must stay in `self`
+        // (monolithic widget): it declares no arena children. Draining them
+        // would leave `render`/`layout_height`/`content_width` with no buttons
+        // (blank box, height 1).
         Vec::new()
     }
 
@@ -651,7 +647,7 @@ mod tests {
 
     #[test]
     fn compose_returns_empty() {
-        let set = RadioSet::from_labels(&["A", "B"]);
+        let mut set = RadioSet::from_labels(&["A", "B"]);
         assert!(set.compose().is_empty());
     }
 
@@ -671,11 +667,11 @@ mod tests {
     }
 
     #[test]
-    fn take_composed_children_keeps_buttons_internal() {
+    fn compose_keeps_buttons_internal() {
         // RadioSet renders its buttons inline and handles its own navigation,
         // so it does NOT drain them into the arena (draining left it blank).
         let mut set = RadioSet::from_labels(&["A", "B", "C"]);
-        let children = set.take_composed_children();
+        let children = set.compose();
         assert!(
             children.is_empty(),
             "buttons must stay internal, not drained"

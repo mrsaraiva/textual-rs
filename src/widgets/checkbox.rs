@@ -156,11 +156,8 @@ impl ReactiveWidget for Checkbox {
 }
 
 impl Widget for Checkbox {
-    fn compose(&self) -> ComposeResult {
-        Vec::new()
-    }
-
-    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+    fn compose(&mut self) -> ComposeResult {
+        // Monolithic widget: renders inline, declares no arena children.
         Vec::new()
     }
 
@@ -445,18 +442,11 @@ mod tests {
         assert!(checkbox.seed.classes.contains(&"-on".to_string()));
     }
 
-    // ── compose / take_composed_children tests ──────────────────────────
+    // ── compose tests ──────────────────────────────────────────────────
 
     #[test]
     fn checkbox_compose_returns_empty() {
-        let checkbox = Checkbox::new("Test");
-        assert!(checkbox.compose().is_empty());
-    }
-
-    #[test]
-    fn checkbox_take_composed_children_returns_empty() {
         let mut checkbox = Checkbox::new("Test");
-        let taken = checkbox.take_composed_children();
-        assert!(taken.is_empty());
+        assert!(checkbox.compose().is_empty());
     }
 }

@@ -608,11 +608,8 @@ impl Widget for ProgressBar {
     ///
     /// ProgressBar sub-components are logical rendering helpers, not mountable
     /// children, so compose returns an empty list.
-    fn compose(&self) -> ComposeResult {
-        Vec::new()
-    }
-
-    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+    fn compose(&mut self) -> ComposeResult {
+        // Monolithic widget: renders inline, declares no arena children.
         Vec::new()
     }
 
@@ -1181,25 +1178,18 @@ mod tests {
         assert!(!text.is_empty(), "gradient bar should render something");
     }
 
-    // ── compose() / take_composed_children() tests ────────────────
+    // ── compose() tests ────────────────
 
     #[test]
     fn compose_returns_empty() {
-        let bar = ProgressBar::new(Some(100.0));
+        let mut bar = ProgressBar::new(Some(100.0));
         let result = bar.compose();
         assert!(result.is_empty());
     }
 
     #[test]
-    fn take_composed_children_returns_empty() {
-        let mut bar = ProgressBar::new(Some(100.0));
-        let children = bar.take_composed_children();
-        assert!(children.is_empty());
-    }
-
-    #[test]
     fn compose_returns_empty_indeterminate() {
-        let bar = ProgressBar::new(None);
+        let mut bar = ProgressBar::new(None);
         assert!(bar.compose().is_empty());
     }
 

@@ -554,27 +554,29 @@ impl Header {
 }
 
 impl Widget for Header {
-    fn compose(&self) -> ComposeResult {
-        Vec::new()
-    }
-
-    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+    fn compose(&mut self) -> ComposeResult {
         if self.children_extracted {
             return Vec::new();
         }
         self.children_extracted = true;
-        let mut children: Vec<Box<dyn Widget>> = Vec::with_capacity(3);
-        children.push(Box::new(HeaderIcon::new(self.icon.clone())));
-        children.push(Box::new(HeaderTitle::new(
+        let mut children: ComposeResult = Vec::with_capacity(3);
+        children.push(crate::compose::ChildDecl::new(Box::new(HeaderIcon::new(
+            self.icon.clone(),
+        ))));
+        children.push(crate::compose::ChildDecl::new(Box::new(HeaderTitle::new(
             self.default_title.clone(),
             self.default_subtitle.clone(),
             self.title.clone(),
             self.subtitle.clone(),
-        )));
+        ))));
         if self.show_clock {
-            children.push(Box::new(HeaderClock::new(self.time_format.clone())));
+            children.push(crate::compose::ChildDecl::new(Box::new(HeaderClock::new(
+                self.time_format.clone(),
+            ))));
         } else {
-            children.push(Box::new(HeaderClockSpace::new()));
+            children.push(crate::compose::ChildDecl::new(Box::new(
+                HeaderClockSpace::new(),
+            )));
         }
         children
     }
@@ -777,27 +779,27 @@ mod tests {
     }
 
     #[test]
-    fn header_take_composed_children_uses_python_widget_structure() {
+    fn header_compose_uses_python_widget_structure() {
         let mut header = Header::new().title("ModalApp").show_clock(true);
-        let children = header.take_composed_children();
+        let children = header.compose();
         assert_eq!(children.len(), 3);
-        let types: Vec<&'static str> = children.iter().map(|child| child.style_type()).collect();
+        let types: Vec<&'static str> = children.iter().map(|child| child.widget().style_type()).collect();
         assert_eq!(types, vec!["HeaderIcon", "HeaderTitle", "HeaderClock"]);
-        assert!(header.take_composed_children().is_empty());
+        assert!(header.compose().is_empty());
     }
 
     #[test]
-    fn header_take_composed_children_uses_clock_space_when_clock_disabled() {
+    fn header_compose_uses_clock_space_when_clock_disabled() {
         let mut header = Header::new().title("ModalApp").show_clock(false);
-        let children = header.take_composed_children();
-        let types: Vec<&'static str> = children.iter().map(|child| child.style_type()).collect();
+        let children = header.compose();
+        let types: Vec<&'static str> = children.iter().map(|child| child.widget().style_type()).collect();
         assert_eq!(types, vec!["HeaderIcon", "HeaderTitle", "HeaderClockSpace"]);
     }
 
     #[test]
     fn header_tree_mode_toggles_from_child_target_click() {
         let mut header = Header::new();
-        let _ = header.take_composed_children();
+        let _ = header.compose();
         let child_id = NodeId::default();
 
         let mut down_ctx = EventCtx::default();
@@ -835,7 +837,7 @@ mod tests {
     #[test]
     fn header_tree_mode_mouse_up_without_press_is_noop() {
         let mut header = Header::new();
-        let _ = header.take_composed_children();
+        let _ = header.compose();
         let child_id = NodeId::default();
         let mut up_ctx = EventCtx::default();
         header.on_event(

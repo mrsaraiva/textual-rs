@@ -649,7 +649,7 @@ pub(crate) fn extract_child_spec(
 /// Bottom-up intrinsic measurement for auto-sized containers.
 ///
 /// A container that had its renderable children drained into the arena tree by
-/// `take_composed_children` reports `content_width()`/`layout_height()` == None,
+/// `compose` reports `content_width()`/`layout_height()` == None,
 /// because the widget itself no longer holds content to measure. For
 /// EXPLICITLY auto-sized containers this means `extract_child_spec` would treat
 /// them as a flex edge (fill) instead of sizing them to their content.

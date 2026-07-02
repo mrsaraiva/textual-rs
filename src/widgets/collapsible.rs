@@ -111,7 +111,7 @@ impl CollapsibleTitle {
 }
 
 impl Widget for CollapsibleTitle {
-    fn compose(&self) -> ComposeResult {
+    fn compose(&mut self) -> ComposeResult {
         Vec::new()
     }
 
@@ -252,7 +252,7 @@ impl Renderable for CollapsibleTitle {
 /// Mirrors Python's `Collapsible.Contents` (a `Container` subclass) so that the
 /// CSS rule `Collapsible.-collapsed > Contents { display: none }` and the
 /// `Contents { padding: 1 0 0 3 }` indentation both apply via the standard CSS
-/// path. Children are real arena nodes drained via `take_composed_children`.
+/// path. Children are real arena nodes drained via `compose`.
 pub struct CollapsibleContents {
     children: Vec<Box<dyn Widget>>,
     children_extracted: bool,
@@ -270,13 +270,12 @@ impl CollapsibleContents {
 }
 
 impl Widget for CollapsibleContents {
-    fn compose(&self) -> ComposeResult {
-        Vec::new()
-    }
-
-    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+    fn compose(&mut self) -> ComposeResult {
         self.children_extracted = true;
         std::mem::take(&mut self.children)
+            .into_iter()
+            .map(crate::compose::ChildDecl::new)
+            .collect()
     }
 
     fn style_type(&self) -> &'static str {
@@ -513,15 +512,11 @@ impl Collapsible {
 }
 
 impl Widget for Collapsible {
-    fn compose(&self) -> ComposeResult {
-        Vec::new()
-    }
-
     /// Mirror Python's `compose()`: yield the `CollapsibleTitle`, then a
     /// `Contents` container holding the user children. Both become real arena
     /// nodes so the title glyph + label render and (when expanded) the children
     /// render beneath via the standard tree path.
-    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+    fn compose(&mut self) -> ComposeResult {
         if self.children_extracted {
             return Vec::new();
         }
@@ -534,8 +529,8 @@ impl Widget for Collapsible {
         );
         let contents = CollapsibleContents::new(std::mem::take(&mut self.children));
         vec![
-            Box::new(title) as Box<dyn Widget>,
-            Box::new(contents) as Box<dyn Widget>,
+            crate::compose::ChildDecl::new(Box::new(title) as Box<dyn Widget>),
+            crate::compose::ChildDecl::new(Box::new(contents) as Box<dyn Widget>),
         ]
     }
 
@@ -747,32 +742,26 @@ mod tests {
 
     #[test]
     fn collapsible_title_compose_returns_empty() {
-        let title = CollapsibleTitle::new("Test", ">", "v", true);
+        let mut title = CollapsibleTitle::new("Test", ">", "v", true);
         assert!(title.compose().is_empty());
     }
 
-    // ── Collapsible compose / take_composed_children tests ──────────────
+    // ── Collapsible compose tests ──────────────
 
     #[test]
-    fn collapsible_compose_returns_empty() {
-        let c = Collapsible::new("Section");
-        assert!(c.compose().is_empty());
-    }
-
-    #[test]
-    fn collapsible_take_composed_children_yields_title_and_contents() {
+    fn collapsible_compose_yields_title_and_contents() {
         use crate::widgets::aliases::Static;
         let mut c = Collapsible::new("Section")
             .collapsed(false)
             .with_child(Static::new("child1"))
             .with_child(Static::new("child2"));
-        let taken = c.take_composed_children();
+        let taken = c.compose();
         // Python compose() yields exactly [CollapsibleTitle, Contents].
         assert_eq!(taken.len(), 2);
-        assert_eq!(taken[0].style_type(), "CollapsibleTitle");
-        assert_eq!(taken[1].style_type(), "Contents");
+        assert_eq!(taken[0].widget().style_type(), "CollapsibleTitle");
+        assert_eq!(taken[1].widget().style_type(), "Contents");
         // Extraction is idempotent.
-        assert!(c.take_composed_children().is_empty());
+        assert!(c.compose().is_empty());
     }
 
     #[test]
@@ -780,9 +769,9 @@ mod tests {
         use crate::widgets::aliases::Static;
         let mut contents =
             CollapsibleContents::new(vec![Box::new(Static::new("a")), Box::new(Static::new("b"))]);
-        let kids = contents.take_composed_children();
+        let kids = contents.compose();
         assert_eq!(kids.len(), 2);
-        assert!(contents.take_composed_children().is_empty());
+        assert!(contents.compose().is_empty());
     }
 
     #[test]
@@ -819,10 +808,10 @@ mod tests {
             .collapsed(true)
             .collapsed_symbol("+")
             .expanded_symbol("-");
-        let taken = c.take_composed_children();
+        let taken = c.compose();
         let console = Console::new();
         let options = make_console_options(20, 1);
-        let text: String = Widget::render(taken[0].as_ref(), &console, &options)
+        let text: String = Widget::render(taken[0].widget(), &console, &options)
             .iter()
             .map(|s| &*s.text)
             .collect();

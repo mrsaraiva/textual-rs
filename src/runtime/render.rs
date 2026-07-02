@@ -3699,8 +3699,8 @@ mod tests {
                 }
                 out
             }
-            fn take_composed_children(&mut self) -> Vec<Box<dyn crate::widgets::Widget>> {
-                self.container.take_composed_children()
+            fn compose(&mut self) -> crate::compose::ComposeResult {
+                self.container.compose()
             }
             fn style_type(&self) -> &'static str {
                 "RenderPlusCompose"
@@ -3715,10 +3715,10 @@ mod tests {
         let host_id = tree.mount(root, Box::new(RenderPlusCompose::new()));
         let kids = {
             let node = tree.get_mut(host_id).unwrap();
-            node.widget.take_composed_children()
+            node.widget.compose()
         };
         for kid in kids {
-            tree.mount(host_id, kid);
+            tree.mount(host_id, kid.into_widget());
         }
 
         let console = rich_rs::Console::new();
@@ -4143,10 +4143,10 @@ mod tests {
 
         let palette_children = {
             let node = tree.get_mut(palette_id).expect("palette node should exist");
-            node.widget.take_composed_children()
+            node.widget.compose()
         };
         for child in palette_children {
-            tree.mount(palette_id, child);
+            tree.mount(palette_id, child.into_widget());
         }
 
         let resolved_bg = {
@@ -4330,10 +4330,10 @@ mod tests {
         // Enter tree mode by extracting children into the arena tree.
         let children = {
             let root = tree.get_mut(root_id).expect("root exists");
-            root.widget.take_composed_children()
+            root.widget.compose()
         };
         for child in children {
-            tree.mount(root_id, child);
+            tree.mount(root_id, child.into_widget());
         }
 
         run_layout_pass(&mut tree, (40, 10));
@@ -4381,10 +4381,10 @@ mod tests {
         // Extract AppRoot children into the arena (including dedicated scrollbar lanes).
         let children = {
             let app_root = tree.get_mut(app_root_id).expect("app root exists");
-            app_root.widget.take_composed_children()
+            app_root.widget.compose()
         };
         for child in children {
-            tree.mount(app_root_id, child);
+            tree.mount(app_root_id, child.into_widget());
         }
 
         run_layout_pass(&mut tree, (40, 10));
@@ -4454,10 +4454,10 @@ mod tests {
 
         let children = {
             let app_root = tree.get_mut(app_root_id).expect("app root should exist");
-            app_root.widget.take_composed_children()
+            app_root.widget.compose()
         };
         for child in children {
-            tree.mount(app_root_id, child);
+            tree.mount(app_root_id, child.into_widget());
         }
 
         run_layout_pass(&mut tree, (40, 10));
@@ -4653,10 +4653,10 @@ Parent.show > Child { display: block; }
 
         // Mount an expanded Collapsible + its composed children (title + contents).
         let mut collapsible = Collapsible::new("Section").collapsed(false);
-        let children = collapsible.take_composed_children();
+        let children = collapsible.compose();
         let collapsible_id = tree.mount(root, Box::new(collapsible));
         for child in children {
-            tree.mount(collapsible_id, child);
+            tree.mount(collapsible_id, child.into_widget());
         }
 
         let title_id = *tree

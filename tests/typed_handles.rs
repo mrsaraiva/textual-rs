@@ -79,7 +79,7 @@ impl Widget for ProbeContainer {
         "ProbeContainer"
     }
 
-    fn compose(&self) -> ComposeResult {
+    fn compose(&mut self) -> ComposeResult {
         let probe = Probe::new(self.probe_value);
         let decl = self.slot.bind(probe);
         let decl = if let Some(id) = &self.probe_id {

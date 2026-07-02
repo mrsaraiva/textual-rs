@@ -80,8 +80,8 @@ impl Widget for Ball {
         self.inner.render(console, options)
     }
 
-    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
-        self.inner.take_composed_children()
+    fn compose(&mut self) -> textual::compose::ComposeResult {
+        self.inner.compose()
     }
 
     fn on_node_state_changed(&mut self, old: NodeState, new: NodeState) {
@@ -153,15 +153,15 @@ impl Widget for MouseScreen {
         rich_rs::Segments::default()
     }
 
-    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
-        vec![Box::new(std::mem::replace(
-            &mut self.log,
-            RichLog::new(),
-        )) as Box<dyn Widget>,
-        Box::new(std::mem::replace(
-            &mut self.ball,
-            Ball::new(),
-        )) as Box<dyn Widget>]
+    fn compose(&mut self) -> textual::compose::ComposeResult {
+        vec![
+            textual::compose::ChildDecl::new(
+                Box::new(std::mem::replace(&mut self.log, RichLog::new())) as Box<dyn Widget>,
+            ),
+            textual::compose::ChildDecl::new(
+                Box::new(std::mem::replace(&mut self.ball, Ball::new())) as Box<dyn Widget>,
+            ),
+        ]
     }
 
     fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {

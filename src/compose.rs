@@ -7,7 +7,7 @@
 //! # Example
 //!
 //! ```ignore
-//! fn compose(&self) -> ComposeResult {
+//! fn compose(&mut self) -> ComposeResult {
 //!     compose![
 //!         Header::new(),
 //!         Button::new("Click me").with_id("btn"),
@@ -104,6 +104,81 @@ impl ChildDecl {
         self.children = children;
         self
     }
+
+    /// The CSS id declared for this child (via [`with_id`](Self::with_id)), if any.
+    pub fn id(&self) -> Option<&str> {
+        self.id.as_deref()
+    }
+
+    /// The CSS classes declared for this child (via
+    /// [`with_classes`](Self::with_classes)).
+    pub fn classes(&self) -> &[String] {
+        &self.classes
+    }
+
+    /// Borrow the declared widget (the `Ready` builder's payload).
+    ///
+    /// Used by tests that assert on a freshly-composed child's pre-mount state
+    /// (e.g. its `style_type()`) without draining it into an arena tree.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn widget(&self) -> &dyn Widget {
+        let WidgetBuilder::Ready(w) = &self.builder;
+        w.as_ref()
+    }
+
+    /// Mutably borrow the declared widget (the `Ready` builder's payload).
+    ///
+    /// Used by tests that assert on a freshly-composed child's pre-mount state
+    /// (e.g. its seed css-id) without draining it into an arena tree.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn widget_mut(&mut self) -> &mut dyn Widget {
+        let WidgetBuilder::Ready(w) = &mut self.builder;
+        w.as_mut()
+    }
+
+    /// Consume the declaration, yielding just the boxed widget (dropping any
+    /// nested decls/id/classes). Used by test helpers that mount a single
+    /// leaf child directly into an arena tree.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn into_widget(self) -> Box<dyn Widget> {
+        let WidgetBuilder::Ready(w) = self.builder;
+        w
+    }
+}
+
+/// Re-assemble a widget's declared children into self-describing [`ChildDecl`]s
+/// from the legacy parallel arrays (`children` + index-keyed decl-meta +
+/// index-keyed handle sinks).
+///
+/// RA2.1 makes `compose(&mut self)` the single child-declaration path. Widgets
+/// that historically stored children plus `with_compose`/`with_child_handle`
+/// side metadata drain all three here and fold them back into one `ChildDecl`
+/// per child (id + classes + handle sink bundled), so the runtime never has to
+/// consult a parallel side channel again.
+pub(crate) fn zip_child_decls(
+    children: Vec<Box<dyn Widget>>,
+    meta: Vec<crate::widgets::ChildDeclMeta>,
+    sinks: Vec<(usize, crate::handle::HandleSink)>,
+) -> ComposeResult {
+    let mut meta_map: std::collections::HashMap<usize, (Option<String>, Vec<String>)> =
+        meta.into_iter().map(|(i, id, c)| (i, (id, c))).collect();
+    let mut sink_map: std::collections::HashMap<usize, crate::handle::HandleSink> =
+        sinks.into_iter().collect();
+    children
+        .into_iter()
+        .enumerate()
+        .map(|(i, w)| {
+            let mut decl = ChildDecl::new(w);
+            if let Some((id, classes)) = meta_map.remove(&i) {
+                decl.id = id;
+                decl.classes = classes;
+            }
+            if let Some(sink) = sink_map.remove(&i) {
+                decl.handle_sink = Some(sink);
+            }
+            decl
+        })
+        .collect()
 }
 
 impl std::fmt::Debug for ChildDecl {

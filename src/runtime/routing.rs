@@ -1171,13 +1171,11 @@ mod message_tests {
         );
 
         // Enter tree mode and mount ScrollView dedicated scrollbar children.
-        let extracted = {
+        let decls = {
             let node = tree.get_mut(scroll_id).expect("scrollview node");
-            node.widget.take_composed_children()
+            node.widget.compose()
         };
-        for child in extracted {
-            tree.mount(scroll_id, child);
-        }
+        crate::runtime::App::mount_declarations(&mut tree, scroll_id, decls);
 
         run_layout_pass(&mut tree, (40, 10));
         apply_layout_info_tree_from_layout_rects(&mut tree);

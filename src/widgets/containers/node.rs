@@ -64,13 +64,18 @@ impl Node {
 }
 
 impl Widget for Node {
-    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+    fn compose(&mut self) -> crate::compose::ComposeResult {
+        // Non-collapse path: a `Node` that stays a real arena node (a classed,
+        // border-titled, or otherwise styled box — see `elide_transparent_wrapper`)
+        // mounts its single inner child beneath it. When the wrapper instead
+        // collapses out, the mount pipeline consumes `elide_transparent_wrapper`
+        // FIRST and this is never reached (so the child is drained exactly once).
         if self.child_extracted {
             return Vec::new();
         }
         self.child_extracted = true;
         let child = std::mem::replace(&mut self.child, Box::new(Spacer::new(1)));
-        vec![child]
+        vec![crate::compose::ChildDecl::new(child)]
     }
 
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
@@ -111,7 +116,7 @@ impl Widget for Node {
                 return Some(min);
             }
         }
-        // After `take_composed_children`, the real child is moved into the arena
+        // After `compose`, the real child is moved into the arena
         // tree and `self.child` is a placeholder `Spacer(1)`. Reporting the
         // placeholder's height (1) would clip the arena child to a single row.
         // Mirror `Container`: defer to the arena layout (which sizes this node
@@ -156,7 +161,7 @@ impl Widget for Node {
         std::mem::take(&mut self.seed)
     }
 
-    fn take_structural_collapse(&mut self) -> Option<(Box<dyn Widget>, NodeSeed)> {
+    fn elide_transparent_wrapper(&mut self) -> Option<(Box<dyn Widget>, NodeSeed)> {
         // Collapse a *purely structural* transparent `Node` OUT of the arena: its
         // single inner widget is mounted in the wrapper's place and owns the
         // forwarded id/inline-style. This matches Python, where attaching an id is
@@ -206,7 +211,7 @@ impl Widget for Node {
 
     // NOTE: a *classed* non-scroll `Node` wrapper (e.g.
     // `Node::new(Placeholder).class("box")`) is deliberately NOT collapsed by
-    // `take_structural_collapse` and keeps its own id/classes — it is a real
+    // `elide_transparent_wrapper` and keeps its own id/classes — it is a real
     // STYLED box whose class carries layout styling (`width:1fr`/`border`/`bg`)
     // that must render on the wrapper. Moving that class onto the inner widget
     // would double-apply the styling and corrupt sizing. The two cases that
@@ -243,23 +248,23 @@ mod tests {
     use super::*;
 
     #[test]
-    fn node_extraction_returns_child() {
+    fn node_compose_returns_child() {
         let mut n = Node::new(Spacer::new(1));
-        let children = n.take_composed_children();
+        let children = n.compose();
         assert_eq!(children.len(), 1);
     }
 
     #[test]
-    fn node_extraction_idempotent() {
+    fn node_compose_idempotent() {
         let mut n = Node::new(Spacer::new(1));
-        let _ = n.take_composed_children();
-        assert!(n.take_composed_children().is_empty());
+        let _ = n.compose();
+        assert!(n.compose().is_empty());
     }
 
     #[test]
     fn node_render_after_extraction() {
         let mut n = Node::new(Spacer::new(1));
-        let _ = n.take_composed_children();
+        let _ = n.compose();
         let console = Console::new();
         let options = ConsoleOptions {
             size: (20, 5),
@@ -273,7 +278,7 @@ mod tests {
     #[test]
     fn node_style_type_after_extraction() {
         let mut n = Node::new(Spacer::new(1));
-        let _ = n.take_composed_children();
+        let _ = n.compose();
         assert_eq!(n.style_type(), "Node");
     }
 }

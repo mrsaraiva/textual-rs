@@ -988,14 +988,14 @@ impl Widget for OptionList {
         std::mem::take(&mut self.seed)
     }
 
-    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+    fn compose(&mut self) -> crate::compose::ComposeResult {
         if self.scrollbar_extracted {
             return Vec::new();
         }
         self.scrollbar_extracted = true;
         let mut vbar = ScrollBar::new(true, 2);
         vbar.seed.css_id = Some(OPTION_LIST_VSCROLLBAR_ID.to_string());
-        vec![Box::new(vbar)]
+        vec![crate::compose::ChildDecl::new(Box::new(vbar))]
     }
 
     fn on_message(&mut self, event: &MessageEvent, ctx: &mut EventCtx) {
@@ -1464,14 +1464,14 @@ mod tests {
     #[test]
     fn tree_mode_extracts_dedicated_scrollbar_child() {
         let mut list = OptionList::with_items(vec![OptionItem::new("A")]);
-        let mut children = list.take_composed_children();
+        let mut children = list.compose();
         assert_eq!(children.len(), 1);
         assert_eq!(
-            children[0].take_node_seed().css_id.as_deref(),
+            children[0].widget_mut().take_node_seed().css_id.as_deref(),
             Some(OPTION_LIST_VSCROLLBAR_ID)
         );
         // Extraction is idempotent: a second call yields no further children.
-        assert!(list.take_composed_children().is_empty());
+        assert!(list.compose().is_empty());
     }
 
     #[test]

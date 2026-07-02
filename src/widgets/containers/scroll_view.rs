@@ -648,30 +648,26 @@ struct ResolvedScrollbar {
 }
 
 impl Widget for ScrollView {
-    fn compose(&self) -> crate::compose::ComposeResult {
-        Vec::new()
-    }
-
-    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+    fn compose(&mut self) -> crate::compose::ComposeResult {
         if self.child_extracted {
             return Vec::new();
         }
         self.child_extracted = true;
-        let mut children = Vec::with_capacity(4);
+        let mut children: crate::compose::ComposeResult = Vec::with_capacity(4);
         let child = std::mem::replace(&mut self.child, Box::new(Spacer::new(1)));
-        children.push(child);
+        children.push(crate::compose::ChildDecl::new(child));
 
         let mut vbar = ScrollBar::new(true, 2);
         vbar.seed.css_id = Some(SCROLL_VIEW_VSCROLLBAR_ID.to_string());
-        children.push(Box::new(vbar));
+        children.push(crate::compose::ChildDecl::new(Box::new(vbar)));
 
         let mut hbar = ScrollBar::new(false, 1);
         hbar.seed.css_id = Some(SCROLL_VIEW_HSCROLLBAR_ID.to_string());
-        children.push(Box::new(hbar));
+        children.push(crate::compose::ChildDecl::new(Box::new(hbar)));
 
         let mut corner = ScrollBarCorner::new();
         corner.seed.css_id = Some(SCROLL_VIEW_SCROLLBAR_CORNER_ID.to_string());
-        children.push(Box::new(corner));
+        children.push(crate::compose::ChildDecl::new(Box::new(corner)));
 
         children
     }
@@ -1802,7 +1798,7 @@ mod tests {
         let _guard = set_dispatch_recipient(id, crate::widgets::NodeState::default());
 
         let mut sv = ScrollView::new(Label::new("content"));
-        let _ = sv.take_composed_children();
+        let _ = sv.compose();
         assert!(sv.child_extracted);
         let mut ctx = EventCtx::default();
 
@@ -1879,7 +1875,7 @@ mod tests {
     fn tree_mode_render_produces_chrome_not_blank() {
         let mut sv = ScrollView::new(Label::new("content"));
         // Extract child to enter tree mode.
-        let children = sv.take_composed_children();
+        let children = sv.compose();
         // Tree mode exposes content + dedicated scrollbar children.
         assert_eq!(children.len(), 4);
         assert!(sv.child_extracted);
@@ -1914,7 +1910,7 @@ mod tests {
         let mut sv = ScrollView::new(Label::new("content"));
         sv.offset_x = 5;
         sv.offset_y = 10;
-        let _ = sv.take_composed_children();
+        let _ = sv.compose();
         assert!(sv.child_extracted);
 
         assert_eq!(sv.scroll_offset(), (5, 10));
@@ -1924,7 +1920,7 @@ mod tests {
     #[test]
     fn tree_mode_scroll_actions_still_work() {
         let mut sv = ScrollView::new(Label::new("content"));
-        let _ = sv.take_composed_children();
+        let _ = sv.compose();
         assert!(sv.child_extracted);
 
         // Set content larger than viewport.
@@ -1954,7 +1950,7 @@ mod tests {
         sv.content_height.store(200, Ordering::Relaxed);
         sv.content_width.store(50, Ordering::Relaxed);
 
-        let _ = sv.take_composed_children();
+        let _ = sv.compose();
 
         let console = Console::default();
         let mut opts = ConsoleOptions::default();

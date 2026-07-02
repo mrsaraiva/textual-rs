@@ -54,12 +54,15 @@ impl BackgroundFill {
 }
 
 impl Widget for BackgroundFill {
-    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+    fn compose(&mut self) -> textual::compose::ComposeResult {
         if self.child_extracted {
             return Vec::new();
         }
         self.child_extracted = true;
-        vec![std::mem::replace(&mut self.child, Box::new(Spacer::new(1)))]
+        vec![textual::compose::ChildDecl::new(std::mem::replace(
+            &mut self.child,
+            Box::new(Spacer::new(1)),
+        ))]
     }
 
     fn render(&self, _console: &Console, options: &rich_rs::ConsoleOptions) -> rich_rs::Segments {

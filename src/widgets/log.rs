@@ -580,14 +580,14 @@ impl Log {
 }
 
 impl Widget for Log {
-    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+    fn compose(&mut self) -> crate::compose::ComposeResult {
         if self.scrollbar_extracted {
             return Vec::new();
         }
         self.scrollbar_extracted = true;
         let mut vbar = ScrollBar::new(true, 2);
         vbar.seed.css_id = Some(LOG_VSCROLLBAR_ID.to_string());
-        vec![Box::new(vbar)]
+        vec![crate::compose::ChildDecl::new(Box::new(vbar))]
     }
 
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
@@ -855,7 +855,7 @@ mod tests {
         let options = options_for(&console, 16, 3);
         let mut log = Log::new().auto_scroll(false);
         log.write_lines(["line 1", "line 2", "line 3", "line 4", "line 5"]);
-        let _ = log.take_composed_children();
+        let _ = log.compose();
         let _ = log.render(&console, &options);
         assert_eq!(log.offset_y, 0);
 
@@ -990,10 +990,10 @@ mod tests {
     #[test]
     fn tree_mode_extracts_dedicated_scrollbar_child() {
         let mut log = Log::new();
-        let mut children = log.take_composed_children();
+        let mut children = log.compose();
         assert_eq!(children.len(), 1);
         assert_eq!(
-            children[0].take_node_seed().css_id.as_deref(),
+            children[0].widget_mut().take_node_seed().css_id.as_deref(),
             Some(LOG_VSCROLLBAR_ID)
         );
     }
@@ -1004,7 +1004,7 @@ mod tests {
         let options = options_for(&console, 16, 3);
         let mut log = Log::new().auto_scroll(false);
         log.write_lines(["line 1", "line 2", "line 3", "line 4", "line 5"]);
-        let _ = log.take_composed_children();
+        let _ = log.compose();
         let _ = log.render(&console, &options);
 
         let mut ctx = EventCtx::default();

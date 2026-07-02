@@ -90,7 +90,7 @@ impl Welcome {
 }
 
 impl Widget for Welcome {
-    fn compose(&self) -> ComposeResult {
+    fn compose(&mut self) -> ComposeResult {
         let md = Markdown::new(WELCOME_MD);
         let text_node = crate::compose::ChildDecl::new(Box::new(md)).with_id("text");
 
@@ -171,7 +171,7 @@ mod tests {
 
     #[test]
     fn welcome_compose_yields_two_children() {
-        let welcome = Welcome::new();
+        let mut welcome = Welcome::new();
         let children = welcome.compose();
         assert_eq!(
             children.len(),
@@ -182,7 +182,7 @@ mod tests {
 
     #[test]
     fn welcome_compose_has_md_container_and_close_button() {
-        let welcome = Welcome::new();
+        let mut welcome = Welcome::new();
         let children = welcome.compose();
         // First child: Container with id "md"
         assert_eq!(children[0].id.as_deref(), Some("md"));

@@ -1336,14 +1336,14 @@ impl ReactiveWidget for DataTable {
 }
 
 impl Widget for DataTable {
-    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+    fn compose(&mut self) -> crate::compose::ComposeResult {
         if self.scrollbar_extracted {
             return Vec::new();
         }
         self.scrollbar_extracted = true;
         let mut hbar = ScrollBar::new(false, 1);
         hbar.seed.css_id = Some(DATA_TABLE_HSCROLLBAR_ID.to_string());
-        vec![Box::new(hbar)]
+        vec![crate::compose::ChildDecl::new(Box::new(hbar))]
     }
 
     fn focusable(&self) -> bool {
@@ -2965,7 +2965,7 @@ mod tests {
             vec![vec!["a".into(), "b".into(), "c".into(), "d".into()]],
         );
         table.on_layout(12, 4);
-        let _ = table.take_composed_children();
+        let _ = table.compose();
         assert_eq!(table.horizontal_offset, 0);
 
         let mut ctx = EventCtx::default();
@@ -3021,7 +3021,7 @@ mod tests {
             vec![vec!["a".into(), "b".into(), "c".into(), "d".into()]],
         );
         table.on_layout(12, 4);
-        let _ = table.take_composed_children();
+        let _ = table.compose();
 
         let mut ctx = EventCtx::default();
         table.on_message(
@@ -3102,10 +3102,10 @@ mod tests {
             ],
             vec![vec!["a".into(), "b".into(), "c".into(), "d".into()]],
         );
-        let mut children = table.take_composed_children();
+        let mut children = table.compose();
         assert_eq!(children.len(), 1);
         assert_eq!(
-            children[0].take_node_seed().css_id.as_deref(),
+            children[0].widget_mut().take_node_seed().css_id.as_deref(),
             Some(DATA_TABLE_HSCROLLBAR_ID)
         );
     }
@@ -3122,7 +3122,7 @@ mod tests {
             vec![vec!["a".into(), "b".into(), "c".into(), "d".into()]],
         );
         table.on_layout(12, 4);
-        let _ = table.take_composed_children();
+        let _ = table.compose();
 
         let mut ctx = EventCtx::default();
         table.on_message(

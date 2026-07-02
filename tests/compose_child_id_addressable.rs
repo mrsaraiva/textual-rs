@@ -35,8 +35,8 @@ impl VScrollHost {
 }
 
 impl Widget for VScrollHost {
-    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
-        self.root.take_composed_children()
+    fn compose(&mut self) -> textual::compose::ComposeResult {
+        self.root.compose()
     }
 
     fn render(
@@ -86,8 +86,8 @@ impl GridHost {
 }
 
 impl Widget for GridHost {
-    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
-        self.root.take_composed_children()
+    fn compose(&mut self) -> textual::compose::ComposeResult {
+        self.root.compose()
     }
 
     fn render(

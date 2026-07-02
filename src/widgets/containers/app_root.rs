@@ -278,35 +278,31 @@ impl Default for AppRoot {
 }
 
 impl Widget for AppRoot {
-    fn compose(&self) -> ComposeResult {
-        Vec::new()
-    }
-
-    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+    fn compose(&mut self) -> ComposeResult {
         self.children_extracted = true;
-        let mut children = std::mem::take(&mut self.children);
+        // User children first (with their with_compose id/class/handle-sink
+        // metadata folded into each ChildDecl), then the dedicated scrollbar
+        // lanes appended after — their positions never collide with the
+        // user-children-keyed metadata.
+        let mut decls = crate::compose::zip_child_decls(
+            std::mem::take(&mut self.children),
+            std::mem::take(&mut self.child_decl_meta),
+            std::mem::take(&mut self.child_handle_sinks),
+        );
 
         let mut vbar = ScrollBar::new(true, 2);
         vbar.seed.css_id = Some(APP_ROOT_VSCROLLBAR_ID.to_string());
-        children.push(Box::new(vbar));
+        decls.push(crate::compose::ChildDecl::new(Box::new(vbar)));
 
         let mut hbar = ScrollBar::new(false, 1);
         hbar.seed.css_id = Some(APP_ROOT_HSCROLLBAR_ID.to_string());
-        children.push(Box::new(hbar));
+        decls.push(crate::compose::ChildDecl::new(Box::new(hbar)));
 
         let mut corner = ScrollBarCorner::new();
         corner.seed.css_id = Some(APP_ROOT_SCROLLBAR_CORNER_ID.to_string());
-        children.push(Box::new(corner));
+        decls.push(crate::compose::ChildDecl::new(Box::new(corner)));
 
-        children
-    }
-
-    fn take_child_handle_sinks(&mut self) -> Vec<(usize, crate::handle::HandleSink)> {
-        std::mem::take(&mut self.child_handle_sinks)
-    }
-
-    fn take_child_decl_meta(&mut self) -> Vec<crate::widgets::ChildDeclMeta> {
-        std::mem::take(&mut self.child_decl_meta)
+        decls
     }
 
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
@@ -790,7 +786,7 @@ mod focus_tests {
     #[test]
     fn app_root_tree_mode_render_returns_chrome() {
         let mut root = AppRoot::new().with_child(Button::new("ok"));
-        let _ = root.take_composed_children();
+        let _ = root.compose();
 
         let console = Console::new();
         let mut options = console.options().clone();
@@ -804,7 +800,7 @@ mod focus_tests {
     #[test]
     fn app_root_tree_mode_on_event_does_not_panic() {
         let mut root = AppRoot::new().with_child(Button::new("ok"));
-        let _ = root.take_composed_children();
+        let _ = root.compose();
 
         let mut ctx = EventCtx::default();
         root.on_event(&Event::Action(Action::FocusNext), &mut ctx);
@@ -815,7 +811,7 @@ mod focus_tests {
     #[test]
     fn app_root_tree_mode_mouse_move_returns_false() {
         let mut root = AppRoot::new().with_child(Button::new("ok"));
-        let _ = root.take_composed_children();
+        let _ = root.compose();
         root.on_layout(80, 24);
         assert!(!root.on_mouse_move(5, 5));
     }

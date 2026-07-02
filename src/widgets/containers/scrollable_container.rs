@@ -10,15 +10,6 @@ pub struct ScrollableContainer {
     can_focus: bool,
     can_focus_children: bool,
     can_maximize: Option<bool>,
-    /// Compose-time id/class metadata drained from the flattened inner Container
-    /// during `take_composed_children` (the Container wrapper is dropped by the
-    /// flatten, so its recorded `ChildDecl` metadata is captured here — with
-    /// indices remapped into the flattened child list — to reach the runtime
-    /// mount path). See the `take_composed_children` override.
-    child_decl_meta: Vec<crate::widgets::ChildDeclMeta>,
-    /// Compose-time handle sinks drained from the flattened inner Container,
-    /// index-remapped like `child_decl_meta`.
-    child_handle_sinks: Vec<(usize, crate::handle::HandleSink)>,
 }
 
 impl ScrollableContainer {
@@ -31,8 +22,6 @@ impl ScrollableContainer {
             can_focus_children: true,
             // Python default for ScrollableContainer.
             can_maximize: Some(false),
-            child_decl_meta: Vec::new(),
-            child_handle_sinks: Vec::new(),
         }
     }
 
@@ -130,46 +119,36 @@ impl Default for ScrollableContainer {
 }
 
 impl Widget for ScrollableContainer {
-    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
-        let extracted = self.inner.take_composed_children();
-        let mut out = Vec::new();
+    fn compose(&mut self) -> ComposeResult {
+        // The inner ScrollView composes `[Container, vscrollbar, hscrollbar,
+        // corner]`. ScrollableContainer flattens the single content Container out
+        // of the tree: its user children are hoisted to become direct children of
+        // the scroll host (so this widget IS the scroll viewport, Python parity),
+        // while the dedicated scrollbar lanes pass through untouched. Because each
+        // hoisted child is a self-describing `ChildDecl` (its `with_compose`
+        // id/class/handle-sink already bundled by Container::compose), no index
+        // re-keying is needed — the flatten is a straight splice.
+        let inner_decls = self.inner.compose();
+        let mut out: ComposeResult = Vec::new();
         let mut flattened_container = false;
 
-        for mut child in extracted {
-            let ty = child.style_type();
-            let is_scrollbar_lane = ty == "ScrollBar" || ty == "ScrollBarCorner";
-            if !flattened_container && !is_scrollbar_lane {
-                let any = &mut *child as &mut dyn std::any::Any;
-                if let Some(container) = any.downcast_mut::<Container>() {
-                    // The Container wrapper is dropped by the flatten, so drain its
-                    // compose-time id/class + handle-sink metadata and re-key it by
-                    // the child's final position in the flattened list. Container
-                    // extraction is 1:1 (no lane injection at compose time), so the
-                    // recorded per-child indices map directly onto the extended slice.
-                    let base = out.len();
-                    for (idx, id, classes) in container.take_child_decl_meta() {
-                        self.child_decl_meta.push((base + idx, id, classes));
+        for mut decl in inner_decls {
+            if !flattened_container {
+                let ty = decl.widget().style_type();
+                let is_scrollbar_lane = ty == "ScrollBar" || ty == "ScrollBarCorner";
+                if !is_scrollbar_lane {
+                    let any = decl.widget_mut() as &mut dyn std::any::Any;
+                    if let Some(container) = any.downcast_mut::<Container>() {
+                        out.extend(container.compose());
+                        flattened_container = true;
+                        continue;
                     }
-                    for (idx, sink) in container.take_child_handle_sinks() {
-                        self.child_handle_sinks.push((base + idx, sink));
-                    }
-                    out.extend(container.take_composed_children());
-                    flattened_container = true;
-                    continue;
                 }
             }
-            out.push(child);
+            out.push(decl);
         }
 
         out
-    }
-
-    fn take_child_decl_meta(&mut self) -> Vec<crate::widgets::ChildDeclMeta> {
-        std::mem::take(&mut self.child_decl_meta)
-    }
-
-    fn take_child_handle_sinks(&mut self) -> Vec<(usize, crate::handle::HandleSink)> {
-        std::mem::take(&mut self.child_handle_sinks)
     }
 
     fn focusable(&self) -> bool {
@@ -229,7 +208,6 @@ impl Widget for ScrollableContainer {
             render_with_debug,
             render_line,
             render_lines,
-            compose,
             on_mount,
             on_unmount,
             on_tick,
@@ -302,7 +280,7 @@ mod tests {
     #[test]
     fn scrollable_container_forwards_scroll_offset() {
         let mut sc = ScrollableContainer::new().with_child(Label::new("a"));
-        let _ = sc.take_composed_children();
+        let _ = sc.compose();
         assert_eq!(sc.scroll_offset(), (0, 0));
         assert!(sc.clips_descendants_to_content());
     }

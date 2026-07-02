@@ -56,7 +56,7 @@ impl Widget for BSODRoot {
         "BSOD"
     }
 
-    fn compose(&self) -> ComposeResult {
+    fn compose(&mut self) -> ComposeResult {
         compose![
             Static::new(" Windows ").id("title"),
             Static::new(ERROR_TEXT),

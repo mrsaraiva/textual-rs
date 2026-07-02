@@ -58,7 +58,7 @@ pub struct Container {
     /// trait methods don't depend on a per-node CSS context being active.
     overflow_x: Overflow,
     overflow_y: Overflow,
-    /// When `true`, `take_composed_children` does NOT inject scrollbar lanes and
+    /// When `true`, `compose` does NOT inject scrollbar lanes and
     /// the scroll-host trait methods stay inert. Set for the inner content
     /// holder of `ScrollView`/`ScrollableContainer`, which manage their own
     /// scrollbar lanes — without this the inner container would inject a second,
@@ -209,14 +209,10 @@ impl Container {
 }
 
 impl Widget for Container {
-    fn compose(&self) -> ComposeResult {
-        Vec::new()
-    }
-
-    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
-        // Idempotent: only the first extraction drains declared children.
-        // Re-extraction yields nothing (the arena tree owns the mounted nodes
-        // after the first pass).
+    fn compose(&mut self) -> ComposeResult {
+        // Idempotent: only the first drain yields declared children. Re-draining
+        // yields nothing (the arena tree owns the mounted nodes after the first
+        // pass) — this is why a plain container must NEVER self-request recompose.
         //
         // NOTE: scrollbar lanes are NOT injected here. Whether a plain container
         // scrolls depends on its CSS-resolved `overflow`, which is unknown at
@@ -224,19 +220,18 @@ impl Widget for Container {
         // lazily mounts the lanes during the layout pass once overflow resolves
         // (`ensure_container_scrollbar_lanes` in `runtime::render`), so a
         // non-scrolling `overflow: hidden` container keeps a clean child list.
+        //
+        // Each child's `with_compose` id/class/handle-sink metadata is folded
+        // back into its `ChildDecl` here (the single child-declaration path).
         if self.children_extracted {
             return Vec::new();
         }
         self.children_extracted = true;
-        std::mem::take(&mut self.children)
-    }
-
-    fn take_child_handle_sinks(&mut self) -> Vec<(usize, crate::handle::HandleSink)> {
-        std::mem::take(&mut self.child_handle_sinks)
-    }
-
-    fn take_child_decl_meta(&mut self) -> Vec<crate::widgets::ChildDeclMeta> {
-        std::mem::take(&mut self.child_decl_meta)
+        crate::compose::zip_child_decls(
+            std::mem::take(&mut self.children),
+            std::mem::take(&mut self.child_decl_meta),
+            std::mem::take(&mut self.child_handle_sinks),
+        )
     }
 
     fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
@@ -542,17 +537,18 @@ mod tests {
     use crate::prelude::Label;
 
     #[test]
-    fn compose_returns_empty() {
-        let c = Container::new().with_child(Label::new("a"));
-        assert!(c.compose().is_empty());
+    fn compose_drains_declared_child() {
+        let mut c = Container::new().with_child(Label::new("a"));
+        // compose() is now the single child path — it yields the declared child.
+        assert_eq!(c.compose().len(), 1);
     }
 
     #[test]
-    fn take_composed_children_extracts_all() {
+    fn compose_extracts_all() {
         let mut c = Container::new()
             .with_child(Label::new("a"))
             .with_child(Label::new("b"));
-        let children = c.take_composed_children();
+        let children = c.compose();
         // Scrollbar lanes are NOT injected at compose time (they are lazily
         // mounted by the runtime once overflow resolves), so extraction yields
         // exactly the declared children.
@@ -566,8 +562,8 @@ mod tests {
         let mut c = Container::new()
             .with_child(Label::new("a"))
             .with_child(Label::new("b"));
-        let _ = c.take_composed_children();
-        assert!(c.take_composed_children().is_empty());
+        let _ = c.compose();
+        assert!(c.compose().is_empty());
     }
 
     #[test]
@@ -575,7 +571,7 @@ mod tests {
         let mut c = Container::new()
             .with_child(Label::new("hello"))
             .with_child(Label::new("world"));
-        let _ = c.take_composed_children();
+        let _ = c.compose();
 
         let console = Console::new();
         let mut options = console.options().clone();
@@ -592,7 +588,7 @@ mod tests {
             .with_child(Label::new("hello"))
             .with_child(Label::new("world"));
         c.seed.styles.style.bg = Some(crate::style::Color::rgb(10, 20, 30));
-        let _ = c.take_composed_children();
+        let _ = c.compose();
 
         let console = Console::new();
         let mut options = console.options().clone();
@@ -606,7 +602,7 @@ mod tests {
     #[test]
     fn tree_mode_on_event_does_not_panic() {
         let mut c = Container::new().with_child(Label::new("a"));
-        let _ = c.take_composed_children();
+        let _ = c.compose();
 
         let mut ctx = EventCtx::default();
         // Key event should not panic even though children are gone.
@@ -617,14 +613,14 @@ mod tests {
     #[test]
     fn tree_mode_on_mouse_move_returns_false() {
         let mut c = Container::new().with_child(Label::new("a"));
-        let _ = c.take_composed_children();
+        let _ = c.compose();
         assert!(!c.on_mouse_move(0, 0));
     }
 
     #[test]
     fn tree_mode_layout_height_returns_none() {
         let mut c = Container::new().with_child(Label::new("a"));
-        let _ = c.take_composed_children();
+        let _ = c.compose();
         // Without fixed constraints, tree mode returns None.
         assert!(c.layout_height().is_none());
     }
@@ -655,13 +651,11 @@ mod tests {
             Vertical::new().with_child(Label::new("x".repeat(80))),
         ));
 
-        let children = {
+        let decls = {
             let root = tree.get_mut(root_id).expect("root exists");
-            root.widget.take_composed_children()
+            root.widget.compose()
         };
-        for child in children {
-            tree.mount(root_id, child);
-        }
+        crate::runtime::App::mount_declarations(&mut tree, root_id, decls);
 
         run_layout_pass(&mut tree, (40, 10));
 
@@ -707,13 +701,11 @@ mod tests {
         let root_id = tree.set_root(Box::new(
             Horizontal::new().with_child(Label::new("tall\n".repeat(60))),
         ));
-        let children = {
+        let decls = {
             let root = tree.get_mut(root_id).expect("root exists");
-            root.widget.take_composed_children()
+            root.widget.compose()
         };
-        for child in children {
-            tree.mount(root_id, child);
-        }
+        crate::runtime::App::mount_declarations(&mut tree, root_id, decls);
 
         run_layout_pass(&mut tree, (120, 30));
 
@@ -755,13 +747,11 @@ mod tests {
         let root_id = tree.set_root(Box::new(
             Horizontal::new().with_child(Label::new("tall\n".repeat(60))),
         ));
-        let children = {
+        let decls = {
             let root = tree.get_mut(root_id).expect("root exists");
-            root.widget.take_composed_children()
+            root.widget.compose()
         };
-        for child in children {
-            tree.mount(root_id, child);
-        }
+        crate::runtime::App::mount_declarations(&mut tree, root_id, decls);
 
         run_layout_pass(&mut tree, (120, 30));
 

@@ -296,8 +296,12 @@ impl Widget for ScreenHost {
         Segments::new()
     }
 
-    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
-        self.child.take().into_iter().collect()
+    fn compose(&mut self) -> crate::compose::ComposeResult {
+        self.child
+            .take()
+            .into_iter()
+            .map(crate::compose::ChildDecl::new)
+            .collect()
     }
 
     fn style_type(&self) -> &'static str {
@@ -482,37 +486,14 @@ impl ScreenStack {
         ));
         let mut widget_tree = WidgetTree::new();
         let root_id = widget_tree.set_root(root_widget);
-        let (extracted_children, child_handle_sinks, child_decl_meta, compose_decls) = widget_tree
+        // Materialize the screen host's children through the single ChildDecl
+        // mount path (RA2.1). The host composes its screen body; the body's own
+        // descendants recurse inside `mount_declarations`.
+        let compose_decls = widget_tree
             .get_mut(root_id)
-            .map(|node| {
-                (
-                    node.widget.take_composed_children(),
-                    node.widget.take_child_handle_sinks(),
-                    node.widget.take_child_decl_meta(),
-                    node.widget.compose(),
-                )
-            })
+            .map(|node| node.widget.compose())
             .unwrap_or_default();
-        let mut sinks: std::collections::HashMap<usize, crate::handle::HandleSink> =
-            child_handle_sinks.into_iter().collect();
-        let mut decl_meta: std::collections::HashMap<usize, (Option<String>, Vec<String>)> =
-            child_decl_meta
-                .into_iter()
-                .map(|(index, id, classes)| (index, (id, classes)))
-                .collect();
-        for (index, child) in extracted_children.into_iter().enumerate() {
-            let child_id =
-                crate::runtime::App::mount_extracted_recursive(&mut widget_tree, root_id, child);
-            if let Some((id, classes)) = decl_meta.remove(&index) {
-                crate::widgets::apply_child_decl_meta(&mut widget_tree, child_id, id, &classes);
-            }
-            if let Some(sink) = sinks.remove(&index) {
-                sink(child_id, widget_tree.tree_id());
-            }
-        }
-        if !compose_decls.is_empty() {
-            crate::runtime::App::mount_declarations(&mut widget_tree, root_id, compose_decls);
-        }
+        crate::runtime::App::mount_declarations(&mut widget_tree, root_id, compose_decls);
         crate::runtime::App::mount_system_tooltip(&mut widget_tree, root_id);
         // Drain initial lifecycle events (mount events from tree construction).
         let _ = widget_tree.drain_lifecycle();

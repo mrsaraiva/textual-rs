@@ -171,7 +171,7 @@ fn p2g30_scroll_view_render_with_css_scrollbar_size() {
     let _guard = set_style_context(sheet);
 
     let mut sv = ScrollView::new(Label::new("content"));
-    let _ = sv.take_composed_children(); // Enter tree mode.
+    let _ = sv.compose(); // Enter tree mode.
     sv.set_virtual_content_size(10, 100);
 
     let console = Console::default();
@@ -201,7 +201,7 @@ fn p2g30_scroll_view_visibility_hidden_no_scrollbar() {
     let _guard = set_style_context(sheet);
 
     let mut sv = ScrollView::new(Label::new("content"));
-    let _ = sv.take_composed_children();
+    let _ = sv.compose();
     sv.set_virtual_content_size(10, 100);
 
     let console = Console::default();
@@ -239,7 +239,7 @@ fn p2g30_scroll_view_hover_subpart_colors_are_consumed() {
     let _guard = set_style_context(sheet);
 
     let mut sv = ScrollView::new(Label::new("content"));
-    let _ = sv.take_composed_children();
+    let _ = sv.compose();
     sv.set_virtual_content_size(5, 100);
 
     let console = Console::new();
@@ -279,7 +279,7 @@ fn p2g30_scroll_view_drag_thumb_uses_active_color() {
     let _guard = set_style_context(sheet);
 
     let mut sv = ScrollView::new(Label::new("content"));
-    let _ = sv.take_composed_children();
+    let _ = sv.compose();
     sv.set_virtual_content_size(5, 100);
 
     let console = Console::new();

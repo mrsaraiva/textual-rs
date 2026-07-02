@@ -232,16 +232,16 @@ impl Widget for GameCell {
     }
 
     // Move the Button child into the arena tree.
-    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+    fn compose(&mut self) -> textual::compose::ComposeResult {
         if self.child_extracted {
             return vec![];
         }
         self.child_extracted = true;
         // Replace inner with a compact sentinel so the field stays valid.
-        vec![Box::new(std::mem::replace(
+        vec![textual::compose::ChildDecl::new(Box::new(std::mem::replace(
             &mut self.inner,
             Button::new("").compact(true),
-        ))]
+        )))]
     }
 
     // Outer wrapper is not itself focusable.
@@ -326,17 +326,17 @@ impl Widget for GameHeader {
         Widget::render(&Label::new(""), console, options)
     }
 
-    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+    fn compose(&mut self) -> textual::compose::ComposeResult {
         if self.children_extracted {
             return Vec::new();
         }
         self.children_extracted = true;
-        vec![Box::new(
+        vec![textual::compose::ChildDecl::new(Box::new(
             Horizontal::new()
                 .with_child(Label::new(APP_TITLE).with_id("app-title"))
                 .with_child(Label::new(moves_text(0)).with_id("moves"))
                 .with_child(Label::new(progress_text(0)).with_id("progress")),
-        )]
+        ))]
     }
 
     fn layout_height(&self) -> Option<usize> {
@@ -820,9 +820,9 @@ mod tests {
     fn game_cell_has_button_child() {
         // take_composed_children returns one child on first call, empty on second.
         let mut cell = GameCell::new(1, 2);
-        let first = cell.take_composed_children();
+        let first = cell.compose();
         assert_eq!(first.len(), 1, "first call must return the Button child");
-        let second = cell.take_composed_children();
+        let second = cell.compose();
         assert_eq!(second.len(), 0, "second call must be empty (idempotent)");
     }
 

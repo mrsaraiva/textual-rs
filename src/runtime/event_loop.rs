@@ -794,33 +794,41 @@ fn sync_widget_controlled_child_display_tree(
     changed
 }
 
+/// Rebuild a node's arena subtree from its `compose()` (RA2.1).
+///
+/// # Recompose invariant (RA2.1 trap 1)
+///
+/// This is only ever driven for a node that requested recompose via
+/// `ctx.request_recompose()` — i.e. a generative, state-pure widget (typically
+/// `#[reactive(recompose)]`) whose `compose()` rebuilds its whole subtree from
+/// current state on every call. Plain containers MUST NOT self-request
+/// recompose: their children were drained once at initial mount and now live in
+/// the arena, so re-draining yields nothing and `remove_children` below would
+/// silently delete them. The debug diagnostic here catches exactly that vanish
+/// bug (recompose produced no children while the node still had some).
 pub(crate) fn recompose_node_subtree(tree: &mut crate::widget_tree::WidgetTree, node_id: NodeId) {
     let Some(node) = tree.get_mut(node_id) else {
         return;
     };
-    let extracted = node.widget.take_composed_children();
-    let mut sinks: std::collections::HashMap<usize, crate::handle::HandleSink> =
-        node.widget.take_child_handle_sinks().into_iter().collect();
-    let mut decl_meta: std::collections::HashMap<usize, (Option<String>, Vec<String>)> = node
-        .widget
-        .take_child_decl_meta()
-        .into_iter()
-        .map(|(index, id, classes)| (index, (id, classes)))
-        .collect();
     let declarations = node.widget.compose();
+
+    // Vanish diagnostic (trap 1): a recompose that produces NO children for a
+    // node that still HAS arena children means either a container was wrongly
+    // asked to self-recompose (its drained `compose()` is empty) or a generative
+    // widget's `compose()` is not state-pure. This is almost always a bug — the
+    // children are about to be removed and never re-mounted.
+    if declarations.is_empty() && !tree.children(node_id).is_empty() {
+        crate::debug::debug_render(&format!(
+            "recompose-vanish: node {node_id:?} recompose produced no children \
+             while it still had {} arena child(ren); a node that requests \
+             recompose must have a generative (state-pure) compose — plain \
+             containers must never self-request recompose",
+            tree.children(node_id).len()
+        ));
+    }
+
     tree.remove_children(node_id);
-    for (index, child) in extracted.into_iter().enumerate() {
-        let child_id = App::mount_extracted_recursive(tree, node_id, child);
-        if let Some((id, classes)) = decl_meta.remove(&index) {
-            crate::widgets::apply_child_decl_meta(tree, child_id, id, &classes);
-        }
-        if let Some(sink) = sinks.remove(&index) {
-            sink(child_id, tree.tree_id());
-        }
-    }
-    if !declarations.is_empty() {
-        App::mount_declarations(tree, node_id, declarations);
-    }
+    App::mount_declarations(tree, node_id, declarations);
 }
 
 fn split_runtime_control_messages(
@@ -6492,12 +6500,12 @@ mod tests {
             vec![BindingDecl::new("l", "show_tab('leto')", "Leto")]
         }
 
-        fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+        fn compose(&mut self) -> crate::compose::ComposeResult {
             if self.extracted {
                 Vec::new()
             } else {
                 self.extracted = true;
-                vec![Box::new(FocusedProbe)]
+                vec![crate::compose::ChildDecl::new(Box::new(FocusedProbe))]
             }
         }
     }

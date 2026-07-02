@@ -38,7 +38,7 @@ impl Widget for QuestionScreenRoot {
         "QuestionScreen"
     }
 
-    fn compose(&self) -> ComposeResult {
+    fn compose(&mut self) -> ComposeResult {
         compose![
             Label::new(&self.question),
             Button::success("Yes").id("yes"),

@@ -76,7 +76,6 @@ pub use core::{
     BindingDecl, ChildDeclMeta, LayoutConstraints, NodeSeed, NodeState, StyleChangeKind, Widget,
     WidgetSelectionAnchor, WidgetStyles, classify_style_change,
 };
-pub(crate) use core::apply_child_decl_meta;
 pub(crate) use data_table::DATA_TABLE_HSCROLLBAR_ID;
 pub use data_table::{Cell, CellJustify, CursorType, DataTable, SortKey};
 pub use delegate::{delegate_renderable, delegate_widget_method, delegate_widget_to};

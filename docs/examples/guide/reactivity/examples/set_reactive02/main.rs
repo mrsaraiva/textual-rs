@@ -91,7 +91,7 @@ impl Widget for Greeter {
         false
     }
 
-    fn compose(&self) -> ComposeResult {
+    fn compose(&mut self) -> ComposeResult {
         // Labels carry the INITIAL values directly — no watcher needed at mount.
         vec![
             ChildDecl::from(Label::new(self.greeting.clone())).with_id("greeting"),

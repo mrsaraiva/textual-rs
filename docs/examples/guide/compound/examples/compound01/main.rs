@@ -66,8 +66,8 @@ impl Widget for InputWithLabel {
         self.inner.render(console, options)
     }
 
-    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
-        self.inner.take_composed_children()
+    fn compose(&mut self) -> textual::compose::ComposeResult {
+        self.inner.compose()
     }
 
     fn take_node_seed(&mut self) -> NodeSeed {
@@ -128,7 +128,7 @@ mod tests {
     #[test]
     fn input_with_label_composes_label_and_input() {
         let mut w = InputWithLabel::new("First Name");
-        let children = w.inner.take_composed_children();
+        let children = w.inner.compose();
         assert_eq!(children.len(), 2);
     }
 
