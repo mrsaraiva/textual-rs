@@ -1349,7 +1349,6 @@ fn parity_content_switcher_switch() {
 /// tree: Down to the Characters node, then it's already expanded; navigate the
 /// tree and assert parity of the guide glyphs + labels.
 #[test]
-#[ignore = "BUG: Tree guide-line colour wrong (Rust fg #0178d4 blue vs Python #4f4f4f muted) and cursor-row bg blended (#0c7dd4 vs #0178d4 $primary). 7 cells."]
 fn parity_tree_navigate() {
     let script = [
         Step::SendKeys("\x1b[B"),
@@ -1364,7 +1363,6 @@ fn parity_tree_navigate() {
 
 /// data_table: Down/Right arrows move the cell cursor.
 #[test]
-#[ignore = "BUG: DataTable cursor/zebra row bg blended differently (#2d3740 vs #2b3339) — cursor-row tint composition off. 92 cells."]
 fn parity_data_table_navigate() {
     let script = [
         Step::SendKeys("\x1b[B"),
@@ -1377,7 +1375,6 @@ fn parity_data_table_navigate() {
 
 /// data_table_cursors: 'c' cycles the cursor type (column -> row -> cell ...).
 #[test]
-#[ignore = "BUG: DataTable (zebra + cycled cursor) row/cursor bg colours differ from Python (670 cells)."]
 fn parity_data_table_cursors_cycle() {
     let script = [
         Step::Key(Key::Char('c')),
@@ -1391,7 +1388,6 @@ fn parity_data_table_cursors_cycle() {
 
 /// data_table_sort: 'c' sorts by country.
 #[test]
-#[ignore = "BUG: DataTable (after sort) cursor/row bg colours differ from Python (67 cells)."]
 fn parity_data_table_sort() {
     let script = [Step::Key(Key::Char('c')), Step::Wait(300)];
     let (rf, pf) = widgets_both("data_table_sort", &script, 400);

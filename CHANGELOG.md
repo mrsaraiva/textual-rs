@@ -9,6 +9,22 @@ until the API stabilizes.
 
 ### Widget fixes
 
+- **`DataTable`/`Tree` cursor, guide-line and header-fill colours now match Python** —
+  the `Tree:focus`/`DataTable:focus` `background-tint: $foreground 5%` was being composited
+  onto the opaque `$block-cursor-background` (`$primary`) cursor fill by the widget-level
+  style pass, shifting `#0178d4` to `#0c7dd4`. Python applies `background-tint` per-component
+  (the cursor component carries no tint), so cursor cells whose colour the widget composes
+  fully are now tagged `textual:no_style` and left untouched. In `Tree`, indentation guides
+  are also styled per depth level mirroring `_tree.py::_render_line`: the "selected"
+  (`$block-cursor-background`) style only reaches a node's *descendant* guides, so the cursor
+  row's own `├──`/`│` guides keep the muted `$surface-lighten-3` (`#4f4f4f`) colour instead of
+  turning blue. In `DataTable`, cursor cells now bake `$block-cursor-foreground` (`#ddedf9`)
+  and own their `cell_padding` (matching Python's cursor extent, including the surrounding pad);
+  the header/zebra-row trailing fill fades 25% toward the widget background
+  (`row_style.blend(background, 0.25)`), and zebra even-rows composite `$surface-darken-1 40%`
+  over the tinted surface (`#1c1c1c`). Flips the `parity_tree_navigate`,
+  `parity_data_table_navigate`, `parity_data_table_sort` and `parity_data_table_cursors_cycle`
+  real-app parity demos to full Rust==Python (glyph + colour).
 - **`Input` placeholder/suggestion now render the dimmed `$text-disabled` colour** —
   `input--placeholder`/`input--suggestion` resolve `color: $text-disabled`, which is an
   `auto 38%` (contrast) token stored as `fg_auto`, not a concrete `fg`. `Input::render`'s

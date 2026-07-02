@@ -1,5 +1,5 @@
 use crossterm::event::{KeyCode, KeyModifiers};
-use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
+use rich_rs::{Console, ConsoleOptions, MetaValue, Renderable, Segment, Segments};
 
 use crate::event::{Action, Event, EventCtx};
 use crate::message::*;
@@ -8,6 +8,25 @@ use crate::action::ParsedAction;
 use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
 
 use super::{BindingDecl, NodeSeed, ScrollView, Widget, helpers::adjust_line_length_no_bg};
+
+/// Tag a segment with `textual:no_style = true` so `apply_style_to_segments`
+/// leaves it untouched. Used for the cursor row's label/twisty cells, whose
+/// background/foreground are already fully composed here (matching Python's
+/// per-component `get_component_rich_style`). Without this, the widget-level
+/// `background-tint: $foreground 5%` from `Tree:focus` would be re-applied to
+/// the opaque `$block-cursor-background` fill, shifting `#0178d4` to `#0c7dd4`
+/// (Python does not tint component-painted backgrounds).
+fn tag_segment_no_style(seg: &mut Segment) {
+    let mut meta = seg.meta.take().unwrap_or_default();
+    let mut map: std::collections::BTreeMap<String, MetaValue> = meta
+        .meta
+        .as_ref()
+        .map(|m| (**m).clone())
+        .unwrap_or_default();
+    map.insert("textual:no_style".to_string(), MetaValue::Bool(true));
+    meta.meta = Some(std::sync::Arc::new(map));
+    seg.meta = Some(meta);
+}
 
 #[derive(Debug, Clone)]
 pub struct TreeNode {
@@ -1480,23 +1499,35 @@ impl Widget for Tree {
                 let highlighted = index == self.selected && !node.disabled;
                 let hovered = self.hovered_index == Some(index);
                 let hover_in_path = hovered_path.is_some_and(|path| node.path.starts_with(path));
-                let selected_in_path =
-                    selected_path.is_some_and(|path| node.path.starts_with(path));
                 let row_line_style = if hover_in_path {
                     highlight_line_style
                 } else {
                     rich_rs::Style::default()
                 };
 
-                // Pick guide style for this row.
-                let row_guide_style = if selected_in_path {
-                    guide_selected_style
-                } else if hover_in_path {
-                    guide_hover_style
-                } else {
-                    guide_style
+                // Per-level guide style, mirroring Python `_tree.py::_render_line`.
+                // A guide at visual `level` is styled selected/hover only when an
+                // ANCESTOR strictly above that level is the cursor/hover node; the
+                // selected style propagates to a node's DESCENDANT guides, not to
+                // the node's own connector. So the cursor row's own `├──`/`│`
+                // guides keep the base (muted `$surface-lighten-3`) colour, while
+                // Python's `$block-cursor-background` only reaches deeper guides.
+                let sel_len = selected_path
+                    .filter(|sp| node.path.starts_with(sp))
+                    .map_or(usize::MAX, <[usize]>::len);
+                let hov_len = hovered_path
+                    .filter(|hp| node.path.starts_with(hp))
+                    .map_or(usize::MAX, <[usize]>::len);
+                let guide_style_at = |level: usize| -> rich_rs::Style {
+                    let base = if sel_len <= level {
+                        guide_selected_style
+                    } else if hov_len <= level {
+                        guide_hover_style
+                    } else {
+                        guide_style
+                    };
+                    base + row_line_style
                 };
-                let row_guide_style = row_guide_style + row_line_style;
 
                 // Build label style: base label + component classes + highlight + cursor.
                 let mut row_label_style = label_style + row_line_style;
@@ -1535,7 +1566,7 @@ impl Widget for Tree {
                         } else {
                             " ".repeat(gd)
                         };
-                        row_segments.push(Segment::styled(guide_text, row_guide_style));
+                        row_segments.push(Segment::styled(guide_text, guide_style_at(level)));
                     }
                     // Branch connector for this node.
                     let connector = if self.show_guides {
@@ -1554,8 +1585,13 @@ impl Widget for Tree {
                     } else {
                         " ".repeat(gd)
                     };
-                    row_segments.push(Segment::styled(connector, row_guide_style));
+                    row_segments.push(Segment::styled(connector, guide_style_at(node.depth)));
                 }
+
+                // Cursor label/twisty cells are fully composed above; tag them so
+                // the widget-level `background-tint` pass does not re-tint the
+                // opaque `$block-cursor-background` fill.
+                let label_start = row_segments.len();
 
                 // 2. Twisty (expand/collapse indicator).
                 let twisty = Self::twisty(node, self.hide_twisty);
@@ -1570,6 +1606,15 @@ impl Widget for Tree {
                 // so json_tree can render bold keys like Python does.
                 let label_segs = Self::render_label_markup(&node.label, row_label_style, console);
                 row_segments.extend(label_segs);
+
+                // When this row carries the focused cursor, its label/twisty cells
+                // paint the opaque `$block-cursor-background`; tag them `no_style`
+                // so the `Tree:focus` `background-tint` is not composited on top.
+                if highlighted && self.node_state().focused {
+                    for seg in &mut row_segments[label_start..] {
+                        tag_segment_no_style(seg);
+                    }
+                }
 
                 // Pad/crop to width.
                 // For hover-line rows, fill the entire row width with hover background.
