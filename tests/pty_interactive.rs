@@ -1737,7 +1737,7 @@ fn parity_hello06_render() {
 
 /// checker01: an 8x8 black/white checkerboard (Strip render_line).
 #[test]
-#[ignore = "BUG: the white squares (`Style.parse(\"on white\")`) render bg #ffffff in Rust but #c4c5b5 in Python — Python resolves the named colour \"white\" through its colour pipeline (dimmed), Rust uses raw #ffffff. 1920 colour cells. Root: named-colour (\"white\"/\"black\") resolution differs from Python."]
+#[ignore = "BUG (framework, NOT a Color::parse fix): Python's checker01 uses RICH `Style.parse(\"on white\")`/`(\"on black\")`, which produce ANSI STANDARD colours (number 7 / 0), NOT truecolor. Textual renders those through the app's ANSI terminal theme (MONOKAI, dark), mapping white(7)->#c4c5b5 and black(0)->#1a1a1a. textual-rs has no ANSI-standard-palette -> terminal-theme (MONOKAI) render mapping, and the demo's `Color::parse(\"white\")` correctly returns CSS #ffffff (matches Textual CSS `Color.parse('white')==(255,255,255)`), so it stays pure white. Root fix requires an ANSI-theme render mechanism (rich_rs standard-colour support + MONOKAI/ALABASTER mapping at paint) — NOT changing named-colour resolution in src/style.rs (that would break CSS-white parity). 1920 colour cells."]
 fn parity_checker01_board() {
     let script = [Step::Wait(300)];
     let (rf, pf) = cat_both("checker01", "guide/widgets", &script, 400);
@@ -2421,11 +2421,6 @@ fn parity_workers_weather04() {
 }
 
 #[test]
-#[ignore = "BUG: Rust leaks the internal `WorkerStateChanged` message onto the visible \
-            screen — weather05/main.rs logs it via `eprintln!(\"[weather05] WorkerStateChanged: \
-            ...\")`, which writes to the PTY and corrupts the frame; Python's `self.log(event)` \
-            routes to the devtools log, never the screen. Structural axis: rust leak=true, \
-            py leak=false. Root: worker-state logging must use a non-screen log sink, not eprintln."]
 fn parity_workers_weather05() {
     weather_parity("weather05", "Tokyo");
 }
