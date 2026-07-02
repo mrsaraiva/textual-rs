@@ -134,9 +134,9 @@ impl TabPane {
 }
 
 impl Widget for TabPane {
-    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+    fn compose(&mut self) -> ComposeResult {
         self.children_extracted = true;
-        self.inner.take_composed_children()
+        self.inner.compose()
     }
 
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
