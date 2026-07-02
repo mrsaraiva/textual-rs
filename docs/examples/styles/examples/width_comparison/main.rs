@@ -58,7 +58,7 @@ impl Widget for Ruler {
         "Ruler"
     }
 
-    fn compose(&self) -> ComposeResult {
+    fn compose(&mut self) -> ComposeResult {
         let ruler_text = "····•".repeat(100);
         compose![Label::new(ruler_text)]
     }

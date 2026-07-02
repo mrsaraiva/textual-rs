@@ -50,7 +50,7 @@ impl Widget for BsodRoot {
         vec![BindingDecl::new("escape", "app.pop_screen", "Pop screen")]
     }
 
-    fn compose(&self) -> ComposeResult {
+    fn compose(&mut self) -> ComposeResult {
         compose![
             Static::new(" Windows ").id("title"),
             Static::new(ERROR_TEXT),

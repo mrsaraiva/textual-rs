@@ -107,7 +107,7 @@ impl Widget for WorldClock {
         false
     }
 
-    fn compose(&self) -> ComposeResult {
+    fn compose(&mut self) -> ComposeResult {
         vec![
             ChildDecl::from(Label::new(self.timezone.clone())),
             ChildDecl::from(Digits::new(format_local(self.clock_time, self.utc_offset_secs)))

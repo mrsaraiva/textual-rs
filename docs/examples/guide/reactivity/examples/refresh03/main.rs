@@ -67,7 +67,7 @@ impl Widget for Name {
     }
 
     // Python `compose`: yield Label(f"Hello, {self.who}!"). Recompose re-runs this.
-    fn compose(&self) -> ComposeResult {
+    fn compose(&mut self) -> ComposeResult {
         vec![ChildDecl::from(Label::new(format!("Hello, {}!", self.who)))]
     }
 

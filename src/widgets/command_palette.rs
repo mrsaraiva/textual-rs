@@ -1368,13 +1368,13 @@ impl Widget for CommandPalette {
         "CommandPalette"
     }
 
-    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+    fn compose(&mut self) -> crate::compose::ComposeResult {
         if self.child_extracted {
             return Vec::new();
         }
         self.child_extracted = true;
         let child = std::mem::replace(&mut self.child, Box::new(Spacer::new(1)));
-        vec![child]
+        vec![crate::compose::ChildDecl::new(child)]
     }
 
     fn child_display_for_tree(&self, child_index: usize) -> Option<bool> {
@@ -3198,7 +3198,7 @@ mod tests {
     #[test]
     fn command_palette_tree_mode_shows_wrapped_child_by_default() {
         let mut palette = CommandPalette::new(Label::new("body"));
-        let children = palette.take_composed_children();
+        let children = palette.compose();
         assert_eq!(children.len(), 1);
         assert_eq!(palette.child_display_for_tree(0), Some(true));
     }
@@ -3207,7 +3207,7 @@ mod tests {
     fn command_palette_tree_mode_can_hide_wrapped_child_for_runtime_host() {
         let mut palette =
             CommandPalette::new(Label::new("body")).with_tree_wrapped_child_visible(false);
-        let children = palette.take_composed_children();
+        let children = palette.compose();
         assert_eq!(children.len(), 1);
         assert_eq!(palette.child_display_for_tree(0), Some(false));
     }

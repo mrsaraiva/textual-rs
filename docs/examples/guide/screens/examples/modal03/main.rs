@@ -14,7 +14,7 @@ impl Widget for QuitDialogRoot {
         "QuitScreen"
     }
 
-    fn compose(&self) -> ComposeResult {
+    fn compose(&mut self) -> ComposeResult {
         compose![
             Grid::new(2, 2)
                 .id("dialog")

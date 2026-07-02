@@ -91,7 +91,7 @@ impl Widget for Greeter {
         false
     }
 
-    fn compose(&self) -> ComposeResult {
+    fn compose(&mut self) -> ComposeResult {
         vec![
             ChildDecl::from(Label::new(self.greeting.clone())).with_id("greeting"),
             ChildDecl::from(Label::new(self.who.clone())).with_id("name"),
