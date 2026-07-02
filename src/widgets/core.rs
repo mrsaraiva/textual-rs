@@ -223,7 +223,17 @@ pub trait Widget: Send + Sync + Any {
         Vec::new()
     }
 
-    /// Collapse a *purely structural* wrapper out of the arena tree.
+    /// Elide a *purely structural* transparent wrapper out of the arena tree.
+    ///
+    /// This is a mount-time ELISION decision, NOT a child-drain hook — RA2.1
+    /// retired the `take_composed_children`/meta/sink drains (compose() is the
+    /// sole child path), but the transparent-wrapper elision is a real,
+    /// parity-sensitive placement decision that legitimately survives. Its exact
+    /// gating (id-only / scroll-host wrappers fold; border-titled or classed
+    /// non-scroll wrappers STAY as the rendered box) is preserved as-is. The
+    /// `Node` type — and this elision with it — is removed in RA2.6, when demos
+    /// migrate off `Node` onto seed `.id()`/`.class()` and the classed-wrapper
+    /// case disappears at the source.
     ///
     /// A transparent [`Node`](crate::widgets::Node) created only to attach an
     /// id/inline-style to a single child (e.g.
@@ -245,8 +255,8 @@ pub trait Widget: Send + Sync + Any {
     /// (the default) keeps the widget as its own arena node. A wrapper that
     /// carries a CSS *class* of its own (real styling, e.g.
     /// `Static.class("words")`) or a border must NOT collapse — it is the rendered
-    /// box and stays put. See [`Node::take_structural_collapse`] for the gating.
-    fn take_structural_collapse(&mut self) -> Option<(Box<dyn Widget>, NodeSeed)> {
+    /// box and stays put. See [`Node::elide_transparent_wrapper`] for the gating.
+    fn elide_transparent_wrapper(&mut self) -> Option<(Box<dyn Widget>, NodeSeed)> {
         None
     }
 
@@ -292,8 +302,7 @@ pub trait Widget: Send + Sync + Any {
     /// routes each message through the normal message bus with the mounted
     /// node as the sender/control — exactly as if the widget had called
     /// `ctx.post_message(..)`. This is a drain-at-mount adapter over the core
-    /// message flow (the same pattern as [`Widget::take_child_decl_meta`]); it
-    /// is **not** a separate dispatch path.
+    /// message flow; it is **not** a separate dispatch path.
     ///
     /// Default: no messages.
     fn take_pending_mount_messages(&mut self) -> Vec<Box<dyn crate::message::Message>> {
@@ -741,7 +750,7 @@ pub trait Widget: Send + Sync + Any {
     /// called outside of an event handler (e.g. via `App::with_query_one_mut_as`).
     ///
     /// Some composed widgets build their arena children from internal state in
-    /// `compose()`/`take_composed_children()` (e.g. `Tabs`, whose tab bar is a
+    /// `compose()`/`compose()` (e.g. `Tabs`, whose tab bar is a
     /// composed subtree). When such state is mutated post-mount through a
     /// `with_query_one_mut_as` call — which has no `EventCtx` — the widget cannot
     /// request its own recompose. It stages the request instead; the runtime

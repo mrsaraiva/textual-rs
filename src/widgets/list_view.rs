@@ -55,7 +55,7 @@ pub struct ListView {
     disabled: Vec<bool>,
     /// Compose buffer for [`from_list_items`](Self::from_list_items) /
     /// [`set_list_items`](Self::set_list_items): the user-supplied `ListItem`s
-    /// awaiting their first arena mount. Drained by `take_composed_children`;
+    /// awaiting their first arena mount. Drained by `compose`;
     /// `None`/empty thereafter (recomposes rebuild from `item_text`).
     pending_items: Vec<ListItem>,
     selected: usize,

@@ -935,7 +935,7 @@ mod tests {
 
     #[test]
     fn markdown_viewer_children_include_scrollbars() {
-        // take_composed_children() should return user children + scrollbar widgets.
+        // compose() should return user children + scrollbar widgets.
         let mut viewer = MarkdownViewer::new("# Test");
         let children = viewer.compose();
         // At minimum: Markdown, MarkdownTableOfContents, + scrollbar widgets.

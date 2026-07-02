@@ -1813,7 +1813,7 @@ pub struct Grid {
     row_sizes: Option<Vec<usize>>,
     col_sizes: Option<Vec<usize>>,
     seed: NodeSeed,
-    /// (index into the `take_composed_children()` extraction order, css_id,
+    /// (index into the `compose()` extraction order, css_id,
     /// classes) recorded by `with_compose` so `.with_id()`/`.with_classes()`
     /// metadata on declared children reaches the mounted node.
     child_decl_meta: Vec<crate::widgets::ChildDeclMeta>,
@@ -1869,7 +1869,7 @@ impl Grid {
                 ..
             } = decl;
             let crate::compose::WidgetBuilder::Ready(widget) = builder;
-            // Index within the `take_composed_children()` extraction order, which
+            // Index within the `compose()` extraction order, which
             // filters out empty cells. `push_boxed` fills the first empty slot, so
             // the count of occupied cells before insertion equals this child's
             // position in the extracted sequence.

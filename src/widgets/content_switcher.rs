@@ -17,12 +17,12 @@ pub struct ContentSwitcher {
     children: Vec<Box<dyn Widget>>,
     /// CSS ids of children in insertion order.  Populated when children are
     /// added via `with_child`, `add_child`, or `add_content`.  Retained after
-    /// `take_composed_children` drains `children` so that
+    /// `compose` drains `children` so that
     /// `child_display_for_tree` can still map indices to ids.
     child_ids: Vec<Option<String>>,
     current: Option<String>,
     seed: NodeSeed,
-    /// True once `take_composed_children` has been called (arena tree mode).
+    /// True once `compose` has been called (arena tree mode).
     children_extracted: bool,
 }
 
@@ -175,7 +175,7 @@ impl ContentSwitcher {
 
     /// Returns the 0-based index of the child whose id matches `self.current`.
     ///
-    /// Uses `child_ids` so it works both before and after `take_composed_children`.
+    /// Uses `child_ids` so it works both before and after `compose`.
     fn current_child_index(&self) -> Option<usize> {
         let current = self.current.as_deref()?;
         self.child_ids
@@ -265,7 +265,7 @@ impl Widget for ContentSwitcher {
     ///
     /// Called every frame by `sync_widget_controlled_child_display_tree`.
     /// Returns `Some(true)` for the active child, `Some(false)` for all others.
-    /// Returns `None` before `take_composed_children` is called (flat mode).
+    /// Returns `None` before `compose` is called (flat mode).
     fn child_display_for_tree(&self, child_index: usize) -> Option<bool> {
         if !self.children_extracted {
             return None;
@@ -467,7 +467,7 @@ mod tests {
     #[test]
     fn child_display_for_tree_inactive_before_extraction() {
         let switcher = ContentSwitcher::new().initial("a");
-        // Before take_composed_children, returns None (flat render mode).
+        // Before compose, returns None (flat render mode).
         assert_eq!(switcher.child_display_for_tree(0), None);
     }
 

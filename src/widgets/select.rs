@@ -1277,7 +1277,7 @@ mod tests {
         assert!(bindings.iter().any(|b| b.action == "dismiss_overlay"));
     }
 
-    // ── compose() / take_composed_children() tests ────────────────
+    // ── compose() tests ────────────────
 
     #[test]
     fn compose_returns_empty() {

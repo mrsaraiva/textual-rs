@@ -2608,7 +2608,7 @@ impl App {
                 node.styles.style = node.styles.style.combine(&writethrough);
             }
             // A composed widget (e.g. `Tabs`) may have mutated internal state that
-            // its `compose()`/`take_composed_children()` derives its arena children
+            // its `compose()`/`compose()` derives its arena children
             // from (e.g. `Tabs::add_tab`). Since this mutation path has no
             // `EventCtx`, the widget stages a self-recompose request the runtime
             // honours here — so the new children become visible without the caller
@@ -2961,7 +2961,7 @@ impl App {
 
     /// Build the arena-based widget tree by extracting children from the root widget.
     ///
-    /// Uses `take_composed_children()` to recursively move children out of
+    /// Uses `compose()` to recursively move children out of
     /// containers and into the arena tree. After building, the tree is stored
     /// in `self.widget_tree` and tree mode becomes active.
     ///
@@ -3008,7 +3008,7 @@ impl App {
     ///
     /// Every child that enters the tree — whether it arrived as a `ChildDecl`
     /// from `compose()`, an explicit `with_compose(..)` declaration, or a boxed
-    /// widget drained through the migration-period `take_composed_children()`
+    /// widget drained through the migration-period `compose()`
     /// bridge — flows through here. This is the single point where a widget's
     /// declared children become arena nodes. Returns the mounted node's id (the
     /// inner id when a transparent wrapper collapses out).
@@ -3049,7 +3049,7 @@ impl App {
         // keeps a wrapped scroll/flow container as the layout node itself (so it
         // establishes its own scroll viewport) instead of being shrink-sized by
         // an interposed wrapper layer. Mirrors Python `Widget(id="x")`.
-        if let Some((inner, seed)) = widget.take_structural_collapse() {
+        if let Some((inner, seed)) = widget.elide_transparent_wrapper() {
             let inner_id = Self::mount_child_decl(tree, parent, ChildDecl::new(inner));
             tree.apply_forwarded_seed(inner_id, seed);
             if let Some(id_str) = &id {
@@ -4369,7 +4369,7 @@ fn style_affects_layout(style: &crate::style::Style) -> bool {
 /// Replicates the extraction logic of [`App::build_widget_tree()`] for
 /// user-declared children (excluding runtime-injected system widgets):
 /// 1. Creates a `TreeStubWidget` root node.
-/// 2. Recursively extracts children via `take_composed_children()`.
+/// 2. Recursively extracts children via `compose()`.
 /// 3. Processes `compose()` declarations.
 /// 4. Returns `None` if the root has no children (no tree to build).
 pub fn build_widget_tree_from_root(root: &mut dyn Widget) -> Option<WidgetTree> {
@@ -5827,12 +5827,9 @@ mod tests {
     #[test]
     fn mount_under_runs_composed_children_and_decl_meta() {
         let (mut app, _parent) = app_with_root();
-        // A Container declared via with_compose carries a child with decl-meta
-        // (#44); mounting it dynamically must extract + tag the child through
-        // the same arena path the initial build uses. (Container is used here
-        // rather than a delegated wrapper like Vertical because the shared
-        // `delegate_widget_to!` macro does not forward `take_child_decl_meta` —
-        // a pre-existing gap orthogonal to this dynamic-mount work.)
+        // A Container declared via with_compose carries a child with id/class
+        // metadata (#44) folded into its ChildDecl; mounting it dynamically must
+        // apply that metadata through the same arena path the initial build uses.
         let container = crate::widgets::Container::new().with_compose(vec![
             ChildDecl::from(Button::new("inner")).with_id("inner-btn"),
         ]);

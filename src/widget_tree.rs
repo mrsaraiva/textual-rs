@@ -671,7 +671,7 @@ impl WidgetTree {
     /// Used when a transparent wrapper (a bare [`Node`](crate::widgets::Node)) is
     /// collapsed out of the tree and its single inner child is mounted in its
     /// place (see
-    /// [`Widget::take_structural_collapse`](crate::widgets::Widget::take_structural_collapse)).
+    /// [`Widget::elide_transparent_wrapper`](crate::widgets::Widget::elide_transparent_wrapper)).
     /// The id replaces any existing id; classes are merged in; the wrapper's
     /// inline styles are folded onto the child's existing inline styles.
     pub fn apply_forwarded_seed(&mut self, node: NodeId, seed: NodeSeed) {

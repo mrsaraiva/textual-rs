@@ -1178,7 +1178,7 @@ mod tests {
         assert!(!text.is_empty(), "gradient bar should render something");
     }
 
-    // ── compose() / take_composed_children() tests ────────────────
+    // ── compose() tests ────────────────
 
     #[test]
     fn compose_returns_empty() {
