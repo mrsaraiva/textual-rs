@@ -280,6 +280,11 @@ impl App {
             apply_root_tree_virtual_content_size_in_tree(&mut tree);
             sync_host_scrollbar_positions(&mut tree);
 
+            // Install the `:focus-within` set for this layer's tree so rules like
+            // `Collapsible:focus-within { background-tint: $foreground 5% }` resolve.
+            let _focus_within_guard =
+                crate::css::set_focus_within(super::routing::focus_within_ids_tree(&tree));
+
             match layer {
                 CompositedLayer::AppRoot => render_app_root_tree_layer(
                     &tree,
@@ -2476,6 +2481,8 @@ fn render_tree_to_frame_with_debug_and_stylesheet(
     stylesheet: crate::css::StyleSheet,
 ) -> FrameBuffer {
     let _guard = crate::css::set_style_context(stylesheet);
+    let _focus_within_guard =
+        crate::css::set_focus_within(super::routing::focus_within_ids_tree(tree));
 
     // Run layout so all tree nodes get their layout_rect populated.
     run_layout_pass(tree, (width as u16, height as u16));

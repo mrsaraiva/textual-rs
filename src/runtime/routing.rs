@@ -117,6 +117,26 @@ pub fn focused_node_id_tree(tree: &WidgetTree) -> Option<NodeId> {
     None
 }
 
+/// Compute the set of node ids that match `:focus-within` for `tree`: the
+/// focused node plus every one of its ancestors up to the root.
+///
+/// Python parity: `:focus-within` matches a node whose subtree contains the
+/// focused widget (textual `css/_style_properties`/`DOMNode.pseudo_classes`).
+/// The render pipeline installs this set via `set_focus_within` before style
+/// resolution so rules like `Collapsible:focus-within { background-tint: ... }`
+/// resolve correctly.
+pub fn focus_within_ids_tree(tree: &WidgetTree) -> std::collections::HashSet<NodeId> {
+    let mut ids = std::collections::HashSet::new();
+    if let Some(focused) = focused_node_id_tree(tree) {
+        let mut cur = Some(focused);
+        while let Some(node_id) = cur {
+            ids.insert(node_id);
+            cur = tree.parent(node_id);
+        }
+    }
+    ids
+}
+
 /// Dispatch an event through the arena tree using capture + bubble phases.
 ///
 /// 1. Build the path from root to `focused` node.
