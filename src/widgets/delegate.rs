@@ -1,5 +1,14 @@
 /// Widget method delegation macros.
 ///
+/// **Superseded by the `#[widget(base = ..)]` attribute derive** (see
+/// `textual_macros::widget` / re-exported as `textual::widget`). New compound
+/// widgets should use `#[widget(base = <Container>)]`, which generates the same
+/// full `impl Widget` forwarding as a first-class attribute (and additionally
+/// supports `style_type = ".."`, `reactive`, and `override(..)`). The derive is
+/// the single place that knows the delegated method surface, so a future
+/// trait-shape change (RA-2) becomes a macro-internal edit. These declarative
+/// macros are kept only because existing widgets still reference them.
+///
 /// **Deprecated (migration-period only).**
 ///
 /// These macros exist to bridge the pre-RA-2 period where widgets carry their own

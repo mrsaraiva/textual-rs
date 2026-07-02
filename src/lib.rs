@@ -55,6 +55,7 @@ pub use textual_app::{
 };
 pub use textual_macros::Reactive;
 pub use textual_macros::on;
+pub use textual_macros::widget;
 pub use widgets::BindingDecl;
 pub use widgets::WidgetStyles;
 
@@ -91,6 +92,7 @@ pub mod prelude {
     pub use crate::style::{Color, Style, TextAlign, Theme};
     pub use crate::theme::{NamedTheme, available_theme_names, get_theme, register_theme};
     pub use textual_macros::Reactive;
+    pub use textual_macros::widget;
     pub use crate::runtime::Pilot;
     pub use crate::textual_app::{
         OverlayScreenStack, TextualApp, run, run_snapshot, run_snapshot_with_output, run_sync,

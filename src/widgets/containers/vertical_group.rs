@@ -2,8 +2,13 @@ use crate::compose::ComposeResult;
 use crate::widgets::Widget;
 
 use super::Vertical;
-use crate::widgets::delegate::delegate_widget_to;
 
+/// `VerticalGroup` is a thin, non-scrolling vertical container. Its full
+/// `Widget` surface is delegated to the inner [`Vertical`] via the first-class
+/// `#[widget(base = ..)]` derive (which replaces the deprecated
+/// `delegate_widget_to!`). `style_type` intentionally keeps the trait default
+/// so this widget matches `VerticalGroup { .. }` CSS, not `Vertical`.
+#[textual::widget(base = Vertical, field = inner)]
 pub struct VerticalGroup {
     inner: Vertical,
 }
@@ -37,5 +42,3 @@ impl VerticalGroup {
         self.inner.push(child);
     }
 }
-
-delegate_widget_to!(VerticalGroup, inner);

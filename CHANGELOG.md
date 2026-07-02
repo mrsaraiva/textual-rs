@@ -7,6 +7,27 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### Framework fundamentals
+
+- **New `#[widget(base = <Container>)]` delegation derive** — a compound widget
+  can now "inherit" the full structural / propagation `Widget` surface from a
+  container field instead of hand-forwarding ~63 trait methods (which silently
+  drop behavior if one is missed). Annotate a struct that holds a `base` field
+  of a container type (`base = VerticalGroup`, `field = <ident>` for a
+  differently-named field) and the derive generates the complete `impl Widget`
+  + `impl Renderable` forwarding render / layout / `take_composed_children` +
+  compose-meta hooks / `on_event`/`on_message` propagation / lifecycle / scroll
+  / bindings / selection to that field. `style_type` intentionally keeps the
+  widget's OWN concrete type name (its own CSS identity, not the base's); set a
+  custom one with `style_type = "Name"`. Behavior is layered orthogonally:
+  typed handlers via `#[on(..)]`, reactive state via `#[derive(Reactive)]` (opt
+  in to expose the compound as its own reactive surface with `reactive`), and
+  per-method overrides via `override(m1, m2)` (the generated trait method calls
+  your inherent method of the same signature). This is the first-class
+  replacement for the deprecated `delegate_widget_to!` / `delegate_widget_method!`
+  declarative macros, which are now marked superseded (kept only for existing
+  call sites). `VerticalGroup` is migrated to the derive as the first adopter.
+
 ### Widget fixes
 
 - **Composed children declared with `ChildDecl::with_id`/`with_classes` are now
