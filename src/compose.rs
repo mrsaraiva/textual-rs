@@ -105,9 +105,14 @@ impl ChildDecl {
         self
     }
 
-    /// Set the handle sink fired with the mounted node's identity.
-    pub(crate) fn set_handle_sink(&mut self, sink: crate::handle::HandleSink) {
-        self.handle_sink = Some(sink);
+    /// Mutably borrow the declared widget (the `Ready` builder's payload).
+    ///
+    /// Used by tests that assert on a freshly-composed child's pre-mount state
+    /// (e.g. its seed css-id) without draining it into an arena tree.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn widget_mut(&mut self) -> &mut dyn Widget {
+        let WidgetBuilder::Ready(w) = &mut self.builder;
+        w.as_mut()
     }
 }
 

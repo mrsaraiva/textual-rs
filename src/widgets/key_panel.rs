@@ -411,14 +411,14 @@ impl KeyPanel {
 }
 
 impl Widget for KeyPanel {
-    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+    fn compose(&mut self) -> crate::compose::ComposeResult {
         if self.scrollbar_extracted {
             return Vec::new();
         }
         self.scrollbar_extracted = true;
         let mut vbar = ScrollBar::new(true, 1);
         vbar.seed.css_id = Some(KEY_PANEL_VSCROLLBAR_ID.to_string());
-        vec![Box::new(vbar)]
+        vec![crate::compose::ChildDecl::new(Box::new(vbar))]
     }
 
     fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
@@ -648,7 +648,7 @@ mod tests {
             .map(|index| FooterBinding::new(format!("k{index:02}"), format!("item {index:02}")))
             .collect::<Vec<_>>();
         let mut panel = KeyPanel::new().with_bindings(bindings);
-        let _ = panel.take_composed_children();
+        let _ = panel.compose();
         let _ = panel.render(&console, &options);
         assert_eq!(panel.offset_y, 0);
 
@@ -673,9 +673,9 @@ mod tests {
     #[test]
     fn tree_mode_extracts_dedicated_scrollbar_child() {
         let mut panel = KeyPanel::new();
-        let mut children = panel.take_composed_children();
+        let mut children = panel.compose();
         assert_eq!(children.len(), 1);
-        let seed = children[0].take_node_seed();
+        let seed = children[0].widget_mut().take_node_seed();
         assert_eq!(seed.css_id.as_deref(), Some(KEY_PANEL_VSCROLLBAR_ID));
     }
 
@@ -688,7 +688,7 @@ mod tests {
                 .map(|index| FooterBinding::new(format!("k{index}"), format!("item {index}")))
                 .collect(),
         );
-        let _ = panel.take_composed_children();
+        let _ = panel.compose();
         let _ = panel.render(&console, &options);
 
         let mut ctx = EventCtx::default();

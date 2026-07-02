@@ -452,10 +452,6 @@ impl ListView {
 
 impl Widget for ListView {
     fn compose(&mut self) -> ComposeResult {
-        Vec::new()
-    }
-
-    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
         if self.children_extracted {
             return Vec::new();
         }
@@ -475,10 +471,10 @@ impl Widget for ListView {
                 })
                 .collect();
         }
-        let mut out: Vec<Box<dyn Widget>> = Vec::with_capacity(items.len());
+        let mut out: ComposeResult = Vec::with_capacity(items.len());
         for (ordinal, mut item) in items.into_iter().enumerate() {
             item.set_ordinal(ordinal);
-            out.push(Box::new(item));
+            out.push(crate::compose::ChildDecl::new(Box::new(item)));
         }
         out
     }
@@ -851,16 +847,16 @@ mod tests {
     }
 
     #[test]
-    fn take_composed_children_drains_items_with_ordinals() {
+    fn compose_drains_items_with_ordinals() {
         let mut list = ListView::from_list_items(vec![
             ListItem::new(Label::new("a")),
             ListItem::new(Label::new("b")),
             ListItem::new(Label::new("c")),
         ]);
-        let children = list.take_composed_children();
+        let children = list.compose();
         assert_eq!(children.len(), 3);
         // After extraction the call is idempotent.
-        assert!(list.take_composed_children().is_empty());
+        assert!(list.compose().is_empty());
         // Item text survives extraction (headless state machine still works).
         assert_eq!(list.items(), &["a", "b", "c"]);
     }
@@ -1116,8 +1112,11 @@ mod tests {
     }
 
     #[test]
-    fn compose_returns_empty() {
+    fn compose_drains_declared_items() {
+        // compose() is now the single child path — it yields the declared items.
         let mut list = ListView::new(vec!["A".into()]);
+        assert_eq!(list.compose().len(), 1);
+        // Idempotent: re-composing a drained list yields nothing.
         assert!(list.compose().is_empty());
     }
 }

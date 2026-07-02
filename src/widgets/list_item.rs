@@ -159,12 +159,11 @@ fn widget_text(child: &(impl Widget + 'static)) -> String {
 
 impl Widget for ListItem {
     fn compose(&mut self) -> ComposeResult {
-        Vec::new()
-    }
-
-    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
         self.children_extracted = true;
         std::mem::take(&mut self.children)
+            .into_iter()
+            .map(crate::compose::ChildDecl::new)
+            .collect()
     }
 
     fn focusable(&self) -> bool {
@@ -301,11 +300,11 @@ mod tests {
     }
 
     #[test]
-    fn take_composed_children_drains_children() {
+    fn compose_drains_children() {
         let mut item = ListItem::new(Label::new("a")).with_child(Label::new("b"));
-        let kids = item.take_composed_children();
+        let kids = item.compose();
         assert_eq!(kids.len(), 2);
-        assert!(item.take_composed_children().is_empty());
+        assert!(item.compose().is_empty());
     }
 
     #[test]
