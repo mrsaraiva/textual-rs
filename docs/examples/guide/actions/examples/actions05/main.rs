@@ -22,11 +22,12 @@
 use textual::prelude::*;
 use textual::style::Color;
 
-const TEXT: &str = "\
+const TEXT: &str = "
 [b]Set your background[/b]
 [@click=set_background('cyan')]Cyan[/]
 [@click=set_background('magenta')]Magenta[/]
-[@click=set_background('yellow')]Yellow[/]";
+[@click=set_background('yellow')]Yellow[/]
+";
 
 const CSS: &str = r#"
 Screen {

@@ -2090,7 +2090,7 @@ fn parity_actions02_red_bg() {
 /// actions03: a Static with `@click` markup links (Red/Green/Blue). Click the
 /// "Red" link; the screen bg turns red.
 #[test]
-#[ignore = "BUG: the Static's multi-line markup TEXT begins with a newline; Python renders that leading blank line (content starts row1) while Rust drops it (content starts row0), shifting the whole Static up one row. 46 glyph cells. Root: leading empty line of multi-line Static/markup content not rendered (vertical shift)."]
+#[ignore = "BUG (leading-newline glyph shift FIXED: the demo TEXT is now the Python-faithful leading+trailing-newline string instead of the `\\`-continuation workaround; the framework already renders leading blank lines, so glyph parity is now 0). RESIDUAL (out of this root's text.rs/placeholder.rs scope): 31 colour cells — clicking `Red` sets the SCREEN background red AFTER first paint, and Rust bakes that LIVE ancestor background into the transparent Static's text (bg #ff0000) while Python bakes the CACHED visual_style background (#121212 — the ancestor composite at first render; Python's `visual_style` is keyed on the widget's OWN style key, so a later ancestor-bg change is not re-baked into child text). Root: render-time live vs cached ancestor-background composition (runtime/composition layer); reproducing it risks the documented live-composition invariant."]
 fn parity_actions03_click_red() {
     let script = [Step::Click(0, 2), Step::Wait(300)];
     let (rf, pf) = cat_both("actions03", "guide/actions", &script, 400);
@@ -2099,7 +2099,7 @@ fn parity_actions03_click_red() {
 
 /// actions04: same markup links plus r/g/b key bindings. Press `r`.
 #[test]
-#[ignore = "BUG: same leading-empty-line shift as actions03 — the Static's content starts row0 in Rust vs row1 in Python. 46 glyph cells. Root: leading empty line of multi-line Static content not rendered."]
+#[ignore = "BUG (leading-newline glyph shift FIXED: demo TEXT restored to the Python-faithful leading+trailing-newline string; framework already renders leading blanks, so glyph parity is now 0). RESIDUAL (out of text.rs/placeholder.rs scope): 31 colour cells — pressing `r` sets the SCREEN background red AFTER first paint; Rust bakes the LIVE ancestor bg (#ff0000) into the transparent Static's text while Python bakes the CACHED visual_style bg (#121212, the first-render ancestor composite). Root: render-time live vs cached ancestor-background composition (runtime/composition, not text.rs)."]
 fn parity_actions04_red_bg() {
     let script = [Step::SendKeys("r"), Step::Wait(300)];
     let (rf, pf) = cat_both("actions04", "guide/actions", &script, 400);
@@ -2109,7 +2109,7 @@ fn parity_actions04_red_bg() {
 /// actions05: two ColorSwitcher widgets + r/g/b app bindings. Press `r` (sets
 /// the screen bg red behind both switchers).
 #[test]
-#[ignore = "BUG: same leading-empty-line shift as actions03/04 across both ColorSwitcher Statics. 138 glyph cells. Root: leading empty line of multi-line Static content not rendered."]
+#[ignore = "BUG (leading-newline shift FIXED in demo TEXT). MULTIPLE residual roots, all outside text.rs/placeholder.rs: (1) the Rust demo composes an extra `Footer` that Python's actions05 has NOT — Python yields only two ColorSwitchers (the `r Red g Green b Blue` footer row + its #242f38 band are Rust-only); (2) the second ColorSwitcher shows a cumulative 1-row layout shift; (3) the same live-vs-cached ancestor-background composition as actions03/04 (Rust bakes the live red screen bg into transparent ColorSwitcher text, Python keeps the cached #121212). Fixes belong in the demo (drop Footer) + layout + runtime composition, not this root's scope."]
 fn parity_actions05_red_bg() {
     let script = [Step::SendKeys("r"), Step::Wait(300)];
     let (rf, pf) = cat_both("actions05", "guide/actions", &script, 400);
@@ -2120,7 +2120,7 @@ fn parity_actions05_red_bg() {
 /// advances. Press `n` twice; the third page scrolls into view and the Footer
 /// reflects available bindings.
 #[test]
-#[ignore = "BUG: the page scroll works but the Placeholder's `Page N` label is not rendered by Rust (5 glyph cells blank where Python shows \"Page 2\") and the Placeholder colour palette diverges (3475 colour cells). Root: Placeholder widget label rendering + per-index colour palette parity."]
+#[ignore = "BUG (mis-diagnosed root — Placeholder label + per-index palette are CORRECT). Verified: at rest (page 0) Rust renders bg #4d1144 == Python and the `Page 0` label renders; the palette matches Python's `_PLACEHOLDER_BACKGROUND_COLORS`. The real failure is that after `n` → `app.scroll_visible(#page-N)` the HorizontalScroll over-scrolls and the visible page's placeholder area goes blank (#121212) instead of showing the target page (so `Page 2` + its #6f3c3c fill are missing). Secondary: a content-align:middle vertical-centering off-by-one (label lands one row high vs Python). Root: HorizontalScroll scroll_visible offset + content-align centering (layout/runtime), NOT placeholder.rs."]
 fn parity_actions06_next_page() {
     let script = [
         Step::SendKeys("n"),
@@ -2135,7 +2135,7 @@ fn parity_actions06_next_page() {
 /// actions07: same pages, bindings=True reactive (disabled bindings dim in the
 /// Footer rather than disappearing). Press `n` once.
 #[test]
-#[ignore = "BUG: same Placeholder divergence as actions06 — `Page 1` label missing (5 glyph) + Placeholder colour palette differs (3475 colour). Root: Placeholder widget label + colour palette parity."]
+#[ignore = "BUG (mis-diagnosed root — Placeholder label + palette are CORRECT, verified at rest). Same real root as actions06: after `n` → `scroll_visible` the HorizontalScroll over-scrolls and the visible placeholder area goes blank (#121212) instead of the target page + its fill, plus a content-align:middle centering off-by-one. Root: HorizontalScroll scroll_visible offset + content-align centering (layout/runtime), NOT placeholder.rs."]
 fn parity_actions07_next_page() {
     let script = [Step::SendKeys("n"), Step::Wait(400)];
     let (rf, pf) = cat_both("actions07", "guide/actions", &script, 500);

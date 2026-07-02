@@ -14,11 +14,12 @@ use textual::prelude::*;
 
 /// Mirrors the Python TEXT variable, including the `[@click=...]` action-link
 /// wrappers (now routed by the runtime's `@click` hit-test → dispatch).
-const TEXT: &str = "\
+const TEXT: &str = "
 [b]Set your background[/b]
 [@click=set_background('red')]Red[/]
 [@click=set_background('green')]Green[/]
-[@click=set_background('blue')]Blue[/]";
+[@click=set_background('blue')]Blue[/]
+";
 
 struct ActionsApp;
 
