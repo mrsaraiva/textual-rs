@@ -177,6 +177,18 @@ impl Widget for Switch {
         !self.disabled
     }
 
+    /// Expose the reactive dispatch impl so the runtime's reactive phase can run
+    /// `watch_value` after a programmatic `set_value` (e.g. via `Handle::update`).
+    ///
+    /// Without this the default returns `None`, so the queued `RuntimeReactiveEntry`
+    /// is dropped: `value` is set but `watch_value` never runs, leaving the slider
+    /// position un-snapped and the `-on` class un-rebuilt (an ON switch renders in
+    /// the OFF position). Interactive toggles use `on_event` directly and are
+    /// unaffected; this fixes the programmatic path (Python `watch_value` parity).
+    fn reactive_widget(&mut self) -> Option<&mut dyn ReactiveWidget> {
+        Some(self)
+    }
+
     fn is_active(&self) -> bool {
         self.pressed && self.node_state().hovered
     }
@@ -419,6 +431,34 @@ mod tests {
         widget.reactive_dispatch(&changes, &mut ctx);
         assert!((widget.slider_pos - 1.0).abs() < f32::EPSILON);
         assert!(!widget.is_animating());
+    }
+
+    /// Regression: the runtime reactive phase reaches the Switch watcher ONLY
+    /// through `Widget::reactive_widget()`. If that hook returns `None` (the
+    /// trait default), a programmatic `set_value` (via `Handle::update`) records
+    /// the change but the watcher never runs — the slider stays un-snapped and
+    /// the `-on` class un-rebuilt, so an ON switch renders in the OFF position
+    /// (the byte03 Input→Switch parity bug). Drive the dispatch exactly the way
+    /// the runtime does: fetch the dispatcher via `reactive_widget()`.
+    #[test]
+    fn switch_reactive_widget_hook_runs_watcher() {
+        let mut widget = Switch::new(false);
+        let id = make_node_id();
+        let mut ctx = ReactiveCtx::new(id);
+        widget.set_value(true, &mut ctx);
+        let changes = ctx.take_changes();
+
+        // Mirror the runtime: only `reactive_widget()` can reach the dispatch.
+        let rw = widget
+            .reactive_widget()
+            .expect("Switch must expose its ReactiveWidget so the runtime runs watch_value");
+        rw.reactive_dispatch(&changes, &mut ctx);
+
+        assert!((widget.slider_pos - 1.0).abs() < f32::EPSILON, "slider must snap to on");
+        assert!(
+            widget.seed.classes.iter().any(|c| c == "-on"),
+            "the `-on` class must be rebuilt after a programmatic set_value"
+        );
     }
 
     #[test]

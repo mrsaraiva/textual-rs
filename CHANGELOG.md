@@ -46,6 +46,20 @@ until the API stabilizes.
   a nested outer collapsible is not also toggled). Makes `collapsible`,
   `collapsible_nested`, and `collapsible_custom_symbol` glyph- and colour-exact
   vs Python (the previous `:focus-within` residual of ~10 cells is now zero).
+- **`Switch` now runs its `value` watcher on programmatic changes** — `Switch`
+  implemented `ReactiveWidget::reactive_dispatch` (which snaps the slider position
+  and rebuilds the `-on`/`-off` CSS class) but its `impl Widget` never overrode
+  `reactive_widget()`, so the trait default returned `None`. The runtime reactive
+  phase reaches a widget's watcher only through `Widget::reactive_widget()`, so a
+  programmatic `switch.set_value(true)` (via `Handle::update`) recorded the change
+  but the queued dispatch was dropped: `value` flipped while `_slider_position`
+  stayed at `0.0` and the `-on` class was never added, so an ON switch rendered in
+  the OFF position (thumb on the left, off-state colours). `Switch` now returns
+  `Some(self)` from `reactive_widget()`, matching Python's `watch_value`. Fixes the
+  `compound/byte03` demo (typing a number flips the bit switches to their correct
+  on/off position — now glyph- and colour-perfect Rust==Python). Interactive toggles
+  were unaffected (they run through `on_event`). Regression test:
+  `switch_reactive_widget_hook_runs_watcher` in `src/widgets/switch.rs`.
 
 - **`:focus-within` background-tint is now applied during render** — the render
   pipeline never installed the `:focus-within` node set, so rules like
