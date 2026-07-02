@@ -1154,7 +1154,6 @@ fn parity_switch_toggle() {
 
 /// radio_button: RadioSet has focus; Down then Space moves + selects.
 #[test]
-#[ignore = "BUG: focused RadioSet border/surface tint differs (bg #1e1e1e vs #272727 on :focus). 154 cells."]
 fn parity_radio_button_select() {
     let script = [
         Step::SendKeys("\x1b[B"),
@@ -1167,7 +1166,10 @@ fn parity_radio_button_select() {
 
 /// radio_set: two RadioSets; Down arrow within the focused set.
 #[test]
-#[ignore = "BUG: focused RadioSet surface/border tint differs (bg #1e1e1e vs #272727 on :focus). 180 cells."]
+#[ignore = "DEMO GAP: focus tint + selection colours (#242f38/#0178d4/#153854) now match Python; \
+            the only remaining diff is 3 cells where the Python demo renders 'Kurgan, [bold italic red]The[/]' \
+            (Rich markup) while the Rust demo uses plain 'Kurgan, The'. Needs a demo-file change (out of \
+            this task's allowed widget-file scope)."]
 fn parity_radio_set_navigate() {
     let script = [
         Step::SendKeys("\x1b[B"),
@@ -1181,7 +1183,10 @@ fn parity_radio_set_navigate() {
 /// radio_set_changed: selecting a button updates two Labels (pressed label +
 /// pressed index). Both must show the same strings.
 #[test]
-#[ignore = "BUG: RadioSet.Changed → Label.update not reflected — Python shows 'Pressed button label: Dune 1984' / 'Pressed button index: 1'; Rust shows only a stray 'P'. 47 glyph cells."]
+#[ignore = "BUG (out of scope): the RadioSet focus/selection colours now match Python, but the \
+            #pressed/#index Labels show only a stray 'P' — Label.update()/set_text() on an empty auto-width \
+            Label inside a Horizontal does not trigger a relayout, so the label stays 1 cell wide. Fix lives \
+            in the Label/runtime relayout path, not the RadioSet widget."]
 fn parity_radio_set_changed() {
     let script = [
         Step::SendKeys("\x1b[B"),
@@ -1228,7 +1233,11 @@ fn parity_collapsible_custom_symbol() {
 
 /// select_widget: Enter opens the overlay (the option list of Dune lines).
 #[test]
-#[ignore = "BUG: Select overlay differs from Python (277 glyph cells) — the opened option-list overlay renders different content/layout. Header clock row excluded."]
+#[ignore = "BUG (larger rework): the opened Select overlay diverges from Python — Python floats a bordered \
+            OptionList (overlay: screen) containing the blank prompt row + wrapped option lines. The Rust \
+            Select renders its overlay inline and (a) needs a layout invalidation on open to reserve height, \
+            (b) the inner list lacks its border chrome, the blank/prompt row, and text wrapping. Full parity \
+            needs the screen-overlay layer or an inner-list rework (blank-option indexing) beyond a surgical fix."]
 fn parity_select_open_overlay() {
     let script = [Step::Key(Key::Enter), Step::Wait(300)];
     let (rf, pf) = widgets_both("select_widget", &script, 400);
@@ -1238,7 +1247,10 @@ fn parity_select_open_overlay() {
 
 /// select_widget_no_blank: 's' swaps the option set; first value differs.
 #[test]
-#[ignore = "BUG: Select (no-blank) surface/border tint differs from Python after swap (117 colour cells)."]
+#[ignore = "BUG (out of scope): 1 cell — the SelectCurrent dropdown arrow (▼) fg is `$foreground 50%` \
+            flattened over the untinted surface (#797979) instead of the focused/tinted surface (#838383). \
+            The arrow is painted by SelectCurrent (src/widgets/select_current.rs), outside this task's \
+            allowed widget-file scope."]
 fn parity_select_no_blank_swap() {
     let script = [Step::Key(Key::Char('s')), Step::Wait(300)];
     let (rf, pf) = widgets_both("select_widget_no_blank", &script, 400);
@@ -1247,7 +1259,9 @@ fn parity_select_no_blank_swap() {
 
 /// select_from_values_widget: Enter opens the overlay built via from_values.
 #[test]
-#[ignore = "BUG: Select.from_values overlay differs from Python (277 glyph cells), same overlay divergence as select_widget."]
+#[ignore = "BUG (larger rework): same Select overlay divergence as parity_select_open_overlay — the inline \
+            overlay needs relayout-on-open + border chrome + blank/prompt row + wrapping (or the screen-overlay \
+            layer). Out of reach for a surgical widget-file fix."]
 fn parity_select_from_values_open() {
     let script = [Step::Key(Key::Enter), Step::Wait(300)];
     let (rf, pf) = widgets_both("select_from_values_widget", &script, 400);
@@ -1293,7 +1307,6 @@ fn parity_selection_list_selected_toggle() {
 
 /// option_list_strings: Down arrow moves the highlight.
 #[test]
-#[ignore = "BUG: focused OptionList border/surface tint differs (bg #1e1e1e vs #272727 on :focus). 244 cells."]
 fn parity_option_list_strings_navigate() {
     let script = [Step::SendKeys("\x1b[B"), Step::Wait(250)];
     let (rf, pf) = widgets_both("option_list_strings", &script, 400);
@@ -1302,7 +1315,6 @@ fn parity_option_list_strings_navigate() {
 
 /// option_list_options: Down past a disabled/separator option.
 #[test]
-#[ignore = "BUG: OptionList (with disabled/separator options) surface + disabled-option colours differ from Python (811 cells)."]
 fn parity_option_list_options_navigate() {
     let script = [
         Step::SendKeys("\x1b[B"),

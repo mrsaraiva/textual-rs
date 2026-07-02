@@ -1,5 +1,5 @@
 use crossterm::event::KeyCode;
-use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments, Text};
+use rich_rs::{Console, ConsoleOptions, MetaValue, Renderable, Segment, Segments, Text};
 
 use crate::event::{Action, Event, EventCtx};
 use crate::message::*;
@@ -16,6 +16,60 @@ pub(crate) const OPTION_LIST_VSCROLLBAR_ID: &str = "__option_list_vscrollbar";
 /// Width of the vertical scrollbar (Python `scrollbar-size-vertical` default is 2).
 /// Renderable items must not expand into this zone or the scrollbar will overwrite them.
 const SCROLLBAR_THICKNESS: usize = 2;
+
+/// Tag a segment `textual:no_style = true` so the widget-level style pass
+/// (`apply_style_to_segments`) leaves it untouched. Used for the highlighted
+/// option's cells, whose opaque `$block-cursor` background is fully composed
+/// here; without this the `OptionList:focus` `background-tint: $foreground 5%`
+/// would be re-applied to it (Python does not tint component-painted surfaces).
+fn tag_segment_no_style(seg: &mut Segment) {
+    let mut meta = seg.meta.take().unwrap_or_default();
+    let mut map: std::collections::BTreeMap<String, MetaValue> = meta
+        .meta
+        .as_ref()
+        .map(|m| (**m).clone())
+        .unwrap_or_default();
+    map.insert("textual:no_style".to_string(), MetaValue::Bool(true));
+    meta.meta = Some(std::sync::Arc::new(map));
+    seg.meta = Some(meta);
+}
+
+/// Rebuild a highlighted option's display line so its opaque `$block-cursor`
+/// background spans the full option width (Python paints the whole highlighted
+/// row, including the trailing pad) and every cell is tagged `no_style`.
+///
+/// `fill` carries the fully-composed highlight foreground/background; content
+/// cells keep their own foreground where present, but all cells are forced to
+/// the opaque highlight background.
+fn finalize_highlight_line(line: &[Segment], width: usize, fill: rich_rs::Style) -> Vec<Segment> {
+    let mut out: Vec<Segment> = Vec::new();
+    let mut used = 0usize;
+    for seg in line {
+        if seg.control.is_some() {
+            out.push(seg.clone());
+            continue;
+        }
+        let seg_w = rich_rs::cell_len(&seg.text);
+        if used + seg_w > width {
+            break;
+        }
+        let mut style = seg.style.unwrap_or_default();
+        style.bgcolor = fill.bgcolor;
+        if style.color.is_none() {
+            style.color = fill.color;
+        }
+        let mut s = Segment::styled(seg.text.clone(), style);
+        tag_segment_no_style(&mut s);
+        out.push(s);
+        used += seg_w;
+    }
+    if used < width {
+        let mut pad = Segment::styled(" ".repeat(width - used), fill);
+        tag_segment_no_style(&mut pad);
+        out.push(pad);
+    }
+    out
+}
 
 /// A scrollable, navigable list of selectable options.
 ///
@@ -745,8 +799,34 @@ impl Widget for OptionList {
             width
         };
 
-        let base_style = crate::css::resolve_component_style(self, &["option-list--option"])
-            .to_rich()
+        // The OptionList's own composited surface (its `$surface` bg plus the
+        // `:focus` `background-tint`, if focused). Python composes option text
+        // and separator colours over this surface (`background_colors`), so all
+        // semi-transparent foregrounds (`$foreground 15%` separators,
+        // `$text-disabled`) and the highlighted `$block-cursor(-blurred)`
+        // background must flatten over it — resolving them standalone would
+        // flatten over `$background`/black and shift the result.
+        let surface_bg = crate::css::current_composited_background();
+        let surface_flat = surface_bg.unwrap_or_else(|| {
+            crate::style::parse_color_like("$surface")
+                .unwrap_or(crate::style::Color::rgb(0, 0, 0))
+        });
+
+        // Resolve an option component style. Uses an empty-type leaf meta so
+        // only the component-class rules (`.option-list--option*`,
+        // `.option-list--separator`) match — NOT the `OptionList { background:
+        // $surface }` base rule, which would otherwise stamp an opaque surface
+        // background on every component and cause semi-transparent foregrounds
+        // (separators, disabled) to flatten over the untinted surface. The
+        // OptionList node meta is already on the selector stack (pushed by
+        // `render_widget_with_meta`), so `OptionList:focus > .X` descendant
+        // rules still resolve, exactly like Python's `get_visual_style`.
+        let resolve_comp = |classes: &[&str]| -> crate::style::Style {
+            crate::css::resolve_style_for_meta(&crate::css::selector_meta_component("", classes))
+        };
+
+        let base_style = resolve_comp(&["option-list--option"])
+            .to_rich_over(surface_flat)
             .unwrap_or_default();
 
         // Flatten options into display lines and render the visible window in
@@ -771,12 +851,9 @@ impl Widget for OptionList {
                         OptionItem::Separator => adjust_line_length_no_bg(
                             &[Segment::styled(
                                 "─".repeat(width),
-                                crate::css::resolve_component_style(
-                                    self,
-                                    &["option-list--separator"],
-                                )
-                                .to_rich()
-                                .unwrap_or(base_style),
+                                resolve_comp(&["option-list--separator"])
+                                    .to_rich_over(surface_flat)
+                                    .unwrap_or(base_style),
                             )],
                             width,
                         ),
@@ -788,25 +865,49 @@ impl Widget for OptionList {
                         } => {
                             let highlighted = self.cursor.highlighted() == Some(index);
                             let hovered = self.hovered_index == Some(index);
+                            // Mirror Python `_get_option_style`: combine the base
+                            // `option-list--option` with the state-specific
+                            // component class (disabled > highlighted > hover).
+                            // The `:focus` variant of the highlighted colours is
+                            // supplied by the `OptionList:focus > ...` CSS rule,
+                            // matched via the focused OptionList meta on the stack.
                             let mut classes = vec!["option-list--option"];
-                            if highlighted {
-                                classes.push("-highlighted");
-                            }
-                            if hovered && !highlighted {
-                                classes.push("-hover");
-                            }
                             if *disabled {
-                                classes.push("-disabled");
+                                classes.push("option-list--option-disabled");
+                            } else if highlighted {
+                                classes.push("option-list--option-highlighted");
+                            } else if hovered {
+                                classes.push("option-list--option-hover");
                             }
-                            if highlighted && self.node_state().focused {
-                                classes.push("-focus");
+                            let mut style_crate = resolve_comp(&classes);
+                            // Resolve an auto-contrast foreground (e.g.
+                            // `$text-disabled` = `auto 38%`) against the widget
+                            // surface. `to_rich_over` only handles concrete `fg`;
+                            // the compositor resolves `fg_auto` but only from the
+                            // WIDGET style, not per-option component styles, so a
+                            // disabled option would otherwise fall back to the
+                            // widget foreground. Mirror the compositor's math over
+                            // the (tinted) surface.
+                            if style_crate.fg.is_none() {
+                                if let Some(auto) = style_crate.fg_auto {
+                                    let contrast = crate::style::contrast_text(surface_flat);
+                                    style_crate.fg =
+                                        Some(contrast.blend_over_float(surface_flat, auto.alpha()));
+                                    style_crate.fg_auto = None;
+                                }
                             }
-                            let style = crate::css::resolve_component_style(self, &classes)
-                                .to_rich()
-                                .unwrap_or(base_style);
+                            // Compose the highlighted option's (possibly
+                            // semi-transparent) background over the widget surface,
+                            // matching Python's `background_colors` compositing.
+                            if highlighted {
+                                if let Some(bg) = style_crate.bg {
+                                    style_crate.bg = Some(bg.flatten_over(surface_flat));
+                                }
+                            }
+                            let style = style_crate.to_rich_over(surface_flat).unwrap_or(base_style);
 
                             let lines = rendered_items.entry(index).or_insert_with(|| {
-                                match content {
+                                let raw = match content {
                                     Some(OptionContent::Text(rich)) => {
                                         self.render_rich_lines(rich, style, width, console, options)
                                     }
@@ -827,6 +928,17 @@ impl Widget for OptionList {
                                             width,
                                         )]
                                     }
+                                };
+                                // The highlighted option paints its opaque
+                                // `$block-cursor` background across the full width
+                                // and must not be re-tinted by the widget style
+                                // pass; rebuild + tag `no_style` per line.
+                                if highlighted {
+                                    raw.into_iter()
+                                        .map(|line| finalize_highlight_line(&line, width, style))
+                                        .collect()
+                                } else {
+                                    raw
                                 }
                             });
                             lines
