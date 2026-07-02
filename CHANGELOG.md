@@ -9,6 +9,21 @@ until the API stabilizes.
 
 ### Framework fundamentals
 
+- **Deferred widget-command queue + shared post-dispatch flush** (WidgetCtx
+  build, step 1) — handlers run while the runtime holds a live `&mut` borrow of
+  the widget tree, so a handler cannot mutate a different node (or its own DOM
+  identity) in place. A new thread-local FIFO (`src/runtime/commands.rs`) records
+  such side effects as `WidgetCommand`s (`AddClass`/`RemoveClass` so far, with
+  drain-time `CommandTarget::{Node, Selector}` resolution) and the existing
+  reactive phase (`run_event_loop_reactive_phase`) is extended into ONE shared
+  flush that drains both the reactive queue and the command queue to convergence
+  under a global round budget (`MAX_REACTIVE_ITERATIONS`; a self-re-enqueueing
+  handler is dropped + logged rather than hanging). Because the live event loop
+  and the headless pump both already call that one function, commands converge
+  identically in both paths. Also adds `WidgetTree::query_within` /
+  `query_one_within` for subtree-scoped selector resolution. No public API yet;
+  `WidgetCtx` (which enqueues these) lands in the next step.
+
 - **New `#[widget(base = <Container>)]` delegation derive** — a compound widget
   can now "inherit" the full structural / propagation `Widget` surface from a
   container field instead of hand-forwarding ~63 trait methods (which silently

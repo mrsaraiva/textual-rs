@@ -4534,7 +4534,9 @@ impl App {
             // without it here, headless/Pilot dispatch enqueues the entry but
             // never fires the widget's `watch_*`, so widget-reactive demos looked
             // dead.
-            if crate::reactive::runtime_reactive_queue_is_nonempty() {
+            if crate::reactive::runtime_reactive_queue_is_nonempty()
+                || crate::runtime::commands::command_queue_is_nonempty()
+            {
                 progressed = true;
                 self.run_event_loop_reactive_phase(root, pending);
             }
@@ -5693,16 +5695,71 @@ impl App {
     /// Iterates over tree nodes that have a `ReactiveCtx` with pending changes,
     /// calls `run_reactive_phase()` for each, and feeds repaint/layout results
     /// into `pending_invalidation`.
+    /// Shared post-dispatch flush: drain the runtime reactive queue **and** the
+    /// deferred [`WidgetCommand`](crate::runtime::commands) queue to convergence.
+    ///
+    /// Called from BOTH the live event loop (`run_widget_tree`) and the headless
+    /// pump (`headless_pump`) — extending this ONE function is what keeps
+    /// commands + reactivity converging identically in both paths (the
+    /// loop-convergence keystone). Reactive dispatch or command application can
+    /// enqueue further work, so the drain runs in rounds under a global budget
+    /// (`MAX_REACTIVE_ITERATIONS`); a self-re-enqueueing handler hits the budget,
+    /// gets its residue dropped, and is logged rather than hanging.
+    ///
+    /// With no commands pending this converges in a single round (nothing in
+    /// `src/` enqueues a reactive entry from *within* reactive dispatch), so
+    /// existing reactive behavior is unchanged.
     fn run_event_loop_reactive_phase(
         &mut self,
         _root: &mut dyn Widget,
         pending: &mut PendingInvalidation,
     ) {
-        let queued = crate::reactive::take_runtime_reactive_entries();
-        if queued.is_empty() {
-            return;
+        for _round in 0..crate::reactive::MAX_REACTIVE_ITERATIONS {
+            let queued = crate::reactive::take_runtime_reactive_entries();
+            let commands = crate::runtime::commands::take_widget_commands();
+            if queued.is_empty() && commands.is_empty() {
+                return;
+            }
+
+            if !queued.is_empty() {
+                self.dispatch_runtime_reactive_entries(queued, pending);
+            }
+            // Commands are applied in FIFO order after this round's reactive
+            // entries (an add-class from a handler lands before the next render).
+            for cmd in commands {
+                self.apply_widget_command(cmd, pending);
+            }
         }
 
+        // Budget exhausted with work still pending: a command/reactive cycle
+        // (e.g. a handler that re-enqueues itself). Drain-and-drop the residue so
+        // the queues cannot grow unbounded, and log loudly — mirroring
+        // `run_reactive_phase_with_dispatch`'s per-node cycle diagnostics.
+        if crate::reactive::runtime_reactive_queue_is_nonempty()
+            || crate::runtime::commands::command_queue_is_nonempty()
+        {
+            let dropped_entries = crate::reactive::take_runtime_reactive_entries().len();
+            let dropped_commands = crate::runtime::commands::take_widget_commands().len();
+            crate::debug::debug_render(&format!(
+                "[reactive-phase] command/reactive cycle: {} rounds exceeded; dropped {} \
+                 reactive entr{} + {} command{} (likely a self-re-enqueueing handler)",
+                crate::reactive::MAX_REACTIVE_ITERATIONS,
+                dropped_entries,
+                if dropped_entries == 1 { "y" } else { "ies" },
+                dropped_commands,
+                if dropped_commands == 1 { "" } else { "s" },
+            ));
+        }
+    }
+
+    /// Process one batch of runtime reactive entries in tree order (parents
+    /// before children), then any nodes no longer in the tree in stable id
+    /// order. Extracted from the flush so the rounds loop can call it per round.
+    fn dispatch_runtime_reactive_entries(
+        &mut self,
+        queued: Vec<RuntimeReactiveEntry>,
+        pending: &mut PendingInvalidation,
+    ) {
         let mut by_node: std::collections::HashMap<NodeId, Vec<RuntimeReactiveEntry>> =
             std::collections::HashMap::new();
         for entry in queued {
@@ -8629,6 +8686,185 @@ mod tests {
         assert_eq!(init_true_calls.load(Ordering::SeqCst), 1);
         assert_eq!(init_false_calls.load(Ordering::SeqCst), 0);
         assert!(pending.flags.content);
+    }
+
+    // ── WidgetCtx build, sub-step 1: deferred command queue + shared flush ──
+
+    /// Enqueues an `AddClass` command on its own node when it handles `Toggle`,
+    /// exactly as a real handler would (the command is applied later, by the
+    /// shared flush — not in-place, since the tree is borrowed during dispatch).
+    struct CommandProbeWidget;
+
+    impl Widget for CommandProbeWidget {
+        fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+            Segments::new()
+        }
+
+        fn style_type(&self) -> &'static str {
+            "CommandProbe"
+        }
+
+        fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+            if let Event::Action(Action::Toggle) = event {
+                crate::runtime::commands::enqueue_widget_command(
+                    crate::runtime::commands::WidgetCommand::AddClass {
+                        target: crate::runtime::commands::CommandTarget::Node(ctx.node_id()),
+                        class: "active".to_string(),
+                    },
+                );
+            }
+        }
+    }
+
+    /// A reactive widget whose dispatch re-enqueues a fresh entry for itself,
+    /// so the shared flush's rounds loop never converges — used to prove the
+    /// global round budget terminates (no hang) and drains the residue.
+    struct CyclingReactiveWidget {
+        fires: Arc<AtomicUsize>,
+    }
+
+    impl Widget for CyclingReactiveWidget {
+        fn reactive_widget(&mut self) -> Option<&mut dyn ReactiveWidget> {
+            Some(self)
+        }
+
+        fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+            Segments::new()
+        }
+
+        fn style_type(&self) -> &'static str {
+            "Cycling"
+        }
+    }
+
+    impl ReactiveWidget for CyclingReactiveWidget {
+        fn reactive_dispatch(&mut self, _changes: &[ReactiveChange], ctx: &mut ReactiveCtx) {
+            self.fires.fetch_add(1, Ordering::SeqCst);
+            // Re-enqueue a fresh entry for the same node → the flush never
+            // converges and must hit the round budget.
+            let node_id = ctx.node_id();
+            let mut rctx = ReactiveCtx::new(node_id);
+            rctx.record_change(
+                "v",
+                ReactiveFlags::reactive(),
+                Box::new(0i32),
+                Box::new(1i32),
+            );
+            enqueue_runtime_reactive_entry(crate::reactive::RuntimeReactiveEntry::new(
+                node_id, rctx,
+            ));
+        }
+    }
+
+    /// Live-loop path: the loop calls `run_event_loop_reactive_phase`
+    /// unconditionally each iteration (event_loop.rs:3897). A command enqueued
+    /// by a handler is deferred, then applied by that shared flush.
+    #[test]
+    fn widget_command_applied_by_flush_live_loop_path() {
+        let _ = take_runtime_reactive_entries();
+        let _ = crate::runtime::commands::take_widget_commands();
+
+        let mut tree = crate::widget_tree::WidgetTree::new();
+        let node = tree.set_root(Box::new(CommandProbeWidget));
+
+        // Handler runs during dispatch and enqueues the command.
+        let _ =
+            super::dispatch_event_to_target_tree(&mut tree, node, &Event::Action(Action::Toggle));
+        // Deferred: NOT applied yet (tree was borrowed during the handler).
+        assert!(
+            !tree.get(node).unwrap().classes.contains("active"),
+            "command must be deferred, not applied in-place during dispatch"
+        );
+
+        let mut app = test_app_with_tree(tree);
+        let mut pending = super::PendingInvalidation::default();
+        let mut root = StyleNode::new("Root");
+        app.run_event_loop_reactive_phase(&mut root, &mut pending);
+
+        // Applied after the shared flush; layout invalidation requested.
+        assert!(
+            app.active_widget_tree()
+                .unwrap()
+                .get(node)
+                .unwrap()
+                .classes
+                .contains("active"),
+            "AddClass command applied by the shared flush"
+        );
+        assert!(pending.flags.layout, "class change requests relayout");
+    }
+
+    /// Headless path: the pump gate (event_loop.rs:4537) now also fires on a
+    /// pending command, so a command enqueued by a handler drains through the
+    /// same shared flush under `headless_pump` — no reactive entry required.
+    #[test]
+    fn widget_command_applied_by_flush_headless_pump_path() {
+        let _ = take_runtime_reactive_entries();
+        let _ = crate::runtime::commands::take_widget_commands();
+
+        let mut tree = crate::widget_tree::WidgetTree::new();
+        let node = tree.set_root(Box::new(CommandProbeWidget));
+        let _ =
+            super::dispatch_event_to_target_tree(&mut tree, node, &Event::Action(Action::Toggle));
+
+        let mut app = test_app_with_tree(tree);
+        let mut pending = super::PendingInvalidation::default();
+        let mut root = StyleNode::new("Root");
+        app.headless_pump(&mut root, &mut pending)
+            .expect("headless pump should drain the command queue and settle");
+
+        assert!(
+            app.active_widget_tree()
+                .unwrap()
+                .get(node)
+                .unwrap()
+                .classes
+                .contains("active"),
+            "AddClass command drained by the headless pump via the shared flush"
+        );
+    }
+
+    /// Cycle cap: a self-re-enqueueing actor hits the global round budget; the
+    /// flush terminates (this test completing proves no hang), fires exactly the
+    /// budget's worth of rounds, and drains the residue so the queue is empty.
+    #[test]
+    fn shared_flush_round_budget_terminates_on_cycle() {
+        let _ = take_runtime_reactive_entries();
+        let _ = crate::runtime::commands::take_widget_commands();
+
+        let fires = Arc::new(AtomicUsize::new(0));
+        let mut tree = crate::widget_tree::WidgetTree::new();
+        let node = tree.set_root(Box::new(CyclingReactiveWidget {
+            fires: Arc::clone(&fires),
+        }));
+
+        // Seed the first entry (as a handler would have).
+        let mut rctx = ReactiveCtx::new(node);
+        rctx.record_change(
+            "v",
+            ReactiveFlags::reactive(),
+            Box::new(0i32),
+            Box::new(1i32),
+        );
+        enqueue_runtime_reactive_entry(crate::reactive::RuntimeReactiveEntry::new(node, rctx));
+
+        let mut app = test_app_with_tree(tree);
+        let mut pending = super::PendingInvalidation::default();
+        let mut root = StyleNode::new("Root");
+        app.run_event_loop_reactive_phase(&mut root, &mut pending);
+
+        // Bounded by the round budget, not unbounded (no hang).
+        assert_eq!(
+            fires.load(Ordering::SeqCst),
+            crate::reactive::MAX_REACTIVE_ITERATIONS,
+            "cycling reactive dispatch fires once per round, up to the budget"
+        );
+        // Residue drained so the queue cannot grow across future flushes.
+        assert!(
+            !crate::reactive::runtime_reactive_queue_is_nonempty(),
+            "flush drains the residual entries on cycle detection"
+        );
+        assert!(!crate::runtime::commands::command_queue_is_nonempty());
     }
 
     // SPEC-P2 Step 6a (option b): test for on_app_unhandled_action fallback.

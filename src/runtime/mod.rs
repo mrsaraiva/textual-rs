@@ -1,3 +1,4 @@
+mod commands;
 mod devtools;
 pub mod dispatch_ctx;
 mod event_loop;

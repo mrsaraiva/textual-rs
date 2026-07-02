@@ -811,6 +811,44 @@ impl WidgetTree {
         }
     }
 
+    /// Find nodes matching a CSS selector within the subtree rooted at `root`,
+    /// **excluding `root` itself** (Python `widget.query(...)` searches
+    /// descendants). Used by drain-time `CommandTarget::Selector` resolution.
+    pub fn query_within(&self, root: NodeId, selector: &str) -> Result<Vec<NodeId>, QueryError> {
+        let chains = parse_selector_list(selector);
+        if chains.is_empty() {
+            return Err(QueryError::ParseError(format!(
+                "invalid selector: {selector}"
+            )));
+        }
+        let mut result = Vec::new();
+        for &node in self.walk_depth_first(root).iter() {
+            if node == root {
+                continue;
+            }
+            for chain in &chains {
+                if self.matches_chain(node, chain) {
+                    result.push(node);
+                    break;
+                }
+            }
+        }
+        Ok(result)
+    }
+
+    /// Find exactly one descendant of `root` matching a CSS selector.
+    ///
+    /// `Err(QueryError::NoMatch)` if nothing matches, `TooManyMatches(n)` if more
+    /// than one does.
+    pub fn query_one_within(&self, root: NodeId, selector: &str) -> Result<NodeId, QueryError> {
+        let matches = self.query_within(root, selector)?;
+        match matches.len() {
+            0 => Err(QueryError::NoMatch),
+            1 => Ok(matches[0]),
+            n => Err(QueryError::TooManyMatches(n)),
+        }
+    }
+
     /// Find direct children of `parent` that match a CSS selector.
     ///
     /// Only considers immediate children — not deeper descendants.
