@@ -12,7 +12,10 @@ use std::time::Duration;
 
 use rich_rs::{Console, ConsoleOptions, Segments};
 use textual::prelude::*;
-use textual::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
+use textual::reactive::{
+    ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget, RuntimeReactiveEntry,
+    enqueue_runtime_reactive_entry,
+};
 use textual::runtime::{Pilot, TimerHandle};
 use textual::widgets::Widget;
 
@@ -145,6 +148,150 @@ fn advance_clock_drives_widget_owned_interval_with_pause_resume() {
         pilot.pause()?; // drain the ResumeTimer command
         pilot.advance_clock(Duration::from_secs(2))?;
         assert_eq!(observed.load(Ordering::SeqCst), 5, "resumed timer ticks (7 -> 5)");
+
+        Ok(())
+    })
+    .expect("headless run_test must succeed");
+}
+
+// ===========================================================================
+// RA2.0 — headless lifecycle convergence
+//
+// A widget mounted via DYNAMIC RECOMPOSE (not initial compose) must receive
+// `on_mount_ctx` under the headless pump, exactly as under the live loop, so its
+// `set_interval` timer registers. Before the fix, `headless_pump` never drained
+// tree lifecycle events, so a recompose-mounted timer widget never got
+// `on_mount_ctx` and its timer never fired under `advance_clock`.
+// ===========================================================================
+
+/// A host whose subtree recomposes when its `show` reactive flips: while `show`
+/// is false it composes nothing; once flipped true it composes a `Countdown`
+/// (whose `on_mount_ctx` registers a widget-owned interval). `#[reactive(recompose)]`
+/// drives the subtree rebuild through the reactive phase.
+#[derive(Reactive)]
+struct Host {
+    #[reactive(recompose)]
+    show: bool,
+    observed: Arc<AtomicI32>,
+    handle_slot: Arc<Mutex<Option<TimerHandle>>>,
+    fires: Arc<AtomicI32>,
+}
+
+impl Widget for Host {
+    fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+        Segments::new()
+    }
+
+    fn style_type(&self) -> &'static str {
+        "Host"
+    }
+
+    fn focusable(&self) -> bool {
+        true
+    }
+
+    fn reactive_widget(&mut self) -> Option<&mut dyn ReactiveWidget> {
+        Some(self)
+    }
+
+    fn compose(&self) -> ComposeResult {
+        if *self.show() {
+            vec![ChildDecl::new(Box::new(Countdown::new(
+                10,
+                Arc::clone(&self.observed),
+                Arc::clone(&self.handle_slot),
+                Arc::clone(&self.fires),
+            )))]
+        } else {
+            Vec::new()
+        }
+    }
+
+    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        if let Event::Key(_) = event {
+            // Flip `show` via the widget's own reactive setter and enqueue the
+            // change so the reactive phase requests a recompose of this node.
+            let node_id = self.node_id();
+            let mut reactive = ReactiveCtx::new(node_id);
+            self.set_show(true, &mut reactive);
+            if reactive.has_changes() {
+                enqueue_runtime_reactive_entry(RuntimeReactiveEntry::new(node_id, reactive));
+                ctx.set_handled();
+            }
+        }
+    }
+}
+
+struct RecomposeApp {
+    observed: Arc<AtomicI32>,
+    handle_slot: Arc<Mutex<Option<TimerHandle>>>,
+    fires: Arc<AtomicI32>,
+}
+
+impl TextualApp for RecomposeApp {
+    fn compose(&mut self) -> AppRoot {
+        AppRoot::new().with_child(Host {
+            show: false,
+            observed: Arc::clone(&self.observed),
+            handle_slot: Arc::clone(&self.handle_slot),
+            fires: Arc::clone(&self.fires),
+        })
+    }
+}
+
+/// Gate: a timer-registering widget mounted via dynamic recompose gets
+/// `on_mount_ctx` under the headless pump, so `advance_clock` drives its timer.
+#[test]
+fn recompose_mounted_widget_registers_timer_headlessly() {
+    let observed = Arc::new(AtomicI32::new(i32::MIN));
+    let handle_slot: Arc<Mutex<Option<TimerHandle>>> = Arc::new(Mutex::new(None));
+    let fires = Arc::new(AtomicI32::new(0));
+    let app = RecomposeApp {
+        observed: Arc::clone(&observed),
+        handle_slot: Arc::clone(&handle_slot),
+        fires: Arc::clone(&fires),
+    };
+
+    textual::run_test(app, |pilot: &mut Pilot| {
+        pilot.pause()?;
+        // No Countdown yet (show == false): the timer widget is not mounted.
+        assert_eq!(
+            observed.load(Ordering::SeqCst),
+            i32::MIN,
+            "no timer before recompose mounts the widget"
+        );
+        assert_eq!(fires.load(Ordering::SeqCst), 0, "no fire before recompose");
+
+        // Drive the recompose: focus the Host and press a key → `show` flips true
+        // → reactive phase requests a recompose → Countdown mounts.
+        pilot.app_mut().action_focus_next();
+        pilot.press(&["r"])?;
+
+        // Countdown mounted, but no clock advance yet → still no tick.
+        assert_eq!(
+            observed.load(Ordering::SeqCst),
+            i32::MIN,
+            "recompose mounts the widget but no tick until the clock advances"
+        );
+
+        // Advance 3 clock seconds → 3 ticks (10 -> 7). This can ONLY happen if
+        // the recompose-mounted Countdown got `on_mount_ctx` headlessly and thus
+        // registered its interval.
+        pilot.advance_clock(Duration::from_secs(3))?;
+        assert_eq!(
+            observed.load(Ordering::SeqCst),
+            7,
+            "recompose-mounted timer fired 3 times (proves on_mount_ctx ran headlessly)"
+        );
+        assert_eq!(
+            fires.load(Ordering::SeqCst),
+            3,
+            "timer callback ran exactly 3 times"
+        );
+        assert!(
+            handle_slot.lock().unwrap().is_some(),
+            "timer handle recorded at mount"
+        );
 
         Ok(())
     })

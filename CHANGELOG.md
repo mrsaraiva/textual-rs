@@ -9,6 +9,17 @@ until the API stabilizes.
 
 ### Framework fundamentals
 
+- **Headless lifecycle convergence** (RA2.0) — the headless/Pilot pump now drains
+  tree `Mount`/`Unmount` lifecycle events and fires the widget-owned `on_mount_ctx`
+  hook (which registers `set_interval` timers) via the SAME shared function as the
+  live loop (`App::drain_tree_lifecycle_events`, extracted from the live loop's
+  former inline block — one function, no re-implementation). Previously a widget
+  mounted through a **dynamic recompose** (`#[reactive(recompose)]` / a mount
+  command) under a headless test never received `on_mount_ctx`, so its timers never
+  registered and `advance_clock` drove nothing; initial-mount already worked in both
+  loops. This closes the last live-vs-headless mount divergence and is the
+  prerequisite for retiring `take_pending_mount_messages` in the RA-2 batch.
+
 - **Closure-posted messages now bubble (`PostUp`) + `#[on]` hardening** (WidgetCtx
   build, step 5) — a message posted from an `update_via` / timer / `on_mount_ctx`
   closure (via the fresh `WidgetCtx`) is no longer debug-logged-and-dropped: the
