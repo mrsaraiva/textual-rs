@@ -837,11 +837,15 @@ fn dynamic_watch_increment_value_and_bar_colour() {
     );
 }
 
-/// screens/modes01: Python shows a Footer row with key shortcuts (Dashboard /
-/// Settings / Help). Rust's footer is (per report) missing. Catch: the footer
-/// row text differs between the two.
+/// screens/modes01: Python shows a Footer row with the app's `switch_mode` key
+/// shortcuts (Dashboard / Settings / Help). Rust previously omitted them because
+/// the Footer only walked the active mode-screen tree and never surfaced the
+/// app-root `BINDINGS`. After the fix (`active_binding_hints_tree` now appends
+/// the app-root namespace bindings under an active screen), BOTH apps show the
+/// shortcut trio on a near-bottom row. This is the positive-parity counterpart
+/// to `parity_screens_modes01_dashboard` (which asserts full glyph parity).
 #[test]
-fn modes01_missing_footer_row() {
+fn modes01_footer_row_lists_switch_mode_bindings() {
     let script = [Step::Wait(300)];
     let (rust, py) = drive_both("modes01", "guide/screens", "modes01", &script, 400);
     let (rf, pf) = (rust.last().unwrap(), py.last().unwrap());
@@ -866,9 +870,9 @@ fn modes01_missing_footer_row() {
     eprintln!("modes01: py_footer={py_has_footer} rust_footer={rust_has_footer}");
 
     assert!(
-        py_has_footer != rust_has_footer,
-        "HARNESS BLIND: modes01 footer presence looks identical.\n\
-         Expected Python to show a Footer with Dashboard/Settings/Help and Rust to lack it (or vice versa).\n{}",
+        py_has_footer && rust_has_footer,
+        "modes01: BOTH apps must show a Footer with the switch_mode Dashboard/Settings/Help shortcuts.\n\
+         py_footer={py_has_footer} rust_footer={rust_has_footer}\n{}",
         text_diff(pf, rf),
     );
 }
@@ -1310,7 +1314,6 @@ fn parity_option_list_options_navigate() {
 
 /// tabs: 'a' adds a tab (cycles the Dune names); active label updates.
 #[test]
-#[ignore = "BUG: Tabs add_tab('a') does not add a visible tab — Python shows 'Paul Atreidies  Duke Leto Atreides'; Rust shows only 'Paul Atreidies'. 16 glyph cells."]
 fn parity_tabs_add() {
     let script = [Step::Key(Key::Char('a')), Step::Wait(300)];
     let (rf, pf) = widgets_both("tabs", &script, 400);
@@ -2169,7 +2172,6 @@ fn parity_screens_modal03_dialog() {
 /// Placeholder + Footer. Compare the initial dashboard (user flagged the Footer
 /// as MISSING — this verifies it).
 #[test]
-#[ignore = "BUG (user-flagged, CONFIRMED): the Footer is MISSING the app's switch_mode bindings — Python shows ` d Dashboard  s Settings  h Help ... ^p palette`; Rust's Footer shows only `^p palette` (the d/s/h binding hints are absent). 24 glyph cells. Root: App BINDINGS not surfaced in the Footer when running under MODES/switch_mode screens."]
 fn parity_screens_modes01_dashboard() {
     let script = [Step::Wait(400)];
     let (rf, pf) = cat_both("modes01", "guide/screens", &script, 500);

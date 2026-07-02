@@ -762,48 +762,89 @@ pub(crate) fn match_binding_chain(
     None
 }
 
+/// Push the binding hints declared by a single tree node into `hints`, recording
+/// the node in `sources`. Collects both `binding_hints()` (imperative) and hints
+/// derived from declarative `bindings()`, applying the node's action namespace.
+fn collect_node_binding_hints(
+    tree: &WidgetTree,
+    node_id: NodeId,
+    hints: &mut Vec<BindingHint>,
+    sources: &mut Vec<NodeId>,
+) {
+    let Some(node) = tree.get(node_id) else {
+        return;
+    };
+    sources.push(node_id);
+    let namespace = node.widget.action_namespace();
+    hints.extend(
+        node.widget
+            .binding_hints()
+            .into_iter()
+            .map(|hint| match hint.namespace {
+                Some(_) => hint,
+                None => hint.with_namespace(namespace),
+            }),
+    );
+    // Also include hints derived from declarative bindings.
+    for decl in node.widget.bindings() {
+        let mut hint = BindingHint::new(&decl.key, &decl.description)
+            .hidden(!decl.show)
+            .with_key_display(format_binding_key_display(&decl.key))
+            .with_priority(decl.priority)
+            .with_action(&decl.action)
+            .with_namespace(
+                decl.namespace
+                    .clone()
+                    .unwrap_or_else(|| namespace.to_string()),
+            );
+        if let Some(tooltip) = &decl.tooltip {
+            hint = hint.with_tooltip(tooltip.clone());
+        }
+        hints.push(hint);
+    }
+}
+
 /// Collect binding hints along the focused path (focused→root).
 ///
 /// If no widget has focus, falls back to root + single-child chain.
-pub(crate) fn active_binding_hints_tree(tree: &WidgetTree) -> (Vec<BindingHint>, Vec<NodeId>) {
-    if let Some(focus_id) = focused_node_id_tree(tree) {
+///
+/// When a distinct `app_root` tree is supplied (i.e. a screen/mode is active and
+/// the app-root tree is *not* the active tree), the app-root's own bindings are
+/// appended after the active-tree chain. This mirrors Python's
+/// `Screen.active_bindings`, whose namespace chain ends with the App node
+/// (`focused.ancestors_with_self` bottoms out at Screen→App, or `[screen, app]`
+/// when nothing is focused), and keeps `App::BINDINGS` (e.g. `switch_mode`)
+/// visible in the Footer beneath an active mode/screen. Just like
+/// `match_binding_chain`, `app_root` must be `None` when the active tree already
+/// *is* the app-root tree, to avoid double-collecting it.
+pub(crate) fn active_binding_hints_tree(
+    tree: &WidgetTree,
+    app_root: Option<&WidgetTree>,
+) -> (Vec<BindingHint>, Vec<NodeId>) {
+    let (mut hints, mut sources) = if let Some(focus_id) = focused_node_id_tree(tree) {
         let path = build_path_to_node(tree, focus_id);
         let mut hints = Vec::new();
         let mut sources = Vec::new();
         for &node_id in path.iter().rev() {
-            if let Some(node) = tree.get(node_id) {
-                sources.push(node_id);
-                let namespace = node.widget.action_namespace();
-                hints.extend(node.widget.binding_hints().into_iter().map(
-                    |hint| match hint.namespace {
-                        Some(_) => hint,
-                        None => hint.with_namespace(namespace),
-                    },
-                ));
-                // Also include hints derived from declarative bindings.
-                for decl in node.widget.bindings() {
-                    let mut hint = BindingHint::new(&decl.key, &decl.description)
-                        .hidden(!decl.show)
-                        .with_key_display(format_binding_key_display(&decl.key))
-                        .with_priority(decl.priority)
-                        .with_action(&decl.action)
-                        .with_namespace(
-                            decl.namespace
-                                .clone()
-                                .unwrap_or_else(|| namespace.to_string()),
-                        );
-                    if let Some(tooltip) = &decl.tooltip {
-                        hint = hint.with_tooltip(tooltip.clone());
-                    }
-                    hints.push(hint);
-                }
-            }
+            collect_node_binding_hints(tree, node_id, &mut hints, &mut sources);
         }
-        return (hints, sources);
+        (hints, sources)
+    } else {
+        // No focus — walk root + single-child chain (matches old `collect_no_focus_scope`).
+        collect_root_scope_hints(tree)
+    };
+
+    // Append the app-root namespace bindings (Python appends the App node's own
+    // bindings after the screen chain). Only the app-root's root node is consulted
+    // — the app namespace — not its descendants, so screen/mode content bindings
+    // and infrastructure widgets (command palette, tooltip) are not double-counted.
+    if let Some(app_tree) = app_root
+        && let Some(root) = app_tree.root()
+    {
+        collect_node_binding_hints(app_tree, root, &mut hints, &mut sources);
     }
 
-    // No focus — walk root + single-child chain (matches old `collect_no_focus_scope`).
-    collect_root_scope_hints(tree)
+    (hints, sources)
 }
 
 /// Walk from root along single-child chains collecting hints (no-focus fallback).
@@ -1283,7 +1324,7 @@ mod message_tests {
         );
         tree.set_focus_state(_leaf_id, true);
 
-        let (hints, _sources) = active_binding_hints_tree(&tree);
+        let (hints, _sources) = active_binding_hints_tree(&tree, None);
         assert_eq!(
             hints,
             vec![
@@ -1310,7 +1351,7 @@ mod message_tests {
         );
 
         // No focused node — falls back to root scope (single-child chain).
-        let (hints, _) = active_binding_hints_tree(&tree);
+        let (hints, _) = active_binding_hints_tree(&tree, None);
         // Returns root + leaf hints via single-child fallback.
         assert!(!hints.is_empty());
     }
@@ -1372,7 +1413,7 @@ mod message_tests {
         );
         tree.set_focus_state(child_id, true);
 
-        let (first, _) = active_binding_hints_tree(&tree);
+        let (first, _) = active_binding_hints_tree(&tree, None);
         assert_eq!(
             first,
             vec![
@@ -1385,7 +1426,7 @@ mod message_tests {
         tree.set_focus_state(child_id, false);
         tree.set_focus_state(root_id, true);
 
-        let (second, _) = active_binding_hints_tree(&tree);
+        let (second, _) = active_binding_hints_tree(&tree, None);
         assert_eq!(
             second,
             vec![BindingHint::new("tab", "next focus").with_namespace("")]
@@ -1456,7 +1497,7 @@ mod message_tests {
         );
         tree.set_focus_state(_leaf_id, true);
 
-        let (hints, sources) = active_binding_hints_tree(&tree);
+        let (hints, sources) = active_binding_hints_tree(&tree, None);
         assert_eq!(
             hints,
             vec![
@@ -1480,7 +1521,7 @@ mod message_tests {
             Box::new(HintNode::new(false, vec![BindingHint::new("f1", "help")])),
         );
 
-        let (hints, sources) = active_binding_hints_tree(&tree);
+        let (hints, sources) = active_binding_hints_tree(&tree, None);
         assert_eq!(
             hints,
             vec![
@@ -1552,7 +1593,7 @@ mod message_tests {
         let _tree_id = tree.mount(root_id, Box::new(HintNode::new(true, vec![])));
         tree.set_focus_state(_tree_id, true);
 
-        let (hints, sources) = active_binding_hints_tree(&tree);
+        let (hints, sources) = active_binding_hints_tree(&tree, None);
         assert!(
             hints.iter().any(|h| h.key == "a"),
             "app-level 'a' binding hint must appear in active hints when Tree is focused"
@@ -2595,7 +2636,7 @@ mod binding_tests {
         );
         tree.set_focus_state(_child_id, true);
 
-        let (hints, _sources) = active_binding_hints_tree(&tree);
+        let (hints, _sources) = active_binding_hints_tree(&tree, None);
         // Root has 1 binding, child has 2 bindings = 3 total hints.
         assert_eq!(hints.len(), 3);
 

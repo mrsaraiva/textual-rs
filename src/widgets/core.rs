@@ -758,6 +758,23 @@ pub trait Widget: Send + Sync + Any {
     fn drain_pending_class_ops(&mut self) -> Vec<(String, bool)> {
         Vec::new()
     }
+    /// Drain a pending "recompose myself" request staged by a widget method
+    /// called outside of an event handler (e.g. via `App::with_query_one_mut_as`).
+    ///
+    /// Some composed widgets build their arena children from internal state in
+    /// `compose()`/`take_composed_children()` (e.g. `Tabs`, whose tab bar is a
+    /// composed subtree). When such state is mutated post-mount through a
+    /// `with_query_one_mut_as` call — which has no `EventCtx` — the widget cannot
+    /// request its own recompose. It stages the request instead; the runtime
+    /// calls this after each `with_widget_mut` invocation and, when `true`,
+    /// recomposes the node's subtree so the new children become visible.
+    ///
+    /// This mirrors Python, where `Tabs.add_tab` mounts the new tab itself, so
+    /// the caller does not need to trigger any refresh. Returns `false` by
+    /// default (leaf widgets and widgets that recompose via reactive changes).
+    fn take_pending_self_recompose(&mut self) -> bool {
+        false
+    }
     /// Drain a pending inline-style write-through staged by a post-mount
     /// `set_inline_style` call.
     ///

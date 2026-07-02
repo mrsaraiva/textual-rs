@@ -6142,8 +6142,9 @@ impl App {
         root: &mut dyn Widget,
     ) -> (Vec<crate::event::BindingHint>, Vec<NodeId>) {
         self.ensure_runtime_tree(root);
+        let app_root = self.app_root_tree_when_screen_active();
         if let Some(tree) = self.active_widget_tree() {
-            active_binding_hints_tree(tree)
+            active_binding_hints_tree(tree, app_root)
         } else {
             (Vec::new(), Vec::new())
         }
