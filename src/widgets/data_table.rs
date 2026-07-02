@@ -1928,9 +1928,36 @@ impl Widget for DataTable {
         let header_style = CellVisual::new(header_base, true);
         let normal_style = CellVisual::new(row_base, false);
         let fixed_style = CellVisual::new(fixed_base, false);
-        let selected_style = CellVisual::new(cursor_bg.unwrap_or(row_base), true);
+        // Focused cursor cell: `$block-cursor-background` (opaque `$primary`) with
+        // `$block-cursor-foreground` composed over it (Python `#ddedf9`). Tagged
+        // `no_style` so the `DataTable:focus` `background-tint` is not applied on
+        // top (which would shift the fill from `#0178d4` to `#0c7dd4`).
+        let cursor_base = cursor_bg.unwrap_or(row_base);
+        let cursor_fg = parse_color_like("$block-cursor-foreground")
+            .map(|c| c.flatten_over(cursor_base))
+            .unwrap_or(cursor_base);
+        let selected_style = CellVisual::new(cursor_base, true).final_fg(cursor_fg);
         let hover_style = CellVisual::new(hover_bg.unwrap_or(row_base), false);
         let header_hover_style = CellVisual::new(header_hover_bg.unwrap_or(header_base), true);
+
+        // Header trailing fill: Python fades the extend beyond the columns toward
+        // the widget background (`row_style.blend(background, 0.25)`). Compute it
+        // from the FINAL (tinted) header + surface backgrounds and tag `no_style`
+        // so it is not re-tinted. Only the header shows this (body rows share the
+        // surface colour, so the 25% blend is a no-op there).
+        let composited_bg = crate::css::current_composited_background().unwrap_or(row_base);
+        let header_final = parse_color_like("$foreground")
+            .map(|fg| {
+                crate::renderables::Tint::<()>::blend_color_with_percent(header_base, fg, 5)
+            })
+            .unwrap_or(header_base);
+        let header_fill_bg = composited_bg.blend_over_float(header_final, 0.25);
+        let header_fill_style = CellVisual {
+            bg: header_fill_bg,
+            fg: None,
+            bold: false,
+            no_style: true,
+        };
 
         let mut out = Segments::new();
 
@@ -1945,15 +1972,36 @@ impl Widget for DataTable {
                 }
             };
 
-        // Zebra stripes: resolve alternate row background (even rows).
+        // Zebra stripes: alternate (even) row background. Python
+        // `&:dark > .datatable--even-row { bg: $surface-darken-1 40% }` composites
+        // the 40%-alpha darken over the row's base surface — which itself carries
+        // the `:focus` `background-tint` (`#272727`), giving `#1c1c1c`. We compose
+        // the final colour here (over `composited_bg`) and tag it `no_style` so it
+        // is not tinted again; the glyph foreground is baked to `$foreground`.
+        let foreground = parse_color_like("$foreground").unwrap_or(Color::rgb(224, 224, 224));
         let zebra_stripes = self.zebra_stripes;
-        let zebra_style = if zebra_stripes {
-            let zebra_bg = parse_color_like("$surface-darken-1")
-                .map(|c| c.flatten_over(row_base))
-                .unwrap_or(row_base);
-            CellVisual::new(zebra_bg, false)
+        let (zebra_style, zebra_fill_style) = if zebra_stripes {
+            let even_bg = parse_color_like("$surface-darken-1")
+                .unwrap_or(row_base)
+                .with_alpha(0.4)
+                .flatten_over(composited_bg);
+            let even_style = CellVisual {
+                bg: even_bg,
+                fg: Some(foreground),
+                bold: false,
+                no_style: true,
+            };
+            // Trailing fill fades 25% toward the widget background
+            // (Python `row_style.blend(background, 0.25)`), giving `#1e1e1e`.
+            let even_fill_style = CellVisual {
+                bg: composited_bg.blend_over_float(even_bg, 0.25),
+                fg: None,
+                bold: false,
+                no_style: true,
+            };
+            (even_style, even_fill_style)
         } else {
-            normal_style
+            (normal_style, normal_style)
         };
 
         let fixed_data_rows = self.fixed_data_rows();
@@ -1985,7 +2033,7 @@ impl Widget for DataTable {
                     }
                     header_style
                 },
-                header_style,
+                header_fill_style,
                 &mut out,
             );
             out.push(Segment::line());
@@ -2000,10 +2048,10 @@ impl Widget for DataTable {
                 return;
             };
             let is_even_row = row_idx % 2 == 0;
-            let row_base_style = if zebra_stripes && is_even_row {
-                zebra_style
+            let (row_base_style, row_fill_style) = if zebra_stripes && is_even_row {
+                (zebra_style, zebra_fill_style)
             } else {
-                normal_style
+                (normal_style, normal_style)
             };
             let empty_label = Content::empty();
             let row_label = self
@@ -2035,7 +2083,7 @@ impl Widget for DataTable {
                     }
                     base
                 },
-                row_base_style,
+                row_fill_style,
                 out,
             );
             out.push(Segment::line());
@@ -2170,15 +2218,29 @@ const CELL_PADDING: usize = 1;
 /// The visual base for a cell run: a background color plus a bold flag. The
 /// cell's own foreground/italic/markup spans are composed on top of this base by
 /// [`Content::render_strips`]. Replaces the old per-cell `rich_rs::Style`.
+///
+/// `fg`/`no_style` support cells the widget composes to their FINAL colour
+/// (e.g. the focused cursor cell, whose `$block-cursor-background` is opaque and
+/// must NOT receive the `DataTable:focus` `background-tint`). Such cells set an
+/// explicit `fg` (so `apply_style_to_segments` need not stamp `$foreground`) and
+/// `no_style = true` (so the widget-level style pass leaves them untouched),
+/// mirroring Python's per-component `get_component_rich_style`.
 #[derive(Debug, Clone, Copy)]
 struct CellVisual {
     bg: Color,
+    fg: Option<Color>,
     bold: bool,
+    no_style: bool,
 }
 
 impl CellVisual {
     fn new(bg: Color, bold: bool) -> Self {
-        Self { bg, bold }
+        Self {
+            bg,
+            fg: None,
+            bold,
+            no_style: false,
+        }
     }
 
     /// Return a copy with bold forced on (header fixed/cursor cells).
@@ -2187,11 +2249,20 @@ impl CellVisual {
         self
     }
 
+    /// Return a copy carrying a fully-composed foreground + `no_style` flag, used
+    /// for the focused cursor cell so its opaque background is not re-tinted.
+    fn final_fg(mut self, fg: Color) -> Self {
+        self.fg = Some(fg);
+        self.no_style = true;
+        self
+    }
+
     /// Build the `crate::style::Style` base used as `visual_style` for
     /// `Content::render_strips` (bg + bold; the cell's spans add fg/italic).
     fn to_style(self) -> Style {
         let mut s = Style {
             bg: Some(self.bg),
+            fg: self.fg,
             ..Style::default()
         };
         if self.bold {
@@ -2204,6 +2275,23 @@ impl CellVisual {
     fn gap_rich(self) -> rich_rs::Style {
         rich_rs::Style::new().with_bgcolor(self.bg.to_simple_opaque())
     }
+}
+
+/// Tag `seg` with `textual:no_style` so `apply_style_to_segments` leaves it
+/// untouched (background-tint / fg stamping already baked by the widget).
+fn tag_segment_no_style(seg: &mut Segment) {
+    let mut meta = seg.meta.take().unwrap_or_default();
+    let mut map: std::collections::BTreeMap<String, rich_rs::MetaValue> = meta
+        .meta
+        .as_ref()
+        .map(|m| (**m).clone())
+        .unwrap_or_default();
+    map.insert(
+        "textual:no_style".to_string(),
+        rich_rs::MetaValue::Bool(true),
+    );
+    meta.meta = Some(std::sync::Arc::new(map));
+    seg.meta = Some(meta);
 }
 
 /// Resolve raw markup span styles (theme tokens, `#hex`, `italic`, …) into a
@@ -2252,13 +2340,35 @@ fn render_cell_segments(
         resolve_cell_span,
     );
     if let Some(strip) = strips.into_iter().next() {
-        for seg in strip {
+        for mut seg in strip {
+            if visual.no_style {
+                tag_segment_no_style(&mut seg);
+            }
             out.push(seg);
         }
     } else {
         // Defensive: empty content still occupies the column width.
-        out.push(Segment::styled(" ".repeat(width), visual.gap_rich()));
+        let mut seg = Segment::styled(" ".repeat(width), visual.gap_rich());
+        if visual.no_style {
+            tag_segment_no_style(&mut seg);
+        }
+        out.push(seg);
     }
+}
+
+/// Emit `CELL_PADDING` pad spaces styled with `visual` (the owning cell's
+/// background). Python renders each column as `cell_padding` cells on each side
+/// in the cell's own style, so a cursor cell's surrounding pad shares its
+/// background rather than the neutral row surface.
+fn push_cell_pad(visual: CellVisual, out: &mut Segments) {
+    if CELL_PADDING == 0 {
+        return;
+    }
+    let mut seg = Segment::styled(" ".repeat(CELL_PADDING), visual.gap_rich());
+    if visual.no_style {
+        tag_segment_no_style(&mut seg);
+    }
+    out.push(seg);
 }
 
 /// Lay `content` out in exactly `width` cells per `align`, preserving styled
@@ -2296,47 +2406,53 @@ fn emit_row_per_cell(
     // `width == 0` means no label column (the common, unlabelled case).
     label: Option<(&Content, usize, CellVisual)>,
     style_for_col: impl Fn(usize) -> CellVisual,
-    gap_style: CellVisual,
+    // Style for the trailing fill beyond the last column. For the header row this
+    // is the faded extend colour (Python `row_style.blend(background, 0.25)`); for
+    // body rows it matches the row surface, so no fade is visible.
+    fill_style: CellVisual,
     out: &mut Segments,
 ) {
-    let gap_rich = gap_style.gap_rich();
-    if rendered_columns.is_empty() {
+    let fill_rich = fill_style.gap_rich();
+    if rendered_columns.is_empty() && label.is_none_or(|(_, w, _)| w == 0) {
         if total_width > 0 {
-            out.push(Segment::styled(" ".repeat(total_width), gap_rich));
+            out.push(Segment::styled(" ".repeat(total_width), fill_rich));
         }
         return;
     }
+    // Each column (label + data) is rendered as `[left pad][content][right pad]`
+    // in the cell's own style, mirroring Python `cell_padding = 1`. The visible
+    // 2-cell gap between adjacent columns is the previous cell's right pad plus
+    // the next cell's left pad, so a highlighted cell's surrounding padding shares
+    // its background — matching Python's cursor cell extent.
     let mut used = 0usize;
-    // Leading space (left pad of first cell).
-    out.push(Segment::styled(" ".repeat(CELL_PADDING), gap_rich));
-    used += CELL_PADDING;
-    // Row-label column: rendered as a (left-aligned) content cell, then a 2-cell
-    // gap to the data cells (Python renders the label column as a non-data
-    // leading column, and the label may itself be a styled `Text`).
+    // Row-label column (rendered as a non-data leading column).
     if let Some((label_content, label_width, label_visual)) = label
         && label_width > 0
     {
+        push_cell_pad(label_visual, out);
         render_cell_segments(label_content, TextAlign::Left, label_width, label_visual, out);
-        out.push(Segment::styled("  ", gap_rich));
-        used += label_width + 2;
+        push_cell_pad(label_visual, out);
+        used += label_width + 2 * CELL_PADDING;
     }
-    for (i, col_idx) in rendered_columns.iter().copied().enumerate() {
+    for col_idx in rendered_columns.iter().copied() {
         let col_w = column_widths.get(col_idx).copied().unwrap_or(0);
-        if i > 0 {
-            // Inter-cell gap = right pad of previous + left pad of next = 2 spaces.
-            out.push(Segment::styled("  ", gap_rich));
-            used += 2;
-        }
+        let visual = style_for_col(col_idx);
         let (content, align) = match cells.get(col_idx) {
             Some(cell) => (&cell.content, cell.align),
             None => (&Content::empty(), TextAlign::Left),
         };
-        render_cell_segments(content, align, col_w, style_for_col(col_idx), out);
-        used += col_w;
+        push_cell_pad(visual, out);
+        render_cell_segments(content, align, col_w, visual, out);
+        push_cell_pad(visual, out);
+        used += col_w + 2 * CELL_PADDING;
     }
-    // Pad remainder to full width (absorbs trailing right-pad of last cell).
+    // Pad remainder to full width with the fill style.
     if used < total_width {
-        out.push(Segment::styled(" ".repeat(total_width - used), gap_rich));
+        let mut seg = Segment::styled(" ".repeat(total_width - used), fill_rich);
+        if fill_style.no_style {
+            tag_segment_no_style(&mut seg);
+        }
+        out.push(seg);
     }
 }
 
