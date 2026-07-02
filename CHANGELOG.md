@@ -7,6 +7,30 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### Runtime fixes
+
+- **A runtime CSS class change now re-resolves CSS + relayouts the owning subtree** —
+  Python `DOMNode.add_class`/`remove_class` runs `_update_styles()` → `refresh(layout=True)`,
+  so a class toggle that flips descendant `display`/`visibility` (or any layout-affecting
+  property) re-arranges the tree. Rust applied the class op to the arena but only requested
+  a repaint, which skips `run_layout_pass` (and therefore `apply_display_visibility_to_tree`),
+  leaving stale display state on screen. Applying a class op now requests a layout
+  invalidation at every class-op sink (event/message outcomes, app-key ops, reactive
+  dispatch, and the `with_widget_mut` pending-op drain). Fixes `stopwatch04`: clicking
+  Start adds `.started`, whose `.started #start { display:none }` / `#stop { display:block }`
+  / `#reset { visibility:hidden }` descendant rules now take effect so only "Stop" shows
+  (glyph-perfect Rust==Python; the residual is the separate `Color.a` blend keystone on the
+  revealed error button).
+- **`Collapsible` title symbol now tracks the parent's `collapsed` state** — Python keeps
+  the title glyph in sync via `Collapsible._update_collapsed` (`self._title.collapsed =
+  collapsed`). In the arena the `CollapsibleTitle` is a separate node the parent no longer
+  owns post-mount, so a runtime toggle left the ▼/▶ symbol stale. The layout pass now
+  propagates each `Collapsible`'s `collapsed` state to its title child (idempotent, driven
+  from the Collapsible's own state), so expand/collapse and the custom-symbol demos render
+  the correct glyph. Fixes the glyph parity of `collapsible`, `collapsible_nested`, and
+  `collapsible_custom_symbol` (residual is the separate `:focus-within` `background-tint`
+  focus-tint gap, shared with `radio_set`).
+
 ### Styling fixes
 
 - **`background-tint` now tints a widget's BORDER + fill, not just its content** —

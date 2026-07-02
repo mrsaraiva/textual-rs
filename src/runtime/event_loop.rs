@@ -2473,6 +2473,10 @@ impl App {
                                     }
                                 }
                             }
+                            // Class change may flip descendant display/visibility;
+                            // relayout so the affected subtree re-resolves CSS.
+                            pending_invalidation
+                                .request_flags(crate::event::InvalidationFlags::layout());
                         }
                         if app_key_handled {
                             input_dispatch_us = input_started.elapsed().as_micros();
@@ -4761,6 +4765,9 @@ impl App {
                     }
                 }
             }
+            // Class change may flip descendant display/visibility; relayout so
+            // the affected subtree re-resolves CSS.
+            pending.request_flags(crate::event::InvalidationFlags::layout());
         }
         if app_key_handled {
             return;
@@ -5391,6 +5398,14 @@ impl App {
                     }
                 }
             }
+            // A runtime class change can flip descendant `display`/`visibility`
+            // and other layout-affecting CSS (e.g. stopwatch04's `.started #start
+            // { display: none }`). Mirror Python `DOMNode.add_class`/`remove_class`
+            // -> `_update_styles()` -> `refresh(layout=True)`: re-resolve CSS and
+            // relayout so the affected subtree shows/hides. A bare repaint skips
+            // `run_layout_pass` (which drives `apply_display_visibility_to_tree`),
+            // leaving stale display state on screen.
+            pending.request_flags(crate::event::InvalidationFlags::layout());
         }
         accumulate_worker_requests(outcome);
     }
@@ -5738,6 +5753,10 @@ impl App {
                     }
                 }
             }
+            // A class change can flip descendant display/visibility + other
+            // layout-affecting CSS; re-resolve + relayout (Python
+            // `add_class`/`remove_class` -> `refresh(layout=True)`).
+            layout_requested = true;
         }
 
         // A recompose request rebuilds the node's subtree (Python
