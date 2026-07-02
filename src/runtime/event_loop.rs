@@ -5740,14 +5740,14 @@ impl App {
     /// existing reactive behavior is unchanged.
     fn run_event_loop_reactive_phase(
         &mut self,
-        _root: &mut dyn Widget,
+        root: &mut dyn Widget,
         pending: &mut PendingInvalidation,
     ) {
         for _round in 0..crate::reactive::MAX_REACTIVE_ITERATIONS {
             let queued = crate::reactive::take_runtime_reactive_entries();
             let commands = crate::runtime::commands::take_widget_commands();
             if queued.is_empty() && commands.is_empty() {
-                return;
+                break;
             }
 
             if !queued.is_empty() {
@@ -5758,6 +5758,16 @@ impl App {
             for cmd in commands {
                 self.apply_widget_command(cmd, pending);
             }
+        }
+
+        // PostUp: bubble any messages posted from update/timer/mount closures from
+        // their originating node (sender is set on each `MessageEvent`). Handlers
+        // they trigger may enqueue further reactive/commands, drained by the next
+        // flush call (messages already defer in this design).
+        if !self.pending_widget_posts.is_empty() {
+            let posts = std::mem::take(&mut self.pending_widget_posts);
+            let mut outcome = self.dispatch_message_queue_with_runtime(root, posts);
+            self.absorb_outcome(&mut outcome, pending, InvalidationScope::Global);
         }
 
         // Budget exhausted with work still pending: a command/reactive cycle
@@ -9118,6 +9128,70 @@ mod tests {
         assert!(
             pending.flags.layout,
             "recompose-only reactive ctx must be enqueued + processed (drives layout), not dropped"
+        );
+    }
+
+    // WidgetCtx build, step 5: PostUp — a message posted from an update/timer
+    // closure bubbles from that node to ancestor handlers.
+
+    #[derive(Debug, Clone)]
+    struct Ping;
+    crate::impl_message!(Ping);
+
+    struct PostSink {
+        pings: Arc<AtomicUsize>,
+    }
+
+    impl Widget for PostSink {
+        fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+            Segments::new()
+        }
+        fn style_type(&self) -> &'static str {
+            "PostSink"
+        }
+        fn on_message(&mut self, message: &MessageEvent, _ctx: &mut EventCtx) {
+            if message.downcast_ref::<Ping>().is_some() {
+                self.pings.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+    }
+
+    #[test]
+    fn post_up_bubbles_closure_posted_message_to_ancestor() {
+        let _ = take_runtime_reactive_entries();
+        let _ = crate::runtime::commands::take_widget_commands();
+
+        let pings = Arc::new(AtomicUsize::new(0));
+        let mut tree = crate::widget_tree::WidgetTree::new();
+        let root = tree.set_root(Box::new(PostSink {
+            pings: Arc::clone(&pings),
+        }));
+        let child = tree.mount(
+            root,
+            Box::new(ChildB {
+                watched: Arc::new(AtomicUsize::new(0)),
+                n: 0,
+            }),
+        );
+
+        // An update_via closure on the child posts a Ping (sender = child).
+        let handle = crate::handle::Handle::<ChildB>::resolve(&tree, child).unwrap();
+        {
+            let mut ectx = EventCtx::default();
+            ectx.set_node_id(root);
+            let mut wctx = crate::event::WidgetCtx::new(root, &mut ectx);
+            handle.update_via(&mut wctx, |_b, c| c.post_message(Ping));
+        }
+
+        let mut app = test_app_with_tree(tree);
+        let mut pending = super::PendingInvalidation::default();
+        let mut app_root = StyleNode::new("Root");
+        app.run_event_loop_reactive_phase(&mut app_root, &mut pending);
+
+        assert_eq!(
+            pings.load(Ordering::SeqCst),
+            1,
+            "closure-posted Ping bubbled from the child up to the PostSink ancestor"
         );
     }
 

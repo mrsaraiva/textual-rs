@@ -209,6 +209,22 @@ mod tests {
     }
 
     #[test]
+    fn dispatcher_carries_no_dead_code_allow() {
+        // Lock-in: the generated dispatcher must NOT be `#[allow(dead_code)]`, so a
+        // handler the user forgot to wire into `#[widget(on(..))]` warns at compile
+        // time (an unused `__on_dispatch_*`) instead of being silently dead.
+        let output = on_handler_impl(
+            quote! { ButtonPressed },
+            quote! { fn handle_button(&mut self, event: &ButtonPressed, ctx: &mut WidgetCtx) {} },
+        )
+        .to_string();
+        assert!(
+            !output.contains("dead_code"),
+            "generated __on_dispatch_* must not suppress the unused-method warning: {output}"
+        );
+    }
+
+    #[test]
     fn generates_dispatch_with_selector() {
         let attr = quote! { ButtonPressed, selector = "#save" };
         let item = quote! {

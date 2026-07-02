@@ -321,14 +321,11 @@ impl App {
             default_prevented: false,
             class_ops: synth_event.take_class_ops(),
         };
+        // PostUp: messages posted from the closure (sender = this node) are
+        // stashed for the flush to bubble from the node after its rounds converge.
         if !outcome.messages.is_empty() {
-            // Routing messages posted from an update/timer closure needs the
-            // `PostUp` command (step 5); until then, surface the drop.
-            crate::debug::debug_message(&format!(
-                "[widget-command] closure on {node:?} posted {} message(s) that are not yet \
-                 routed (PostUp lands in a later step)",
-                outcome.messages.len()
-            ));
+            self.pending_widget_posts
+                .append(&mut outcome.messages);
         }
         self.absorb_outcome(&mut outcome, pending, InvalidationScope::Global);
         ran

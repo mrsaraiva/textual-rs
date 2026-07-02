@@ -567,6 +567,10 @@ pub struct App {
     /// Widget-owned timer ids whose deadline elapsed this drain but whose callback
     /// has not yet run (parallel to `pending_timer_fires`).
     pending_widget_timer_fires: Vec<u64>,
+    /// Messages posted from an `update_via` / timer / `on_mount_ctx` closure
+    /// (their sender is the closure's node). The shared flush bubbles them from
+    /// that node after its rounds converge (WidgetCtx `PostUp`).
+    pending_widget_posts: Vec<MessageEvent>,
     /// Type-erased handle to the user app struct (`Arc<Mutex<T>>`), set by the
     /// `TextualApp` adapter at mount time. Lets timer callbacks re-enter the app
     /// struct via [`App::with_app_struct`] to mutate reactive fields (e.g.
@@ -772,6 +776,7 @@ impl App {
             pending_timer_fires: Vec::new(),
             widget_timer_callbacks: HashMap::new(),
             pending_widget_timer_fires: Vec::new(),
+            pending_widget_posts: Vec::new(),
             app_struct: None,
             devtools: devtools::DevtoolsRuntime::from_env().ok().flatten(),
             style_snapshot_cache: HashMap::new(),

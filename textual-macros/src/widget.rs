@@ -621,7 +621,13 @@ pub fn widget_impl(attr: TokenStream, item: TokenStream) -> TokenStream {
         // `on_message` with an `on(..)` handler list: run the widget's own
         // `#[on(..)]` handlers (with a WidgetCtx materialized over the REAL
         // dispatch EventCtx so handler-posted messages route normally), enqueue
-        // any reactive changes, THEN forward to the base for propagation.
+        // any reactive changes, THEN forward to the base's own `on_message`.
+        //
+        // NOTE: the base forward invokes the BASE widget's own on_message
+        // behavior — it does NOT re-dispatch to children (children receive the
+        // message through routing's bubble phase, node by node). To replace this
+        // glue entirely, `override(on_message)` and call each `__on_dispatch_*`
+        // yourself (`on(..)` + `override(on_message)` is a compile error).
         if spec.name == "on_message" && !args.on_handlers.is_empty() && !overridden {
             let dispatch_calls: Vec<TokenStream> = args
                 .on_handlers
@@ -644,8 +650,9 @@ pub fn widget_impl(attr: TokenStream, item: TokenStream) -> TokenStream {
                         #(#dispatch_calls)*
                         __wctx.__enqueue_reactive_if_dirty();
                     }
-                    // Propagate to the base (children) exactly as the plain
-                    // forwarding row would.
+                    // Forward to the base widget's own on_message (its behavior),
+                    // exactly as the plain forwarding row would — this is NOT a
+                    // re-dispatch to children.
                     self.#field.on_message(message, ctx);
                 }
             });
