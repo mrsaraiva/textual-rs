@@ -226,8 +226,8 @@ pub trait Widget: Send + Sync + Any {
     /// Elide a *purely structural* transparent wrapper out of the arena tree.
     ///
     /// This is a mount-time ELISION decision, NOT a child-drain hook — RA2.1
-    /// retired the `take_composed_children`/meta/sink drains (compose() is the
-    /// sole child path), but the transparent-wrapper elision is a real,
+    /// retired the legacy child-drain/meta/sink hooks (compose() is the sole
+    /// child path), but the transparent-wrapper elision is a real,
     /// parity-sensitive placement decision that legitimately survives. Its exact
     /// gating (id-only / scroll-host wrappers fold; border-titled or classed
     /// non-scroll wrappers STAY as the rendered box) is preserved as-is. The
