@@ -84,7 +84,7 @@ mod tests {
     #[test]
     fn forwards_scrollbar_messages_to_inner_scrollable_container() {
         let mut vs = VerticalScroll::new().with_child(Label::new("line\n".repeat(40)));
-        let _ = vs.take_composed_children();
+        let _ = vs.compose();
         vs.set_virtual_content_size(40, 100);
 
         let mut ctx = EventCtx::default();

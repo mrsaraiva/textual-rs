@@ -64,13 +64,18 @@ impl Node {
 }
 
 impl Widget for Node {
-    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
+    fn compose(&mut self) -> crate::compose::ComposeResult {
+        // Non-collapse path: a `Node` that stays a real arena node (a classed,
+        // border-titled, or otherwise styled box — see `take_structural_collapse`)
+        // mounts its single inner child beneath it. When the wrapper instead
+        // collapses out, the mount pipeline consumes `take_structural_collapse`
+        // FIRST and this is never reached (so the child is drained exactly once).
         if self.child_extracted {
             return Vec::new();
         }
         self.child_extracted = true;
         let child = std::mem::replace(&mut self.child, Box::new(Spacer::new(1)));
-        vec![child]
+        vec![crate::compose::ChildDecl::new(child)]
     }
 
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
@@ -243,23 +248,23 @@ mod tests {
     use super::*;
 
     #[test]
-    fn node_extraction_returns_child() {
+    fn node_compose_returns_child() {
         let mut n = Node::new(Spacer::new(1));
-        let children = n.take_composed_children();
+        let children = n.compose();
         assert_eq!(children.len(), 1);
     }
 
     #[test]
-    fn node_extraction_idempotent() {
+    fn node_compose_idempotent() {
         let mut n = Node::new(Spacer::new(1));
-        let _ = n.take_composed_children();
-        assert!(n.take_composed_children().is_empty());
+        let _ = n.compose();
+        assert!(n.compose().is_empty());
     }
 
     #[test]
     fn node_render_after_extraction() {
         let mut n = Node::new(Spacer::new(1));
-        let _ = n.take_composed_children();
+        let _ = n.compose();
         let console = Console::new();
         let options = ConsoleOptions {
             size: (20, 5),
@@ -273,7 +278,7 @@ mod tests {
     #[test]
     fn node_style_type_after_extraction() {
         let mut n = Node::new(Spacer::new(1));
-        let _ = n.take_composed_children();
+        let _ = n.compose();
         assert_eq!(n.style_type(), "Node");
     }
 }
