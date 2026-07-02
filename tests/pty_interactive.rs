@@ -1557,7 +1557,7 @@ fn parity_refresh03_greeting() {
 
 /// set_reactive01: pressing Space cycles the greeting via a watcher.
 #[test]
-#[ignore = "BUG/divergence: the Python reference itself RAISES on startup (Rich traceback shown — `self.greeting = greeting` in __init__ fires watch_greeting before compose → query_one NoMatches; this is the doc's intended failure mode that set_reactive02 fixes). Rust does NOT reproduce it: it suppresses/defers the pre-mount watcher and renders \"Hola\". reactive watcher init-timing differs (Python eager → crash, Rust deferred). Also exposes the same `who`-not-rendered gap as set_reactive02."]
+#[ignore = "FUNDAMENTAL DIVERGENCE (not fixable as glyph parity): the Python reference itself RAISES on startup and shows a full Rich traceback — `self.greeting = greeting` in __init__ fires watch_greeting BEFORE compose → query_one(\"#greeting\") NoMatches. This crash is the doc's intentional \"wrong way\" that set_reactive02 fixes via set_reactive. Rust's reactive init is deferred, so it does not reproduce the pre-mount-watcher crash; it renders \"Hola Textual\" instead of a Python traceback. Reproducing a Rich traceback glyph-for-glyph is neither feasible nor meaningful. (Port also given `layout: horizontal` so the Greeter renders correctly, matching set_reactive02.)"]
 fn parity_set_reactive01_greeting() {
     let script = [Step::Key(Key::Space), Step::Wait(300)];
     let (rf, pf) = cat_both("set_reactive01", "guide/reactivity", &script, 400);
@@ -1566,7 +1566,7 @@ fn parity_set_reactive01_greeting() {
 
 /// set_reactive02: same interaction; greeting initialised via `set_reactive`.
 #[test]
-#[ignore = "BUG: Python shows \"Hola Textual\" (greeting cycled + who=\"Textual\"); Rust shows only \"Hola\" — the `who` Label initialised via set_reactive(\"Textual\") in __init__ is NOT reflected at compose time (Label(self.who) reads the default empty reactive). Root: reactive value assigned before compose not read by compose-time content."]
+#[ignore = "PORT/LAYOUT root, not reactive. The compose-time `who` value WAS already visible (compose reads self.who=\"Textual\" correctly); the `who` Label was missing because the Rust `Greeter` (a port of Python `class Greeter(Horizontal)`) lacked `layout: horizontal`, so its two Labels stacked vertically and the second was clipped by height:1. Added `layout: horizontal` to the Greeter CSS (matching the established Stopwatch-subclasses-Horizontal port pattern) — \"Hola Textual\" now renders side by side. Residual: 5 cells — Python collapses the two adjacent 1-cell horizontal Label margins to 1 (max), Rust sums them to 2. Horizontal margin-collapse is a layout fundamental (src/widgets/layout.rs), out of reactive scope."]
 fn parity_set_reactive02_greeting() {
     let script = [Step::Key(Key::Space), Step::Wait(300)];
     let (rf, pf) = cat_both("set_reactive02", "guide/reactivity", &script, 400);
@@ -1576,7 +1576,7 @@ fn parity_set_reactive02_greeting() {
 /// set_reactive03: submitting a name appends a `Hello, <name>` Label via
 /// `mutate_reactive` + recompose.
 #[test]
-#[ignore = "BUG: after submitting \"Ada\", Python recomposes and shows a \"Hello, Ada\" Label; Rust recomposes the Input (placeholder returns) but the appended Label is MISSING. Root: mutate_reactive on a list + recompose does not render the newly-appended children."]
+#[ignore = "REACTIVE ROOT FIXED (glyph-perfect: \"Hello, Ada\" Label now renders after submit). The real root was NOT recompose dropping children: an init-phase `reactive(recompose=True)` fired a mount-time recompose that rebuilt the freshly-composed tree and DISCARDED auto-focus, so the Input never received the typed name. Fixed by suppressing recompose during the reactive init phase (Python's `_initialize_reactive`/`_check_watchers` never recomposes; recompose only fires in `_set`/`mutate_reactive`). Residual: 11 colour cells on the Input placeholder — Rust renders `input--placeholder` as $text (#e0e0e0) instead of $text-disabled (#737373). Pre-existing GLOBAL Input placeholder-colour bug (present at startup with no recompose; also affects the `input` demo), out of reactive scope (style)."]
 fn parity_set_reactive03_names() {
     let script = [Step::SendKeys("Ada"), Step::Key(Key::Enter), Step::Wait(300)];
     let (rf, pf) = cat_both("set_reactive03", "guide/reactivity", &script, 400);

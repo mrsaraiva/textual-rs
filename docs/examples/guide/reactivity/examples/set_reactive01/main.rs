@@ -34,6 +34,7 @@ Screen {
 }
 
 Greeter {
+    layout: horizontal;
     width: auto;
     height: 1;
 }

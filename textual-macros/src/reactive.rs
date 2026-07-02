@@ -742,10 +742,15 @@ pub fn derive_reactive_impl(input: TokenStream) -> TokenStream {
                 let field_ident = &field.ident;
                 let field_name_str = field_ident.to_string();
                 let f_flags_expr = flags_expr(field);
+                // Init-phase changes must never recompose: Python's
+                // `_initialize_reactive` fires watchers via `_check_watchers`,
+                // which never refreshes/recomposes (recompose only happens in
+                // `Reactive._set` / `mutate_reactive`). Recomposing at mount would
+                // rebuild the freshly-composed tree and discard auto-focus.
                 quote! {
                     ctx.record_change(
                         #field_name_str,
-                        #f_flags_expr,
+                        (#f_flags_expr).without_recompose(),
                         Box::new(self.#field_ident.clone()),
                         Box::new(self.#field_ident.clone()),
                     );
