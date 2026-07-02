@@ -28,6 +28,13 @@ pub struct Row {
     focused_child: Option<usize>,
     /// Index of the currently hovered child (non-tree mode only).
     hovered_child: Option<usize>,
+    /// (index into `children`, css_id, classes) recorded by `with_compose` so
+    /// `.with_id()`/`.with_classes()` metadata on declared children reaches the
+    /// mounted node (mirrors `Container::with_compose`).
+    child_decl_meta: Vec<crate::widgets::ChildDeclMeta>,
+    /// (index into `children`, sink) recorded by `with_compose` for decls bound
+    /// via `HandleSlot::bind`.
+    child_handle_sinks: Vec<(usize, crate::handle::HandleSink)>,
 }
 
 impl Default for Row {
@@ -48,6 +55,8 @@ impl Row {
             seed: NodeSeed::default(),
             focused_child: None,
             hovered_child: None,
+            child_decl_meta: Vec::new(),
+            child_handle_sinks: Vec::new(),
         }
     }
 
@@ -57,10 +66,27 @@ impl Row {
     }
 
     /// Add multiple children from a `compose![]` result.
+    ///
+    /// Preserves each `ChildDecl`'s `id`/`classes` (so CSS id/class selectors
+    /// match the mounted nodes) and any `handle_sink` bound via `HandleSlot::bind`,
+    /// mirroring `Container::with_compose`.
     pub fn with_compose(mut self, children: ComposeResult) -> Self {
         for decl in children {
-            match decl.builder {
-                crate::compose::WidgetBuilder::Ready(widget) => self.children.push(widget),
+            let crate::compose::ChildDecl {
+                builder,
+                id,
+                classes,
+                handle_sink,
+                ..
+            } = decl;
+            let crate::compose::WidgetBuilder::Ready(widget) = builder;
+            let index = self.children.len();
+            self.children.push(widget);
+            if id.is_some() || !classes.is_empty() {
+                self.child_decl_meta.push((index, id, classes));
+            }
+            if let Some(sink) = handle_sink {
+                self.child_handle_sinks.push((index, sink));
             }
         }
         self
@@ -178,6 +204,14 @@ impl Widget for Row {
     fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
         self.children_extracted = true;
         std::mem::take(&mut self.children)
+    }
+
+    fn take_child_decl_meta(&mut self) -> Vec<crate::widgets::ChildDeclMeta> {
+        std::mem::take(&mut self.child_decl_meta)
+    }
+
+    fn take_child_handle_sinks(&mut self) -> Vec<(usize, crate::handle::HandleSink)> {
+        std::mem::take(&mut self.child_handle_sinks)
     }
 
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
@@ -1791,6 +1825,13 @@ pub struct Grid {
     row_sizes: Option<Vec<usize>>,
     col_sizes: Option<Vec<usize>>,
     seed: NodeSeed,
+    /// (index into the `take_composed_children()` extraction order, css_id,
+    /// classes) recorded by `with_compose` so `.with_id()`/`.with_classes()`
+    /// metadata on declared children reaches the mounted node.
+    child_decl_meta: Vec<crate::widgets::ChildDeclMeta>,
+    /// (index into the extraction order, sink) recorded by `with_compose` for
+    /// decls bound via `HandleSlot::bind`.
+    child_handle_sinks: Vec<(usize, crate::handle::HandleSink)>,
 }
 
 impl Grid {
@@ -1807,6 +1848,8 @@ impl Grid {
             row_sizes: None,
             col_sizes: None,
             seed: NodeSeed::default(),
+            child_decl_meta: Vec::new(),
+            child_handle_sinks: Vec::new(),
         }
     }
 
@@ -1830,8 +1873,25 @@ impl Grid {
 
     pub fn with_compose(mut self, children: ComposeResult) -> Self {
         for decl in children {
-            match decl.builder {
-                crate::compose::WidgetBuilder::Ready(widget) => self.push_boxed(widget),
+            let crate::compose::ChildDecl {
+                builder,
+                id,
+                classes,
+                handle_sink,
+                ..
+            } = decl;
+            let crate::compose::WidgetBuilder::Ready(widget) = builder;
+            // Index within the `take_composed_children()` extraction order, which
+            // filters out empty cells. `push_boxed` fills the first empty slot, so
+            // the count of occupied cells before insertion equals this child's
+            // position in the extracted sequence.
+            let index = self.cells.iter().filter(|c| c.is_some()).count();
+            self.push_boxed(widget);
+            if id.is_some() || !classes.is_empty() {
+                self.child_decl_meta.push((index, id, classes));
+            }
+            if let Some(sink) = handle_sink {
+                self.child_handle_sinks.push((index, sink));
             }
         }
         self
@@ -1907,6 +1967,14 @@ impl Widget for Grid {
             .iter_mut()
             .filter_map(|cell| cell.take())
             .collect()
+    }
+
+    fn take_child_decl_meta(&mut self) -> Vec<crate::widgets::ChildDeclMeta> {
+        std::mem::take(&mut self.child_decl_meta)
+    }
+
+    fn take_child_handle_sinks(&mut self) -> Vec<(usize, crate::handle::HandleSink)> {
+        std::mem::take(&mut self.child_handle_sinks)
     }
 
     #[allow(clippy::needless_range_loop)] // r/c used as 2D indices into row_heights[r]/col_widths[c]
@@ -2283,6 +2351,41 @@ mod tests {
         let children = r.take_composed_children();
         assert_eq!(children.len(), 2);
         assert!(r.children().is_empty());
+    }
+
+    #[test]
+    fn row_with_compose_preserves_child_decl_meta() {
+        use crate::compose::ChildDecl;
+        let decls: Vec<ChildDecl> = vec![
+            ChildDecl::from(Label::new("a")).with_id("disp-0"),
+            ChildDecl::from(Label::new("b")).with_classes(&["highlight"]),
+            ChildDecl::from(Label::new("c")),
+        ];
+        let mut r = Row::new().with_compose(decls);
+        let meta = r.take_child_decl_meta();
+        // Only children carrying id/classes are recorded, tagged by child index.
+        assert_eq!(meta.len(), 2);
+        assert_eq!(meta[0].0, 0);
+        assert_eq!(meta[0].1.as_deref(), Some("disp-0"));
+        assert_eq!(meta[1].0, 1);
+        assert_eq!(meta[1].2, vec!["highlight".to_string()]);
+        // Children still extract in declaration order.
+        assert_eq!(r.take_composed_children().len(), 3);
+    }
+
+    #[test]
+    fn grid_with_compose_preserves_child_decl_meta() {
+        use crate::compose::ChildDecl;
+        let decls: Vec<ChildDecl> = vec![
+            ChildDecl::from(Label::new("a")),
+            ChildDecl::from(Label::new("b")).with_id("cell-1"),
+        ];
+        let mut g = Grid::new(2, 2).with_compose(decls);
+        let meta = g.take_child_decl_meta();
+        assert_eq!(meta.len(), 1);
+        // Index reflects position in the (filtered) extraction order.
+        assert_eq!(meta[0].0, 1);
+        assert_eq!(meta[0].1.as_deref(), Some("cell-1"));
     }
 
     // ── Row tree-mode regression tests ──────────────────────────────

@@ -10,6 +10,15 @@ pub struct ScrollableContainer {
     can_focus: bool,
     can_focus_children: bool,
     can_maximize: Option<bool>,
+    /// Compose-time id/class metadata drained from the flattened inner Container
+    /// during `take_composed_children` (the Container wrapper is dropped by the
+    /// flatten, so its recorded `ChildDecl` metadata is captured here — with
+    /// indices remapped into the flattened child list — to reach the runtime
+    /// mount path). See the `take_composed_children` override.
+    child_decl_meta: Vec<crate::widgets::ChildDeclMeta>,
+    /// Compose-time handle sinks drained from the flattened inner Container,
+    /// index-remapped like `child_decl_meta`.
+    child_handle_sinks: Vec<(usize, crate::handle::HandleSink)>,
 }
 
 impl ScrollableContainer {
@@ -22,6 +31,8 @@ impl ScrollableContainer {
             can_focus_children: true,
             // Python default for ScrollableContainer.
             can_maximize: Some(false),
+            child_decl_meta: Vec::new(),
+            child_handle_sinks: Vec::new(),
         }
     }
 
@@ -130,6 +141,18 @@ impl Widget for ScrollableContainer {
             if !flattened_container && !is_scrollbar_lane {
                 let any = &mut *child as &mut dyn std::any::Any;
                 if let Some(container) = any.downcast_mut::<Container>() {
+                    // The Container wrapper is dropped by the flatten, so drain its
+                    // compose-time id/class + handle-sink metadata and re-key it by
+                    // the child's final position in the flattened list. Container
+                    // extraction is 1:1 (no lane injection at compose time), so the
+                    // recorded per-child indices map directly onto the extended slice.
+                    let base = out.len();
+                    for (idx, id, classes) in container.take_child_decl_meta() {
+                        self.child_decl_meta.push((base + idx, id, classes));
+                    }
+                    for (idx, sink) in container.take_child_handle_sinks() {
+                        self.child_handle_sinks.push((base + idx, sink));
+                    }
                     out.extend(container.take_composed_children());
                     flattened_container = true;
                     continue;
@@ -139,6 +162,14 @@ impl Widget for ScrollableContainer {
         }
 
         out
+    }
+
+    fn take_child_decl_meta(&mut self) -> Vec<crate::widgets::ChildDeclMeta> {
+        std::mem::take(&mut self.child_decl_meta)
+    }
+
+    fn take_child_handle_sinks(&mut self) -> Vec<(usize, crate::handle::HandleSink)> {
+        std::mem::take(&mut self.child_handle_sinks)
     }
 
     fn focusable(&self) -> bool {
