@@ -64,8 +64,8 @@ pub use tasks::CallFromThreadError;
 pub use tasks::PushScreenWaitError;
 use timers::{TimerCallback, TimerRuntime};
 use types::{
-    AppNotification, BindingHintEntry, DEFAULT_NOTIFICATION_TIMEOUT, HitTestMap, StylesheetReload,
-    StylesheetWatcher,
+    AppNotification, BindingHintEntry, DEFAULT_NOTIFICATION_TIMEOUT, HitTestMap, PendingInvalidation,
+    StylesheetReload, StylesheetWatcher,
 };
 
 use helpers::{ClickTracker, apply_size, collect_focus_chain_tree, default_action_map};
@@ -76,6 +76,34 @@ use helpers::{ClickTracker, apply_size, collect_focus_chain_tree, default_action
 /// mirroring the methods on Python's returned `Timer` object.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TimerHandle(u64);
+
+impl TimerHandle {
+    /// Pause this timer (Python `Timer.pause`). **Deferred**: enqueues a command
+    /// applied by the next post-dispatch flush, so it is callable from a widget
+    /// handler / timer callback (which hold no `&mut App`). For app-level,
+    /// immediate control use [`App::pause_timer`].
+    pub fn pause(self) {
+        commands::enqueue_widget_command(commands::WidgetCommand::PauseTimer(self.0));
+    }
+
+    /// Resume this timer (Python `Timer.resume`). Deferred; see [`TimerHandle::pause`].
+    pub fn resume(self) {
+        commands::enqueue_widget_command(commands::WidgetCommand::ResumeTimer(self.0));
+    }
+
+    /// Stop + forget this timer (Python `Timer.stop`). Deferred; see [`TimerHandle::pause`].
+    pub fn stop(self) {
+        commands::enqueue_widget_command(commands::WidgetCommand::StopTimer(self.0));
+    }
+}
+
+impl TimerHandle {
+    /// Crate-internal constructor for widget-owned timers (id pre-allocated by
+    /// `commands::alloc_widget_timer_id`).
+    pub(crate) fn from_id(id: u64) -> Self {
+        Self(id)
+    }
+}
 
 type SuspendProcessFn = fn() -> io::Result<()>;
 type DataBindApplyFn =
@@ -532,6 +560,13 @@ pub struct App {
     /// has not yet run. Drained by [`App::run_due_timer_callbacks`] (invoked from
     /// the adapter's `on_app_timer` hook) so callbacks run in the app's context.
     pending_timer_fires: Vec<u64>,
+    /// Widget-owned interval callbacks (`WidgetCtx::set_interval`), keyed by the
+    /// timer id and carrying the owning node. Fired against the node's widget with
+    /// a fresh `WidgetCtx` by [`App::run_due_widget_timer_callbacks`].
+    widget_timer_callbacks: HashMap<u64, (NodeId, commands::WidgetTimerCallback)>,
+    /// Widget-owned timer ids whose deadline elapsed this drain but whose callback
+    /// has not yet run (parallel to `pending_timer_fires`).
+    pending_widget_timer_fires: Vec<u64>,
     /// Type-erased handle to the user app struct (`Arc<Mutex<T>>`), set by the
     /// `TextualApp` adapter at mount time. Lets timer callbacks re-enter the app
     /// struct via [`App::with_app_struct`] to mutate reactive fields (e.g.
@@ -735,6 +770,8 @@ impl App {
             // widget-scheduled message-only timer ids (which start at 0).
             next_timer_id: 1 << 32,
             pending_timer_fires: Vec::new(),
+            widget_timer_callbacks: HashMap::new(),
+            pending_widget_timer_fires: Vec::new(),
             app_struct: None,
             devtools: devtools::DevtoolsRuntime::from_env().ok().flatten(),
             style_snapshot_cache: HashMap::new(),
@@ -911,10 +948,61 @@ impl App {
                 Some(id) if self.timer_callbacks.contains_key(&id) => {
                     self.pending_timer_fires.push(id);
                 }
+                Some(id) if self.widget_timer_callbacks.contains_key(&id) => {
+                    self.pending_widget_timer_fires.push(id);
+                }
                 _ => messages.push(event),
             }
         }
         messages
+    }
+
+    /// True if any widget-owned timer callback is awaiting invocation.
+    pub(crate) fn has_pending_widget_timer_fires(&self) -> bool {
+        !self.pending_widget_timer_fires.is_empty()
+    }
+
+    /// Run the callbacks for every widget-owned timer that fired this turn.
+    ///
+    /// Mirrors [`App::run_due_timer_callbacks`]'s remove-call-reinsert dance
+    /// (TRAP g) so a callback can stop/replace its own timer without aliasing the
+    /// registry. Each fire runs the closure against the node's widget with a
+    /// fresh `WidgetCtx` (guard + reactive fixpoint via `run_on_node_widget`). If
+    /// the node is gone (`get_mut` → `None`), the timer is purged here — the
+    /// backstop to the `Unmount`-lifecycle purge (primary).
+    pub(crate) fn run_due_widget_timer_callbacks(&mut self, pending: &mut PendingInvalidation) {
+        let due = std::mem::take(&mut self.pending_widget_timer_fires);
+        for timer_id in due {
+            let Some((node, mut callback)) = self.widget_timer_callbacks.remove(&timer_id) else {
+                continue;
+            };
+            let ran = self.run_on_node_widget(node, |w, ctx| callback(w, ctx), pending);
+            if !ran {
+                // Node unmounted since scheduling: purge (backstop), drop callback.
+                self.timers.cancel(timer_id);
+                continue;
+            }
+            // Reinsert only if still scheduled (repeating, not stopped by the
+            // callback). One-shot / stopped timers are dropped here.
+            if self.timers.contains(timer_id) {
+                self.widget_timer_callbacks.insert(timer_id, (node, callback));
+            }
+        }
+    }
+
+    /// Purge all widget-owned timers registered to `node` (primary cleanup, run
+    /// from the `Unmount` lifecycle drain).
+    pub(crate) fn purge_node_widget_timers(&mut self, node: NodeId) {
+        let ids: Vec<u64> = self
+            .widget_timer_callbacks
+            .iter()
+            .filter(|(_, (owner, _))| *owner == node)
+            .map(|(id, _)| *id)
+            .collect();
+        for id in ids {
+            self.timers.cancel(id);
+            self.widget_timer_callbacks.remove(&id);
+        }
     }
 
     /// Time until the soonest non-paused timer is due, relative to the timer

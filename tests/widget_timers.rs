@@ -1,0 +1,190 @@
+//! Acceptance tests for widget-owned timers (WidgetCtx build, step 4).
+//!
+//! A widget registers a repeating interval in `on_mount_ctx` via
+//! `ctx.set_interval`; the callback mutates a reactive field, whose watcher
+//! updates observable state. Because the timer runs on the SAME `TimerRuntime`
+//! as app timers, `Pilot::advance_clock` drives it deterministically. The
+//! returned `TimerHandle` pauses/resumes it, and unmounting the widget purges it.
+
+use std::sync::atomic::{AtomicI32, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use rich_rs::{Console, ConsoleOptions, Segments};
+use textual::prelude::*;
+use textual::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
+use textual::runtime::{Pilot, TimerHandle};
+use textual::widgets::Widget;
+
+/// A widget that counts down once per second on a widget-owned interval.
+struct Countdown {
+    remaining: i32,
+    /// Latest value seen by the reactive watcher (observable from the test).
+    observed: Arc<AtomicI32>,
+    /// Filled at mount so the test can pause/resume the timer.
+    handle_slot: Arc<Mutex<Option<TimerHandle>>>,
+    /// Bumped every time the timer callback actually runs (to prove no fire
+    /// after unmount).
+    fires: Arc<AtomicI32>,
+}
+
+impl Countdown {
+    fn new(
+        start: i32,
+        observed: Arc<AtomicI32>,
+        handle_slot: Arc<Mutex<Option<TimerHandle>>>,
+        fires: Arc<AtomicI32>,
+    ) -> Self {
+        Self {
+            remaining: start,
+            observed,
+            handle_slot,
+            fires,
+        }
+    }
+
+    fn tick(&mut self, ctx: &mut WidgetCtx) {
+        self.fires.fetch_add(1, Ordering::SeqCst);
+        let old = self.remaining;
+        self.remaining -= 1;
+        ctx.record_change(
+            "remaining",
+            ReactiveFlags::reactive(),
+            Box::new(old),
+            Box::new(self.remaining),
+        );
+    }
+}
+
+impl Widget for Countdown {
+    fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+        Segments::new()
+    }
+
+    fn style_type(&self) -> &'static str {
+        "Countdown"
+    }
+
+    fn focusable(&self) -> bool {
+        true
+    }
+
+    fn reactive_widget(&mut self) -> Option<&mut dyn ReactiveWidget> {
+        Some(self)
+    }
+
+    fn on_mount_ctx(&mut self, ctx: &mut WidgetCtx) {
+        let handle = ctx.set_interval::<Self, _>(Duration::from_secs(1), false, |w, wctx| {
+            w.tick(wctx);
+        });
+        *self.handle_slot.lock().unwrap() = Some(handle);
+    }
+}
+
+impl ReactiveWidget for Countdown {
+    fn reactive_dispatch(&mut self, changes: &[ReactiveChange], _ctx: &mut ReactiveCtx) {
+        for c in changes {
+            if c.field_name == "remaining" {
+                if let Some(v) = c.new_value.downcast_ref::<i32>() {
+                    self.observed.store(*v, Ordering::SeqCst);
+                }
+            }
+        }
+    }
+}
+
+struct TimerApp {
+    start: i32,
+    observed: Arc<AtomicI32>,
+    handle_slot: Arc<Mutex<Option<TimerHandle>>>,
+    fires: Arc<AtomicI32>,
+}
+
+impl TextualApp for TimerApp {
+    fn compose(&mut self) -> AppRoot {
+        AppRoot::new().with_child(Countdown::new(
+            self.start,
+            Arc::clone(&self.observed),
+            Arc::clone(&self.handle_slot),
+            Arc::clone(&self.fires),
+        ))
+    }
+}
+
+#[test]
+fn advance_clock_drives_widget_owned_interval_with_pause_resume() {
+    let observed = Arc::new(AtomicI32::new(i32::MIN));
+    let handle_slot: Arc<Mutex<Option<TimerHandle>>> = Arc::new(Mutex::new(None));
+    let fires = Arc::new(AtomicI32::new(0));
+    let app = TimerApp {
+        start: 10,
+        observed: Arc::clone(&observed),
+        handle_slot: Arc::clone(&handle_slot),
+        fires: Arc::clone(&fires),
+    };
+
+    textual::run_test(app, |pilot: &mut Pilot| {
+        // Timer registered in on_mount_ctx (RegisterTimer command drained by the
+        // startup pump). No fire yet.
+        pilot.pause()?;
+        assert_eq!(observed.load(Ordering::SeqCst), i32::MIN, "no tick before clock advances");
+
+        // Deterministic drive: 3 seconds → 3 ticks → remaining 10 → 7.
+        pilot.advance_clock(Duration::from_secs(3))?;
+        assert_eq!(observed.load(Ordering::SeqCst), 7, "3 clock seconds = 3 ticks (10 -> 7)");
+
+        // pause() halts firing.
+        let handle = handle_slot.lock().unwrap().expect("timer registered at mount");
+        handle.pause();
+        pilot.pause()?; // drain the PauseTimer command
+        pilot.advance_clock(Duration::from_secs(5))?;
+        assert_eq!(observed.load(Ordering::SeqCst), 7, "paused timer does not fire");
+
+        // resume() continues from where it left off.
+        handle.resume();
+        pilot.pause()?; // drain the ResumeTimer command
+        pilot.advance_clock(Duration::from_secs(2))?;
+        assert_eq!(observed.load(Ordering::SeqCst), 5, "resumed timer ticks (7 -> 5)");
+
+        Ok(())
+    })
+    .expect("headless run_test must succeed");
+}
+
+#[test]
+fn unmounting_widget_purges_its_timer_no_fire_after() {
+    let observed = Arc::new(AtomicI32::new(i32::MIN));
+    let handle_slot: Arc<Mutex<Option<TimerHandle>>> = Arc::new(Mutex::new(None));
+    let fires = Arc::new(AtomicI32::new(0));
+    let app = TimerApp {
+        start: 10,
+        observed: Arc::clone(&observed),
+        handle_slot: Arc::clone(&handle_slot),
+        fires: Arc::clone(&fires),
+    };
+
+    textual::run_test(app, |pilot: &mut Pilot| {
+        pilot.pause()?;
+        pilot.advance_clock(Duration::from_secs(2))?;
+        let fires_before = fires.load(Ordering::SeqCst);
+        assert_eq!(fires_before, 2, "timer fired twice before unmount");
+
+        // Remove the widget → its node is gone.
+        pilot.app_mut()
+            .remove("Countdown")
+            .map_err(|e| textual::Error::Message(format!("remove Countdown: {e:?}")))?;
+        pilot.pause()?;
+
+        // Advance well past several intervals: the timer must not fire the
+        // callback again (purged; backstop cancels on the get_mut-None fire).
+        pilot.advance_clock(Duration::from_secs(5))?;
+        assert_eq!(
+            fires.load(Ordering::SeqCst),
+            fires_before,
+            "no timer callback runs after the owning widget is unmounted"
+        );
+
+        Ok(())
+    })
+    .expect("headless run_test must succeed");
+}
