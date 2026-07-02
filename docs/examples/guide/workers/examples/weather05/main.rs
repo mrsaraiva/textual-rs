@@ -131,16 +131,17 @@ impl TextualApp for WeatherApp {
 
     /// Mirrors Python's `def on_worker_state_changed(self, event: Worker.StateChanged)`.
     ///
-    /// In Python this just logs the event (`self.log(event)`). The actual widget
-    /// update now happens inside the worker via `call_from_thread`, so this handler
-    /// no longer needs to apply results.
-    fn on_message_with_app(&mut self, _app: &mut App, message: &MessageEvent, _ctx: &mut EventCtx) {
-        if let Some(w) = message.downcast_ref::<WorkerStateChanged>() {
-            eprintln!(
-                "[weather05] WorkerStateChanged: worker={:?} state={:?}",
-                w.worker_id, w.state
-            );
-        }
+    /// Python calls `self.log(event)`, which routes to the Textual devtools
+    /// console — it NEVER touches the visible screen. Rust has no attached
+    /// devtools sink in this example, so the handler is intentionally a no-op:
+    /// the actual widget update happens inside the worker via `call_from_thread`.
+    ///
+    /// The previous implementation emitted `eprintln!("[weather05]
+    /// WorkerStateChanged: ...")`, but in a PTY stderr shares the terminal with
+    /// the alternate-screen buffer, so that raw text corrupted the rendered frame
+    /// (Python's `self.log` never does this). Dropping the screen write restores
+    /// parity with Python.
+    fn on_message_with_app(&mut self, _app: &mut App, _message: &MessageEvent, _ctx: &mut EventCtx) {
     }
 }
 

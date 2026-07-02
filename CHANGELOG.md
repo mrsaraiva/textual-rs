@@ -138,6 +138,24 @@ until the API stabilizes.
   `#initial_focus` id assigned via `ChildDecl::with_id` is not propagated onto the mounted node
   so no checkbox is actually focused (decl-id/mount wiring gap); `parity_radio_set_navigate` — the
   demo's plain `The` vs Python's `[bold italic red]The[/]` markup.
+- **`guide/workers` `weather05` no longer leaks worker events onto the screen** — the demo's
+  `on_worker_state_changed` handler emitted `eprintln!("[weather05] WorkerStateChanged: ...")`.
+  In a PTY, stderr shares the terminal with the alternate-screen buffer, so that raw text
+  corrupted the rendered frame; Python's `self.log(event)` routes to the devtools console and
+  never touches the screen. The handler is now a documented no-op (the widget update already
+  happens inside the worker via `call_from_thread`), restoring parity. Its real-app parity
+  case `parity_workers_weather05` is un-`#[ignore]`d and green.
+- **`guide/widgets` `checker01` ignore reason re-diagnosed** — it is **not** a
+  named-colour-resolution bug. Python's `checker01` uses Rich `Style.parse("on white")`/`("on
+  black")`, which yield ANSI *standard* colours (7/0) that Textual paints through the app's
+  ANSI terminal theme (MONOKAI, dark: white->`#c4c5b5`, black->`#1a1a1a`). textual-rs has no
+  ANSI-standard-palette -> terminal-theme render mapping, and its `Color::parse("white")`
+  correctly returns CSS `#ffffff` (matching Textual CSS `Color.parse('white') == (255,255,255)`);
+  changing that would break CSS-white parity. The fix requires an ANSI-theme render mechanism,
+  not a `src/style.rs` named-colour change. The `dynamic_watch` ProgressBar-fill and `widgets02`
+  Welcome/Markdown colour divergences trace to the same missing MONOKAI mapping (plus, for
+  `dynamic_watch`, a `Bar > .bar--bar` default-CSS selector that never matches `ProgressBar`'s
+  inline self-render), so their catch cases remain and are documented as framework-scoped.
 
 ### Runtime fixes
 
