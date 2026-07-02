@@ -1541,7 +1541,6 @@ fn parity_refresh01_greeting() {
 
 /// refresh02: same as refresh01 but the reactive has `layout=True`.
 #[test]
-#[ignore = "PARTIAL: auto-size root FIXED (pc1-autosize) — the bordered `Name` widget (width/height auto) now shrinks to its 12x3 content box instead of filling the container; glyph_diffs=0. Residual is the SEPARATE `:focus background-tint` colour root (focused Input bg #1e1e1e vs #272727, 236 colour cells) owned by style.rs, not this layout root."]
 fn parity_refresh02_greeting() {
     let script = [Step::SendKeys("Will"), Step::Wait(300)];
     let (rf, pf) = cat_both("refresh02", "guide/reactivity", &script, 400);
@@ -2219,7 +2218,6 @@ fn parity_screens_screen02_bsod() {
 /// and type "bell"; the palette should list the Bell command. STRUCTURAL: the
 /// palette overlay + "Bell" entry appear on BOTH apps.
 #[test]
-#[ignore = "BLOCKED/BUG: the Python reference CRASHES when the command palette opens in this venv — `AttributeError: 'Style' object has no attribute 'clear_meta_and_links'` (textual BackgroundScreen renderable vs rich 15.0.0 in /tmp/textual-venv), so it renders a Rich traceback instead of the palette. Rust renders a blank/empty palette (no `Bell` hit visible). Parity comparison is blocked by the Python-side crash; test asserts both sides show the `Bell` command without a traceback (currently fails on the Python crash)."]
 fn parity_command01_palette_bell() {
     // Returns (palette_without_traceback, bell_listed).
     fn run(kind: &AppKind) -> (bool, bool) {
@@ -2248,7 +2246,6 @@ fn parity_command01_palette_bell() {
 /// type "open". STRUCTURAL: the palette opens and shows file hits on BOTH (the
 /// exact file list depends on the cwd glob, so structural only).
 #[test]
-#[ignore = "BLOCKED/BUG: same command-palette crash as command01 — the Python reference raises `AttributeError: 'Style' object has no attribute 'clear_meta_and_links'` on palette open in this venv (rich 15.0.0) and shows a traceback instead of the file-search palette. Parity blocked by the Python-side crash; test asserts neither side shows a traceback (currently fails on the Python crash)."]
 fn parity_command02_palette_open() {
     fn run(kind: &AppKind) -> bool {
         let mut app = spawn(kind);
@@ -2502,7 +2499,6 @@ fn parity_compound_byte03() {
 /// compound/compound01: three InputWithLabel compound widgets, centered. Type
 /// into the first Input; compare the rendered grid.
 #[test]
-#[ignore = "PARTIAL: percent-width centering root FIXED (pc1-autosize) — the `width: 80%` `InputWithLabel` now resolves against `parent - margin` (Python parity), so the block centers exactly; glyph_diffs=0 (was 70). Residual is the SEPARATE `:focus background-tint` colour root (focused Input bg #1e1e1e vs #272727, 160 colour cells) owned by style.rs, not this layout root."]
 fn parity_compound_compound01() {
     let script = [Step::SendKeys("Marcos"), Step::Wait(300)];
     let (rf, pf) = cat_both("compound01", "guide/compound", &script, 400);
