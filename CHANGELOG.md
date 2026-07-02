@@ -125,6 +125,19 @@ until the API stabilizes.
   `HorizontalScroll` so the target page's placeholder area goes blank, plus a
   `content-align: middle` vertical-centering off-by-one — both in the layout/scroll runtime,
   not in the `Placeholder` widget.
+- **Focused-widget own-surface `:focus { background-tint: $foreground 5% }` reaches parity;
+  `input_types` interactive parity un-ignored** — the per-node `background-tint` fix (see the
+  Widget-fixes entry above) already tints a focused widget's *own* surface (`$surface #1e1e1e`
+  -> `#272727`) exactly like Python for `Input`/`MaskedInput`/`Checkbox`/`RadioButton`/`RadioSet`.
+  Verified real-app: `parity_input_types_typing` is now glyph- and colour-exact (0 diffs) and
+  un-`#[ignore]`d. The sibling focus-tint cases stay ignored on **re-diagnosed, out-of-scope
+  residuals** (the tint itself now matches on both apps): `parity_input_typing` — the caret's
+  reverse cursor cell past end-of-text (`src/widgets/input.rs`); `parity_masked_input_typing` —
+  the `-invalid:focus` `$error` border from MaskedInput template validation; `parity_validate01_count`
+  — RichLog scrollbar-track bg + Rich integer-highlight colour; `parity_checkbox_toggle` — the
+  `#initial_focus` id assigned via `ChildDecl::with_id` is not propagated onto the mounted node
+  so no checkbox is actually focused (decl-id/mount wiring gap); `parity_radio_set_navigate` — the
+  demo's plain `The` vs Python's `[bold italic red]The[/]` markup.
 
 ### Runtime fixes
 

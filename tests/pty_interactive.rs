@@ -1091,7 +1091,7 @@ fn widgets02_welcome_alignment_and_rule_colour() {
 /// input: type into the first Input; the typed text + cursor should render
 /// identically on both apps (deterministic, no clock/header).
 #[test]
-#[ignore = "BUG: focused Input bg differs — Python applies `background-tint: $foreground 5%` on :focus (bg #272727); Rust leaves bg #1e1e1e. 244 cells."]
+#[ignore = "BUG (out of scope; own-surface :focus tint FIXED): the focused Input own-surface `background-tint: $foreground 5%` now matches Python (bg #272727 on both). Residual = 1 cell: the text cursor block past end-of-text — Python paints a reverse cursor cell (fg $background / bg $foreground #e0e0e0) at the caret past the last glyph; Rust emits no cursor segment there so it keeps the tinted surface. The cursor renderable lives in src/widgets/input.rs, outside this task's CSS scope."]
 fn parity_input_typing() {
     let script = [Step::SendKeys("Marcos"), Step::Wait(250)];
     let (rf, pf) = widgets_both("input", &script, 400);
@@ -1099,8 +1099,10 @@ fn parity_input_typing() {
 }
 
 /// input_types: integer + number Inputs; typing digits validates live.
+/// The focused-Input `:focus { background-tint: $foreground 5% }` own-surface
+/// tint (#1e1e1e -> #272727) now renders identically on both apps (glyph- and
+/// colour-exact). Un-ignored once the interior own-surface tint reached parity.
 #[test]
-#[ignore = "BUG: focused Input bg #1e1e1e (Rust) vs #272727 (Python, $foreground 5% tint on :focus). 243 cells."]
 fn parity_input_types_typing() {
     // Type into the first (integer) Input only — a non-digit is rejected, so the
     // result is deterministic and avoids focus-traversal ambiguity.
@@ -1122,7 +1124,7 @@ fn parity_input_validation_failure() {
 /// masked_input: typing digits into a credit-card mask renders the same
 /// separators + placeholder on both apps.
 #[test]
-#[ignore = "BUG: focused MaskedInput bg #1e1e1e (Rust) vs #272727 (Python :focus tint). 245 cells."]
+#[ignore = "BUG (out of scope; own-surface :focus tint FIXED): the focused MaskedInput own-surface tint now matches Python (bg #272727 on both). Residual = 245 cells, all the border FG: Python treats the partial card number as invalid and paints `&.-invalid:focus { border: tall $error }` (#b93c5b) while Rust keeps the valid `:focus` border ($border #0178d4). The `-invalid` state comes from MaskedInput template validation (src/widgets/input.rs / validation), outside this task's CSS scope."]
 fn parity_masked_input_typing() {
     let script = [Step::SendKeys("4242424242"), Step::Wait(300)];
     let (rf, pf) = widgets_both("masked_input", &script, 400);
@@ -1134,7 +1136,7 @@ fn parity_masked_input_typing() {
 /// checkbox: the focused checkbox toggles on Space. Initial focus is
 /// "#initial_focus" (Kaitain) per the demo.
 #[test]
-#[ignore = "BUG (multi-root; white border-slot root FIXED): the white toggle/border-edge slot bg (#ffffff vs #1b1b1b) is fixed (border outer-bg now composites the transparent $boost parent). Residual 55 colour cells are OTHER roots: `[magenta]Ginaz` markup label fg (#ff00ff vs #e0e0e0), `:focus` border colour + `background-tint` (#272727 vs #1e1e1e), and the `.-on` checked button colour (#8ad4a1 vs #000f18) — markup + pseudo-class resolution, out of the white-slot scope."]
+#[ignore = "BUG (out of scope; own-surface :focus tint path VERIFIED CORRECT): the Checkbox `:focus { border: tall $border; background-tint: $foreground 5% }` default CSS is present and the tint path works (Input/RadioSet render #272727), but NO :focus styling appears on the Rust Kaitain checkbox — the palette has zero $border #0178d4 and zero tinted #272727. Root cause: `#initial_focus` is assigned via `ChildDecl::with_id`, whose id is not propagated onto the mounted node, so `query_mut(\"#initial_focus\").focus()` finds nothing and no checkbox is focused (decl-id/mount wiring gap, src/runtime + ChildDecl). Residual 55 cells: the missing :focus border+tint (from the unfocused state) + `[magenta]Ginaz` markup fg (#ff00ff vs #e0e0e0) + the `.-on` checked-button colour (#8ad4a1 vs #000f18, checked class not applied at mount) — all runtime/demo roots outside this task's CSS scope."]
 fn parity_checkbox_toggle() {
     let script = [Step::Key(Key::Space), Step::Wait(250)];
     let (rf, pf) = widgets_both("checkbox", &script, 400);
@@ -1527,7 +1529,7 @@ fn parity_watch01_color() {
 /// validate01: the focused +1 button is pressed 3× via Enter; the validated
 /// reactive caps at 10 and each press appends `count = N` to the RichLog.
 #[test]
-#[ignore = "BUG: glyph-perfect (count = 1/2/3 on both) but the focused +1 success-Button bg is #4ebf71 (Rust, base $success) vs #55c076 (Python, lighter :focus/hover tint). 89 colour cells. Shared root: button :focus/hover background-tint not applied."]
+#[ignore = "BUG (out of scope; button :focus/hover tint FIXED): the focused +1 Button surface now matches Python (#55c076 on both). Residual = 57 cells: (a) 54 RichLog scrollbar-track cells — Python paints the track bg #000000 (fg $foreground) while Rust leaves the widget surface #1e1e1e (fg #003054); (b) 3 RichLog number-highlight glyphs where Rich renders the repr integer in truecolor #58d1eb vs Rust's ansi cyan (index 6). Both are RichLog/scrollbar rendering (rich-rs + runtime), outside this task's CSS scope."]
 fn parity_validate01_count() {
     let script = [
         Step::Key(Key::Enter),
