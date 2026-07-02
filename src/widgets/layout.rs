@@ -198,20 +198,12 @@ pub enum RowAlign {
 
 impl Widget for Row {
     fn compose(&mut self) -> ComposeResult {
-        Vec::new()
-    }
-
-    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
         self.children_extracted = true;
-        std::mem::take(&mut self.children)
-    }
-
-    fn take_child_decl_meta(&mut self) -> Vec<crate::widgets::ChildDeclMeta> {
-        std::mem::take(&mut self.child_decl_meta)
-    }
-
-    fn take_child_handle_sinks(&mut self) -> Vec<(usize, crate::handle::HandleSink)> {
-        std::mem::take(&mut self.child_handle_sinks)
+        crate::compose::zip_child_decls(
+            std::mem::take(&mut self.children),
+            std::mem::take(&mut self.child_decl_meta),
+            std::mem::take(&mut self.child_handle_sinks),
+        )
     }
 
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
@@ -1059,15 +1051,11 @@ impl Dock {
 
 impl Widget for Dock {
     fn compose(&mut self) -> ComposeResult {
-        Vec::new()
-    }
-
-    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
         self.items_extracted = true;
-        let mut children = Vec::with_capacity(self.items.len());
+        let mut children: ComposeResult = Vec::with_capacity(self.items.len());
         for mut item in std::mem::take(&mut self.items) {
             Self::apply_item_layout_hints(&mut item);
-            children.push(item.child);
+            children.push(crate::compose::ChildDecl::new(item.child));
         }
         children
     }
@@ -1958,23 +1946,14 @@ impl Grid {
 
 impl Widget for Grid {
     fn compose(&mut self) -> ComposeResult {
-        Vec::new()
-    }
-
-    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
         self.cells_extracted = true;
-        self.cells
-            .iter_mut()
-            .filter_map(|cell| cell.take())
-            .collect()
-    }
-
-    fn take_child_decl_meta(&mut self) -> Vec<crate::widgets::ChildDeclMeta> {
-        std::mem::take(&mut self.child_decl_meta)
-    }
-
-    fn take_child_handle_sinks(&mut self) -> Vec<(usize, crate::handle::HandleSink)> {
-        std::mem::take(&mut self.child_handle_sinks)
+        let children: Vec<Box<dyn Widget>> =
+            self.cells.iter_mut().filter_map(|cell| cell.take()).collect();
+        crate::compose::zip_child_decls(
+            children,
+            std::mem::take(&mut self.child_decl_meta),
+            std::mem::take(&mut self.child_handle_sinks),
+        )
     }
 
     #[allow(clippy::needless_range_loop)] // r/c used as 2D indices into row_heights[r]/col_widths[c]
@@ -2338,17 +2317,18 @@ mod tests {
     use crate::prelude::Label;
 
     #[test]
-    fn row_compose_returns_empty() {
+    fn row_compose_drains_declared_child() {
         let mut r = Row::new().with_child(Label::new("a"));
-        assert!(r.compose().is_empty());
+        // compose() is the single child path — it yields the declared child.
+        assert_eq!(r.compose().len(), 1);
     }
 
     #[test]
-    fn row_take_composed_children_extracts_all() {
+    fn row_compose_extracts_all() {
         let mut r = Row::new()
             .with_child(Label::new("a"))
             .with_child(Label::new("b"));
-        let children = r.take_composed_children();
+        let children = r.compose();
         assert_eq!(children.len(), 2);
         assert!(r.children().is_empty());
     }
@@ -2362,15 +2342,15 @@ mod tests {
             ChildDecl::from(Label::new("c")),
         ];
         let mut r = Row::new().with_compose(decls);
-        let meta = r.take_child_decl_meta();
-        // Only children carrying id/classes are recorded, tagged by child index.
-        assert_eq!(meta.len(), 2);
-        assert_eq!(meta[0].0, 0);
-        assert_eq!(meta[0].1.as_deref(), Some("disp-0"));
-        assert_eq!(meta[1].0, 1);
-        assert_eq!(meta[1].2, vec!["highlight".to_string()]);
-        // Children still extract in declaration order.
-        assert_eq!(r.take_composed_children().len(), 3);
+        // compose() now bundles each child's id/classes into its ChildDecl.
+        let out = r.compose();
+        assert_eq!(out.len(), 3);
+        assert_eq!(out[0].id.as_deref(), Some("disp-0"));
+        assert!(out[0].classes.is_empty());
+        assert_eq!(out[1].id, None);
+        assert_eq!(out[1].classes, vec!["highlight".to_string()]);
+        assert_eq!(out[2].id, None);
+        assert!(out[2].classes.is_empty());
     }
 
     #[test]
@@ -2381,11 +2361,11 @@ mod tests {
             ChildDecl::from(Label::new("b")).with_id("cell-1"),
         ];
         let mut g = Grid::new(2, 2).with_compose(decls);
-        let meta = g.take_child_decl_meta();
-        assert_eq!(meta.len(), 1);
-        // Index reflects position in the (filtered) extraction order.
-        assert_eq!(meta[0].0, 1);
-        assert_eq!(meta[0].1.as_deref(), Some("cell-1"));
+        // The id rides on the ChildDecl at its (filtered) extraction position.
+        let out = g.compose();
+        assert_eq!(out.len(), 2);
+        assert_eq!(out[0].id, None);
+        assert_eq!(out[1].id.as_deref(), Some("cell-1"));
     }
 
     // ── Row tree-mode regression tests ──────────────────────────────
@@ -2396,14 +2376,14 @@ mod tests {
             .with_child(Label::new("a"))
             .with_child(Label::new("b"));
         assert!(!r.is_tree_mode());
-        let _ = r.take_composed_children();
+        let _ = r.compose();
         assert!(r.is_tree_mode());
     }
 
     #[test]
     fn row_tree_mode_render_returns_chrome() {
         let mut r = Row::new().with_child(Label::new("hello"));
-        let _ = r.take_composed_children();
+        let _ = r.compose();
 
         let console = Console::new();
         let mut options = console.options().clone();
@@ -2417,7 +2397,7 @@ mod tests {
     #[test]
     fn row_tree_mode_on_event_does_not_panic() {
         let mut r = Row::new().with_child(Label::new("a"));
-        let _ = r.take_composed_children();
+        let _ = r.compose();
 
         let mut ctx = EventCtx::default();
         r.on_event(&Event::Action(Action::FocusNext), &mut ctx);
@@ -2427,7 +2407,7 @@ mod tests {
     #[test]
     fn row_tree_mode_mouse_move_returns_false() {
         let mut r = Row::new().with_child(Label::new("a"));
-        let _ = r.take_composed_children();
+        let _ = r.compose();
         assert!(!r.on_mouse_move(0, 0));
     }
 
@@ -2439,7 +2419,7 @@ mod tests {
             .push_top(Some(1), Label::new("header"))
             .push_fill(Label::new("body"));
         assert!(!d.is_tree_mode());
-        let children = d.take_composed_children();
+        let children = d.compose();
         assert_eq!(children.len(), 2);
         assert!(d.is_tree_mode());
     }
@@ -2449,17 +2429,17 @@ mod tests {
         let mut d = Dock::new()
             .push_bottom(Some(3), Label::new("footer"))
             .push_right(8, Label::new("side"));
-        let children = d.take_composed_children();
+        let children = d.compose();
         assert_eq!(children.len(), 2);
 
         let footer_style = children[0]
-            .style()
+            .widget().style()
             .expect("footer child should expose style after dock hinting");
         assert_eq!(footer_style.height, Some(Scalar::Cells(3)));
         assert_eq!(footer_style.box_sizing, Some(BoxSizing::BorderBox));
 
         let side_style = children[1]
-            .style()
+            .widget().style()
             .expect("side child should expose style after dock hinting");
         assert_eq!(side_style.width, Some(Scalar::Cells(8)));
         assert_eq!(side_style.box_sizing, Some(BoxSizing::BorderBox));
@@ -2470,7 +2450,7 @@ mod tests {
         let mut d = Dock::new()
             .push_top(Some(1), Label::new("header"))
             .push_fill(Label::new("body"));
-        let _ = d.take_composed_children();
+        let _ = d.compose();
 
         let console = Console::new();
         let mut options = console.options().clone();
@@ -2484,7 +2464,7 @@ mod tests {
     #[test]
     fn dock_tree_mode_on_event_does_not_panic() {
         let mut d = Dock::new().push_fill(Label::new("body"));
-        let _ = d.take_composed_children();
+        let _ = d.compose();
 
         let mut ctx = EventCtx::default();
         d.on_event(&Event::Action(Action::FocusNext), &mut ctx);
@@ -2494,7 +2474,7 @@ mod tests {
     #[test]
     fn dock_tree_mode_mouse_move_returns_false() {
         let mut d = Dock::new().push_fill(Label::new("body"));
-        let _ = d.take_composed_children();
+        let _ = d.compose();
         assert!(!d.on_mouse_move(0, 0));
     }
 
@@ -2507,7 +2487,7 @@ mod tests {
             .with_cell(0, 1, Label::new("b"))
             .with_cell(1, 0, Label::new("c"));
         assert!(!g.is_tree_mode());
-        let children = g.take_composed_children();
+        let children = g.compose();
         assert_eq!(children.len(), 3);
         assert!(g.is_tree_mode());
     }
@@ -2518,7 +2498,7 @@ mod tests {
             Grid::new(1, 2)
                 .with_cell(0, 0, Label::new("a"))
                 .with_cell(0, 1, Label::new("b"));
-        let _ = g.take_composed_children();
+        let _ = g.compose();
 
         let console = Console::new();
         let mut options = console.options().clone();
@@ -2532,7 +2512,7 @@ mod tests {
     #[test]
     fn grid_tree_mode_on_event_does_not_panic() {
         let mut g = Grid::new(1, 1).with_cell(0, 0, Label::new("a"));
-        let _ = g.take_composed_children();
+        let _ = g.compose();
 
         let mut ctx = EventCtx::default();
         g.on_event(&Event::Action(Action::FocusNext), &mut ctx);
