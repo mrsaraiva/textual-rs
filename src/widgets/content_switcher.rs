@@ -227,10 +227,6 @@ impl ContentSwitcher {
 
 impl Widget for ContentSwitcher {
     fn compose(&mut self) -> ComposeResult {
-        Vec::new()
-    }
-
-    fn take_composed_children(&mut self) -> Vec<Box<dyn Widget>> {
         // Capture each child's CSS id from its `style_id()` before the children
         // are drained into the arena tree. `current_child_index()` (and thus
         // `child_display_for_tree`) matches `current` against `child_ids` AFTER
@@ -253,6 +249,9 @@ impl Widget for ContentSwitcher {
         }
         self.children_extracted = true;
         std::mem::take(&mut self.children)
+            .into_iter()
+            .map(crate::compose::ChildDecl::new)
+            .collect()
     }
 
     fn focusable(&self) -> bool {
@@ -483,7 +482,7 @@ mod tests {
         switcher.child_ids[0] = Some("a".to_string());
         switcher.child_ids[1] = Some("b".to_string());
 
-        let _ = switcher.take_composed_children(); // enter arena tree mode
+        let _ = switcher.compose(); // enter arena tree mode
         assert_eq!(switcher.child_display_for_tree(0), Some(false), "a hidden");
         assert_eq!(switcher.child_display_for_tree(1), Some(true), "b visible");
         assert_eq!(
@@ -497,7 +496,7 @@ mod tests {
     fn child_display_for_tree_all_hidden_when_no_current() {
         let mut switcher = ContentSwitcher::new().with_child(Probe);
         switcher.child_ids[0] = Some("x".to_string());
-        let _ = switcher.take_composed_children();
+        let _ = switcher.compose();
         // No current set → all hidden.
         assert_eq!(switcher.child_display_for_tree(0), Some(false));
     }
@@ -510,7 +509,7 @@ mod tests {
             .with_child(Probe);
         switcher.child_ids[0] = Some("a".to_string());
         switcher.child_ids[1] = Some("b".to_string());
-        let _ = switcher.take_composed_children();
+        let _ = switcher.compose();
 
         assert_eq!(switcher.child_display_for_tree(0), Some(true));
         assert_eq!(switcher.child_display_for_tree(1), Some(false));

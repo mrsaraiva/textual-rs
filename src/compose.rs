@@ -105,6 +105,16 @@ impl ChildDecl {
         self
     }
 
+    /// Borrow the declared widget (the `Ready` builder's payload).
+    ///
+    /// Used by tests that assert on a freshly-composed child's pre-mount state
+    /// (e.g. its `style_type()`) without draining it into an arena tree.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn widget(&self) -> &dyn Widget {
+        let WidgetBuilder::Ready(w) = &self.builder;
+        w.as_ref()
+    }
+
     /// Mutably borrow the declared widget (the `Ready` builder's payload).
     ///
     /// Used by tests that assert on a freshly-composed child's pre-mount state
