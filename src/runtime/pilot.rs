@@ -703,6 +703,97 @@ Horizontal { width: auto; height: auto; }
         .unwrap();
     }
 
+    // -----------------------------------------------------------------------
+    // W0.4: a translucent modal's dimmed background resolves to the SCREEN ROOT
+    //       (not a surviving app-tree node from the composited layer below).
+    //
+    // Guard test for the cross-layer hit-test question (§2 gap 6 of the
+    // CommandPalette investigation): `render_screen_tree_layer` stamps the
+    // screen-root owner meta over the screen's full layout rect AFTER the
+    // underlay is painted (back-to-front), so every dimmed-background cell owns
+    // the screen root. This is what click-outside-to-dismiss depends on for any
+    // translucent modal. Verified correct in current code; this test locks it in.
+    // -----------------------------------------------------------------------
+
+    /// App whose whole viewport is owned by a deep app-tree node (`#appbg`), so
+    /// the underlay stamps a real, non-root owner at every cell.
+    struct FullBgApp;
+
+    impl TextualApp for FullBgApp {
+        fn compose(&mut self) -> AppRoot {
+            AppRoot::new().with_child(crate::widgets::Static::new("bg").id("appbg"))
+        }
+
+        fn configure(&mut self, app: &mut App) -> crate::Result<()> {
+            app.load_stylesheet("#appbg { width: 100%; height: 100%; background: red; }");
+            Ok(())
+        }
+    }
+
+    /// A translucent modal (ModalScreen default `background: $background 60%`)
+    /// with a small top-left dialog, leaving the far corner dimmed.
+    struct DimModalScreen;
+
+    impl crate::screen::Screen for DimModalScreen {
+        fn name(&self) -> &str {
+            "DimModalScreen"
+        }
+
+        fn compose(&self) -> Box<dyn crate::widgets::Widget> {
+            Box::new(crate::widgets::Static::new("dialog").id("dialog"))
+        }
+
+        fn css(&self) -> Option<&str> {
+            Some("#dialog { width: 10; height: 3; }")
+        }
+    }
+
+    #[test]
+    fn translucent_modal_dimmed_background_resolves_to_screen_root_not_app_tree() {
+        crate::run_test(FullBgApp, |pilot| {
+            pilot.resize(40, 12)?;
+            // Far corner, well clear of the small top-left dialog: dimmed bg.
+            let (cx, cy) = (38u16, 10u16);
+
+            // Underlay owner before the modal: a real app-tree node (#appbg).
+            let app_owner = pilot.app().widget_at(cx, cy);
+            assert!(
+                app_owner.is_some(),
+                "the app underlay must own the corner cell before the modal is pushed"
+            );
+
+            pilot.app_mut().push_screen(Box::new(DimModalScreen));
+            pilot.pause()?;
+
+            let active = pilot.app().active_widget_tree().expect("active screen tree");
+            let screen_root = active.root().expect("active screen tree root");
+            assert!(
+                active.contains(screen_root),
+                "the screen root must live in the active screen arena"
+            );
+
+            let dim_owner = pilot.app().widget_at(cx, cy);
+
+            // Positive: the dimmed-background cell owns the SCREEN ROOT (the
+            // full-rect owner stamp), so a click there resolves to the screen —
+            // the precondition for click-outside-to-dismiss.
+            assert_eq!(
+                dim_owner,
+                Some(screen_root),
+                "dimmed modal background must resolve to the screen root"
+            );
+
+            // Negative: the underlay's app-tree owner did NOT survive into the
+            // composited frame — no cross-layer meta leak into the active tree.
+            assert_ne!(
+                dim_owner, app_owner,
+                "the app-tree owner below must not survive under the translucent modal"
+            );
+            Ok(())
+        })
+        .unwrap();
+    }
+
     #[test]
     fn parse_key_handles_names_and_modifiers() {
         assert!(parse_key("r").is_some());
