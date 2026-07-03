@@ -6463,6 +6463,123 @@ mod tests {
         assert!(app.pending_app_messages.is_empty());
     }
 
+    // Wave-1 selection-path spike: prove the load-bearing link that a
+    // `push_screen_with_callback` callback (running while the screen is popped
+    // mid-drain) can defer an app message onto the existing runtime
+    // `WidgetCommand::PostMessage` FIFO, so a command-palette selection
+    // dismiss(value) becomes a `CommandPaletteCommandSelected` bound for the
+    // app-root tree.
+    //
+    // The other links are already proven elsewhere: dismiss(value) -> callback
+    // (screen.rs `dismiss_with_value_invokes_callback_with_value`); the runtime
+    // command flush routes `PostMessage` to `pending_widget_posts` ->
+    // `dispatch_message_queue_with_runtime` -> `root.on_app_message`
+    // (`run_event_loop_reactive_phase`, drained same iteration after
+    // `dispatch_background_runtime_messages`); and an app-queue message reaches
+    // the adapter `on_app_message`
+    // (event_loop.rs `dispatch_message_queue_auto_calls_app_message_when_root_message_unhandled`).
+    #[test]
+    fn screen_callback_defers_app_message_via_widget_command_on_dismiss() {
+        use crate::message::CommandPaletteCommandSelected;
+        use crate::runtime::commands::{take_widget_commands, WidgetCommand};
+        use crate::screen::{Screen, ScreenMessageCtx, ScreenResult};
+        use crate::widgets::Widget;
+
+        // The dismiss-result value carried from the palette screen to the callback.
+        #[derive(Clone)]
+        struct SelectedCommandId {
+            id: String,
+            title: String,
+        }
+
+        // A stub palette screen that dismisses with the selected command id when
+        // it observes any key (standing in for a CommandList `OptionSelected`).
+        struct StubScreen;
+        impl Screen for StubScreen {
+            fn name(&self) -> &str {
+                "CommandPaletteScreen"
+            }
+            fn compose(&self) -> Box<dyn Widget> {
+                struct Empty;
+                impl Widget for Empty {
+                    fn render(
+                        &self,
+                        _c: &rich_rs::Console,
+                        _o: &rich_rs::ConsoleOptions,
+                    ) -> rich_rs::Segments {
+                        rich_rs::Segments::new()
+                    }
+                }
+                Box::new(Empty)
+            }
+            fn on_event(&mut self, event: &Event, ctx: &mut ScreenMessageCtx) {
+                if let Event::Key(_) = event {
+                    ctx.dismiss(SelectedCommandId {
+                        id: "quit".to_string(),
+                        title: "Quit".to_string(),
+                    });
+                }
+            }
+        }
+
+        let mut app = App::new().expect("app should initialize");
+        // The selection callback defers the command via the runtime WidgetCommand
+        // FIFO (exactly what the adapter's command-palette open path will do at
+        // push time) — no captured state, stays `Send`, main-thread only.
+        app.push_screen_with_callback(
+            Box::new(StubScreen),
+            Box::new(move |result| {
+                if let ScreenResult::Value(v) = result {
+                    if let Ok(sel) = v.downcast::<SelectedCommandId>() {
+                        crate::runtime::commands::enqueue_widget_command(
+                            WidgetCommand::PostMessage(MessageEvent::new(
+                                NodeId::default(),
+                                CommandPaletteCommandSelected {
+                                    id: sel.id,
+                                    title: sel.title,
+                                },
+                            )),
+                        );
+                    }
+                }
+            }),
+        );
+
+        // Drive a key into the active screen tree so the screen's `on_event`
+        // handler stages the dismissal (writes the dismiss slot), mirroring a
+        // real selection gesture.
+        {
+            let esc = crate::keys::KeyEventData::from_crossterm(
+                crossterm::event::KeyEvent::new(
+                    crossterm::event::KeyCode::Enter,
+                    crossterm::event::KeyModifiers::NONE,
+                ),
+            );
+            let tree = app.active_widget_tree_mut().expect("screen tree active");
+            let _ = crate::runtime::dispatch_event_tree(tree, None, &Event::Key(esc));
+        }
+
+        // A single background drain: pops the screen (invoking the callback,
+        // which defers the message onto the WidgetCommand FIFO).
+        let _ = app.drain_pending_app_messages();
+        // The screen was popped by the dismissal drain.
+        assert!(app.screen_stack.is_empty());
+
+        // The callback deferred the command onto the runtime FIFO; the shared
+        // reactive/command flush (`run_event_loop_reactive_phase`) applies it and
+        // routes it to the (now-active) app-root tree.
+        let commands = take_widget_commands();
+        let selected = commands
+            .iter()
+            .find_map(|cmd| match cmd {
+                WidgetCommand::PostMessage(m) => m.downcast_ref::<CommandPaletteCommandSelected>(),
+                _ => None,
+            })
+            .expect("selection callback should defer a CommandPaletteCommandSelected PostMessage");
+        assert_eq!(selected.id, "quit");
+        assert_eq!(selected.title, "Quit");
+    }
+
     #[test]
     fn enqueued_message_is_screen_title_changed() {
         use crate::message::ScreenTitleChanged;
