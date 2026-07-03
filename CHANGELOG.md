@@ -9,6 +9,28 @@ until the API stabilizes.
 
 ### Framework fundamentals
 
+- **`RadioSet` is now a composed-children arena widget** (RA2.5a) — it no longer
+  stores `Vec<RadioButton>` and renders them inline with per-glyph style
+  compensation. Its buttons are emitted as real arena child nodes via
+  `compose()` (state-pure: regenerated from the authoritative button metadata on
+  every call, so an ancestor recompose rebuilds an identical set rather than
+  clearing it). The set keeps focus (`can_focus_children = false`) and drives each
+  child's `-on` (pressed) and `-selected` (navigation cursor) classes onto the
+  live child nodes via `child_classes_for_tree`, so the CSS cascade
+  (`RadioSet:focus > RadioButton.-selected > .toggle--label`, etc.) resolves on
+  the real nodes. This **deletes the compensation machinery** — the synthetic
+  `push_style_context` and the `textual:no_style` segment tags are gone. Mutual
+  exclusion on a child click routes through `RadioButton.Changed` by ordinal
+  (mirrors `ListItem`'s child-click path); keyboard navigation/toggle is handled
+  by the set.
+  - `RadioButton` is now a first-class arena leaf: it always renders the inner
+    glyph `●` (Python `BUTTON_INNER`; on/off is conveyed by colour, not glyph)
+    and resolves its `toggle--button` / `toggle--label` component styles against
+    the live node context. Its standalone default CSS moves from the
+    `radio-button--*` component classes to Python's `toggle--*` names (aligning
+    with `Checkbox`/`ToggleButton`).
+  - **Breaking:** `RadioButtonChanged` gains an `ordinal: usize` field (the
+    button's index within its `RadioSet`, used to route the change).
 - **`overlay: screen` is now a real placement/clip escape, not a colour blend**
   (RA2.4) — Python's `overlay: screen` (`_compositor.py`) forces a placement to
   the TOP z of the whole screen with NO clip; it is how Select dropdowns,

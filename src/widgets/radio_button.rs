@@ -17,6 +17,10 @@ use super::{NodeSeed, Widget, option_list::toggle_option::BinaryToggleState};
 pub struct RadioButton {
     label: String,
     state: BinaryToggleState,
+    /// Ordinal within the owning `RadioSet` (set at compose time). Reported in
+    /// the `RadioButtonChanged` message so the set can route the change without
+    /// owning this child's `NodeId`.
+    ordinal: usize,
     seed: NodeSeed,
 }
 
@@ -32,8 +36,15 @@ impl RadioButton {
         Self {
             label,
             state: BinaryToggleState::new(false),
+            ordinal: 0,
             seed,
         }
+    }
+
+    /// Set the ordinal within the owning `RadioSet`. Called by `RadioSet` at
+    /// compose time (mirrors `ListItem::set_ordinal`).
+    pub(crate) fn set_ordinal(&mut self, ordinal: usize) {
+        self.ordinal = ordinal;
     }
 
     /// Create a radio button with an initial value.
@@ -88,6 +99,7 @@ impl RadioButton {
     fn emit_changed(&self, ctx: &mut crate::event::WidgetCtx) {
         ctx.post_message(RadioButtonChanged {
             value: self.state.value(),
+            ordinal: self.ordinal,
         });
     }
 
@@ -149,53 +161,60 @@ impl Widget for RadioButton {
     fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
 
-        let glyph = if self.state.value() { "●" } else { "○" };
+        // Python's `ToggleButton` always renders the inner glyph (`RadioButton`
+        // overrides `BUTTON_INNER = "●"`); the on/off state is conveyed by the
+        // glyph *colour* (`.-on > .toggle--button`), not by swapping to `○`.
+        let glyph = "●";
 
-        // Resolve component styles for the button glyph and label separately.
-        let mut glyph_classes = vec!["radio-button--button"];
-        let mut label_classes = vec!["radio-button--label"];
-        if self.state.value() {
-            glyph_classes.push("-on");
-            label_classes.push("-on");
+        // Resolve the `toggle--button` / `toggle--label` component styles from
+        // the LIVE CSS context. As a real arena node, this node's own meta —
+        // including the `-on` / `-selected` classes the owning `RadioSet` drove
+        // on via `child_classes_for_tree`, plus any `RadioSet:focus` / `:blur`
+        // ancestor — is ALREADY the top of the selector stack (pushed by
+        // `render_widget_with_meta`). So resolve the leaf component class
+        // directly against that live context, rather than
+        // `resolve_component_style(self, …)` which would re-push a meta rebuilt
+        // from this widget's *seed* classes (missing the parent-driven
+        // `-selected`/`-on`) and defeat
+        // `RadioSet:focus > RadioButton.-selected > .toggle--label`.
+        let button_style =
+            crate::css::resolve_style_for_meta(&crate::css::selector_meta_component(
+                "",
+                &["toggle--button"],
+            ));
+        let button_rich = button_style.to_rich().unwrap_or_else(rich_rs::Style::new);
+        let label_style =
+            crate::css::resolve_style_for_meta(&crate::css::selector_meta_component(
+                "",
+                &["toggle--label"],
+            ));
+        let mut label_rich = label_style.to_rich().unwrap_or_else(rich_rs::Style::new);
+
+        // Flatten a (possibly semi-transparent) selected-label background over
+        // the composited ancestor surface — the same `background_colors`
+        // compositing Python performs. `current_composited_background()` here is
+        // the `RadioSet` surface (including its `:focus` `background-tint`).
+        let surface_bg = crate::css::current_composited_background();
+        if let (Some(bg), Some(surf)) = (label_style.bg, surface_bg) {
+            label_rich.bgcolor = Some(bg.flatten_over(surf).to_simple_opaque());
         }
-        if self.state.focused() {
-            glyph_classes.push("-focus");
-            label_classes.push("-focus");
-        }
-        if self.state.hovered() {
-            glyph_classes.push("-hover");
-            label_classes.push("-hover");
-        }
 
-        let glyph_style = crate::css::resolve_component_style(self, &glyph_classes)
-            .to_rich()
-            .unwrap_or_else(rich_rs::Style::new);
-        let label_style = crate::css::resolve_component_style(self, &label_classes)
-            .to_rich()
-            .unwrap_or_else(rich_rs::Style::new);
+        // The side half-blocks take the button's *background* as their
+        // foreground (Python `side_style.foreground = button_style.background`)
+        // and leave their own background transparent so the surface composites
+        // through, matching Python's `background_colors[1]`.
+        let panel_bg = crate::style::parse_color_like("$panel")
+            .unwrap_or(crate::style::Color::rgb(0, 0, 0))
+            .to_simple_opaque();
+        let side_fg = button_rich.bgcolor.unwrap_or(panel_bg);
+        let side_style = rich_rs::Style::new().with_color(side_fg);
 
-        // Build: "▐●▌ label"
-        // Use the Textual-style half-block frame around the glyph.
-        let glyph_bg = glyph_style.bgcolor;
-        let parent_bg = crate::css::resolve_component_style(self, &["radio-button--button"])
-            .bg
-            .map(|c| c.to_simple_opaque());
-        let outer_bg = parent_bg.unwrap_or_else(|| {
-            crate::style::parse_color_like("$surface")
-                .unwrap_or(crate::style::Color::rgb(0, 0, 0))
-                .to_simple_opaque()
-        });
-
-        let left_style = rich_rs::Style::new()
-            .with_color(glyph_bg.unwrap_or(outer_bg))
-            .with_bgcolor(outer_bg);
-        let right_style = left_style;
-
+        // Label is padded (1, 1) like Python's `self._label.pad(1, 1)`.
         let segments = vec![
-            Segment::styled("▐".to_string(), left_style),
-            Segment::styled(glyph.to_string(), glyph_style),
-            Segment::styled("▌".to_string(), right_style),
-            Segment::styled(format!(" {}", self.label), label_style),
+            Segment::styled("▐".to_string(), side_style),
+            Segment::styled(glyph.to_string(), button_rich),
+            Segment::styled("▌".to_string(), side_style),
+            Segment::styled(format!(" {} ", self.label), label_rich),
         ];
 
         // Pad/crop to width.

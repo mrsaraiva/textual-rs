@@ -190,6 +190,10 @@ crate::impl_message!(SwitchChanged);
 #[derive(Debug, Clone)]
 pub struct RadioButtonChanged {
     pub value: bool,
+    /// The ordinal of the emitting `RadioButton` within its parent `RadioSet`
+    /// (set at compose time). Lets the set route the change to the right button
+    /// without owning the child's `NodeId` (mirrors `ListItemChildClicked`).
+    pub ordinal: usize,
 }
 crate::impl_message!(RadioButtonChanged);
 

@@ -536,12 +536,21 @@ RadioButton {
     padding: 0 1;
 }
 
-RadioButton:focus { border: tall $border; background-tint: $foreground 5%; }
-RadioButton > .radio-button--button { fg: $panel-darken-2; bg: $panel; }
-RadioButton.-on > .radio-button--button { fg: $success; bg: $panel; }
-RadioButton > .radio-button--label { fg: $foreground; }
-RadioButton > .radio-button--label.-hover { bg: $block-hover-background; }
-RadioButton > .radio-button--label.-focus { fg: $text; bg: $primary; text-style: bold; }
+/* Standalone RadioButton (Python `ToggleButton` DEFAULT_CSS, `toggle--*`
+   component classes). Inside a `RadioSet` these are overridden by the
+   `RadioSet > RadioButton ...` rules below. */
+RadioButton > .toggle--button { fg: $panel-darken-2; bg: $panel; }
+RadioButton.-on > .toggle--button { fg: $text-success; bg: $panel; }
+RadioButton:focus {
+    border: tall $border;
+    background-tint: $foreground 5%;
+}
+RadioButton:focus > .toggle--label {
+    fg: $block-cursor-foreground;
+    bg: $block-cursor-background;
+    text-style: $block-cursor-text-style;
+}
+RadioButton:blur:hover > .toggle--label { bg: $block-hover-background; }
 
 RadioSet {
     border: tall $border-blurred;

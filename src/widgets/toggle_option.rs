@@ -341,16 +341,8 @@ impl BinaryToggleState {
         self.value = value;
     }
 
-    pub fn focused(&self) -> bool {
-        self.focused
-    }
-
     pub fn set_focused(&mut self, focused: bool) {
         self.focused = focused;
-    }
-
-    pub fn hovered(&self) -> bool {
-        self.hovered
     }
 
     pub fn set_hovered(&mut self, hovered: bool) {
