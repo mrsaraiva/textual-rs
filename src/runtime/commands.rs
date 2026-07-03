@@ -365,25 +365,40 @@ impl App {
     /// Shared by `UpdateWidget` and widget-timer fires. Returns `false` if the
     /// node is not present (caller handles the miss).
     ///
-    /// TRAP (b): the dispatch-ctx guard wraps the closure call, else
-    /// `self.node_id()` returns `NodeId::default()` inside it. TRAP (a): no
-    /// `&mut App` crosses into the closure — the `tree.get_mut` borrow is scoped
-    /// to the call, and the closure only sees `&mut dyn Widget` + `&mut WidgetCtx`.
+    /// Non-generic bool wrapper over [`run_on_node_widget_r`], kept for the
+    /// `()`-returning call sites (timer fires, `UpdateWidget`, `on_mount`).
     pub(crate) fn run_on_node_widget(
         &mut self,
         node: NodeId,
         run: impl FnOnce(&mut dyn Widget, &mut WidgetCtx),
         pending: &mut PendingInvalidation,
     ) -> bool {
+        self.run_on_node_widget_r(node, |w, ctx| run(w, ctx), pending)
+            .is_some()
+    }
+
+    /// Value-returning twin of [`run_on_node_widget`]: run `run` against the
+    /// widget at `node` with a fresh `WidgetCtx`, returning its result (or `None`
+    /// when the node is absent — the `Option<R>` contract `with_widget_mut`
+    /// relies on). Drives the node's reactive fixpoint + absorbs the synthesized
+    /// EventCtx exactly as the bool wrapper does.
+    ///
+    /// TRAP (b): the dispatch-ctx guard wraps the closure call, else
+    /// `self.node_id()` returns `NodeId::default()` inside it. TRAP (a): no
+    /// `&mut App` crosses into the closure — the `tree.get_mut` borrow is scoped
+    /// to the call, and the closure only sees `&mut dyn Widget` + `&mut WidgetCtx`.
+    pub(crate) fn run_on_node_widget_r<R>(
+        &mut self,
+        node: NodeId,
+        run: impl FnOnce(&mut dyn Widget, &mut WidgetCtx) -> R,
+        pending: &mut PendingInvalidation,
+    ) -> Option<R> {
         // Node interaction state for the dispatch guard (so `self.node_id()` /
         // `node_state()` are correct inside the closure).
-        let Some(state) = self
+        let state = self
             .active_widget_tree()
             .and_then(|t| t.get(node))
-            .map(|n| n.state)
-        else {
-            return false;
-        };
+            .map(|n| n.state)?;
         let _guard = super::dispatch_ctx::set_dispatch_recipient(node, state);
 
         // No live EventCtx exists in the flush; synthesize one (TRAP f: the
@@ -393,12 +408,11 @@ impl App {
         synth_event.set_node_id(node);
         let mut wctx = WidgetCtx::new(node, &mut synth_event);
 
-        let mut ran = false;
+        let mut result: Option<R> = None;
         if let Some(tree) = self.active_widget_tree_mut()
             && let Some(n) = tree.get_mut(node)
         {
-            run(n.widget.as_mut(), &mut wctx);
-            ran = true;
+            result = Some(run(n.widget.as_mut(), &mut wctx));
         }
 
         // Drive the target node's reactive fixpoint by enqueueing its recorded
@@ -437,6 +451,6 @@ impl App {
                 .append(&mut outcome.messages);
         }
         self.absorb_outcome(&mut outcome, pending, InvalidationScope::Global);
-        ran
+        result
     }
 }

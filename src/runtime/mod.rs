@@ -2612,21 +2612,22 @@ impl App {
     }
 
     /// Borrow a widget mutably by node id for a scoped update.
+    ///
+    /// Runs `f` against the widget through the shared [`run_on_node_widget_r`]
+    /// path (dispatch-recipient guard + reactive-fixpoint / EventCtx absorption),
+    /// so it converges identically to the other node-scoped mutation entry points.
+    /// Returns `None` when the node is absent (the `Option<R>` contract). The
+    /// closure is ctx-less, so post-mount side effects (class changes,
+    /// inline-style writes, composed-widget self-recompose) that need a ctx go
+    /// through `Handle::update` (`ctx.set_class` / `ctx.update_styles` /
+    /// `ctx.request_recompose`) instead — `with_widget_mut` runs no drain hook.
     pub fn with_widget_mut<R>(
         &mut self,
         node_id: NodeId,
         f: impl FnOnce(&mut dyn Widget) -> R,
     ) -> Option<R> {
-        let tree = self.active_widget_tree_mut()?;
-        let node = tree.get_mut(node_id)?;
-        let result = f(node.widget.as_mut());
-        // Post-mount side effects (class changes, inline-style writes, and
-        // self-recompose for composed widgets like `Tabs`) now flow through the
-        // widget's `WidgetCtx`/`ReactiveCtx` — `ctx.set_class` (command queue),
-        // `ctx.update_styles` (UpdateStyles command), and `ctx.request_recompose`
-        // (reactive entry). `with_widget_mut`'s closure is ctx-less, so callers
-        // that need those effects use `Handle::update` instead.
-        Some(result)
+        let mut pending = crate::runtime::types::PendingInvalidation::default();
+        self.run_on_node_widget_r(node_id, |widget, _ctx| f(widget), &mut pending)
     }
 
     /// Borrow a widget mutably by node id and downcast to `T`.
