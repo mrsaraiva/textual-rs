@@ -53,7 +53,7 @@ impl TextualApp for SwitchApp {
     fn compose(&mut self) -> AppRoot {
         AppRoot::new()
             // Title row
-            .with_child(Static::new("[b]Example switches\n"))
+            .with_child(Static::new("[b]Example switches\n").class("label"))
             // Row 1: "off" switch (starts off, no initial animation)
             .with_child(
                 Horizontal::new()

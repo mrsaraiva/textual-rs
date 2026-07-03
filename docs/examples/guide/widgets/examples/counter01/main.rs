@@ -20,6 +20,7 @@ use textual::prelude::*;
 
 const CSS: &str = r#"
 Counter {
+    height: auto;
     background: $panel-darken-1;
     padding: 1 2;
     color: $text-muted;

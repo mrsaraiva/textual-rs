@@ -64,7 +64,11 @@ impl Widget for ColorButton {
         console: &rich_rs::Console,
         options: &rich_rs::ConsoleOptions,
     ) -> rich_rs::Segments {
-        Static::new(&self.label).render(console, options)
+        let text = format!(
+            "Color({}, {}, {})",
+            self.color.r, self.color.g, self.color.b
+        );
+        Static::new(text).render(console, options)
     }
 }
 
@@ -80,7 +84,7 @@ Screen {
 ColorButton {
     margin: 1 2;
     content-align: center middle;
-    height: 5;
+    height: auto;
     border: tall white;
 }
 "#;

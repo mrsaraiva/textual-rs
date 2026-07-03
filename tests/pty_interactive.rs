@@ -1694,8 +1694,10 @@ fn parity_stopwatch05_ticks() {
 // --- guide/widgets: custom widgets (deterministic render) -------------------
 
 /// counter01: three static `Count: 0` counters + Footer (no key bindings).
+/// Un-ignored (1.0 parity sweep): the `counter01` demo CSS now sets `Counter {
+/// height: auto }` (Python inherits it from `Static`'s DEFAULT_CSS), completing
+/// the port. Full glyph+colour parity.
 #[test]
-#[ignore = "DEMO-PORT GAP (framework auto-size root FIXED in pc1-autosize): a `height: auto` custom leaf now renders at its content height (verified — with `height: auto` the Rust Counter matches Python's 3 rows exactly). BUT the Rust `counter01` demo CSS omits `height: auto` on `Counter` (Python inherits it from `Static`'s DEFAULT_CSS), so the leaf keeps its UNSET height and correctly fills the container. Fix requires the demo CSS to add `Counter { height: auto }` — outside this root's allowed files (src/layout only)."]
 fn parity_counter01_render() {
     let script = [Step::Wait(300)];
     let (rf, pf) = cat_both("counter01", "guide/widgets", &script, 400);
@@ -2469,14 +2471,11 @@ fn parity_workers_weather05() {
 /// animator/animation01: a red "Hello, World!" box fades to opacity 0 over 2s.
 /// After the fade completes the box is fully transparent (shows the screen
 /// background) on Python. Parity: the settled (faded) screen should match.
+/// Un-ignored (1.0 parity sweep): the on-mount opacity fade now runs and
+/// composites in the live run_sync loop — after the 2s animation both apps have
+/// faded the box fully to the screen background. Full glyph+colour parity
+/// (verified stable across repeated runs).
 #[test]
-#[ignore = "BUG: no fade in the real (run_sync) app. After the 2s opacity animation the Python \
-            box has faded fully to the screen background (bg #121212); Rust still paints the box \
-            solid red (bg #ff0000) — the opacity animation never runs/composites in the live event \
-            loop (glyphs match, 360 colour cells differ). NB the headless Pilot liveness test in \
-            animation01/main.rs passes, so the gap is live-loop animation driving / opacity \
-            compositing in run_sync, not the animator math. Root: on-mount `animate_style` opacity \
-            not applied in the live render path."]
 fn parity_animator_animation01() {
     let script = [Step::Wait(2600)];
     let (rf, pf) = cat_both("animation01", "guide/animator", &script, 200);

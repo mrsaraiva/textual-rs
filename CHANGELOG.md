@@ -595,6 +595,20 @@ in the sections below; this is the migration index:
 
 ### Examples & parity diagnosis
 
+- **1.0 parity sweep — demo ports completed + two now-passing interactive parity
+  tests un-ignored.** Re-ran all 44 `#[ignore]`d `pty_interactive` cases against
+  the RA-2 + colour-engine + overlay-path tree and reconciled them with reality:
+  - `guide/widgets` `counter01` and `guide/widgets` `counter02` now set
+    `Counter { height: auto }` (Python inherits it from `Static`'s `DEFAULT_CSS`);
+    `counter01` reaches full glyph+colour parity and its test is **un-ignored**.
+  - `widgets/switch` gives the top `Static` `classes="label"` (matching Python),
+    collapsing a 250-cell glyph divergence to zero.
+  - `events/custom01` `ColorButton::render()` returns `str(Color)` (`Color(r, g, b)`)
+    and its CSS uses `height: auto` (matching Python's inherited `Static`),
+    collapsing ~1004 glyph diffs to zero.
+  - `animator/animation01`'s test is **un-ignored**: the on-mount opacity fade now
+    runs and composites in the live `run_sync` loop (both apps fade the box fully
+    to the screen background), verified stable across repeated runs.
 - **`guide/actions` `actions03`/`04`/`05` now use the Python-faithful multi-line `Static`
   markup** — the demos previously used a `"\`-line-continuation `TEXT` constant that stripped
   the intended leading blank line (a workaround), so the whole `Static` rendered one row
