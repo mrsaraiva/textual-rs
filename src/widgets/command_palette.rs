@@ -2223,69 +2223,11 @@ pub trait SystemModalScreen: crate::screen::Screen {
     }
 }
 
-// ---------------------------------------------------------------------------
-// CommandPaletteScreen — Screen wrapper for CommandPalette
-// ---------------------------------------------------------------------------
-
-/// A screen that displays the command palette as a full-screen modal overlay.
-///
-/// This wraps `CommandPalette` as a `Screen` so it can be pushed onto the
-/// screen stack via `App::push_screen()`. The palette is automatically opened
-/// when the screen is mounted.
-///
-/// Implements both `Screen` and `SystemModalScreen` (style-isolated modal).
-pub struct CommandPaletteScreen {
-    commands: Vec<PaletteCommand>,
-}
-
-impl CommandPaletteScreen {
-    /// Create a new command palette screen with default commands.
-    pub fn new() -> Self {
-        Self {
-            commands: Vec::new(),
-        }
-    }
-
-    /// Create a command palette screen with the given commands.
-    pub fn with_commands(commands: Vec<PaletteCommand>) -> Self {
-        Self { commands }
-    }
-}
-
-impl Default for CommandPaletteScreen {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl crate::screen::Screen for CommandPaletteScreen {
-    fn name(&self) -> &str {
-        "CommandPaletteScreen"
-    }
-
-    fn compose(&self) -> Box<dyn Widget> {
-        // Use a blank Label as the child — when the palette opens as a screen
-        // the underlying content is the screen below in the stack.
-        let mut palette = CommandPalette::new(super::Label::new(""));
-        if !self.commands.is_empty() {
-            palette.set_commands(self.commands.clone());
-        }
-        // Auto-open: the palette opens immediately when composed as a screen.
-        let mut ectx = crate::event::EventCtx::default();
-        let mut ctx = crate::event::WidgetCtx::__from_dispatch(
-            crate::node_id::NodeId::default(),
-            &mut ectx,
-        );
-        palette.set_open(true, &mut ctx);
-        Box::new(palette)
-    }
-
-    fn is_modal(&self) -> bool {
-        true
-    }
-}
-
-impl SystemModalScreen for CommandPaletteScreen {}
+// The real, composed `CommandPaletteScreen` (a `SystemModalScreen` whose body is
+// real arena children) lives in `command_palette_screen.rs` (Wave 1). This file
+// keeps only the reusable primitives (FuzzyMatcher, Provider model,
+// PaletteCommand, SearchIcon, CommandInput) plus the legacy always-mounted
+// `CommandPalette` host, which Wave 2 deletes once the screen path is proven.
 
 #[cfg(test)]
 mod tests {

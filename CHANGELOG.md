@@ -62,6 +62,27 @@ in the sections below; this is the migration index:
 
 ### Framework fundamentals
 
+- **The command palette (`ctrl+p`) is now a real composed modal screen**
+  (Wave 1). It is pushed as a `SystemModalScreen` (`CommandPaletteScreen`) whose
+  body is composed of real arena children — `Vertical#--container > (Horizontal
+  #--input[SearchIcon, CommandInput], Vertical#--results[CommandList,
+  LoadingIndicator])` — mirroring Python `command.py`'s hybrid shape (a modal
+  screen + `overlay: screen` results dropdown). This replaces the hand-drawn
+  `FrameBuffer` render and the palette-specific key-routing forks: `ctrl+p` now
+  opens the palette through the normal screen-stack + focus/dispatch path
+  (auto-focuses `CommandInput`; escape and click-outside dismiss; focus restores
+  to the app below for free). Search fuzzy-matches the provider snapshot and
+  updates the dropdown via a cross-node deferred command (the input is never
+  rebuilt per keystroke). Command selection dismisses the screen with the chosen
+  id and runs the command in the app context (system commands theme/quit/keys/
+  screenshot + user `CommandPaletteProvider`s). The public message API is
+  unchanged (`CommandPaletteOpened`/`Closed`/`CommandPaletteCommandSelected`),
+  and `CommandPaletteProvider` demos (command01/02) are unaffected. The
+  previously-dead exported `CommandPaletteScreen` is now the real screen; its
+  constructor is `CommandPaletteScreen::new(commands: Vec<CommandPaletteCommand>)`
+  (the old no-op `new()`/`with_commands()`/`Default` are gone). The legacy
+  always-mounted host still exists but is inert; it is deleted in Wave 2.
+
 - **`Screen::auto_focus()` — a screen may name the widget to focus on push.**
   New `Screen` trait method (default `None`) mirroring Python
   `Screen.AUTO_FOCUS`: return `Some(selector)` (any `query_one` form — `#id`, a

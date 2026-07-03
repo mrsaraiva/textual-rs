@@ -341,6 +341,12 @@ struct TextualAppAdapter<T: TextualApp> {
     app: Arc<Mutex<T>>,
     app_child: Box<dyn Widget>,
     command_palette_visible: bool,
+    /// Whether the Wave-1 composed `CommandPaletteScreen` is currently pushed.
+    /// Re-entrancy guard for `ctrl+p` (Python guards re-opening while the palette
+    /// is the top screen, `command.py:736-746`). Distinct from
+    /// `command_palette_visible` (which drives the legacy always-mounted host,
+    /// kept inert + hidden in Wave 1).
+    palette_screen_open: bool,
     help_panel_visible: bool,
     children_extracted: bool,
     command_palette_providers: Vec<Box<dyn CommandPaletteProvider>>,
@@ -388,6 +394,7 @@ impl<T: TextualApp> TextualAppAdapter<T> {
             app,
             app_child: Box::new(child),
             command_palette_visible: false,
+            palette_screen_open: false,
             help_panel_visible: false,
             children_extracted: false,
             command_palette_providers: Vec::new(),
@@ -497,6 +504,86 @@ impl<T: TextualApp> TextualAppAdapter<T> {
             return;
         };
         provider.on_command_selected(&original_command_id, ctx);
+    }
+
+    /// Execute a built-in system command (Python `SystemCommandsProvider`
+    /// callbacks). Formerly the legacy `CommandPalette` widget posted these from
+    /// its own `execute_selected`; with the composed screen they run here, in the
+    /// app context, after the screen has popped — one handler for both command
+    /// classes.
+    fn run_system_command(&mut self, command_id: &str, ctx: &mut crate::event::WidgetCtx) {
+        match command_id {
+            "quit" => ctx.request_stop(),
+            "theme" => ctx.post_message(crate::message::AppChangeTheme),
+            "screenshot" => ctx.post_message(crate::message::AppScreenshot {
+                filename: None,
+                path: None,
+            }),
+            "keys" => {
+                if self.help_panel_visible {
+                    ctx.post_message(crate::message::AppHideHelpPanel);
+                    self.help_panel_visible = false;
+                } else {
+                    ctx.post_message(crate::message::AppShowHelpPanel);
+                    self.help_panel_visible = true;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Wave 1: build + push the composed [`CommandPaletteScreen`] in response to
+    /// the `command_palette` action (`ctrl+p`). Owns the whole open flow now that
+    /// the palette is a real modal screen: start providers, snapshot commands,
+    /// push with a dismiss callback that routes the selection back to the app.
+    fn open_command_palette_screen(&mut self, app: &mut App, ctx: &mut crate::event::WidgetCtx) {
+        // Re-entrancy: ctrl+p while the palette screen is already up is a no-op
+        // (Python guards on the top-screen class).
+        if self.palette_screen_open {
+            return;
+        }
+        // Start providers and take a synchronous command snapshot for the screen
+        // (async/worker providers are the documented 1.x tail).
+        self.initialize_command_palette_providers(ctx);
+        let commands = self.gather_command_palette_commands();
+        self.palette_screen_open = true;
+        // Preserve the app-level lifecycle hook (Python `CommandPalette.Opened`).
+        self.app
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .on_command_palette_opened(ctx);
+
+        // The dismiss callback runs while the screen is popped mid-drain; it
+        // cannot touch `&mut App`, so it defers its app messages onto the runtime
+        // `WidgetCommand::PostMessage` FIFO (verified by
+        // `runtime::tests::screen_callback_defers_app_message_via_widget_command_on_dismiss`).
+        // ORDER MATTERS: on a value dismissal post `CommandPaletteCommandSelected`
+        // FIRST (this adapter routes it to the still-live provider), THEN always
+        // post `CommandPaletteClosed` (which shuts providers down + resets state) —
+        // mirroring the legacy widget's `execute_selected` (select before close).
+        let screen = crate::widgets::CommandPaletteScreen::new(commands);
+        app.push_screen_with_callback(
+            Box::new(screen),
+            Box::new(move |result| {
+                use crate::runtime::commands::{WidgetCommand, enqueue_widget_command};
+                let sender = crate::node_id::NodeId::default();
+                if let crate::screen::ScreenResult::Value(value) = result {
+                    if let Ok(selected) = value.downcast::<crate::widgets::SelectedCommandId>() {
+                        enqueue_widget_command(WidgetCommand::PostMessage(MessageEvent::new(
+                            sender,
+                            crate::message::CommandPaletteCommandSelected {
+                                id: selected.id,
+                                title: selected.title,
+                            },
+                        )));
+                    }
+                }
+                enqueue_widget_command(WidgetCommand::PostMessage(MessageEvent::new(
+                    sender,
+                    crate::message::CommandPaletteClosed,
+                )));
+            }),
+        );
     }
 
     fn command_palette_visible_in_tree(&self) -> bool {
@@ -1000,6 +1087,10 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
     }
 
     fn on_app_message(&mut self, app: &mut App, message: &MessageEvent, ctx: &mut crate::event::WidgetCtx) {
+        if message.is::<crate::message::AppCommandPalette>() {
+            self.open_command_palette_screen(app, ctx);
+            return;
+        }
         if self.sync_help_panel_visible_from_runtime(app) && self.command_palette_visible {
             self.publish_command_palette_commands(ctx);
         }
@@ -1100,6 +1191,7 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
             }
         } else if message.is::<crate::message::CommandPaletteClosed>() {
             self.command_palette_visible = false;
+            self.palette_screen_open = false;
             self.shutdown_command_palette_providers(ctx);
             self.app
                 .lock()
@@ -1113,6 +1205,10 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
         {
             let id = m.id.clone();
             let title = m.title.clone();
+            // System commands (theme/quit/keys/screenshot) run here now that the
+            // composed screen no longer executes them itself; user-provider
+            // commands route through the provider index.
+            self.run_system_command(&id, ctx);
             self.handle_command_palette_selection(&id, ctx);
             self.app
                 .lock()
@@ -1445,6 +1541,89 @@ mod tests {
             adapter.on_app_mount(&mut runtime, &mut __w);
         }
         assert_eq!(runtime.title(), "My Explicit Title");
+    }
+
+    struct DebugBellProvider;
+    impl CommandPaletteProvider for DebugBellProvider {
+        fn commands(&mut self) -> Vec<CommandPaletteCommand> {
+            vec![CommandPaletteCommand {
+                id: "bell".into(),
+                title: "Bell".into(),
+                help: "Ring the bell".into(),
+            }]
+        }
+    }
+    struct DebugBellApp;
+    impl TextualApp for DebugBellApp {
+        fn compose(&mut self) -> AppRoot {
+            AppRoot::new()
+        }
+        fn command_palette_providers(&mut self) -> Vec<Box<dyn CommandPaletteProvider>> {
+            vec![Box::new(DebugBellProvider)]
+        }
+    }
+
+    /// Wave-1 end-to-end: ctrl+p pushes the composed `CommandPaletteScreen`, and
+    /// typing a query fuzzy-filters the provider snapshot so the matched command's
+    /// title AND help render in the dropdown (command01's structural floor). Also
+    /// guards that `ctrl+p` opens the NEW screen path, not the legacy host.
+    #[test]
+    fn ctrl_p_opens_command_palette_screen_and_search_renders_command() {
+        crate::run_test_sized(DebugBellApp, 60, 24, |pilot| {
+            assert_eq!(pilot.app().screen_count(), 0, "no screen before ctrl+p");
+            pilot.press(&["ctrl+p"])?;
+            assert_eq!(
+                pilot.app().screen_count(),
+                1,
+                "ctrl+p must push the CommandPaletteScreen"
+            );
+            pilot.press(&["b", "e", "l", "l"])?;
+            pilot.wait_for_idle()?;
+            let screen = pilot.app().frame_plain_lines().join("\n");
+            assert!(
+                screen.contains("Bell") && screen.contains("Ring the bell"),
+                "typing 'bell' must render the Bell command title + help; got:\n{screen}"
+            );
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    /// Re-entrancy: a second ctrl+p while the palette is open must NOT stack a
+    /// second palette (Python guards on the top-screen class).
+    #[test]
+    fn ctrl_p_is_idempotent_while_palette_open() {
+        crate::run_test_sized(DebugBellApp, 60, 24, |pilot| {
+            pilot.press(&["ctrl+p"])?;
+            assert_eq!(pilot.app().screen_count(), 1);
+            pilot.press(&["ctrl+p"])?;
+            assert_eq!(
+                pilot.app().screen_count(),
+                1,
+                "ctrl+p while open must not stack a second palette"
+            );
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    /// Escape dismisses the palette screen (focus restore to the app-root tree is
+    /// free — its focus was never touched by the push).
+    #[test]
+    fn escape_dismisses_command_palette_screen() {
+        crate::run_test_sized(DebugBellApp, 60, 24, |pilot| {
+            pilot.press(&["ctrl+p"])?;
+            assert_eq!(pilot.app().screen_count(), 1);
+            pilot.press(&["escape"])?;
+            pilot.wait_for_idle()?;
+            assert_eq!(
+                pilot.app().screen_count(),
+                0,
+                "escape must dismiss the palette screen"
+            );
+            Ok(())
+        })
+        .unwrap();
     }
 
     #[derive(Default)]

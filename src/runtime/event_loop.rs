@@ -404,8 +404,14 @@ fn dispatch_simulated_key_like_input(
 
     // Priority actions first (e.g. command palette).
     if let Some(action) = mapped_action.filter(|a| is_priority_action(*a)) {
-        let mut outcome = app.dispatch_event_auto(root, Event::Action(action));
-        let handled = outcome.handled;
+        // Wave 1: ctrl+p opens the composed CommandPaletteScreen via the adapter,
+        // NOT via Action::CommandPalette to the legacy host.
+        let mut outcome = if matches!(action, Action::CommandPalette) {
+            app.dispatch_command_palette_open(root)
+        } else {
+            app.dispatch_event_auto(root, Event::Action(action))
+        };
+        let handled = outcome.handled || matches!(action, Action::CommandPalette);
         merge_outcome_into_runtime_pass(pass, &mut outcome);
         if handled {
             return;
@@ -995,19 +1001,12 @@ fn split_runtime_control_messages(
                 debug_input(&format!("[runtime] app.set_theme unknown theme={name:?}"));
             }
         } else if event.is::<crate::message::AppCommandPalette>() {
-            // Python parity: action_command_palette opens UI by dispatching
-            // the command-palette action, not by emitting lifecycle messages
-            // directly. Lifecycle messages are posted by the palette widget.
-            let mut outcome = if let Ok(target) = app.query_one("CommandPalette") {
-                app.dispatch_event_to_target_auto(
-                    root,
-                    target,
-                    &Event::Action(Action::CommandPalette),
-                )
-            } else {
-                app.dispatch_event_auto(root, Event::Action(Action::CommandPalette))
-            };
-            merge_outcome_into_runtime_pass(&mut pass, &mut outcome);
+            // Wave 1: deliver `AppCommandPalette` to the adapter's `on_app_message`
+            // (which owns the providers + `&mut App`) so it can push the composed
+            // `CommandPaletteScreen`. This SEAM gates the legacy always-mounted
+            // `CommandPalette` host: it no longer receives `Action::CommandPalette`,
+            // so it stays inert. Wave 2 deletes the old host + this delivery hop.
+            pass.deliver.push(event);
         } else if let Some(m) = event.downcast_ref::<crate::message::AppFocus>() {
             let widget_id = m.widget_id.clone();
             match app.action_focus(&widget_id) {
@@ -2159,6 +2158,19 @@ impl App {
         aggregate
     }
 
+    /// Wave 1: open the composed `CommandPaletteScreen` by dispatching an
+    /// `AppCommandPalette` app message through the normal pipeline to the adapter
+    /// root's `on_app_message` (which owns providers + `push_screen`), rather than
+    /// dispatching `Action::CommandPalette` into the tree where the legacy
+    /// always-mounted host would catch it. Runs inline (same pass) so `ctrl+p`
+    /// opens immediately. This is the single seam that retires the old host's open
+    /// path across all three key loops; Wave 2 deletes the host + this hop.
+    fn dispatch_command_palette_open(&mut self, root: &mut dyn Widget) -> DispatchOutcome {
+        let sender = Self::runtime_message_sender();
+        let msg = MessageEvent::new(sender, crate::message::AppCommandPalette);
+        self.dispatch_message_queue_with_runtime(root, vec![msg])
+    }
+
     fn dispatch_background_runtime_messages(&mut self, root: &mut dyn Widget) -> DispatchOutcome {
         // Drain app-level messages first (set_title/set_sub_title broadcasts).
         let mut queue = self.drain_pending_app_messages();
@@ -2575,14 +2587,14 @@ impl App {
                                 "[input] priority action-map {:?} -> {:?}",
                                 bind, action
                             ));
-                            let mut outcome = self.dispatch_event_auto(root, Event::Action(action));
-                            debug_input(&format!(
-                                "[input] priority action dispatch action={:?} handled={} repaint={} messages={}",
-                                action,
-                                outcome.handled,
-                                outcome.repaint_requested,
-                                outcome.messages.len()
-                            ));
+                            // Wave 1: ctrl+p opens the composed CommandPaletteScreen
+                            // via the adapter (on_app_message), NOT by dispatching
+                            // Action::CommandPalette to the legacy host.
+                            let mut outcome = if matches!(action, Action::CommandPalette) {
+                                self.dispatch_command_palette_open(root)
+                            } else {
+                                self.dispatch_event_auto(root, Event::Action(action))
+                            };
                             self.absorb_outcome(
                                 &mut outcome,
                                 &mut pending_invalidation,
@@ -2598,7 +2610,7 @@ impl App {
                             if outcome.stop_requested || msg_outcome.stop_requested {
                                 break 'event_loop;
                             }
-                            if outcome.handled {
+                            if outcome.handled || matches!(action, Action::CommandPalette) {
                                 input_dispatch_us = input_started.elapsed().as_micros();
                                 if timing_on {
                                     debug_timing(&format!(
@@ -4880,12 +4892,18 @@ impl App {
 
         // Priority actions (command palette) before raw key dispatch.
         if let Some(action) = mapped_action.filter(|a| is_priority_action(*a)) {
-            let mut outcome = self.dispatch_event_auto(root, Event::Action(action));
+            // Wave 1: ctrl+p opens the composed CommandPaletteScreen via the
+            // adapter, NOT via Action::CommandPalette to the legacy host.
+            let mut outcome = if matches!(action, Action::CommandPalette) {
+                self.dispatch_command_palette_open(root)
+            } else {
+                self.dispatch_event_auto(root, Event::Action(action))
+            };
             self.absorb_outcome(&mut outcome, pending, InvalidationScope::Global);
             let mut msg_outcome =
                 self.dispatch_message_queue_with_runtime(root, outcome.messages);
             self.absorb_outcome(&mut msg_outcome, pending, InvalidationScope::Global);
-            if outcome.handled {
+            if outcome.handled || matches!(action, Action::CommandPalette) {
                 return;
             }
         }
@@ -5304,6 +5322,13 @@ impl App {
     /// foreground/background). Two equal fingerprints mean visually identical
     /// frames; a change after input proves rendered output changed. Test/Pilot
     /// helper.
+    /// The current rendered frame as plain text rows (crate-internal test/debug
+    /// helper; strips styling).
+    #[cfg(test)]
+    pub(crate) fn frame_plain_lines(&self) -> Vec<String> {
+        self.frame.as_plain_lines()
+    }
+
     pub fn frame_fingerprint(&self) -> u64 {
         use std::hash::{Hash, Hasher};
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
@@ -8580,30 +8605,39 @@ mod tests {
         assert_eq!(mutated.len(), 1);
     }
 
+    // Wave 1: `AppCommandPalette` is no longer consumed by the runtime to
+    // dispatch `Action::CommandPalette` into the legacy always-mounted host — it
+    // is DELIVERED to the adapter root's `on_app_message`, which builds + pushes
+    // the composed `CommandPaletteScreen`. This test guards that delivery seam
+    // (the old-host open path is now inert). The end-to-end ctrl+p → screen →
+    // search flow is covered by `textual_app::tests::ctrl_p_opens_command_palette_screen_*`.
     #[test]
-    fn app_command_palette_message_dispatches_action_instead_of_synthetic_open_message() {
+    fn app_command_palette_message_is_delivered_to_root_app_message_handler() {
         let mut app = super::App::new().expect("app should initialize");
-        let mut root = crate::widgets::CommandPalette::new(crate::widgets::Label::new("body"));
+        let mut root = RootHookProbe {
+            key_hits: Arc::new(AtomicUsize::new(0)),
+            action_hits: Arc::new(AtomicUsize::new(0)),
+            app_action_hits: Arc::new(AtomicUsize::new(0)),
+            message_hits: Arc::new(AtomicUsize::new(0)),
+            app_message_hits: Arc::new(AtomicUsize::new(0)),
+            app_tick_hits: Arc::new(AtomicUsize::new(0)),
+            handle_key: false,
+            handle_action: false,
+            handle_message: false,
+        };
+        let app_message_hits = root.app_message_hits.clone();
         let sender = node_id_from_ffi(1);
 
-        let outcome = app.dispatch_message_queue_with_runtime(
+        let _ = app.dispatch_message_queue_with_runtime(
             &mut root,
             vec![MessageEvent::new(sender, crate::message::AppCommandPalette).with_control(sender)],
         );
 
-        let console = rich_rs::Console::new();
-        let mut options = console.options().clone();
-        options.size = (80, 20);
-        options.max_width = 80;
-        options.max_height = 20;
-        let buf = crate::render::FrameBuffer::from_renderable(&console, &options, &root, None);
-        let lines = buf.as_plain_lines().join("\n");
-
-        assert!(
-            lines.contains("Search for commands"),
-            "runtime should dispatch Action::CommandPalette and open the palette UI"
+        assert_eq!(
+            app_message_hits.load(Ordering::SeqCst),
+            1,
+            "AppCommandPalette must be delivered to the adapter root's on_app_message, not consumed by the runtime"
         );
-        assert!(outcome.repaint_requested);
     }
 
     struct ReactivePhaseProbeWidget {

@@ -1,7 +1,8 @@
 //! Tests for the MODES system and CommandPaletteScreen integration.
 
 use textual::screen::{Screen, ScreenStack};
-use textual::widgets::{CommandPaletteScreen, PaletteCommand, SystemModalScreen};
+use textual::message::CommandPaletteCommand;
+use textual::widgets::{CommandPaletteScreen, SystemModalScreen};
 
 use rich_rs::{Console, ConsoleOptions, Segments};
 
@@ -168,54 +169,62 @@ fn same_mode_noop() {
 /// CommandPaletteScreen has correct name.
 #[test]
 fn command_palette_screen_name() {
-    let screen = CommandPaletteScreen::new();
+    let screen = CommandPaletteScreen::new(Vec::new());
     assert_eq!(screen.name(), "CommandPaletteScreen");
 }
 
 /// CommandPaletteScreen is modal.
 #[test]
 fn command_palette_screen_is_modal() {
-    let screen = CommandPaletteScreen::new();
+    let screen = CommandPaletteScreen::new(Vec::new());
     assert!(screen.is_modal());
 }
 
-/// CommandPaletteScreen composes a widget tree.
+/// CommandPaletteScreen composes its body (`CommandPalette` style type).
 #[test]
 fn command_palette_screen_composes_widget() {
-    let screen = CommandPaletteScreen::new();
+    let screen = CommandPaletteScreen::new(Vec::new());
     let widget = screen.compose();
     assert_eq!(widget.style_type(), "CommandPalette");
 }
 
-/// CommandPaletteScreen with custom commands.
+/// CommandPaletteScreen with a provider-command snapshot.
 #[test]
 fn command_palette_screen_with_commands() {
     let commands = vec![
-        PaletteCommand::new("test", "Test Command", "Run tests"),
-        PaletteCommand::new("deploy", "Deploy", "Deploy to production"),
+        CommandPaletteCommand {
+            id: "test".into(),
+            title: "Test Command".into(),
+            help: "Run tests".into(),
+        },
+        CommandPaletteCommand {
+            id: "deploy".into(),
+            title: "Deploy".into(),
+            help: "Deploy to production".into(),
+        },
     ];
-    let screen = CommandPaletteScreen::with_commands(commands);
+    let screen = CommandPaletteScreen::new(commands);
     assert_eq!(screen.name(), "CommandPaletteScreen");
 
     let widget = screen.compose();
     assert_eq!(widget.style_type(), "CommandPalette");
 }
 
-/// CommandPaletteScreen Default impl.
+/// AUTO_FOCUS targets the CommandInput (Python `Screen.AUTO_FOCUS`).
 #[test]
-fn command_palette_screen_default() {
-    let screen = CommandPaletteScreen::default();
-    assert_eq!(screen.name(), "CommandPaletteScreen");
+fn command_palette_screen_auto_focus_is_command_input() {
+    let screen = CommandPaletteScreen::new(Vec::new());
+    assert_eq!(screen.auto_focus(), Some("CommandInput"));
 }
 
 // ---------------------------------------------------------------------------
 // SystemModalScreen trait tests
 // ---------------------------------------------------------------------------
 
-/// SystemModalScreen default inherit_css is false.
+/// SystemModalScreen default inherit_css is false (style-isolated system UI).
 #[test]
 fn system_modal_screen_no_inherit_css() {
-    let screen = CommandPaletteScreen::new();
+    let screen = CommandPaletteScreen::new(Vec::new());
     assert!(!screen.inherit_css());
 }
 
@@ -223,7 +232,7 @@ fn system_modal_screen_no_inherit_css() {
 #[test]
 fn command_palette_screen_on_stack() {
     let mut stack = ScreenStack::new();
-    stack.push(Box::new(CommandPaletteScreen::new()));
+    stack.push(Box::new(CommandPaletteScreen::new(Vec::new())));
     assert_eq!(stack.len(), 1);
 
     let (popped, _, _) = stack.pop().unwrap();
@@ -235,7 +244,7 @@ fn command_palette_screen_on_stack() {
 fn command_palette_screen_push_pop() {
     let mut stack = ScreenStack::new();
     stack.push(NamedScreen::boxed("Base"));
-    stack.push(Box::new(CommandPaletteScreen::new()));
+    stack.push(Box::new(CommandPaletteScreen::new(Vec::new())));
     assert_eq!(stack.len(), 2);
 
     let (screen, _result, _) = stack.pop().unwrap();
@@ -254,7 +263,7 @@ fn command_palette_as_mode_factory() {
     let mut modes: HashMap<String, Box<dyn Fn() -> Box<dyn Screen>>> = HashMap::new();
     modes.insert(
         "command_palette".to_string(),
-        Box::new(|| Box::new(CommandPaletteScreen::new())),
+        Box::new(|| Box::new(CommandPaletteScreen::new(Vec::new()))),
     );
 
     let screen = modes["command_palette"]();

@@ -3,6 +3,7 @@ mod button;
 mod checkbox;
 mod collapsible;
 mod command_palette;
+mod command_palette_screen;
 mod containers;
 mod content_switcher;
 mod core;
@@ -57,9 +58,11 @@ pub use button::{Button, ButtonVariant};
 pub use checkbox::Checkbox;
 pub use collapsible::{Collapsible, CollapsibleTitle};
 pub use command_palette::{
-    CommandInput, CommandList, CommandPalette, CommandPaletteScreen, FuzzyMatcher, PaletteCommand,
-    SearchIcon, SystemModalScreen,
+    CommandInput, CommandList, CommandPalette, FuzzyMatcher, PaletteCommand, SearchIcon,
+    SystemModalScreen,
 };
+pub use command_palette_screen::CommandPaletteScreen;
+pub(crate) use command_palette_screen::SelectedCommandId;
 pub(crate) use containers::{
     APP_ROOT_HSCROLLBAR_ID, APP_ROOT_SCROLLBAR_CORNER_ID, APP_ROOT_VSCROLLBAR_ID,
     CONTAINER_HSCROLLBAR_ID, CONTAINER_SCROLLBAR_CORNER_ID, CONTAINER_VSCROLLBAR_ID,
