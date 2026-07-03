@@ -752,6 +752,12 @@ ToastRack {
     margin-bottom: 1;
 }
 
+/* Python sets `ToastRack.display = bool(notifications)` imperatively; the rack
+   toggles this class (via `ctx.set_class`) while it holds at least one toast. */
+ToastRack.-active {
+    display: block;
+}
+
 LoadingIndicator {
     width: 100%;
     height: 100%;

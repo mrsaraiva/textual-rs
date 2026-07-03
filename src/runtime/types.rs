@@ -137,33 +137,39 @@ pub(crate) struct BindingHintEntry {
 
 #[derive(Debug, Clone)]
 pub(crate) struct AppNotification {
+    /// Stable identity assigned by `App::notify` (mirrors Python
+    /// `Notification.identity`). Keys the toast view + its rack-owned
+    /// auto-dismiss timer, and identifies the notification to remove when a
+    /// `NotificationExpired { id }` message is intercepted by the runtime.
+    pub(crate) id: u64,
     pub(crate) title: String,
     pub(crate) message: String,
     pub(crate) severity: ToastSeverity,
-    pub(crate) expires_at: Instant,
+    /// Auto-dismiss delay (from the timeout passed to `App::notify`). The
+    /// persistent `ToastRack` node registers one widget-owned one-shot timer of
+    /// this length per notification.
+    pub(crate) timeout: Duration,
 }
 
 impl AppNotification {
     pub(crate) fn new(
+        id: u64,
         title: impl Into<String>,
         message: impl Into<String>,
         severity: ToastSeverity,
         timeout: Duration,
     ) -> Self {
         Self {
+            id,
             title: title.into(),
             message: message.into(),
             severity,
-            expires_at: Instant::now() + timeout,
+            timeout,
         }
     }
 }
 
 pub(crate) const DEFAULT_NOTIFICATION_TIMEOUT: Duration = Duration::from_secs(5);
-pub(crate) const TOAST_GAP_ROWS: usize = 1;
-// Python's `ToastRack` has `overflow-y: scroll`, reserving a 1-col gutter, so
-// the toast box sits 1 col in from the right edge (margin 1, not 2).
-pub(crate) const TOAST_SIDE_MARGIN: usize = 1;
 
 pub(crate) struct StylesheetWatcher {
     pub(crate) path: PathBuf,

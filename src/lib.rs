@@ -132,7 +132,8 @@ pub mod prelude {
         ScrollableContainer, Select, Selection, SelectionList, SelectionListString, SortKey, Spacer,
         Sparkline, Static, StyleChangeKind, Styled, SuggestFromList, Suggester, SummaryFunction,
         Switch, SystemModalScreen, TabPane, TabbedContent, Tabs, TextArea, TextAreaCursor,
-        TextAreaSelection, TextAreaTheme, Toast, ToastSeverity, Tooltip, Tree, TreeNode, Vertical,
+        TextAreaSelection, TextAreaTheme, Toast, ToastHolder, ToastRack, ToastSeverity, Tooltip,
+        Tree, TreeNode, Vertical,
         VerticalGroup, VerticalScroll, Welcome, Widget, WidgetRenderable, WidgetStyles,
         // NOTE (RA2.6b): the legacy delegate macros (`delegate_widget_to`,
         // `delegate_widget_method`, `delegate_renderable`) and

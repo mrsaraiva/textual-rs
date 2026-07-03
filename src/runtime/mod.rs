@@ -8,6 +8,8 @@ mod event_loop;
 #[cfg(test)]
 mod frozen_bg_regression;
 #[cfg(test)]
+mod toast_rack_regression;
+#[cfg(test)]
 mod overlay_focus_regression;
 mod widget_ctx;
 mod helpers;
@@ -554,6 +556,11 @@ pub struct App {
     animator: Animator,
     animation_level: crate::event::AnimationLevel,
     notifications: Vec<AppNotification>,
+    /// Monotonic id source for notifications (mirrors Python `Notification.identity`).
+    notification_id_counter: u64,
+    /// Set when `notifications` changes (a `notify`/expiry/dismiss); consumed by
+    /// the event loop to re-sync the docked `ToastRack` node from the store.
+    notifications_dirty: bool,
     clipboard: Option<String>,
     active_selection_owner: Option<NodeId>,
     selection_anchor_start: Option<WidgetSelectionAnchor>,
@@ -775,6 +782,8 @@ impl App {
             animator: Animator::new(60),
             animation_level: animation_level_from_env(),
             notifications: Vec::new(),
+            notification_id_counter: 0,
+            notifications_dirty: false,
             clipboard: None,
             active_selection_owner: None,
             selection_anchor_start: None,
@@ -3427,8 +3436,91 @@ impl App {
         timeout: Option<Duration>,
     ) {
         let timeout = timeout.unwrap_or(DEFAULT_NOTIFICATION_TIMEOUT);
+        self.notification_id_counter += 1;
+        let id = self.notification_id_counter;
         self.notifications
-            .push(AppNotification::new(title, message, severity, timeout));
+            .push(AppNotification::new(id, title, message, severity, timeout));
+        self.notifications_dirty = true;
+    }
+
+    /// Remove the notification with the given id from the store (Python
+    /// `App._unnotify`). Invoked by the runtime when it intercepts a
+    /// [`NotificationExpired`](crate::message::NotificationExpired) message posted
+    /// by an elapsed rack timer or a toast click. Marks the store dirty so the
+    /// event loop re-syncs the rack (unmounting the toast node).
+    pub(crate) fn remove_notification(&mut self, id: u64) {
+        let before = self.notifications.len();
+        self.notifications.retain(|note| note.id != id);
+        if self.notifications.len() != before {
+            self.notifications_dirty = true;
+        }
+    }
+
+    /// Push the current notification store into the docked `ToastRack` node and
+    /// let it reconcile (register/stop auto-dismiss timers + recompose its toast
+    /// children). No-op when there is no rack yet (e.g. `notify` called before the
+    /// tree is built — the rack seeds itself on the next dirty sweep once mounted)
+    /// or when the store is not dirty.
+    ///
+    /// Targets the base app tree's rack (found by type). When a modal/pushed
+    /// screen is active the base rack sits behind it, so toasts posted while a
+    /// screen is up buffer in the store and are shown on the base rack — they are
+    /// not (yet) rendered over the pushed screen (per-screen racks are a 1.x
+    /// follow-up). This degrades gracefully: no panic, no wrong-z bleed.
+    ///
+    /// Returns `true` when a sync actually ran (rack found + store consumed), so
+    /// the headless pump can count it as progress. Returns `false` (leaving the
+    /// dirty flag set) when there is no rack yet, so a later sweep retries once
+    /// the rack mounts.
+    pub(crate) fn refresh_toast_rack(&mut self) -> bool {
+        if !self.notifications_dirty {
+            return false;
+        }
+        let Some(rack_id) = self.base_toast_rack_node() else {
+            // No rack mounted yet — keep the store dirty so a later sweep (after
+            // the rack mounts) picks the notifications up.
+            return false;
+        };
+        self.notifications_dirty = false;
+
+        let snapshot: Vec<crate::widgets::NotificationSnapshot> = self
+            .notifications
+            .iter()
+            .map(|note| crate::widgets::NotificationSnapshot {
+                id: note.id,
+                title: note.title.clone(),
+                message: note.message.clone(),
+                severity: note.severity,
+                timeout: note.timeout,
+            })
+            .collect();
+
+        let mut pending = crate::runtime::types::PendingInvalidation::default();
+        self.run_on_node_widget_r(
+            rack_id,
+            |widget, ctx| {
+                if let Some(rack) =
+                    (widget as &mut dyn std::any::Any).downcast_mut::<crate::widgets::ToastRack>()
+                {
+                    rack.sync(snapshot, ctx);
+                }
+            },
+            &mut pending,
+        );
+        true
+    }
+
+    /// The node id of the base app tree's `ToastRack` (injected as a system child
+    /// of the app root). Uses the base `widget_tree`, not the active screen tree,
+    /// so notifications always target the app-level rack.
+    fn base_toast_rack_node(&self) -> Option<NodeId> {
+        let tree = self.widget_tree.as_ref()?;
+        let root = tree.root()?;
+        tree.walk_depth_first(root).into_iter().find(|&id| {
+            tree.get(id)
+                .map(|node| node.widget.style_type() == "ToastRack")
+                .unwrap_or(false)
+        })
     }
 
     fn notify_help_quit(&mut self) {

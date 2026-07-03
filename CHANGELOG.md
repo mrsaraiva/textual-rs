@@ -23,6 +23,7 @@ in the sections below; this is the migration index:
 | `Node` is deprecated (RA2.6a) | Attach id/classes on the child widget (`.id()`/`.class()`) where supported; `Node` remains fully functional for this release. Removal lands with the 1.x container seed-builder unification. |
 | Prelude pruned to the curated user surface (RA2.6b) | Runtime tree-plumbing fns, `DispatchOutcome`, `HandleSink`, legacy delegate macros, routing internals, and the dead `CommandPaletteScreen` left the prelude. Import from their canonical modules (`textual::runtime::`, `textual::handle::`, `textual::widgets::`, `textual::routing::`) if you drive trees directly. |
 | The command palette is a pushed modal screen (Wave 2) | The legacy always-mounted `CommandPalette` wrapper widget is removed, along with its `CommandPalette::new(child)` constructor. The palette is now a runtime-pushed `SystemModalScreen` opened by `ctrl+p` (no app-body wrapper needed) — remove any `CommandPalette::new(app_body)` wrapping from your app root. `FuzzyMatcher`, the `Provider`/`ProviderResult`/`SystemCommandsProvider` model, and `PaletteCommand` are preserved (now re-exported from `textual::widgets`). |
+| Notifications are real docked `ToastRack` widgets (Wave 3) | **`App::notify(...)` is unchanged** — no migration needed. Internally, toasts are now real `Toast` nodes mounted in a docked `ToastRack` (a system child of the app root, on the `_toastrack` layer), not a runtime framebuffer blit. `Toast` gains `with_notification_id`; its `with_timeout` builder is removed (auto-dismiss timing is a notification-level concern set via `App::notify`'s `timeout` arg and owned by the rack). New public: `ToastRack`, `ToastHolder`, `NotificationSnapshot`, and the `NotificationExpired` message. |
 
 ### Deprecated
 
@@ -85,6 +86,33 @@ in the sections below; this is the migration index:
     case are deleted. The `Widget` trait is unchanged — `preserve_underlay` and
     `child_display_for_tree` remain (first-class users: `ContentSwitcher`,
     `TabbedContent`, `Overlay`, and several delegating widgets).
+
+### Changed (notifications become real docked widgets — Wave 3)
+
+- **Notifications now render through a real docked `ToastRack` widget subtree**,
+  retiring the runtime `compose_notifications` framebuffer pass — the last
+  "parallel special-case runtime overlay that bypasses the widget path". Each
+  toast is a real `Toast` node inside a `ToastRack` (a system child of the app
+  root, docked bottom-right on the `_toastrack` layer); the app's notification
+  store is synced into the rack, which mounts/unmounts real toast nodes. This
+  makes severity styling (`Toast.-information/-warning/-error` `border-left`,
+  `.toast--title`) resolve on live nodes and makes toasts click-dismissible.
+  - **`App::notify(message, title, severity, timeout)` is unchanged** — this is
+    a non-breaking internal rebuild for the public notification API.
+  - **Auto-dismiss is a widget-owned timer**, registered per notification on the
+    *persistent rack node* (keyed by a stable notification id), so posting a
+    later toast never resets an earlier toast's countdown, and dismissal is a
+    real node unmount. Deterministic under `Pilot::advance_clock`.
+  - **New public API:** `ToastRack`, `ToastHolder`, `NotificationSnapshot`
+    (`textual::widgets`), and the `NotificationExpired` message. `Toast` gains
+    `with_notification_id`.
+  - **BREAKING (minor):** `Toast::with_timeout` is removed — a toast's timeout
+    is a notification-level concern (`App::notify`'s `timeout` arg), owned by the
+    rack, not the view widget.
+  - **Known gap (1.x):** toasts posted while a modal/pushed screen is active are
+    shown on the base app's rack (behind the screen), not over the pushed screen
+    — per-screen racks are deferred. This degrades gracefully (no panic, no
+    wrong-z bleed).
 
 ### Framework fundamentals
 

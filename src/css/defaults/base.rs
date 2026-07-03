@@ -41,6 +41,11 @@ Screen {
     overflow-x: hidden;
     bg: $background;
     color: $foreground;
+    /* Named layer ordering (Python `Screen.layers`): children on `_toastrack`
+       (the docked notification rack) sort above default-bucket content. Only the
+       toast layer is declared — content/scrollbars carry no `layer` and keep DOM
+       order. Additional system layers (_tooltips, _loading, …) are a follow-up. */
+    layers: _toastrack;
 
     &:inline {
         height: auto;

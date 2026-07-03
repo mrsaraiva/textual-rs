@@ -28,6 +28,15 @@ Parity is measured by reproducing Python's own documentation examples in Rust:
 
 ## Tracked correctness follow-ups (no demo impact)
 
+- **Per-screen toast racks** — notifications render on the base app's docked
+  `ToastRack`; a toast posted while a modal/pushed screen is active is shown on
+  the base rack (behind the screen), not over the pushed screen. Python mounts a
+  `ToastRack` on every screen. Deferred because per-screen racks touch every
+  screen push for a rarely-hit case; base-only degrades gracefully (no panic, no
+  wrong-z bleed — covered by `notify_while_screen_pushed_degrades_gracefully`).
+  The `Screen` default CSS declares only the `_toastrack` named layer so far;
+  the fuller Python `Screen.layers` set (`_tooltips`, `_loading`, …) is a related
+  follow-up.
 - **Theme LAB shade tokens** — base/semantic tokens are byte-exact vs Python; the LAB-derived shade family (`$*-lighten-2/3`, `$*-darken-3`) can diverge up to ~42/channel on some themes (pre-existing `rgb_to_lab`/`lab_to_rgb` precision). No demo uses the divergent shades.
 - `scroll_view.rs` retains a parallel widget-local scrollbar path with the pre-fix lane behavior (the canonical arena render path is correct).
 - The Pilot headless key-cascade re-implements (rather than shares) the live event-loop key arm — converge onto a shared primitive to prevent drift.

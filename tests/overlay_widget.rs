@@ -113,16 +113,35 @@ fn overlay_dismiss_message_hides_modal() {
 }
 
 #[test]
-fn toast_with_zero_timeout_dismisses_on_first_tick() {
-    let mut toast = Toast::new("hello", ToastSeverity::Information).with_timeout(0);
+fn toast_click_posts_notification_expired_with_its_id() {
+    // Auto-dismiss timing is owned by the ToastRack; the Toast view only
+    // click-dismisses by posting `NotificationExpired { id }`.
+    let mut toast =
+        Toast::new("hello", ToastSeverity::Information).with_notification_id(42);
     let mut ctx = EventCtx::default();
     {
-        let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx);
-        toast.on_event(&Event::Tick(1), &mut __w);
+        let mut __w = textual::event::WidgetCtx::__from_dispatch(
+            textual::node_id::NodeId::default(),
+            &mut ctx,
+        );
+        toast.on_event(
+            &Event::MouseDown(MouseDownEvent {
+                target: NodeId::default(),
+                screen_x: 0,
+                screen_y: 0,
+                x: 0,
+                y: 0,
+            }),
+            &mut __w,
+        );
     }
 
     assert!(ctx.handled());
     assert!(ctx.repaint_requested());
+    assert!(
+        ctx.has_pending_message::<textual::message::NotificationExpired>(),
+        "toast click should post a NotificationExpired message"
+    );
 }
 
 #[test]

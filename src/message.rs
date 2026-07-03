@@ -75,6 +75,19 @@ crate::impl_message!(SelectionListSelectedChanged);
 pub struct ToastDismissed;
 crate::impl_message!(ToastDismissed);
 
+/// Posted when a toast should be dismissed — either its auto-dismiss timer
+/// (owned by the persistent `ToastRack` node) elapsed, or the user clicked it.
+///
+/// The runtime intercepts this in `split_runtime_control_messages` (like
+/// [`OverlayVisibilityChanged`]) and removes the identified notification from
+/// the app's notification store, which re-syncs the rack (a real node unmount).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NotificationExpired {
+    /// Stable id of the notification (assigned by `App::notify`).
+    pub id: u64,
+}
+crate::impl_message!(NotificationExpired);
+
 /// Posted when markdown navigation state changes.
 ///
 /// Apps/widgets can emit this to refresh bindings (e.g. dim back/forward at

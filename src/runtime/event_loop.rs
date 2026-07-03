@@ -906,6 +906,15 @@ fn split_runtime_control_messages(
             pass.deliver.push(event);
             continue;
         }
+        if let Some(m) = event.downcast_ref::<crate::message::NotificationExpired>() {
+            // An auto-dismiss timer elapsed (or a toast was clicked): drop the
+            // notification from the store. The event loop re-syncs the rack on the
+            // next iteration, unmounting the toast node. Consumed here (not
+            // delivered onward).
+            app.remove_notification(m.id);
+            pass.repaint_requested = true;
+            continue;
+        }
         if let Some(m) = event.downcast_ref::<crate::message::AppAddClass>() {
             let selector = m.selector.clone();
             let class_name = m.class_name.clone();
@@ -4127,10 +4136,11 @@ impl App {
                     &mut pending_invalidation,
                     InvalidationScope::Global,
                 );
-                let notifications_before = self.notifications.len();
-                let now = Instant::now();
-                self.notifications.retain(|note| note.expires_at > now);
-                if self.notifications.len() != notifications_before {
+                // Re-sync the docked ToastRack from the notification store when it
+                // changed (a `notify`, or a `NotificationExpired` removal from an
+                // elapsed rack timer / toast click). Auto-dismiss timing is owned
+                // by the rack node's widget timers, not a runtime prune.
+                if self.notifications_dirty && self.refresh_toast_rack() {
                     pending_invalidation.request_full_content();
                 }
                 if pending_invalidation.flags.style
@@ -4508,6 +4518,18 @@ impl App {
             {
                 progressed = true;
                 self.run_event_loop_reactive_phase(root, pending);
+            }
+
+            // Re-sync the docked ToastRack when the notification store changed —
+            // a `notify`, or a `NotificationExpired` removal (from an elapsed
+            // rack-owned auto-dismiss timer or a toast click) just dispatched in
+            // the reactive phase above. Mirrors the live loop's sweep so headless/
+            // Pilot runs converge identically. `refresh_toast_rack` only reports
+            // progress when a rack exists and it consumed the store, so this
+            // cannot spin when no rack is mounted.
+            if self.notifications_dirty && self.refresh_toast_rack() {
+                progressed = true;
+                pending.request_full_content();
             }
 
             // Style transitions + display-tree sync + recompositions.

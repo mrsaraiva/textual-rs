@@ -15,9 +15,9 @@ use crate::widgets::{
     APP_ROOT_HSCROLLBAR_ID, APP_ROOT_SCROLLBAR_CORNER_ID, APP_ROOT_VSCROLLBAR_ID,
     CONTAINER_HSCROLLBAR_ID, CONTAINER_SCROLLBAR_CORNER_ID, CONTAINER_VSCROLLBAR_ID, Container,
     DATA_TABLE_HSCROLLBAR_ID, KEY_PANEL_VSCROLLBAR_ID, LOG_VSCROLLBAR_ID,
-    OPTION_LIST_VSCROLLBAR_ID, OutlineCell, Overlay, RICH_LOG_VSCROLLBAR_ID,
+    OPTION_LIST_VSCROLLBAR_ID, OutlineCell, RICH_LOG_VSCROLLBAR_ID,
     SCROLL_VIEW_HSCROLLBAR_ID, SCROLL_VIEW_SCROLLBAR_CORNER_ID, SCROLL_VIEW_VSCROLLBAR_ID,
-    ScrollBar, ScrollBarCorner, ScrollbarPolicy, Toast, Widget, border_spacing_from_style,
+    ScrollBar, ScrollBarCorner, ScrollbarPolicy, Widget, border_spacing_from_style,
     crop_line_horizontal, outline_edge_cells,
 };
 
@@ -28,8 +28,7 @@ use std::sync::OnceLock;
 use super::App;
 use super::dispatch_ctx::set_dispatch_recipient;
 use super::types::{
-    HitTestMap, SYNC_END, SYNC_START, SegmentStreamStats, TOAST_GAP_ROWS, TOAST_SIDE_MARGIN,
-    resize_trace_enabled,
+    HitTestMap, SYNC_END, SYNC_START, SegmentStreamStats, resize_trace_enabled,
 };
 
 // ===========================================================================
@@ -300,8 +299,7 @@ impl App {
         let (width, height) = self.options.size;
         let lines = rich_rs::Segment::split_and_crop_lines(segments, width, None, true, false);
         let base_style = self.theme.base.to_rich();
-        let mut next = FrameBuffer::from_lines(&lines, width, height, base_style);
-        self.compose_notifications(&mut next);
+        let next = FrameBuffer::from_lines(&lines, width, height, base_style);
         let now = std::time::Instant::now();
         let dt_ms = now.duration_since(self.last_render_at).as_millis();
         self.last_render_at = now;
@@ -470,13 +468,6 @@ impl App {
             }
         }
 
-        // Re-establish style context for notification overlays — the per-layer
-        // guard was dropped when the `for` loop ended above.
-        let notification_sheet = self.stylesheet_for_layer(None);
-        let _notif_guard = set_style_context(notification_sheet);
-        self.compose_notifications(&mut next);
-        drop(_notif_guard);
-
         let now = std::time::Instant::now();
         let dt_ms = now.duration_since(self.last_render_at).as_millis();
         self.last_render_at = now;
@@ -601,55 +592,6 @@ impl App {
 
         front_to_back.reverse();
         front_to_back
-    }
-
-    pub(super) fn compose_notifications(&mut self, frame: &mut FrameBuffer) {
-        if self.notifications.is_empty() {
-            return;
-        }
-
-        let mut cursor_bottom = frame.height.saturating_sub(2);
-        for note in self.notifications.iter().rev() {
-            let mut toast = Toast::new(note.message.clone(), note.severity);
-            if !note.title.is_empty() {
-                toast = toast.with_title(note.title.clone());
-            }
-
-            let max_width = frame
-                .width
-                .saturating_sub(TOAST_SIDE_MARGIN.saturating_mul(2))
-                .max(1);
-            let preferred = 60usize.min((frame.width / 2).max(1));
-            let toast_width = preferred.min(max_width).max(1);
-            let toast_height = toast.layout_height().unwrap_or(3).max(1);
-            if toast_height > frame.height {
-                continue;
-            }
-            if cursor_bottom + 1 < toast_height {
-                break;
-            }
-
-            let mut toast_options = self.options.clone();
-            toast_options.size = (toast_width, toast_height);
-            toast_options.max_width = toast_width;
-            toast_options.max_height = toast_height;
-
-            let rendered = toast.render_styled(&self.console, &toast_options);
-            let lines = Segment::split_and_crop_lines(rendered, toast_width, None, true, false);
-            let lines = Segment::set_shape(&lines, toast_width, Some(toast_height), None, false);
-            let toast_buffer = FrameBuffer::from_lines(&lines, toast_width, toast_height, None);
-
-            let x0 = frame
-                .width
-                .saturating_sub(toast_width.saturating_add(TOAST_SIDE_MARGIN));
-            let y0 = cursor_bottom + 1 - toast_height;
-            Overlay::compose_overlay_at(frame, &toast_buffer, x0, y0);
-
-            cursor_bottom = y0.saturating_sub(1 + TOAST_GAP_ROWS);
-            if cursor_bottom == 0 {
-                break;
-            }
-        }
     }
 
     /// Distribute layout information to the root widget from the hit-test map.

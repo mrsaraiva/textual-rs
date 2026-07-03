@@ -42,27 +42,27 @@ impl ToastSeverity {
     }
 }
 
-/// Default timeout in ticks before a toast auto-dismisses.
-const DEFAULT_TIMEOUT: u64 = 60;
-
 /// A notification widget that displays a message with optional title and severity.
 ///
-/// Auto-dismisses after a configurable timeout. Click to dismiss immediately.
-/// Not focusable — it's an overlay notification.
+/// A `Toast` is a pure *view* of a notification: it is a real arena child of the
+/// docked [`ToastRack`](crate::widgets::ToastRack), which owns the auto-dismiss
+/// timers (keyed by [`Toast::id`]) so that adding a later toast never resets an
+/// earlier one's countdown. Clicking the toast posts
+/// [`NotificationExpired`](crate::message::NotificationExpired) so the runtime
+/// removes the notification (a real node unmount). Not focusable.
 #[derive(Debug, Clone)]
 pub struct Toast {
+    /// Stable notification id (mirrors Python `Notification.identity`). Posted in
+    /// `NotificationExpired` on click so the runtime removes the right entry.
+    id: u64,
     message: String,
     title: Option<String>,
     severity: ToastSeverity,
-    /// CSS classes carried by this toast (currently the severity class such as
-    /// `-information`). Stored as a field so off-tree style resolution
-    /// (`selector_meta_generic`/`render_styled`) can see them via
-    /// `style_classes()`; the runtime composes toasts off-tree, so without this
-    /// the severity-scoped rules (e.g. `Toast.-warning { border-left: ... }`)
-    /// would never match.
+    /// CSS classes carried by this toast (the severity class such as
+    /// `-information`). Stored on the seed so the arena node carries it; kept as
+    /// a field too so `style_classes()` reports it for intrinsic-size resolution
+    /// before mount.
     classes: Vec<String>,
-    timeout_remaining: u64,
-    dismissed: bool,
     seed: NodeSeed,
 }
 
@@ -77,12 +77,11 @@ impl Toast {
             ..NodeSeed::default()
         };
         Self {
+            id: 0,
             message,
             title: None,
             severity,
             classes,
-            timeout_remaining: DEFAULT_TIMEOUT,
-            dismissed: false,
             seed,
         }
     }
@@ -92,8 +91,9 @@ impl Toast {
         self
     }
 
-    pub fn with_timeout(mut self, ticks: u64) -> Self {
-        self.timeout_remaining = ticks;
+    /// Set the notification id this toast is a view of (used by the rack).
+    pub fn with_notification_id(mut self, id: u64) -> Self {
+        self.id = id;
         self
     }
 
@@ -103,16 +103,6 @@ impl Toast {
 
     pub fn message(&self) -> &str {
         &self.message
-    }
-
-    fn dismiss(&mut self, ctx: &mut crate::event::WidgetCtx) {
-        if self.dismissed {
-            return;
-        }
-        self.dismissed = true;
-        ctx.post_message(ToastDismissed);
-        ctx.request_repaint();
-        ctx.set_handled();
     }
 
     /// Number of visual lines a markup source produces once word-wrapped to
@@ -190,22 +180,15 @@ impl Widget for Toast {
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
-        match event {
-            Event::MouseDown(mouse) if mouse.target == self.node_id() => {
-                self.dismiss(ctx);
-            }
-            Event::Tick(_) => {
-                if self.timeout_remaining == 0 {
-                    // timeout(0) means dismiss immediately on first tick.
-                    self.dismiss(ctx);
-                } else {
-                    self.timeout_remaining -= 1;
-                    if self.timeout_remaining == 0 {
-                        self.dismiss(ctx);
-                    }
-                }
-            }
-            _ => {}
+        // Click-to-dismiss (Python `Toast._on_click`): post `NotificationExpired`
+        // so the runtime removes the notification from the store and re-syncs the
+        // rack (a real node unmount). Auto-dismiss timing is owned by the rack.
+        if let Event::MouseDown(mouse) = event
+            && mouse.target == self.node_id()
+        {
+            ctx.post_message(NotificationExpired { id: self.id });
+            ctx.request_repaint();
+            ctx.set_handled();
         }
     }
 
