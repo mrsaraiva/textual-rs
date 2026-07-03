@@ -101,42 +101,57 @@ impl<'a> WidgetCtx<'a> {
 
     /// Add a CSS class to this widget's own node (Python `self.add_class(name)`).
     ///
-    /// RA2.2: routes through the underlying `EventCtx`'s class-op list — the same
-    /// mechanism `on_event`/`on_message` handlers used pre-migration. During
-    /// dispatch the class op flows into the `DispatchOutcome` (applied by
-    /// `absorb_outcome`); inside a flush closure the synthesized `EventCtx`'s
-    /// class ops are absorbed by `run_on_node_widget`. The command-queue class
-    /// path (`WidgetCommand::AddClass`) is reserved for RA2.3, which retires the
-    /// class-op hook. This inherent method shadows `ReactiveCtx::add_class`
+    /// RA2.3: enqueues a deferred [`WidgetCommand::AddClass`] applied by the
+    /// shared flush (`tree.add_class` + layout invalidation) — the ONE deferred
+    /// mechanism, replacing the RA2.2-interim `EventCtx`/`DispatchOutcome`
+    /// class-op side-channel. Because both the live loop and headless pump run the
+    /// command flush before render, the visible result is identical to the former
+    /// `absorb_outcome` path. This inherent method shadows `ReactiveCtx::add_class`
     /// (reachable via `Deref`, which only sets reactive flags).
     pub fn add_class(&mut self, class: &str) {
-        self.event_ctx_mut().add_class(class);
+        enqueue_widget_command(WidgetCommand::AddClass {
+            target: CommandTarget::Node(self.node_id()),
+            class: class.to_string(),
+        });
     }
 
-    /// Remove a CSS class from this widget's own node (EventCtx class-op path).
+    /// Remove a CSS class from this widget's own node (command-queue path).
     pub fn remove_class(&mut self, class: &str) {
-        self.event_ctx_mut().remove_class(class);
+        enqueue_widget_command(WidgetCommand::RemoveClass {
+            target: CommandTarget::Node(self.node_id()),
+            class: class.to_string(),
+        });
     }
 
-    /// Add (when `on`) or remove `class` on this widget's own node (EventCtx path).
+    /// Add (when `on`) or remove `class` on this widget's own node (command queue).
     ///
     /// Footgun closer: shadows `ReactiveCtx::set_class` (reachable via `Deref`),
     /// which only sets reactive flags — this keeps every WidgetCtx class op on the
-    /// one EventCtx class-op path.
+    /// one command-queue path.
     pub fn set_class(&mut self, on: bool, class: &str) {
-        self.event_ctx_mut().set_class(on, class);
+        if on {
+            self.add_class(class);
+        } else {
+            self.remove_class(class);
+        }
     }
 
-    /// Add a CSS class to an arbitrary node (EventCtx class-op path). Footgun
-    /// closer for `ReactiveCtx::add_class_to`.
+    /// Add a CSS class to an arbitrary node (command-queue path). Footgun closer
+    /// for `ReactiveCtx::add_class_to`.
     pub fn add_class_to(&mut self, node: crate::node_id::NodeId, class: &str) {
-        self.event_ctx_mut().add_class_to(node, class);
+        enqueue_widget_command(WidgetCommand::AddClass {
+            target: CommandTarget::Node(node),
+            class: class.to_string(),
+        });
     }
 
-    /// Remove a CSS class from an arbitrary node (EventCtx class-op path). Footgun
+    /// Remove a CSS class from an arbitrary node (command-queue path). Footgun
     /// closer for `ReactiveCtx::remove_class_from`.
     pub fn remove_class_from(&mut self, node: crate::node_id::NodeId, class: &str) {
-        self.event_ctx_mut().remove_class_from(node, class);
+        enqueue_widget_command(WidgetCommand::RemoveClass {
+            target: CommandTarget::Node(node),
+            class: class.to_string(),
+        });
     }
 
     /// Apply a closure to this widget's own inline styles (Python

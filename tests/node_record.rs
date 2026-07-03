@@ -81,11 +81,16 @@ fn event_ctx_class_ops_apply_to_tree() {
     let key_event = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
     let event = Event::Key(KeyEventData::from_crossterm(key_event));
 
-    // Dispatch through the tree with focus on the probe node
-    let mut outcome = dispatch_event_tree(&mut tree, Some(probe_node_id), &event);
+    // Clear any stale commands left on this thread's queue by a prior test.
+    let _ = textual::runtime::drain_class_commands_for_test();
 
-    // Apply class_ops from the outcome to the tree (mirrors what absorb_outcome does)
-    for (node, op) in std::mem::take(&mut outcome.class_ops) {
+    // Dispatch through the tree with focus on the probe node
+    let _outcome = dispatch_event_tree(&mut tree, Some(probe_node_id), &event);
+
+    // Post-RA2.3 the handler's `ctx.add_class` enqueues an AddClass command on
+    // the deferred queue (not `outcome.class_ops`); drain it and apply to the
+    // tree (mirrors what the shared flush's `apply_widget_command` does).
+    for (node, op) in textual::runtime::drain_class_commands_for_test() {
         match op {
             ClassOp::Add(c) => tree.add_class(node, &c),
             ClassOp::Remove(c) => tree.remove_class(node, &c),
@@ -156,8 +161,10 @@ fn event_ctx_set_class_queues_correct_op() {
         let key_event = KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE);
         let event = Event::Key(KeyEventData::from_crossterm(key_event));
 
-        let mut outcome = dispatch_event_tree(&mut tree, Some(probe_node_id), &event);
-        for (node, op) in std::mem::take(&mut outcome.class_ops) {
+        // Clear any stale commands left on this thread's queue by a prior test.
+        let _ = textual::runtime::drain_class_commands_for_test();
+        let _outcome = dispatch_event_tree(&mut tree, Some(probe_node_id), &event);
+        for (node, op) in textual::runtime::drain_class_commands_for_test() {
             match op {
                 ClassOp::Add(c) => tree.add_class(node, &c),
                 ClassOp::Remove(c) => tree.remove_class(node, &c),

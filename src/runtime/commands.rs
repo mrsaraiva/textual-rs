@@ -174,6 +174,29 @@ pub(crate) fn command_queue_is_nonempty() -> bool {
     RUNTIME_COMMAND_QUEUE.with(|queue| !queue.borrow().is_empty())
 }
 
+/// Test/observability hook: drain the deferred command queue and return the
+/// `(node, ClassOp)` pairs from `AddClass`/`RemoveClass` commands (dropping any
+/// non-class commands). Post-RA2.3 a handler's `ctx.add_class`/`remove_class`
+/// enqueues these commands instead of writing the dispatch `EventCtx`'s class-op
+/// list, so tests that formerly inspected `outcome.class_ops` drain here instead.
+#[doc(hidden)]
+pub fn drain_class_commands_for_test() -> Vec<(NodeId, crate::event::ClassOp)> {
+    take_widget_commands()
+        .into_iter()
+        .filter_map(|cmd| match cmd {
+            WidgetCommand::AddClass {
+                target: CommandTarget::Node(node),
+                class,
+            } => Some((node, crate::event::ClassOp::Add(class))),
+            WidgetCommand::RemoveClass {
+                target: CommandTarget::Node(node),
+                class,
+            } => Some((node, crate::event::ClassOp::Remove(class))),
+            _ => None,
+        })
+        .collect()
+}
+
 impl App {
     /// Resolve a [`CommandTarget`] to a live node id, or `None` if the target no
     /// longer exists / does not match (drop + debug log, **never panic**).

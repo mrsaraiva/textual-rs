@@ -955,7 +955,8 @@ mod tests {
 
         assert!(button.pressed(), "mouse down should set pressed state");
         // After RA-2, active state is signalled via ctx.add_class rather than a widget field.
-        let ops = ctx.take_class_ops();
+        // Post-RA2.3 that enqueues an AddClass command on the deferred queue.
+        let ops = crate::runtime::drain_class_commands_for_test();
         assert!(
             ops.iter()
                 .any(|(_, op)| matches!(op, ClassOp::Add(c) if c == "-active")),

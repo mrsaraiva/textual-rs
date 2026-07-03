@@ -737,15 +737,6 @@ pub trait Widget: Send + Sync + Any {
     /// Drain pending class add/remove ops that were staged by widget methods called
     /// outside of an event handler (e.g. via `App::with_query_one_mut_as`).
     ///
-    /// Returns a list of `(class_name, add)` pairs where `add = true` means add the
-    /// class and `add = false` means remove it. The runtime calls this after each
-    /// `with_widget_mut` invocation and applies the ops directly to the arena node.
-    ///
-    /// Widgets that stage class changes from non-event-handler contexts should
-    /// override this method to drain and return those pending ops.
-    fn drain_pending_class_ops(&mut self) -> Vec<(String, bool)> {
-        Vec::new()
-    }
     /// Drain a pending "recompose myself" request staged by a widget method
     /// called outside of an event handler (e.g. via `App::with_query_one_mut_as`).
     ///

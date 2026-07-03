@@ -9,6 +9,20 @@ until the API stabilizes.
 
 ### Framework fundamentals
 
+- **`WidgetCtx` class ops route through the deferred command queue** (RA2.3) —
+  `ctx.add_class`/`remove_class`/`set_class`/`add_class_to`/`remove_class_from`
+  now enqueue `WidgetCommand::AddClass`/`RemoveClass` (applied by the shared flush)
+  instead of the RA2.2-interim `EventCtx`/`DispatchOutcome` class-op side-channel —
+  one deferred mechanism, drained before render in both the live loop and the
+  headless pump (visible result unchanged). This retires the widget-staged
+  `Widget::drain_pending_class_ops` hook: widgets that flipped a class from a
+  ctx-less method (MarkdownViewer TOC, Collapsible) now apply it through their
+  `ReactiveCtx`/`WidgetCtx` (`ctx.set_class`); `Handle::update_in` enqueues its
+  reactive entry when the closure recorded a class op even with no field change.
+  The `collapsible` demo's "collapse/expand all" switches from
+  `with_widget_mut_as` + ctx-less `toggle()` to `Handle::update` + reactive
+  `set_collapsed(value, ctx)`.
+
 - **`WidgetCtx::update_styles(|s| ...)` post-mount inline-style writes** (RA2.3) —
   a widget/handler can now write its own inline styles after mount via
   `ctx.update_styles(|styles| { styles.style = styles.style.bg(color); })`, mirroring

@@ -95,9 +95,13 @@ impl TextualApp for MarkdownApp {
             "t" | "T" => {
                 // Python: self.markdown_viewer.show_table_of_contents = not ...
                 let _ = self.viewer.handle().and_then(|h| {
-                    h.update(app, |viewer, _ctx| {
+                    h.update(app, |viewer, ctx| {
                         let show = !viewer.is_showing_table_of_contents();
                         viewer.set_show_table_of_contents(show);
+                        // Apply the class to the arena node through the reactive
+                        // ctx (the node seed is drained at mount, so mutating the
+                        // widget's own class list alone would not reach the tree).
+                        ctx.set_class(show, "-show-table-of-contents");
                     })
                 });
                 ctx.set_handled();

@@ -1,5 +1,7 @@
 mod commands;
 pub use commands::TimerTick;
+#[doc(hidden)]
+pub use commands::drain_class_commands_for_test;
 mod devtools;
 pub mod dispatch_ctx;
 mod event_loop;
@@ -2618,22 +2620,10 @@ impl App {
         let tree = self.active_widget_tree_mut()?;
         let node = tree.get_mut(node_id)?;
         let result = f(node.widget.as_mut());
-        // Drain any pending class ops that widget methods may have staged on the
-        // widget struct (e.g. MarkdownViewer.toc_class_pending). These are ops the
-        // widget cannot apply itself because it has no EventCtx reference.
-        let pending = node.widget.drain_pending_class_ops();
-        let class_changed = !pending.is_empty();
-        if class_changed {
-            for (class, add) in pending {
-                if add {
-                    tree.add_class(node_id, &class);
-                } else {
-                    tree.remove_class(node_id, &class);
-                }
-            }
-        }
-        // A post-mount inline-style write now flows through `WidgetCtx::update_styles`
-        // (a deferred `UpdateStyles` command), not a widget-staged write-through.
+        // Post-mount class changes now flow through the widget's `WidgetCtx`/
+        // `ReactiveCtx` (`ctx.set_class` → command queue / reactive entry), and
+        // inline-style writes through `WidgetCtx::update_styles` — no widget-staged
+        // class-op / write-through drain here.
         let mut self_recompose = false;
         if let Some(node) = tree.get_mut(node_id) {
             // A composed widget (e.g. `Tabs`) may have mutated internal state that
@@ -2646,14 +2636,6 @@ impl App {
         }
         if self_recompose {
             self.request_widget_recompose_nodes(&[node_id]);
-            self.pending_force_relayout = true;
-        }
-        // A runtime class change can flip descendant `display`/`visibility` and
-        // other layout-affecting CSS. Force a relayout on the next loop iteration
-        // so the affected subtree re-resolves CSS + re-arranges (Python
-        // `add_class`/`remove_class` -> `refresh(layout=True)`). Set after the
-        // `tree` borrow ends to avoid aliasing `self`.
-        if class_changed {
             self.pending_force_relayout = true;
         }
         Some(result)
@@ -2950,9 +2932,10 @@ impl App {
     /// entry) + automatic subtree repaint via the same path as
     /// `DomQueryMut::refresh` (src/runtime/mod.rs:415).
     ///
-    /// Also drains any pending class ops staged by widget methods (e.g.
-    /// `MarkdownViewer.toc_class_pending`) — the same post-mutation step
-    /// that `with_widget_mut` performs (src/runtime/mod.rs:1623).
+    /// Class changes the closure records through its `ReactiveCtx`
+    /// (`ctx.set_class(..)`) are drained with the enqueued reactive entry by the
+    /// shared flush (`process_reactive_entries_for_node`), so no separate class-op
+    /// drain is needed here (retired with `drain_pending_class_ops`).
     pub(crate) fn handle_update<W: Widget, R>(
         &mut self,
         handle: crate::handle::Handle<W>,
@@ -2960,22 +2943,7 @@ impl App {
     ) -> std::result::Result<R, QueryError> {
         let out = {
             let tree = self.active_widget_tree_mut().ok_or(QueryError::Unmounted)?;
-            let out = handle.update_in(tree, f)?;
-            // Drain pending class ops (same as with_widget_mut, src/runtime/mod.rs:1623).
-            let node_id = handle.node_id();
-            if let Some(node) = tree.get_mut(node_id) {
-                let pending = node.widget.drain_pending_class_ops();
-                if !pending.is_empty() {
-                    for (class, add) in pending {
-                        if add {
-                            tree.add_class(node_id, &class);
-                        } else {
-                            tree.remove_class(node_id, &class);
-                        }
-                    }
-                }
-            }
-            out
+            handle.update_in(tree, f)?
         };
         self.request_query_refresh(&[handle.node_id()]);
         Ok(out)
