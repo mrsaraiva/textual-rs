@@ -49,7 +49,9 @@ until the API stabilizes.
   command applied by the shared flush against the arena node record (the node seed is
   drained at mount, so a post-mount seed write would be invisible). This retires the
   internal `Widget::take_inline_style_writethrough` staging hook — `set_inline_style`
-  now only seeds the pre-mount style.
+  now only seeds the pre-mount style. The `watch01`/`computed01` reactivity demos,
+  which repainted panels via a post-mount `Static::set_inline_style`, now write to
+  the arena node directly through `query_mut(sel).set_styles(..)`.
 
 - **BREAKING — Widget-trait handler signatures migrate to `WidgetCtx`** (RA2.2) —
   every behavior handler on the `Widget` trait now receives `&mut WidgetCtx`
