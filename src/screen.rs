@@ -475,6 +475,18 @@ impl ScreenStack {
         self.screens.last().and_then(|e| e.mode_name.as_deref())
     }
 
+    /// Return the `name()` of the topmost screen (if any).
+    ///
+    /// Used by the system-modal push hook to detect a re-entrant push of the
+    /// same system screen (Python guards `ctrl+p` while the palette is already
+    /// the top screen, `command.py:736-746`).
+    // Consumed by `App::push_system_modal_screen` (Wave 0 hook); the live
+    // `ctrl+p` consumer lands with the Wave 1 CommandPaletteScreen rebuild.
+    #[allow(dead_code)]
+    pub(crate) fn top_screen_name(&self) -> Option<String> {
+        self.top().and_then(|e| e.with_screen(|s| s.name().to_string()))
+    }
+
     fn push_inner(
         &mut self,
         screen: Box<dyn Screen>,

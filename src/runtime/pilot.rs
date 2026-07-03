@@ -558,6 +558,90 @@ Horizontal { width: auto; height: auto; }
         .unwrap();
     }
 
+    // -----------------------------------------------------------------------
+    // W0.2: push a system modal screen from the runtime hook + re-entrancy guard
+    // -----------------------------------------------------------------------
+
+    /// A minimal system modal screen: a distinct `name()` (the re-entrancy key)
+    /// and a body with a unique id so a test can confirm which screen is active.
+    struct SystemModalTestScreen {
+        screen_name: &'static str,
+        body_id: &'static str,
+    }
+
+    impl crate::screen::Screen for SystemModalTestScreen {
+        fn name(&self) -> &str {
+            self.screen_name
+        }
+
+        fn compose(&self) -> Box<dyn crate::widgets::Widget> {
+            Box::new(
+                crate::widgets::Vertical::new()
+                    .with_compose(crate::compose![Button::new("x").id(self.body_id)]),
+            )
+        }
+    }
+
+    impl crate::widgets::SystemModalScreen for SystemModalTestScreen {}
+
+    #[test]
+    fn push_system_modal_screen_pushes_boxed_screen_and_guards_reentrancy() {
+        crate::run_test(RgbApp, |pilot| {
+            // A system-initiated push mounts the boxed screen as the active tree.
+            assert!(
+                pilot
+                    .app_mut()
+                    .push_system_modal_screen(Box::new(SystemModalTestScreen {
+                        screen_name: "Palette",
+                        body_id: "palette-body",
+                    })),
+                "first push of a system modal must succeed"
+            );
+            pilot.pause()?;
+            assert!(
+                pilot.app().query_one("#palette-body").is_ok(),
+                "the pushed system modal must become the active tree"
+            );
+
+            // A second push of the SAME system modal (same name()) is a no-op,
+            // so a repeated ctrl+p cannot stack duplicate palettes.
+            assert!(
+                !pilot
+                    .app_mut()
+                    .push_system_modal_screen(Box::new(SystemModalTestScreen {
+                        screen_name: "Palette",
+                        body_id: "palette-body-2",
+                    })),
+                "a second push of the same system modal must be suppressed"
+            );
+            pilot.pause()?;
+            assert!(
+                pilot.app().query_one("#palette-body-2").is_err(),
+                "the suppressed push must not have mounted a second palette"
+            );
+
+            // A DIFFERENT system modal (e.g. a dialog opened from within a
+            // screen) must still stack normally — the guard keys on identity,
+            // not "is a modal".
+            assert!(
+                pilot
+                    .app_mut()
+                    .push_system_modal_screen(Box::new(SystemModalTestScreen {
+                        screen_name: "Dialog",
+                        body_id: "dialog-body",
+                    })),
+                "a different-named system modal must still stack"
+            );
+            pilot.pause()?;
+            assert!(
+                pilot.app().query_one("#dialog-body").is_ok(),
+                "the nested different system modal must become the active tree"
+            );
+            Ok(())
+        })
+        .unwrap();
+    }
+
     #[test]
     fn parse_key_handles_names_and_modifiers() {
         assert!(parse_key("r").is_some());

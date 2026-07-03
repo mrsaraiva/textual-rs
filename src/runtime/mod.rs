@@ -3567,6 +3567,35 @@ impl App {
         self.pending_force_relayout = true;
     }
 
+    /// Push a system modal screen (e.g. the command palette) from the
+    /// action/message path.
+    ///
+    /// The runtime owns the screen stack, so a system-initiated push of an
+    /// arbitrary boxed screen is a small internal hook rather than a new public
+    /// command class (mirrors Python `App.action_command_palette` pushing
+    /// `CommandPalette()`, `app.py:4703-4706`). Guarded against re-entrancy: a
+    /// second push of a screen whose `name()` already sits on top is a no-op, so
+    /// a repeated `ctrl+p` does not stack duplicate palettes (Python
+    /// `command.py:736-746`). A *different* system modal (e.g. a dialog opened
+    /// from within a screen) still stacks normally.
+    ///
+    /// Returns `true` if a screen was pushed, `false` if the guard suppressed it.
+    //
+    // The live `ctrl+p` consumer (constructing and pushing the real
+    // `CommandPaletteScreen`) lands with the Wave 1 palette rebuild; this Wave 0
+    // hook is exercised by the pilot regression test today.
+    #[allow(dead_code)]
+    pub(crate) fn push_system_modal_screen(
+        &mut self,
+        screen: Box<dyn crate::screen::Screen>,
+    ) -> bool {
+        if self.screen_stack.top_screen_name().as_deref() == Some(screen.name()) {
+            return false;
+        }
+        self.push_screen(screen);
+        true
+    }
+
     /// Focus the node targeted by the active screen's `auto_focus()` selector,
     /// falling back to the first focusable node.
     ///
