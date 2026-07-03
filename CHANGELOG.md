@@ -24,6 +24,7 @@ in the sections below; this is the migration index:
 | Prelude pruned to the curated user surface (RA2.6b) | Runtime tree-plumbing fns, `DispatchOutcome`, `HandleSink`, legacy delegate macros, routing internals, and the dead `CommandPaletteScreen` left the prelude. Import from their canonical modules (`textual::runtime::`, `textual::handle::`, `textual::widgets::`, `textual::routing::`) if you drive trees directly. |
 | The command palette is a pushed modal screen (Wave 2) | The legacy always-mounted `CommandPalette` wrapper widget is removed, along with its `CommandPalette::new(child)` constructor. The palette is now a runtime-pushed `SystemModalScreen` opened by `ctrl+p` (no app-body wrapper needed) — remove any `CommandPalette::new(app_body)` wrapping from your app root. `FuzzyMatcher`, the `Provider`/`ProviderResult`/`SystemCommandsProvider` model, and `PaletteCommand` are preserved (now re-exported from `textual::widgets`). |
 | Notifications are real docked `ToastRack` widgets (Wave 3) | **`App::notify(...)` is unchanged** — no migration needed. Internally, toasts are now real `Toast` nodes mounted in a docked `ToastRack` (a system child of the app root, on the `_toastrack` layer), not a runtime framebuffer blit. `Toast` gains `with_notification_id`; its `with_timeout` builder is removed (auto-dismiss timing is a notification-level concern set via `App::notify`'s `timeout` arg and owned by the rack). New public: `ToastRack`, `ToastHolder`, `NotificationSnapshot`, and the `NotificationExpired` message. |
+| The tooltip is a real `overlay: screen` widget node (Wave 4) | **`.with_tooltip(...)` is unchanged** — no migration needed. The system tooltip's widget-local `FrameBuffer` overlay compositor is retired; the bubble is now a real `position: absolute; overlay: screen` node placed at the hover anchor via the new node `absolute_offset`, centered by CSS `offset-x: -50%` and constrained by the shared overlay:screen paint pass. **BREAKING (minor):** `Tooltip::new(child, text)` (the test-only wrapper constructor) becomes `Tooltip::new(text)` — `Tooltip` no longer wraps a child. |
 
 ### Deprecated
 
@@ -113,6 +114,39 @@ in the sections below; this is the migration index:
     shown on the base app's rack (behind the screen), not over the pushed screen
     — per-screen racks are deferred. This degrades gracefully (no panic, no
     wrong-z bleed).
+
+### Changed (the tooltip becomes a real overlay:screen widget node — Wave 4)
+
+- **The system tooltip now rides the shared widget path**, retiring its
+  widget-local `FrameBuffer` overlay compositor (`tooltip_frame` →
+  `FrameBuffer::from_lines`, the hand-rolled `overlay_origin` constrain, and the
+  `Overlay::compose_overlay_at` self-composite) — the last "parallel special-case
+  overlay that bypasses the widget path" in the post-RA2 queue (Select, RadioSet,
+  CommandPalette, Toast, Tooltip now all done). The bubble is a real
+  `position: absolute; overlay: screen` node: the runtime reads the hovered
+  widget's `tooltip()`, sets the node's text and stores the mouse anchor, and the
+  shared machinery does the rest — CSS `offset-x: -50%` centers it on the anchor,
+  `margin: 1 0` gives the gap, and the `overlay: screen` deferred-paint pass
+  floats it top-z, unclipped, over the screen surface, constrained into the frame
+  by `constrain: inside inflect` (the same escape Select rides). This is Python's
+  `_tooltips`-layer mechanism realized through Rust's overlay:screen escape, which
+  (unlike a plain named layer) honors the tooltip's `constrain`.
+  - **`.with_tooltip(text)` is unchanged** — a non-breaking internal rebuild for
+    the public tooltip API. Hover show/clear stays runtime/screen-owned (mirrors
+    Python's `Screen` mouse-move path).
+  - **New reusable layout primitive:** a per-node `absolute_offset` (mirroring
+    Python `Widget._absolute_offset`) that layout adds to a `position: absolute`
+    node's origin *before* its CSS `offset`, so a runtime-supplied screen anchor
+    composes with `offset-x: -50%` centering. Defaults to `None` (opt-in), so
+    existing absolute-positioned nodes lay out identically.
+  - **BREAKING (minor):** `Tooltip::new(child, text)` — the test-only wrapper
+    constructor that composited a bubble over a wrapped child — becomes
+    `Tooltip::new(text)`. `Tooltip` no longer wraps a child widget; it is the
+    bubble. The wrapper's `visible`/`with_anchor`/`with_max_width`/`with_y_offset`
+    builders and its `Overlay*` message handling are removed.
+  - **Behavior refinement:** the tooltip is now constrained to the full screen
+    (Python-faithful) rather than to the hovered widget's scroll viewport (a
+    Rust-ism the old baked-geometry path carried).
 
 ### Framework fundamentals
 

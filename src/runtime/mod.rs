@@ -10,6 +10,8 @@ mod frozen_bg_regression;
 #[cfg(test)]
 mod toast_rack_regression;
 #[cfg(test)]
+mod tooltip_regression;
+#[cfg(test)]
 mod overlay_focus_regression;
 mod widget_ctx;
 mod helpers;
@@ -4017,59 +4019,6 @@ impl App {
         ))
     }
 
-    fn tooltip_viewport_for_owner(&mut self, owner: NodeId) -> (u16, u16, usize, usize) {
-        let screen_width = self.options.size.0.max(1);
-        let screen_height = self.options.size.1.max(1);
-
-        let mut owners = vec![owner];
-        if let Some(tree) = self.active_widget_tree() {
-            if !tree.contains(owner) {
-                return (0, 0, screen_width, screen_height);
-            }
-            owners.extend(tree.ancestors(owner));
-        } else {
-            return (0, 0, screen_width, screen_height);
-        }
-
-        for node_id in owners {
-            let has_viewport = self
-                .with_widget_mut(node_id, |widget| widget.scroll_viewport_size())
-                .flatten()
-                .is_some();
-            if !has_viewport {
-                continue;
-            }
-            let Some((x0, y0, viewport_width, viewport_height)) = self
-                .active_widget_tree()
-                .and_then(|tree| tree.get(node_id))
-                .map(|node| {
-                    let rect = node.content_rect;
-                    (
-                        rect.x0.max(0) as usize,
-                        rect.y0.max(0) as usize,
-                        rect.width() as usize,
-                        rect.height() as usize,
-                    )
-                })
-            else {
-                continue;
-            };
-
-            let x = x0.min(screen_width.saturating_sub(1));
-            let y = y0.min(screen_height.saturating_sub(1));
-            let max_width = screen_width.saturating_sub(x).max(1);
-            let max_height = screen_height.saturating_sub(y).max(1);
-            return (
-                x.min(u16::MAX as usize) as u16,
-                y.min(u16::MAX as usize) as u16,
-                viewport_width.max(1).min(max_width),
-                viewport_height.max(1).min(max_height),
-            );
-        }
-
-        (0, 0, screen_width, screen_height)
-    }
-
     pub(super) fn update_hover_tooltip(&mut self, screen_x: u16, screen_y: u16) -> bool {
         let Some(tooltip_id) = self.system_tooltip_node_id() else {
             return false;
@@ -4095,31 +4044,45 @@ impl App {
         let mut changed = false;
         match next {
             Some((owner, text)) => {
-                let (anchor_x, anchor_y) = self
-                    .tooltip_anchor_for_owner(owner, screen_x, screen_y)
-                    .unwrap_or((0, 0));
-                let (viewport_x, viewport_y, viewport_width, viewport_height) =
-                    self.tooltip_viewport_for_owner(owner);
+                // Keep the anchor stable while the pointer stays over the same
+                // owner (Python re-anchors only when the hover timer re-fires on
+                // a new owner); re-anchor when the owner changes or the bubble
+                // was hidden.
+                let reanchor = self
+                    .with_widget_mut_as::<Tooltip, _>(tooltip_id, |tooltip| {
+                        !(tooltip.is_visible() && tooltip.system_owner() == Some(owner))
+                    })
+                    .unwrap_or(true);
                 changed |= self
                     .with_widget_mut_as::<Tooltip, _>(tooltip_id, |tooltip| {
-                        tooltip.apply_system_state(
-                            owner,
-                            text,
-                            anchor_x as usize,
-                            anchor_y as usize,
-                            viewport_x as usize,
-                            viewport_y as usize,
-                            viewport_width,
-                            viewport_height,
-                        )
+                        tooltip.apply_system_state(owner, text)
                     })
                     .unwrap_or(false);
+                if reanchor {
+                    // The anchor is the mouse-relative screen point to center the
+                    // bubble on (Python `screen.absolute_offset = mouse_position`).
+                    // It is stored as the node's `absolute_offset`; CSS
+                    // `offset-x: -50%` + `margin` then position it and the
+                    // `overlay: screen` paint pass constrains it into the frame.
+                    let (anchor_x, anchor_y) = self
+                        .tooltip_anchor_for_owner(owner, screen_x, screen_y)
+                        .unwrap_or((0, 0));
+                    if let Some(tree) = self.active_widget_tree_mut() {
+                        changed |= tree.set_absolute_offset(
+                            tooltip_id,
+                            Some((i32::from(anchor_x), i32::from(anchor_y))),
+                        );
+                    }
+                }
                 changed |= self.set_runtime_display_for_node(tooltip_id, true);
             }
             None => {
                 changed |= self
                     .with_widget_mut_as::<Tooltip, _>(tooltip_id, Tooltip::hide_system)
                     .unwrap_or(false);
+                if let Some(tree) = self.active_widget_tree_mut() {
+                    changed |= tree.set_absolute_offset(tooltip_id, None);
+                }
                 changed |= self.set_runtime_display_for_node(tooltip_id, false);
             }
         }
@@ -4135,6 +4098,9 @@ impl App {
         changed |= self
             .with_widget_mut_as::<Tooltip, _>(tooltip_id, Tooltip::hide_system)
             .unwrap_or(false);
+        if let Some(tree) = self.active_widget_tree_mut() {
+            changed |= tree.set_absolute_offset(tooltip_id, None);
+        }
         changed |= self.set_runtime_display_for_node(tooltip_id, false);
         changed
     }
@@ -4663,7 +4629,6 @@ mod tests {
     struct TooltipProbe {
         text: String,
         anchor: Option<(u16, u16)>,
-        viewport_size: Option<(usize, usize)>,
     }
 
     impl TooltipProbe {
@@ -4671,17 +4636,11 @@ mod tests {
             Self {
                 text: text.to_string(),
                 anchor: None,
-                viewport_size: None,
             }
         }
 
         fn with_anchor(mut self, x: u16, y: u16) -> Self {
             self.anchor = Some((x, y));
-            self
-        }
-
-        fn with_viewport_size(mut self, width: usize, height: usize) -> Self {
-            self.viewport_size = Some((width, height));
             self
         }
     }
@@ -4697,10 +4656,6 @@ mod tests {
 
         fn tooltip_anchor(&self) -> Option<(u16, u16)> {
             self.anchor
-        }
-
-        fn scroll_viewport_size(&self) -> Option<(usize, usize)> {
-            self.viewport_size
         }
     }
 
@@ -5126,9 +5081,8 @@ mod tests {
         let first_offset = app
             .active_widget_tree()
             .and_then(|tree| tree.get(tooltip_id))
-            .and_then(|node| node.widget.style())
-            .and_then(|style| style.offset)
-            .expect("tooltip offset should be set");
+            .and_then(|node| node.absolute_offset)
+            .expect("tooltip anchor (absolute_offset) should be set");
         let first_text = app
             .with_widget_mut_as::<Tooltip, _>(tooltip_id, |tooltip| tooltip.text().to_string())
             .expect("tooltip widget should downcast");
@@ -5139,13 +5093,14 @@ mod tests {
             .map(|node| node.runtime_display)
             .unwrap_or(false);
         assert!(first_visible);
+        // Hovering the SAME owner keeps the anchor stable (no re-anchor) and is a
+        // no-op overall.
         assert!(!app.update_hover_tooltip(6, 0));
         let second_offset = app
             .active_widget_tree()
             .and_then(|tree| tree.get(tooltip_id))
-            .and_then(|node| node.widget.style())
-            .and_then(|style| style.offset)
-            .expect("tooltip offset should remain set");
+            .and_then(|node| node.absolute_offset)
+            .expect("tooltip anchor should remain set");
         assert_eq!(first_offset, second_offset);
     }
 
@@ -5190,18 +5145,16 @@ mod tests {
         let first_offset = app
             .active_widget_tree()
             .and_then(|tree| tree.get(tooltip_id))
-            .and_then(|node| node.widget.style())
-            .and_then(|style| style.offset)
-            .expect("first tooltip offset");
+            .and_then(|node| node.absolute_offset)
+            .expect("first tooltip anchor");
 
         app.hovered = Some(second);
         assert!(app.update_hover_tooltip(68, 0));
         let second_offset = app
             .active_widget_tree()
             .and_then(|tree| tree.get(tooltip_id))
-            .and_then(|node| node.widget.style())
-            .and_then(|style| style.offset)
-            .expect("second tooltip offset");
+            .and_then(|node| node.absolute_offset)
+            .expect("second tooltip anchor");
         assert_ne!(first_offset, second_offset);
     }
 
@@ -5235,159 +5188,20 @@ mod tests {
         let tooltip_id = app
             .get_widget_by_id(SYSTEM_TOOLTIP_STYLE_ID)
             .expect("system tooltip should exist");
-        let (offset_x, width) = app
+        let anchor = app
             .active_widget_tree()
             .and_then(|tree| tree.get(tooltip_id))
-            .and_then(|node| {
-                let style = node.widget.style()?;
-                let width = match style.width {
-                    Some(crate::style::Scalar::Cells(value)) => Some(value as usize),
-                    _ => None,
-                }?;
-                let offset_x = match style.offset?.x {
-                    crate::style::OffsetValue::Cells(value) => Some(value as i32),
-                    _ => None,
-                }?;
-                Some((offset_x, width))
-            })
-            .expect("tooltip geometry should be set");
-        let expected_anchor_screen_x = 40i32;
-        let expected_x = expected_anchor_screen_x.saturating_sub((width / 2) as i32);
+            .and_then(|node| node.absolute_offset)
+            .expect("tooltip anchor should be set");
+        // The anchor is the RAW screen point derived from the widget-provided
+        // `tooltip_anchor` (content-local (0,0) of a probe whose content box
+        // starts at screen (40,5)). CSS `offset-x: -50%` applies the centering at
+        // layout time, so the stored anchor is uncentered — proving the anchor
+        // comes from the widget override, not the owner centre.
         assert_eq!(
-            offset_x, expected_x,
-            "tooltip offset should be computed from widget-provided anchor, not owner center"
-        );
-    }
-
-    #[test]
-    fn update_hover_tooltip_constrains_to_widget_viewport_region() {
-        let mut tree = WidgetTree::new();
-        let root = tree.set_root(Box::new(AppRoot::new()));
-        let probe = tree.mount(
-            root,
-            Box::new(
-                TooltipProbe::new("Open command palette")
-                    .with_anchor(18, 0)
-                    .with_viewport_size(20, 10),
-            ),
-        );
-        App::mount_system_tooltip(&mut tree, root);
-        if let Some(node) = tree.get_mut(probe) {
-            node.layout_rect = crate::widget_tree::Rect {
-                x0: 0,
-                y0: 0,
-                x1: 80,
-                y1: 1,
-            };
-            node.content_rect = crate::widget_tree::Rect {
-                x0: 0,
-                y0: 0,
-                x1: 20,
-                y1: 1,
-            };
-        }
-
-        let mut app = App::new().expect("app should initialize");
-        app.widget_tree = Some(tree);
-        app.hovered = Some(probe);
-        app.options.size = (80, 24);
-        app.options.max_width = 80;
-        app.options.max_height = 24;
-
-        assert!(app.update_hover_tooltip(5, 0));
-        let tooltip_id = app
-            .get_widget_by_id(SYSTEM_TOOLTIP_STYLE_ID)
-            .expect("system tooltip should exist");
-        let (offset_x, width) = app
-            .active_widget_tree()
-            .and_then(|tree| tree.get(tooltip_id))
-            .and_then(|node| {
-                let style = node.widget.style()?;
-                let width = match style.width {
-                    Some(crate::style::Scalar::Cells(value)) => Some(value as usize),
-                    _ => None,
-                }?;
-                let offset_x = match style.offset?.x {
-                    crate::style::OffsetValue::Cells(value) => Some(value as i32),
-                    _ => None,
-                }?;
-                Some((offset_x, width))
-            })
-            .expect("tooltip geometry should be set");
-        let viewport_width = 20usize;
-        let anchor_x = 18usize;
-        let expected_x = anchor_x
-            .saturating_sub(width / 2)
-            .min(viewport_width.saturating_sub(width)) as i32;
-        assert_eq!(
-            offset_x, expected_x,
-            "tooltip x-offset should be constrained to the widget viewport width"
-        );
-    }
-
-    #[test]
-    fn update_hover_tooltip_uses_content_rect_for_scroll_viewport_bounds() {
-        let mut tree = WidgetTree::new();
-        let root = tree.set_root(Box::new(AppRoot::new()));
-        let probe = tree.mount(
-            root,
-            Box::new(
-                TooltipProbe::new("Open command palette")
-                    .with_anchor(18, 0)
-                    .with_viewport_size(80, 10),
-            ),
-        );
-        App::mount_system_tooltip(&mut tree, root);
-        if let Some(node) = tree.get_mut(probe) {
-            node.layout_rect = crate::widget_tree::Rect {
-                x0: 0,
-                y0: 0,
-                x1: 80,
-                y1: 1,
-            };
-            node.content_rect = crate::widget_tree::Rect {
-                x0: 0,
-                y0: 0,
-                x1: 20,
-                y1: 1,
-            };
-        }
-
-        let mut app = App::new().expect("app should initialize");
-        app.widget_tree = Some(tree);
-        app.hovered = Some(probe);
-        app.options.size = (80, 24);
-        app.options.max_width = 80;
-        app.options.max_height = 24;
-
-        assert!(app.update_hover_tooltip(5, 0));
-        let tooltip_id = app
-            .get_widget_by_id(SYSTEM_TOOLTIP_STYLE_ID)
-            .expect("system tooltip should exist");
-        let (offset_x, width) = app
-            .active_widget_tree()
-            .and_then(|tree| tree.get(tooltip_id))
-            .and_then(|node| {
-                let style = node.widget.style()?;
-                let width = match style.width {
-                    Some(crate::style::Scalar::Cells(value)) => Some(value as usize),
-                    _ => None,
-                }?;
-                let offset_x = match style.offset?.x {
-                    crate::style::OffsetValue::Cells(value) => Some(value as i32),
-                    _ => None,
-                }?;
-                Some((offset_x, width))
-            })
-            .expect("tooltip geometry should be set");
-        let viewport_width = 20usize;
-        let anchor_x = 18usize;
-        let expected_x = anchor_x
-            .saturating_sub(width / 2)
-            .min(viewport_width.saturating_sub(width)) as i32;
-        assert_eq!(
-            offset_x, expected_x,
-            "content_rect viewport bounds must take precedence over stale widget-reported viewport size"
+            anchor,
+            (40, 5),
+            "tooltip anchor should be the widget-provided anchor, not the owner centre"
         );
     }
 
@@ -5429,52 +5243,6 @@ mod tests {
             .map(|node| node.runtime_display)
             .unwrap_or(true);
         assert!(!visible, "tooltip should remain hidden during cooldown");
-    }
-
-    #[test]
-    fn update_hover_tooltip_inflect_above_anchor_compensates_margin_top() {
-        let mut tree = WidgetTree::new();
-        let root = tree.set_root(Box::new(AppRoot::new()));
-        let probe = tree.mount(
-            root,
-            Box::new(TooltipProbe::new("Open command palette").with_anchor(10, 0)),
-        );
-        App::mount_system_tooltip(&mut tree, root);
-        if let Some(node) = tree.get_mut(probe) {
-            node.layout_rect = crate::widget_tree::Rect {
-                x0: 0,
-                y0: 23,
-                x1: 80,
-                y1: 24,
-            };
-            node.content_rect = node.layout_rect;
-        }
-
-        let mut app = App::new().expect("app should initialize");
-        app.widget_tree = Some(tree);
-        app.hovered = Some(probe);
-        app.options.size = (80, 24);
-        app.options.max_width = 80;
-        app.options.max_height = 24;
-        assert!(app.update_hover_tooltip(10, 23));
-
-        let tooltip_id = app
-            .get_widget_by_id(SYSTEM_TOOLTIP_STYLE_ID)
-            .expect("system tooltip should exist");
-        let offset_y = app
-            .active_widget_tree()
-            .and_then(|tree| tree.get(tooltip_id))
-            .and_then(|node| node.widget.style())
-            .and_then(|style| style.offset)
-            .and_then(|offset| match offset.y {
-                crate::style::OffsetValue::Cells(value) => Some(value as i32),
-                _ => None,
-            })
-            .expect("tooltip y-offset should be set");
-        assert_eq!(
-            offset_y, 19,
-            "inflected tooltips near the footer should compensate margin-top and sit above footer row"
-        );
     }
 
     #[test]

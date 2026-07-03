@@ -383,11 +383,11 @@ fn option_list_width_tracks_padding_delta() {
 
 #[test]
 fn tooltip_width_tracks_padding_delta() {
-    let mut compact = Box::new(Tooltip::new(Label::new("Anchor"), "Tip"));
+    let mut compact = Box::new(Tooltip::new("Tip"));
     set_inline_border_box_padding(compact.as_mut(), 0);
     let compact_w = measure_child_width(compact);
 
-    let mut padded = Box::new(Tooltip::new(Label::new("Anchor"), "Tip"));
+    let mut padded = Box::new(Tooltip::new("Tip"));
     set_inline_border_box_padding(padded.as_mut(), 2);
     let padded_w = measure_child_width(padded);
 
