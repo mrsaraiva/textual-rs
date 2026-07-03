@@ -158,6 +158,13 @@ pub struct WidgetNode {
     pub(crate) layout_rect: Rect,
     /// Content area after padding/border (co-designed with Pillar 2).
     pub(crate) content_rect: Rect,
+    /// Runtime-supplied absolute anchor added to a `position: absolute` node's
+    /// origin during layout, mirroring Python's `Widget._absolute_offset` (the
+    /// tooltip's `screen.absolute_offset = mouse_position`). It composes with the
+    /// node's CSS `offset` (e.g. `offset-x: -50%` centering) rather than
+    /// overwriting it. `None` for every node that does not opt in, so existing
+    /// absolute-positioned nodes lay out identically.
+    pub(crate) absolute_offset: Option<(i32, i32)>,
 }
 
 impl WidgetNode {
@@ -177,6 +184,7 @@ impl WidgetNode {
             mounted: false,
             layout_rect: Rect::ZERO,
             content_rect: Rect::ZERO,
+            absolute_offset: None,
         }
     }
 }
@@ -639,6 +647,20 @@ impl WidgetTree {
             n.runtime_display = visible;
             Self::recompute_display(n);
         }
+    }
+
+    /// Set (or clear) the runtime absolute anchor added to a `position:
+    /// absolute` node's origin during layout (Python `Widget._absolute_offset`).
+    /// Composes additively with the node's CSS `offset`; `None` restores default
+    /// (offset-only) placement. Returns `true` when the stored value changed.
+    pub fn set_absolute_offset(&mut self, node: NodeId, offset: Option<(i32, i32)>) -> bool {
+        if let Some(n) = self.arena.get_mut(node) {
+            if n.absolute_offset != offset {
+                n.absolute_offset = offset;
+                return true;
+            }
+        }
+        false
     }
 
     /// Set CSS-controlled display visibility for a node.

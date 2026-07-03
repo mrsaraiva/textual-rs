@@ -475,12 +475,22 @@ pub(crate) fn layout_absolute(
             layout_h = layout_h.min(max_h_outer);
         }
 
-        // Position: at parent origin + margin + offset. Positions are signed so
-        // a negative offset (`position: absolute; offset: -x -y`) survives to the
-        // render clip instead of being clamped to 0.
+        // Position: at parent origin + margin + absolute_offset + offset.
+        // Positions are signed so a negative offset (`position: absolute; offset:
+        // -x -y`) survives to the render clip instead of being clamped to 0.
+        //
+        // `absolute_offset` is a runtime-supplied screen anchor (Python
+        // `Widget._absolute_offset`, e.g. the tooltip's `mouse_position`). It is
+        // added BEFORE the CSS `offset` so `offset-x: -50%` centers the box on the
+        // anchor. `None` for every node that does not opt in — those keep the
+        // exact prior `base = origin + margin` placement.
         let offset = style.offset.unwrap_or_default();
-        let base_x = available.x + i32::from(margin.left);
-        let base_y = available.y + i32::from(margin.top);
+        let (abs_x, abs_y) = tree
+            .get(child)
+            .and_then(|n| n.absolute_offset)
+            .unwrap_or((0, 0));
+        let base_x = available.x + i32::from(margin.left) + abs_x;
+        let base_y = available.y + i32::from(margin.top) + abs_y;
         let layout_x = {
             let dx = match offset.x {
                 OffsetValue::Cells(c) => c as i32,

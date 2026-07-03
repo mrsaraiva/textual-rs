@@ -1045,6 +1045,39 @@ mod tests {
     }
 
     #[test]
+    fn absolute_offset_composes_with_css_offset() {
+        use crate::style::{Offset, OffsetValue, Position};
+        // A `position: absolute` node with `width: 20; offset-x: -50%`.
+        let style = Style {
+            position: Some(Position::Absolute),
+            width: Some(Scalar::Cells(20)),
+            height: Some(Scalar::Cells(3)),
+            offset: Some(Offset {
+                x: OffsetValue::Percent(-50.0),
+                y: OffsetValue::Cells(0),
+            }),
+            ..Style::new()
+        };
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(LayoutTestWidget::boxed("Container"));
+        let anchored = tree.mount(root, LayoutTestWidget::boxed_with_style("A", style.clone()));
+        let control = tree.mount(root, LayoutTestWidget::boxed_with_style("B", style));
+
+        // Runtime supplies a screen anchor on the first node only.
+        assert!(tree.set_absolute_offset(anchored, Some((50, 10))));
+
+        let available = Region::new(0, 0, 80, 50);
+        layout_absolute(&mut tree, &[anchored, control], available, (80, 50));
+
+        // Anchored: base_x = 0 + margin(0) + abs(50) = 50, then offset-x -50% of
+        // width 20 = -10 → x0 = 40. base_y = 0 + abs(10) = 10 → y0 = 10.
+        assert_layout_rect(&tree, anchored, 40, 10, 60, 13);
+        // Control (no absolute_offset): base_x = 0, offset-x -50% = -10 → x0 = -10,
+        // y0 = 0. Identical to pre-primitive placement — the term is opt-in.
+        assert_layout_rect(&tree, control, -10, 0, 10, 3);
+    }
+
+    #[test]
     fn vertical_fixed_plus_flex() {
         let mut tree = WidgetTree::new();
         let root = tree.set_root(LayoutTestWidget::boxed("Container"));
