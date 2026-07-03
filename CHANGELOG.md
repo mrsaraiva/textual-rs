@@ -22,6 +22,7 @@ in the sections below; this is the migration index:
 | `RadioSet` and `Select` are composed-children arena widgets (RA2.5) | Public APIs preserved. `RadioButtonChanged` gains an `ordinal: usize` field (breaking if you construct/match it exhaustively). New messages: `SelectCurrentToggle`, `SelectOverlayDismiss { lost_focus }`. |
 | `Node` is deprecated (RA2.6a) | Attach id/classes on the child widget (`.id()`/`.class()`) where supported; `Node` remains fully functional for this release. Removal lands with the 1.x container seed-builder unification. |
 | Prelude pruned to the curated user surface (RA2.6b) | Runtime tree-plumbing fns, `DispatchOutcome`, `HandleSink`, legacy delegate macros, routing internals, and the dead `CommandPaletteScreen` left the prelude. Import from their canonical modules (`textual::runtime::`, `textual::handle::`, `textual::widgets::`, `textual::routing::`) if you drive trees directly. |
+| The command palette is a pushed modal screen (Wave 2) | The legacy always-mounted `CommandPalette` wrapper widget is removed, along with its `CommandPalette::new(child)` constructor. The palette is now a runtime-pushed `SystemModalScreen` opened by `ctrl+p` (no app-body wrapper needed) — remove any `CommandPalette::new(app_body)` wrapping from your app root. `FuzzyMatcher`, the `Provider`/`ProviderResult`/`SystemCommandsProvider` model, and `PaletteCommand` are preserved (now re-exported from `textual::widgets`). |
 
 ### Deprecated
 
@@ -59,6 +60,31 @@ in the sections below; this is the migration index:
   - Kept deliberately: `NodeSeed` (the surviving `take_node_seed` mount hook is
     trait surface implemented by compound widgets), `HandleSlot`, `WidgetQuery`
     (the `WidgetCtx::query_one` return type).
+
+### Removed (CommandPalette modal-screen rebuild — Wave 2, BREAKING)
+
+- **The legacy always-mounted `CommandPalette` wrapper widget is removed**,
+  completing the modal-screen rebuild. The palette is now a runtime-pushed
+  `SystemModalScreen` (`CommandPaletteScreen`) composed of real arena children,
+  opened by the `ctrl+p` priority binding — it is no longer an always-mounted,
+  hand-drawn `FrameBuffer` host wrapping the app body.
+  - **Removed public API:** the `CommandPalette` widget type and its
+    `CommandPalette::new(child)` constructor (the wrap-the-app-body ctor), plus
+    the `CommandList` widget type. Migration: delete any
+    `CommandPalette::new(app_body)` wrapping from your app root — the runtime
+    owns the palette; nothing needs to mount it. `ctrl+p` works unchanged.
+  - **Preserved reusable primitives** (now re-exported from `textual::widgets`):
+    `FuzzyMatcher`, the `Provider` / `ProviderResult` model,
+    `SystemCommandsProvider`, `PaletteCommand`, `SearchIcon`, `CommandInput`,
+    and the `SystemModalScreen` marker trait. The `CommandPaletteProvider`
+    app-integration trait and the `CommandPaletteCommand*` messages are
+    unchanged.
+  - **Non-breaking internal cleanup:** the always-mounted DOM-last host, the
+    `command_palette`-open key-routing forks in both event loops
+    (`open_command_palette_target`), and the help-panel host-position special
+    case are deleted. The `Widget` trait is unchanged — `preserve_underlay` and
+    `child_display_for_tree` remain (first-class users: `ContentSwitcher`,
+    `TabbedContent`, `Overlay`, and several delegating widgets).
 
 ### Framework fundamentals
 

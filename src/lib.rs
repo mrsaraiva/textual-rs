@@ -117,7 +117,7 @@ pub mod prelude {
     pub use crate::widgets::{
         AppRoot, BindingDecl, BindingsTable, Button, ButtonVariant,
         Cell as DataTableCell, CellJustify, Center,
-        CenterMiddle, Checkbox, Collapsible, CollapsibleTitle, CommandPalette,
+        CenterMiddle, Checkbox, Collapsible, CollapsibleTitle,
         Constrained,
         Container, ContentSwitcher, CursorType, DataTable, Digits, DirectoryTree, Dock, Footer,
         FooterBinding, Frame, FuzzyMatcher, Grid, Header, HeaderClock, HeaderClockSpace,
@@ -137,9 +137,10 @@ pub mod prelude {
         // NOTE (RA2.6b): the legacy delegate macros (`delegate_widget_to`,
         // `delegate_widget_method`, `delegate_renderable`) and
         // `classify_style_change` are out of the prelude — `#[widget(base = ...)]`
-        // is the supported delegation surface. `CommandPaletteScreen` (a dead
-        // never-wired wrapper) is also out, pending the palette modal-screen
-        // rebuild. All remain reachable via `crate::widgets::` for one release.
+        // is the supported delegation surface. The command palette is a runtime
+        // system modal (opened by `ctrl+p`); `CommandPaletteScreen` is out of the
+        // prelude but reachable via `crate::widgets::`. The legacy always-mounted
+        // `CommandPalette` wrapper widget was removed in Wave 2.
         preview_root, preview_root_with_bottom, preview_root_with_top_bottom, summary_max,
         summary_mean, summary_min,
     };

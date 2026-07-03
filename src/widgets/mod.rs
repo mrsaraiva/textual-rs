@@ -58,8 +58,8 @@ pub use button::{Button, ButtonVariant};
 pub use checkbox::Checkbox;
 pub use collapsible::{Collapsible, CollapsibleTitle};
 pub use command_palette::{
-    CommandInput, CommandList, CommandPalette, FuzzyMatcher, PaletteCommand, SearchIcon,
-    SystemModalScreen,
+    CommandInput, FuzzyMatcher, PaletteCommand, Provider, ProviderResult, SearchIcon,
+    SystemCommandsProvider, SystemModalScreen,
 };
 pub use command_palette_screen::CommandPaletteScreen;
 pub(crate) use command_palette_screen::SelectedCommandId;
