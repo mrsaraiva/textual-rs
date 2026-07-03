@@ -642,6 +642,67 @@ Horizontal { width: auto; height: auto; }
         .unwrap();
     }
 
+    // -----------------------------------------------------------------------
+    // W0.3: a pushed screen receives a provider-commands snapshot at construction
+    // -----------------------------------------------------------------------
+
+    /// A minimal screen handed a command snapshot at construction. It records
+    /// the command ids on mount so a test can confirm the handoff reached the
+    /// screen (the consumer half of the provider-snapshot bridge; the producer
+    /// half — `TextualAppAdapter::gather_command_palette_commands` — is tested in
+    /// `textual_app.rs`).
+    struct SnapshotScreen {
+        snapshot: Vec<crate::message::CommandPaletteCommand>,
+        observed: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+    }
+
+    impl crate::screen::Screen for SnapshotScreen {
+        fn name(&self) -> &str {
+            "SnapshotScreen"
+        }
+
+        fn compose(&self) -> Box<dyn crate::widgets::Widget> {
+            Box::new(crate::widgets::Vertical::new())
+        }
+
+        fn on_mount(&mut self) {
+            *self.observed.lock().unwrap() =
+                self.snapshot.iter().map(|c| c.id.clone()).collect();
+        }
+    }
+
+    #[test]
+    fn pushed_screen_receives_command_snapshot_at_construction() {
+        crate::run_test(RgbApp, |pilot| {
+            let observed = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+            let snapshot = vec![
+                crate::message::CommandPaletteCommand {
+                    id: "theme".into(),
+                    title: "Theme".into(),
+                    help: String::new(),
+                },
+                crate::message::CommandPaletteCommand {
+                    id: "deploy".into(),
+                    title: "Deploy".into(),
+                    help: String::new(),
+                },
+            ];
+            pilot.app_mut().push_screen(Box::new(SnapshotScreen {
+                snapshot,
+                observed: observed.clone(),
+            }));
+            pilot.pause()?;
+            assert_eq!(
+                *observed.lock().unwrap(),
+                vec!["theme".to_string(), "deploy".to_string()],
+                "the pushed screen must receive the command snapshot at construction \
+                 and read it on mount"
+            );
+            Ok(())
+        })
+        .unwrap();
+    }
+
     #[test]
     fn parse_key_handles_names_and_modifiers() {
         assert!(parse_key("r").is_some());

@@ -435,7 +435,18 @@ impl<T: TextualApp> TextualAppAdapter<T> {
         false
     }
 
-    fn publish_command_palette_commands(&mut self, ctx: &mut crate::event::WidgetCtx) {
+    /// Gather a synchronous snapshot of every command-palette command
+    /// (`app.COMMANDS + calling_screen.COMMANDS` in Python `command.py:818-833`)
+    /// and (re)build the provider index that maps each command id back to its
+    /// owning provider.
+    ///
+    /// This is the Wave-0 provider-snapshot bridge: a pushed
+    /// `CommandPaletteScreen` (Wave 1) receives this `Vec` at construction so it
+    /// can render its command list without reaching back into the adapter.
+    /// `CommandPaletteProvider::commands()` is ctx-free, so the snapshot is a
+    /// plain synchronous gather (async/worker providers are the documented 1.x
+    /// tail).
+    fn gather_command_palette_commands(&mut self) -> Vec<CommandPaletteCommand> {
         self.command_palette_provider_index.clear();
         let mut commands = self.system_commands();
         for (provider_index, provider) in self.command_palette_providers.iter_mut().enumerate() {
@@ -445,6 +456,11 @@ impl<T: TextualApp> TextualAppAdapter<T> {
                 commands.push(command);
             }
         }
+        commands
+    }
+
+    fn publish_command_palette_commands(&mut self, ctx: &mut crate::event::WidgetCtx) {
+        let commands = self.gather_command_palette_commands();
         if !commands.is_empty() {
             ctx.post_message(crate::message::CommandPaletteSetCommands { commands });
         }
@@ -1727,6 +1743,53 @@ mod tests {
             &mut __w);
         }
         assert_eq!(state.shutdown_count.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn gather_command_palette_commands_snapshots_system_and_provider_commands() {
+        // W0.3 producer half: the synchronous snapshot the Wave-1 palette screen
+        // receives at construction — system commands + provider commands, with
+        // the provider index rebuilt so a selection can route back.
+        let state = ProviderState {
+            startup_count: Arc::new(AtomicUsize::new(0)),
+            shutdown_count: Arc::new(AtomicUsize::new(0)),
+            selected_count: Arc::new(AtomicUsize::new(0)),
+        };
+        let app = Arc::new(Mutex::new(TestApp {
+            provider_state: state.clone(),
+            hooks: HookState::default(),
+        }));
+        let mut adapter = TextualAppAdapter::new(app, NoopWidget::new());
+
+        // Open the palette so providers are started (populates the provider list).
+        let mut open_ctx = EventCtx::default();
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(
+                crate::node_id::NodeId::default(),
+                &mut open_ctx,
+            );
+            adapter.on_message(
+                &MessageEvent::new(NodeId::default(), crate::message::CommandPaletteOpened),
+                &mut __w,
+            );
+        }
+
+        let snapshot = adapter.gather_command_palette_commands();
+        let ids: Vec<&str> = snapshot.iter().map(|c| c.id.as_str()).collect();
+        assert!(
+            ids.contains(&"theme") && ids.contains(&"quit"),
+            "snapshot must include the system commands"
+        );
+        assert!(
+            ids.contains(&"deploy"),
+            "snapshot must include the registered provider's commands"
+        );
+        assert!(
+            adapter
+                .command_palette_provider_index
+                .contains_key("deploy"),
+            "gather must (re)build the provider index so a selection routes back"
+        );
     }
 
     #[test]
