@@ -653,6 +653,12 @@ fn assert_glyph_parity(name: &str, py: &Grid, rust: &Grid, skip_rows: &[usize]) 
 /// where the structural/layout parity is exact but a KNOWN, documented colour
 /// gap remains (tracked as a separate follow-up) — so the structural win stays a
 /// live regression guard without bundling an unrelated colour-engine fix.
+///
+/// Currently no live callers: the Select tests that used it flipped back to full
+/// `assert_glyph_parity` once the colour bugs were fixed (ab6cef6). Retained as a
+/// harness primitive for the next documented-colour-gap test (e.g. the ignored
+/// SelectionList/`no_blank_swap` cases).
+#[allow(dead_code)]
 fn assert_glyph_only_parity(name: &str, py: &Grid, rust: &Grid, skip_rows: &[usize]) {
     assert_glyph_parity_inner(name, py, rust, skip_rows, false);
 }
