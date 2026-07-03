@@ -1,3 +1,6 @@
+// `Node` is deprecated (RA2.6) but intentionally exercised here until the 1.x
+// container seed-builder unification migrates these off the wrapper.
+#![allow(deprecated)]
 /// Port of Python Textual `examples/dictionary.py`.
 ///
 /// A word search app that demonstrates workers with async UI updates:

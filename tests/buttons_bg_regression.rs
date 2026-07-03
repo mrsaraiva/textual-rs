@@ -1,7 +1,11 @@
+// `Node` is deprecated (RA2.6) but intentionally exercised here until the 1.x
+// container seed-builder unification migrates these off the wrapper.
+#![allow(deprecated)]
 use rich_rs::Console;
 use textual::css::{StyleSheet, default_widget_stylesheet, set_style_context};
 use textual::prelude::*;
 use textual::style::parse_color_like;
+use textual::runtime::{build_widget_tree_from_root, render_tree_to_frame};
 
 #[test]
 fn buttons_demo_default_button_has_background() {

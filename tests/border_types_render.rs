@@ -7,6 +7,7 @@ use rich_rs::{Console, ConsoleOptions, Segment, Segments};
 use textual::prelude::*;
 use textual::render::FrameBuffer;
 use textual::style::{BorderEdge, BorderType, Color, HorizontalAlign, Spacing, Style};
+use textual::runtime::{build_widget_tree_from_root, render_tree_to_frame, render_tree_to_frame_with_stylesheet};
 
 // ===========================================================================
 // Helpers (mirrors p2_render_css.rs)

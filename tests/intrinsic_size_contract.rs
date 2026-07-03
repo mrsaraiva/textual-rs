@@ -10,6 +10,7 @@ use textual::prelude::*;
 use textual::style::{BoxSizing, Scalar, Spacing, Style};
 use textual::widget_tree::WidgetTree;
 use textual::widgets::Widget;
+use textual::runtime::{build_widget_tree_from_root, render_tree_to_frame, run_layout_pass};
 
 struct IntrinsicWidget {
     style: Style,

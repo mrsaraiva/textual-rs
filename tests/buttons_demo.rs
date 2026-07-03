@@ -1,6 +1,10 @@
+// `Node` is deprecated (RA2.6) but intentionally exercised here until the 1.x
+// container seed-builder unification migrates these off the wrapper.
+#![allow(deprecated)]
 use rich_rs::Console;
 use textual::css::{StyleSheet, set_style_context};
 use textual::prelude::*;
+use textual::runtime::{build_widget_tree_from_root, render_tree_to_frame};
 
 fn load_button_css() -> String {
     let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));

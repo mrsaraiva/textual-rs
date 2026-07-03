@@ -7,6 +7,9 @@ use rich_rs::{Console, ConsoleOptions, Segment, Segments};
 use textual::css::set_style_context;
 use textual::prelude::*;
 use textual::render::FrameBuffer;
+use textual::runtime::{
+    build_widget_tree_from_root, render_tree_to_frame, render_tree_to_frame_with_stylesheet,
+};
 use textual::style::{
     Constrain, HorizontalAlign, KeylineType, OverlayMode, Scalar, Style, TextOverflow, TextWrap,
 };

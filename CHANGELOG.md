@@ -20,6 +20,30 @@ until the API stabilizes.
   The deferred `elide_transparent_wrapper` always-fold behaviour change is
   gated on Node-elimination and rides the same 1.x task.
 
+### Removed (prelude prune — RA2.6b, BREAKING)
+
+- **The prelude is pruned to the curated 1.0 user surface.** Removed from
+  `textual::prelude` (all remain reachable at their canonical paths for one
+  release):
+  - the tree-plumbing entry points `build_widget_tree_from_root`,
+    `dispatch_event_tree`, `dispatch_event_to_target_tree`,
+    `dispatch_message_queue_tree`, `focused_node_id_tree`,
+    `render_tree_to_frame`, `render_tree_to_frame_with_stylesheet`,
+    `run_layout_pass`, and `DispatchOutcome` — runtime internals; user apps go
+    through `TextualApp`/`Pilot`/`run_test`. Harness-level code imports them
+    via `textual::runtime::{...}`.
+  - `HandleSink` (compose-pipeline plumbing; `textual::handle::HandleSink`).
+  - the legacy delegate macros `delegate_widget_to`, `delegate_widget_method`,
+    `delegate_renderable`, and `classify_style_change` — `#[widget(base = ...)]`
+    is the supported delegation surface (`textual::widgets::` if needed).
+  - the routing internals `ControlMeta`, `Selector`, `SelectorParseError`
+    (`textual::routing::`); `MessageRouter` stays.
+  - `CommandPaletteScreen` — a dead, never-wired wrapper export, removed ahead
+    of the CommandPalette modal-screen rebuild (`textual::widgets::` if needed).
+  - Kept deliberately: `NodeSeed` (the surviving `take_node_seed` mount hook is
+    trait surface implemented by compound widgets), `HandleSlot`, `WidgetQuery`
+    (the `WidgetCtx::query_one` return type).
+
 ### Framework fundamentals
 
 - **`Select` is now a composed-children arena widget on the `overlay: screen`

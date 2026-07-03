@@ -1,5 +1,6 @@
 use textual::prelude::*;
 use textual::reactive::{ReactiveChange, ReactiveWidget};
+use textual::runtime::{build_widget_tree_from_root};
 
 // ---------------------------------------------------------------------------
 // Probe widget used across tests

@@ -8,7 +8,7 @@
 //! (`src/widgets/welcome.rs`) because they need access to `pub(crate)` items.
 
 use textual::prelude::*;
-use textual::runtime::render_tree_to_frame;
+use textual::runtime::{build_widget_tree_from_root, render_tree_to_frame};
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 

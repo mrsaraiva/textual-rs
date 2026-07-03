@@ -63,7 +63,9 @@ pub mod prelude {
     pub use crate::action::{ActionDecl, ActionHandler, ParsedAction, parse_action};
     pub use crate::animation::{Animator, animation_level_from_env};
     pub use crate::compose::{ChildDecl, ComposeResult, WidgetBuilder};
-    pub use crate::handle::{Handle, HandleSink, HandleSlot};
+    // NOTE: `HandleSink` is intentionally NOT in the prelude (RA2.6b) — it is
+    // compose-pipeline plumbing; reach it via `crate::handle::HandleSink`.
+    pub use crate::handle::{Handle, HandleSlot};
     pub use crate::css::{StyleSelector, StyleSheet, resolve_component_style, set_style_context};
     pub use crate::debug::DebugLayout;
     // NOTE: `EventCtx` is intentionally NOT in the prelude (RA2.2). It is now
@@ -78,16 +80,17 @@ pub mod prelude {
     pub use crate::message::*;
     pub use crate::message_handlers::{MessageContext, MessageHandlers};
     pub use crate::node_id::{NodeId, node_id_from_ffi, node_id_to_ffi};
-    pub use crate::routing::{ControlMeta, MessageRouter, Selector, SelectorParseError};
+    // NOTE (RA2.6b): `ControlMeta`, `Selector`, `SelectorParseError` are routing
+    // internals — reach them via `crate::routing::` if truly needed.
+    pub use crate::routing::MessageRouter;
+    // NOTE (RA2.6b): the tree-plumbing entry points (`build_widget_tree_from_root`,
+    // `dispatch_*_tree`, `render_tree_to_frame*`, `run_layout_pass`,
+    // `focused_node_id_tree`) and `DispatchOutcome` are runtime internals, NOT user
+    // API — user apps go through `TextualApp`/`Pilot`/`run_test`. Harness-level code
+    // that drives trees directly imports them via `textual::runtime::{...}`.
     pub use crate::runtime::{
-        App, CallFromThreadError, DispatchOutcome, DomQuery, DomQueryMut, PushScreenWaitError,
-        TimerHandle,
-        TimerTick,
-        WidgetQuery,
-        build_widget_tree_from_root,
-        dispatch_event_to_target_tree, dispatch_event_tree, dispatch_message_queue_tree,
-        focused_node_id_tree, render_tree_to_frame, render_tree_to_frame_with_stylesheet,
-        run_layout_pass,
+        App, CallFromThreadError, DomQuery, DomQueryMut, PushScreenWaitError,
+        TimerHandle, TimerTick, WidgetQuery,
     };
     pub use crate::screen::{
         Screen, ScreenMessageCtx, ScreenResult, ScreenResultCallback, ScreenStack,
@@ -114,7 +117,7 @@ pub mod prelude {
     pub use crate::widgets::{
         AppRoot, BindingDecl, BindingsTable, Button, ButtonVariant,
         Cell as DataTableCell, CellJustify, Center,
-        CenterMiddle, Checkbox, Collapsible, CollapsibleTitle, CommandPalette, CommandPaletteScreen,
+        CenterMiddle, Checkbox, Collapsible, CollapsibleTitle, CommandPalette,
         Constrained,
         Container, ContentSwitcher, CursorType, DataTable, Digits, DirectoryTree, Dock, Footer,
         FooterBinding, Frame, FuzzyMatcher, Grid, Header, HeaderClock, HeaderClockSpace,
@@ -131,8 +134,12 @@ pub mod prelude {
         Switch, SystemModalScreen, TabPane, TabbedContent, Tabs, TextArea, TextAreaCursor,
         TextAreaSelection, TextAreaTheme, Toast, ToastSeverity, Tooltip, Tree, TreeNode, Vertical,
         VerticalGroup, VerticalScroll, Welcome, Widget, WidgetRenderable, WidgetStyles,
-        // DEFERRED(RA-2): remove delegate macros after RA-2 node-record split is landed
-        classify_style_change, delegate_renderable, delegate_widget_method, delegate_widget_to,
+        // NOTE (RA2.6b): the legacy delegate macros (`delegate_widget_to`,
+        // `delegate_widget_method`, `delegate_renderable`) and
+        // `classify_style_change` are out of the prelude — `#[widget(base = ...)]`
+        // is the supported delegation surface. `CommandPaletteScreen` (a dead
+        // never-wired wrapper) is also out, pending the palette modal-screen
+        // rebuild. All remain reachable via `crate::widgets::` for one release.
         preview_root, preview_root_with_bottom, preview_root_with_top_bottom, summary_max,
         summary_mean, summary_min,
     };

@@ -3,6 +3,7 @@ use textual::prelude::*;
 use textual::event::EventCtx;
 use textual::render::FrameBuffer;
 use textual::widget_tree::WidgetTree;
+use textual::runtime::{build_widget_tree_from_root, render_tree_to_frame};
 
 fn render_once(root: &mut dyn Widget, width: usize, height: usize) -> FrameBuffer {
     let sheet = textual::css::default_widget_stylesheet();

@@ -1,5 +1,6 @@
 use rich_rs::Console;
 use textual::prelude::*;
+use textual::runtime::{build_widget_tree_from_root, render_tree_to_frame};
 
 #[test]
 fn container_clips_to_viewport_height() {

@@ -10,6 +10,7 @@
 use rich_rs::Console;
 use textual::css::{StyleSheet, default_widget_stylesheet, set_app_active, set_style_context};
 use textual::prelude::*;
+use textual::runtime::{build_widget_tree_from_root, render_tree_to_frame};
 
 #[test]
 fn focus_within_applies_background_tint() {

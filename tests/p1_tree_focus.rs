@@ -11,6 +11,7 @@ use rich_rs::{Console, ConsoleOptions, Segments};
 use textual::compose;
 use textual::event::{BlurEvent, FocusEvent};
 use textual::prelude::*;
+use textual::runtime::{build_widget_tree_from_root, dispatch_event_to_target_tree, dispatch_event_tree, focused_node_id_tree, run_layout_pass};
 
 // ---------------------------------------------------------------------------
 // Test probe: focus lifecycle tracking

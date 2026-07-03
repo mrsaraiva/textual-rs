@@ -4,6 +4,7 @@ use textual::event::MouseDownEvent;
 use textual::event::EventCtx;
 use textual::prelude::*;
 use textual::runtime::dispatch_ctx::set_dispatch_recipient;
+use textual::runtime::{build_widget_tree_from_root, render_tree_to_frame, render_tree_to_frame_with_stylesheet};
 
 fn make_node_id() -> NodeId {
     let mut sm: SlotMap<NodeId, ()> = SlotMap::new();

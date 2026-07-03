@@ -176,6 +176,7 @@ fn main() -> textual::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use textual::runtime::build_widget_tree_from_root;
 
     #[test]
     fn markdown_app_composes_without_panic() {
