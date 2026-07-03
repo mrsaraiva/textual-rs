@@ -841,6 +841,7 @@ fn render_tree_node(
     frame: &mut FrameBuffer,
     console: &rich_rs::Console,
     debug: Option<&crate::debug::DebugLayout>,
+    overlays: &mut Vec<QueuedOverlay>,
 ) {
     let node = match tree.get(node_id) {
         Some(n) => n,
@@ -865,6 +866,35 @@ fn render_tree_node(
     let meta = node_selector_meta_from_node(node, node_id);
     let resolved = resolve_node_style(tree, node_id, &meta);
 
+    // `overlay: screen` escape (Python `_compositor.py:660-687`): a node with
+    // this mode is NOT painted inline at its position in the tree. It is forced
+    // to the TOP z of the whole layer with NO clip — how Select dropdowns,
+    // CommandPalette, toasts, tooltips and loading float. Queue it (with its
+    // arranged position + constrain) and return WITHOUT painting; the queued set
+    // is drained AFTER the layer walk by `paint_deferred_overlays`. This mirrors
+    // the deferred-paint pattern already used for `outline`/`hatch` below, but at
+    // layer scope rather than per-node. The one exception is the deferred pass
+    // itself: when this node IS the overlay root being painted, `overlay_root_exempt`
+    // matches its id and it renders inline (its descendants still queue nested overlays).
+    if should_render
+        && matches!(resolved.overlay, Some(OverlayMode::Screen))
+        && ctx.overlay_root_exempt != Some(node_id)
+    {
+        let (cx, cy) = resolve_axis_constrain(&resolved);
+        overlays.push(QueuedOverlay {
+            node_id,
+            natural_x: i32::from(rect.x0) + ctx.origin_x,
+            natural_y: i32::from(rect.y0) + ctx.origin_y,
+            rect_x0: i32::from(rect.x0),
+            rect_y0: i32::from(rect.y0),
+            w,
+            h,
+            cx,
+            cy,
+        });
+        return;
+    }
+
     // CSS `outline` is drawn OVER this node's own edge cells (without reserving
     // layout space) AND over any child content composited at those edges. It is
     // therefore computed here (while the ancestor style stack is the base
@@ -886,13 +916,6 @@ fn render_tree_node(
     if should_render {
         let dest_x = i32::from(rect.x0) + ctx.origin_x;
         let dest_y = i32::from(rect.y0) + ctx.origin_y;
-        let screen_underlay = if matches!(resolved.overlay, Some(OverlayMode::Screen)) {
-            Some(capture_underlay_snapshot(
-                frame, dest_x, dest_y, w, h, ctx.clip,
-            ))
-        } else {
-            None
-        };
 
         // Create options sized to this widget's layout rect.
         let mut opts = rich_rs::ConsoleOptions::default();
@@ -1174,13 +1197,6 @@ fn render_tree_node(
             let hh = content.y1.saturating_sub(content.y0) as usize;
             deferred_hatch = Some((hatch.clone(), resolved.bg, hx, hy, hw, hh, ctx.clip));
         }
-
-        // P2-34: Apply overlay compositing mode.
-        if let Some(ref overlay) = resolved.overlay {
-            let fallback = Vec::new();
-            let underlay = screen_underlay.as_deref().unwrap_or(fallback.as_slice());
-            apply_overlay_compositing(frame, overlay, dest_x, dest_y, w, h, ctx.clip, underlay);
-        }
     }
     // Clone keyline/layout before push_style_context takes ownership of resolved.
     // These are already folded into `resolved` via resolve_node_style, so no
@@ -1221,6 +1237,10 @@ fn render_tree_node(
         }
     }
 
+    // Descendants are never the overlay root; clear the exemption so a nested
+    // `overlay: screen` child inside a deferred overlay still escapes to top z.
+    let mut ctx = ctx;
+    ctx.overlay_root_exempt = None;
     let unclipped_child_ctx = ctx;
     let mut child_ctx = ctx;
     // Clip descendants to this node's content box (inside border + padding) when
@@ -1321,7 +1341,7 @@ fn render_tree_node(
                 }
             }
         }
-        render_tree_node(tree, child_id, next_ctx, frame, console, debug);
+        render_tree_node(tree, child_id, next_ctx, frame, console, debug, overlays);
     }
 
     // P2-34: Paint keylines between children (after children are rendered).
@@ -1450,6 +1470,7 @@ fn render_app_root_tree_layer(
         origin_x: 0,
         origin_y: 0,
         clip: ClipRect::for_frame(frame),
+        overlay_root_exempt: None,
     };
     let scroll_clip = root_widget
         .scroll_viewport_size()
@@ -1464,16 +1485,23 @@ fn render_app_root_tree_layer(
         origin_x: -(root_scroll_x.round() as i32),
         origin_y: -(root_scroll_y.round() as i32),
         clip: scroll_clip,
+        overlay_root_exempt: None,
     };
 
+    let mut overlays: Vec<QueuedOverlay> = Vec::new();
     for child_id in child_ids {
         let child_ctx = if root_child_uses_root_scroll(tree, root_id, child_id) {
             scroll_ctx
         } else {
             base_ctx
         };
-        render_tree_node(tree, child_id, child_ctx, frame, console, debug);
+        render_tree_node(tree, child_id, child_ctx, frame, console, debug, &mut overlays);
     }
+
+    // Drain `overlay: screen` escapes at top z with the root style context still
+    // active, so each overlay composites over the SCREEN surface (Python: the
+    // overlay's z-parent is the screen, not its DOM parent).
+    paint_deferred_overlays(tree, &mut overlays, frame, console, debug);
 
     pop_style_context();
 }
@@ -1544,6 +1572,7 @@ fn render_screen_tree_layer(
         origin_x: 0,
         origin_y: 0,
         clip: ClipRect::for_frame(frame),
+        overlay_root_exempt: None,
     };
     let scroll_clip = root_node
         .widget
@@ -1559,18 +1588,69 @@ fn render_screen_tree_layer(
         origin_x: -(root_scroll.0.round() as i32),
         origin_y: -(root_scroll.1.round() as i32),
         clip: scroll_clip,
+        overlay_root_exempt: None,
     };
 
+    let mut overlays: Vec<QueuedOverlay> = Vec::new();
     for child_id in child_ids {
         let child_ctx = if root_child_uses_root_scroll(tree, root_id, child_id) {
             scroll_ctx
         } else {
             base_ctx
         };
-        render_tree_node(tree, child_id, child_ctx, frame, console, debug);
+        render_tree_node(tree, child_id, child_ctx, frame, console, debug, &mut overlays);
     }
 
+    // Drain `overlay: screen` escapes at top z (see `render_app_root_tree_layer`).
+    paint_deferred_overlays(tree, &mut overlays, frame, console, debug);
+
     pop_style_context();
+}
+
+/// Paint the `overlay: screen` escapes collected during a layer walk.
+///
+/// Each queued overlay is placed at its arranged position, constrained into the
+/// viewport via [`constrain_overlay_position`], and rendered UNCLIPPED (full
+/// frame) at the top z of the layer — after every normal sibling, so its cells
+/// (and their `textual:widget_id` meta stamps) land last and occlude correctly
+/// for both paint and hit-testing. The overlay's OWN descendants clip normally
+/// to its content box. Painting an overlay may enqueue nested `overlay: screen`
+/// descendants, which the index walk picks up in FIFO (encounter) order.
+///
+/// Must be called while the layer's root style context is still on the stack so
+/// each overlay composites over the SCREEN surface (Python: an `overlay: screen`
+/// widget's z-parent is the screen, not its DOM parent).
+fn paint_deferred_overlays(
+    tree: &WidgetTree,
+    overlays: &mut Vec<QueuedOverlay>,
+    frame: &mut FrameBuffer,
+    console: &rich_rs::Console,
+    debug: Option<&crate::debug::DebugLayout>,
+) {
+    let vw = frame.width;
+    let vh = frame.height;
+    let mut i = 0;
+    while i < overlays.len() {
+        let item = overlays[i];
+        i += 1;
+        let (px, py) = constrain_overlay_position(
+            item.natural_x,
+            item.natural_y,
+            item.w,
+            item.h,
+            vw,
+            vh,
+            item.cx,
+            item.cy,
+        );
+        let ctx = TreeRenderCtx {
+            origin_x: px - item.rect_x0,
+            origin_y: py - item.rect_y0,
+            clip: ClipRect::for_frame(frame),
+            overlay_root_exempt: Some(item.node_id),
+        };
+        render_tree_node(tree, item.node_id, ctx, frame, console, debug, overlays);
+    }
 }
 
 fn clip_rect_from_tree_rect(
@@ -1701,6 +1781,33 @@ struct TreeRenderCtx {
     origin_x: i32,
     origin_y: i32,
     clip: ClipRect,
+    /// When set, the node whose id matches is the ROOT of a deferred
+    /// `overlay: screen` paint pass and must be painted inline (not re-queued).
+    /// `None` during the normal layer walk, so every `overlay: screen` node is
+    /// queued and escaped to top z. See [`QueuedOverlay`] / [`paint_deferred_overlays`].
+    overlay_root_exempt: Option<NodeId>,
+}
+
+/// A node with `overlay: screen` deferred out of the normal tree walk to be
+/// painted at the TOP z of the whole layer with NO clip — the real port of
+/// Python's placement/clip ESCAPE (`_compositor.py` `no_clip` + `((1,0,0),)`
+/// order), NOT a colour blend. The node keeps its normally-arranged position
+/// (`natural_x/y`); only z-order and clip change, then the position is
+/// constrained into the viewport via [`constrain_overlay_position`].
+#[derive(Clone, Copy)]
+struct QueuedOverlay {
+    node_id: NodeId,
+    /// Screen-absolute position the node was arranged at (`rect.x0 + origin_x`).
+    natural_x: i32,
+    natural_y: i32,
+    /// The node's own layout-rect origin, used to derive the deferred render
+    /// origin so `render_tree_node` paints the node at the constrained position.
+    rect_x0: i32,
+    rect_y0: i32,
+    w: usize,
+    h: usize,
+    cx: Constrain,
+    cy: Constrain,
 }
 
 #[derive(Clone, Copy)]
@@ -1814,76 +1921,6 @@ fn apply_hatch_fill(
                 let mut style = cell.style.unwrap_or_else(rich_rs::Style::new);
                 style.color = Some(fg.to_simple_opaque());
                 cell.style = Some(style);
-            }
-        }
-    }
-}
-
-// ===========================================================================
-// P2-34: Overlay compositing mode
-// ===========================================================================
-
-/// Apply overlay compositing to a widget's painted region.
-///
-/// `OverlayMode::Screen` blends the widget's colors with the underlying frame
-/// using a screen-blend formula. `OverlayMode::None` is a no-op (normal paint).
-fn apply_overlay_compositing(
-    frame: &mut FrameBuffer,
-    overlay: &OverlayMode,
-    x0: i32,
-    y0: i32,
-    w: usize,
-    h: usize,
-    clip: ClipRect,
-    underlay: &[OverlayCell],
-) {
-    match overlay {
-        OverlayMode::None => {
-            // Normal compositing — already the default paint behavior.
-        }
-        OverlayMode::Screen => {
-            let frame_h = frame.height as i32;
-            let frame_w = frame.width as i32;
-            let mut idx = 0usize;
-            for dy in 0..h {
-                let y = y0 + dy as i32;
-                for dx in 0..w {
-                    let x = x0 + dx as i32;
-                    if x < clip.x0
-                        || y < clip.y0
-                        || x >= clip.x1
-                        || y >= clip.y1
-                        || x < 0
-                        || y < 0
-                        || x >= frame_w
-                        || y >= frame_h
-                    {
-                        idx = idx.saturating_add(1);
-                        continue;
-                    }
-                    let Some(base) = underlay.get(idx) else {
-                        idx = idx.saturating_add(1);
-                        continue;
-                    };
-                    idx = idx.saturating_add(1);
-
-                    let cell = frame.get_mut(x as usize, y as usize);
-                    let mut style = cell.style.unwrap_or_default();
-
-                    if let (Some(over_bg), Some(under_bg)) =
-                        (style.bgcolor.map(crate::style::color_from_simple), base.bg)
-                    {
-                        style.bgcolor = Some(screen_blend(under_bg, over_bg).to_simple_opaque());
-                    }
-
-                    if let (Some(over_fg), Some(under_fg)) =
-                        (style.color.map(crate::style::color_from_simple), base.fg)
-                    {
-                        style.color = Some(screen_blend(under_fg, over_fg).to_simple_opaque());
-                    }
-
-                    cell.style = Some(style);
-                }
             }
         }
     }
@@ -2338,64 +2375,6 @@ fn paint_grid_keylines(
     }
 }
 
-#[derive(Clone, Copy, Default)]
-struct OverlayCell {
-    fg: Option<crate::style::Color>,
-    bg: Option<crate::style::Color>,
-}
-
-fn capture_underlay_snapshot(
-    frame: &FrameBuffer,
-    x0: i32,
-    y0: i32,
-    w: usize,
-    h: usize,
-    clip: ClipRect,
-) -> Vec<OverlayCell> {
-    let mut out = Vec::with_capacity(w.saturating_mul(h));
-    let frame_h = frame.height as i32;
-    let frame_w = frame.width as i32;
-    for dy in 0..h {
-        let y = y0 + dy as i32;
-        for dx in 0..w {
-            let x = x0 + dx as i32;
-            if x < clip.x0
-                || y < clip.y0
-                || x >= clip.x1
-                || y >= clip.y1
-                || x < 0
-                || y < 0
-                || x >= frame_w
-                || y >= frame_h
-            {
-                out.push(OverlayCell::default());
-                continue;
-            }
-            let cell = frame.get(x as usize, y as usize);
-            let style = cell.style.unwrap_or_default();
-            out.push(OverlayCell {
-                fg: style.color.map(crate::style::color_from_simple),
-                bg: style.bgcolor.map(crate::style::color_from_simple),
-            });
-        }
-    }
-    out
-}
-
-fn screen_blend(base: crate::style::Color, over: crate::style::Color) -> crate::style::Color {
-    fn chan(a: u8, b: u8) -> u8 {
-        let af = a as f32 / 255.0;
-        let bf = b as f32 / 255.0;
-        ((1.0 - (1.0 - af) * (1.0 - bf)) * 255.0).round() as u8
-    }
-    crate::style::Color::rgba_f(
-        chan(base.r, over.r),
-        chan(base.g, over.g),
-        chan(base.b, over.b),
-        over.a,
-    )
-}
-
 // ===========================================================================
 // P2-31: Text wrap/overflow post-processing
 // ===========================================================================
@@ -2680,6 +2659,7 @@ fn render_tree_to_frame_with_debug_and_stylesheet(
             origin_x: 0,
             origin_y: 0,
             clip: ClipRect::for_frame(&frame),
+            overlay_root_exempt: None,
         };
         let scroll_clip = root
             .scroll_viewport_size()
@@ -2694,15 +2674,20 @@ fn render_tree_to_frame_with_debug_and_stylesheet(
             origin_x: -(root_scroll_x as i32),
             origin_y: -(root_scroll_y as i32),
             clip: scroll_clip,
+            overlay_root_exempt: None,
         };
+        let mut overlays: Vec<QueuedOverlay> = Vec::new();
         for child_id in child_ids {
             let child_ctx = if root_child_uses_root_scroll(tree, root_id, child_id) {
                 scroll_ctx
             } else {
                 base_ctx
             };
-            render_tree_node(tree, child_id, child_ctx, &mut frame, console, debug);
+            render_tree_node(tree, child_id, child_ctx, &mut frame, console, debug, &mut overlays);
         }
+
+        // Drain `overlay: screen` escapes at top z (see `render_app_root_tree_layer`).
+        paint_deferred_overlays(tree, &mut overlays, &mut frame, console, debug);
 
         pop_style_context();
     }
@@ -3508,26 +3493,6 @@ pub(crate) fn collect_render_nodes(tree: &WidgetTree) -> Vec<(NodeId, bool)> {
 ///
 /// Within each group, the original DOM order is preserved (stable sort).
 fn sort_children_by_layer(tree: &WidgetTree, parent: NodeId, children: &[NodeId]) -> Vec<NodeId> {
-    let move_command_palette_last = |ordered: Vec<NodeId>| -> Vec<NodeId> {
-        // CommandPalette is a system-modal surface and should render on top of
-        // sibling widgets regardless of mount order/layer assignment.
-        let mut regular = Vec::with_capacity(ordered.len());
-        let mut palettes = Vec::new();
-        for child in ordered {
-            let is_command_palette = tree
-                .get(child)
-                .map(|node| node.widget.style_type() == "CommandPalette")
-                .unwrap_or(false);
-            if is_command_palette {
-                palettes.push(child);
-            } else {
-                regular.push(child);
-            }
-        }
-        regular.extend(palettes);
-        regular
-    };
-
     // Resolve the parent's `layers` declaration using node-record-based meta.
     let parent_layers: Option<Vec<String>> = tree.get(parent).and_then(|_node| {
         let meta = node_selector_meta(tree, parent);
@@ -3537,8 +3502,11 @@ fn sort_children_by_layer(tree: &WidgetTree, parent: NodeId, children: &[NodeId]
 
     let layer_order = match parent_layers {
         Some(ref layers) if !layers.is_empty() => layers,
-        _ => return move_command_palette_last(children.to_vec()),
-        // No layers declaration — keep DOM order except modal command palette priority.
+        // No layers declaration — keep DOM order. The CommandPalette is mounted
+        // DOM-last by `AppRoot::compose` and floats on top via that ordering; a
+        // real `overlay: screen` surface floats via `paint_deferred_overlays`.
+        // No type-string special-case is needed here.
+        _ => return children.to_vec(),
     };
 
     // Resolve each child's `layer` property using node-record-based meta.
@@ -3575,8 +3543,7 @@ fn sort_children_by_layer(tree: &WidgetTree, parent: NodeId, children: &[NodeId]
         .collect();
 
     indexed.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
-    let ordered: Vec<NodeId> = indexed.iter().map(|&(_, i)| children[i]).collect();
-    move_command_palette_last(ordered)
+    indexed.iter().map(|&(_, i)| children[i]).collect()
 }
 
 /// Distribute layout information to widgets using precomputed `layout_rect`s.
@@ -3930,6 +3897,7 @@ mod tests {
             origin_x: 0,
             origin_y: 0,
             clip: ClipRect::for_frame(&frame),
+            overlay_root_exempt: None,
         };
         let line_style = rich_rs::Style::new();
         let child_ids = vec![wide, narrow];
@@ -4057,7 +4025,12 @@ mod tests {
     }
 
     #[test]
-    fn sort_children_by_layer_moves_command_palette_last_without_layers() {
+    fn sort_children_by_layer_without_layers_preserves_dom_order() {
+        // The CommandPalette type-string special-case was retired (RA2.4): the
+        // palette floats on top via DOM-last mount order (`AppRoot::compose`),
+        // and real `overlay: screen` surfaces float via `paint_deferred_overlays`.
+        // With no `layers:` declaration, `sort_children_by_layer` must therefore
+        // preserve DOM order with no widget-type special-casing.
         use crate::widget_tree::WidgetTree;
         use crate::widgets::{AppRoot, CommandPalette, Label};
 
@@ -4073,27 +4046,127 @@ mod tests {
         let sorted = sort_children_by_layer(&tree, root, &children);
         assert_eq!(
             sorted,
-            vec![other, palette],
-            "command palette must render last/top-most among siblings"
+            vec![palette, other],
+            "no layers declaration must preserve DOM order (no command-palette special-case)"
         );
     }
 
     #[test]
-    fn collect_render_nodes_keeps_command_palette_topmost_even_if_mounted_first() {
-        use crate::widget_tree::WidgetTree;
-        use crate::widgets::{AppRoot, CommandPalette, Label};
+    fn overlay_screen_escapes_to_top_z_over_later_sibling_and_is_hittable() {
+        // RA2.4 mechanism: an `overlay: screen` node is NOT painted inline at its
+        // position in the tree. It is deferred and painted UNCLIPPED at the TOP z
+        // of the layer AFTER every sibling — even a sibling that comes LATER in DOM
+        // order (which would normally occlude it). This is Python's placement/clip
+        // ESCAPE, not a colour blend. Painting last also stamps the overlay's
+        // `textual:widget_id` meta last, so hit-test occlusion is correct for free.
+        use crate::widget_tree::{Rect, WidgetTree};
+        use crate::widgets::{AppRoot, Label};
 
         let sheet = crate::css::default_widget_stylesheet();
         let _guard = crate::css::set_style_context(sheet);
 
         let mut tree = WidgetTree::new();
         let root = tree.set_root(Box::new(AppRoot::new()));
-        let palette = tree.mount(root, Box::new(CommandPalette::new(Label::new("body"))));
-        let other = tree.mount(root, Box::new(Label::new("other")));
 
-        let nodes = collect_render_nodes(&tree);
-        let ids: Vec<NodeId> = nodes.iter().map(|(id, _)| *id).collect();
-        assert_eq!(ids, vec![root, other, palette]);
+        // DOM order: overlay FIRST, opaque sibling SECOND. Without the escape the
+        // sibling (painted second) would occlude the overlay at the overlap.
+        let overlay = tree.mount(root, Box::new(Label::new("OOOOOO")));
+        let sibling = tree.mount(root, Box::new(Label::new("RRRRRRRRRRRRRRRRRRRR")));
+
+        // Both occupy row 0. Manual layout rects (skip run_layout_pass) so the
+        // geometry is deterministic; the overlap is cols 0..6.
+        if let Some(n) = tree.get_mut(overlay) {
+            n.layout_rect = Rect { x0: 0, y0: 0, x1: 6, y1: 1 };
+        }
+        if let Some(n) = tree.get_mut(sibling) {
+            n.layout_rect = Rect { x0: 0, y0: 0, x1: 20, y1: 1 };
+        }
+        tree.update_styles(overlay, |s| {
+            s.style.overlay = Some(crate::style::OverlayMode::Screen);
+            s.style.constrain_x = Some(crate::style::Constrain::None);
+            s.style.constrain_y = Some(crate::style::Constrain::Inside);
+        });
+
+        let console = rich_rs::Console::new();
+        let mut frame = FrameBuffer::new(20, 1, None);
+        let ctx = TreeRenderCtx {
+            origin_x: 0,
+            origin_y: 0,
+            clip: ClipRect::for_frame(&frame),
+            overlay_root_exempt: None,
+        };
+        let mut overlays: Vec<QueuedOverlay> = Vec::new();
+
+        // Walk in DOM order: overlay escapes (queued, paints nothing), then the
+        // sibling paints across the whole row.
+        render_tree_node(&tree, overlay, ctx, &mut frame, &console, None, &mut overlays);
+        assert_eq!(
+            overlays.len(),
+            1,
+            "the overlay: screen node must be queued, not painted inline"
+        );
+        render_tree_node(&tree, sibling, ctx, &mut frame, &console, None, &mut overlays);
+        assert_eq!(
+            frame.get(0, 0).text,
+            "R",
+            "before the deferred pass, the later sibling owns the overlap"
+        );
+
+        // Deferred top-z pass: the overlay paints over the sibling.
+        paint_deferred_overlays(&tree, &mut overlays, &mut frame, &console, None);
+        assert_eq!(
+            frame.get(0, 0).text,
+            "O",
+            "overlay: screen must paint on top of the later sibling at the overlap"
+        );
+        assert_eq!(
+            frame.get(10, 0).text,
+            "R",
+            "outside the overlay, the sibling is untouched (overlay did not erase it)"
+        );
+
+        // Hit-test occlusion: the overlay's meta stamped last, so a click in the
+        // overlap resolves to the overlay; the sibling is occluded there.
+        let hit = crate::runtime::HitTestMap::from_frame(&frame);
+        let overlay_rect = hit.rect(overlay).expect("overlay must be hittable");
+        assert!(
+            overlay_rect.x0 == 0 && overlay_rect.x1 >= 5,
+            "overlay hit-rect must cover the overlap (got {overlay_rect:?})"
+        );
+        let sibling_rect = hit.rect(sibling).expect("sibling must be hittable");
+        assert!(
+            sibling_rect.x0 >= 6,
+            "sibling must be occluded by the overlay across cols 0..6 (got {sibling_rect:?})"
+        );
+    }
+
+    #[test]
+    fn overlay_screen_is_drained_by_the_render_entry() {
+        // Wiring guard: an `overlay: screen` node returns EARLY from the tree walk
+        // (queued, not painted). If the render entry did not drain the queue via
+        // `paint_deferred_overlays`, the node would vanish. Asserting its content
+        // appears in the final frame proves the entry drains the escape queue.
+        use crate::widget_tree::WidgetTree;
+        use crate::widgets::{AppRoot, Label};
+
+        let sheet = crate::css::default_widget_stylesheet();
+        let _guard = crate::css::set_style_context(sheet);
+
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(Box::new(AppRoot::new()));
+        let overlay = tree.mount(root, Box::new(Label::new("WIRED")));
+        tree.update_styles(overlay, |s| {
+            s.style.overlay = Some(crate::style::OverlayMode::Screen);
+        });
+
+        let console = rich_rs::Console::new();
+        let mut root_widget = AppRoot::new();
+        let frame = render_tree_to_frame(&mut tree, &mut root_widget, &console, 20, 3);
+        assert_eq!(
+            frame.get(0, 0).text,
+            "W",
+            "overlay: screen content must be drained + painted by the render entry"
+        );
     }
 
     #[test]

@@ -9,6 +9,25 @@ until the API stabilizes.
 
 ### Framework fundamentals
 
+- **`overlay: screen` is now a real placement/clip escape, not a colour blend**
+  (RA2.4) — Python's `overlay: screen` (`_compositor.py`) forces a placement to
+  the TOP z of the whole screen with NO clip; it is how Select dropdowns,
+  CommandPalette, toasts, tooltips and loading float. The previous Rust
+  implementation mis-ported it as a Photoshop-style screen COLOUR BLEND of the
+  overlay over the underlay. That blend (`apply_overlay_compositing`/
+  `screen_blend`/`capture_underlay_snapshot`) is **deleted** and replaced by a
+  deferred paint pass: a node whose resolved `overlay` is `screen` is not painted
+  inline during the tree walk — it is queued with its arranged position and
+  painted UNCLIPPED at the top z of the layer AFTER every sibling, positioned via
+  the existing `constrain_overlay_position`. Painting last also stamps the
+  overlay's `textual:widget_id` meta last, so hit-test occlusion is correct for
+  free. The `CommandPalette` type-string special-case in the paint sorter
+  (`move_command_palette_last`) is retired — the palette floats via its DOM-last
+  mount order, and real `overlay: screen` surfaces float via the escape pass.
+  (Tooltip still composites into its own widget-local frame buffer; migrating it
+  onto the escape pass is a follow-up that needs a widget-level change. Select's
+  dropdown remains a monolithic inline render pending its RA2.5 arena conversion,
+  which will compose a real `overlay: screen` child on this mechanism.)
 - **Mount-time messages + composed-widget self-recompose go through the ctx**
   (RA2.3) — the last two post-mount drain hooks are retired:
   - `Widget::take_pending_mount_messages` is gone. Widgets that emitted a message
