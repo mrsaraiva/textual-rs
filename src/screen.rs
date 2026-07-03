@@ -73,6 +73,20 @@ pub trait Screen: Send + Sync {
         None
     }
 
+    /// CSS selector for the widget to focus automatically when this screen
+    /// becomes active (mirrors Python `Screen.AUTO_FOCUS`, e.g. the command
+    /// palette's `"CommandInput"` at `command.py:535`).
+    ///
+    /// Return `Some(selector)` to focus the first matching focusable node when
+    /// the screen is pushed; the runtime falls back to focusing the first
+    /// focusable node in the screen tree when this is `None` (the Python `"*"`
+    /// default) or when the selector matches nothing. The selector accepts the
+    /// same forms as [`crate::runtime::App::query_one`] (`#id`, a type name,
+    /// `.class`, …). Mirrors `Screen.AUTO_FOCUS` (`screen.py:152-156`).
+    fn auto_focus(&self) -> Option<&str> {
+        None
+    }
+
     // -----------------------------------------------------------------------
     // Handler surface (Screen as a DOMNode — Python parity)
     // -----------------------------------------------------------------------
@@ -622,6 +636,16 @@ impl ScreenStack {
     pub fn active_sub_title(&self) -> Option<String> {
         self.top()
             .and_then(|e| e.with_screen(|s| s.sub_title().map(str::to_string)))
+            .flatten()
+    }
+
+    /// Get the `auto_focus` selector from the topmost screen (if it defines one).
+    ///
+    /// Used by the runtime at push time to focus a specific node instead of the
+    /// first focusable one (Python `Screen.AUTO_FOCUS`).
+    pub(crate) fn active_auto_focus(&self) -> Option<String> {
+        self.top()
+            .and_then(|e| e.with_screen(|s| s.auto_focus().map(str::to_string)))
             .flatten()
     }
 

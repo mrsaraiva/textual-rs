@@ -3562,9 +3562,59 @@ impl App {
     pub fn push_screen(&mut self, screen: Box<dyn crate::screen::Screen>) {
         self.dispatch_screen_lifecycle_event(Event::ScreenSuspend);
         self.screen_stack.push(screen);
-        let _ = self.focus_first_in_active_tree();
+        self.honor_screen_auto_focus();
         // The active tree changed; force a relayout + full repaint.
         self.pending_force_relayout = true;
+    }
+
+    /// Focus the node targeted by the active screen's `auto_focus()` selector,
+    /// falling back to the first focusable node.
+    ///
+    /// Mirrors Python `Screen.AUTO_FOCUS`: a screen may name a specific widget
+    /// (e.g. the command palette's `CommandInput`) to receive focus on push;
+    /// when it names nothing (the `"*"` default) or the selector matches no
+    /// node, the runtime focuses the first focusable node in the screen tree.
+    fn honor_screen_auto_focus(&mut self) {
+        if let Some(selector) = self
+            .screen_stack
+            .active_auto_focus()
+            .filter(|s| !s.is_empty())
+            && let Ok(target) = self.query_one(&selector)
+            && self.focus_specific_node_in_active_tree(target)
+        {
+            return;
+        }
+        let _ = self.focus_first_in_active_tree();
+    }
+
+    /// Focus a specific focusable node in the active screen tree, mirroring
+    /// [`Self::focus_first_in_active_tree`]'s direct focus-state handling (no
+    /// `is_displayed` gate, which is not yet resolved at push time before the
+    /// first layout pass). Returns `false` if the node is missing or not
+    /// focusable so the caller can fall back to first-focus.
+    fn focus_specific_node_in_active_tree(&mut self, target: NodeId) -> bool {
+        let Some(tree) = self.active_widget_tree_mut() else {
+            return false;
+        };
+        if !tree.contains(target) {
+            return false;
+        }
+        let focusable = tree
+            .get(target)
+            .map(|node| node.widget.focusable())
+            .unwrap_or(false);
+        if !focusable {
+            return false;
+        }
+        let current = focused_node_id_tree(tree);
+        if current == Some(target) {
+            return true;
+        }
+        if let Some(current) = current {
+            tree.set_focus_state(current, false);
+        }
+        tree.set_focus_state(target, true);
+        true
     }
 
     /// Push a screen onto the screen stack with a result callback.
@@ -3578,7 +3628,7 @@ impl App {
     ) {
         self.dispatch_screen_lifecycle_event(Event::ScreenSuspend);
         self.screen_stack.push_with_callback(screen, callback);
-        let _ = self.focus_first_in_active_tree();
+        self.honor_screen_auto_focus();
         // The active tree changed; force a relayout + full repaint.
         self.pending_force_relayout = true;
     }

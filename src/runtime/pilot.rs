@@ -452,6 +452,112 @@ Horizontal { width: auto; height: auto; }
         .unwrap();
     }
 
+    // -----------------------------------------------------------------------
+    // W0.1: Screen::auto_focus() honored at push
+    // -----------------------------------------------------------------------
+
+    /// A pushed screen whose tree has two focusable buttons (`#first`, then
+    /// `#second`). `selector` drives the screen's `auto_focus()`.
+    struct AutoFocusScreen {
+        selector: Option<&'static str>,
+    }
+
+    impl crate::screen::Screen for AutoFocusScreen {
+        fn name(&self) -> &str {
+            "AutoFocusScreen"
+        }
+
+        fn compose(&self) -> Box<dyn crate::widgets::Widget> {
+            Box::new(
+                crate::widgets::Vertical::new().with_compose(crate::compose![
+                    Button::new("First").id("first"),
+                    Button::new("Second").id("second"),
+                ]),
+            )
+        }
+
+        fn auto_focus(&self) -> Option<&str> {
+            self.selector
+        }
+    }
+
+    fn active_focused(app: &App) -> Option<crate::node_id::NodeId> {
+        let tree = app.active_widget_tree().expect("active screen tree");
+        crate::runtime::focused_node_id_tree(tree)
+    }
+
+    #[test]
+    fn pushed_screen_auto_focus_targets_selector_not_first() {
+        crate::run_test(RgbApp, |pilot| {
+            pilot
+                .app_mut()
+                .push_screen(Box::new(AutoFocusScreen {
+                    selector: Some("#second"),
+                }));
+            pilot.pause()?;
+
+            let second = pilot.app().query_one("#second").expect("#second exists");
+            let first = pilot.app().query_one("#first").expect("#first exists");
+            assert_eq!(
+                active_focused(pilot.app()),
+                Some(second),
+                "auto_focus('#second') must focus #second, not the first focusable node"
+            );
+            assert_ne!(
+                active_focused(pilot.app()),
+                Some(first),
+                "auto_focus target must override the default first-focus"
+            );
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn pushed_screen_without_auto_focus_focuses_first() {
+        // Behavior-preserving fallback: a screen that does not override
+        // auto_focus() focuses the first focusable node (the pre-W0.1 behavior
+        // every screen consumer relied on).
+        crate::run_test(RgbApp, |pilot| {
+            pilot
+                .app_mut()
+                .push_screen(Box::new(AutoFocusScreen { selector: None }));
+            pilot.pause()?;
+
+            let first = pilot.app().query_one("#first").expect("#first exists");
+            assert_eq!(
+                active_focused(pilot.app()),
+                Some(first),
+                "no auto_focus() must focus the first focusable node"
+            );
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn pushed_screen_auto_focus_unmatched_falls_back_to_first() {
+        // A selector that matches nothing falls back to first-focus rather than
+        // leaving the screen with no focus.
+        crate::run_test(RgbApp, |pilot| {
+            pilot
+                .app_mut()
+                .push_screen(Box::new(AutoFocusScreen {
+                    selector: Some("#does-not-exist"),
+                }));
+            pilot.pause()?;
+
+            let first = pilot.app().query_one("#first").expect("#first exists");
+            assert_eq!(
+                active_focused(pilot.app()),
+                Some(first),
+                "an unmatched auto_focus selector must fall back to first-focus"
+            );
+            Ok(())
+        })
+        .unwrap();
+    }
+
     #[test]
     fn parse_key_handles_names_and_modifiers() {
         assert!(parse_key("r").is_some());

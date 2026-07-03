@@ -62,6 +62,15 @@ in the sections below; this is the migration index:
 
 ### Framework fundamentals
 
+- **`Screen::auto_focus()` — a screen may name the widget to focus on push.**
+  New `Screen` trait method (default `None`) mirroring Python
+  `Screen.AUTO_FOCUS`: return `Some(selector)` (any `query_one` form — `#id`, a
+  type name, `.class`) and the runtime focuses the first matching focusable node
+  when the screen is pushed, instead of the first focusable node in the tree. A
+  `None` default (or an unmatched selector) falls back to the previous
+  first-focus behaviour, so existing screens are unaffected. Honored in
+  `push_screen`/`push_screen_with_callback`.
+
 - **`Select` is now a composed-children arena widget on the `overlay: screen`
   layer** (RA2.5b) — it no longer renders its dropdown as an inline
   `FrameBuffer` fake. `compose()` emits a `SelectCurrent` bar and a
