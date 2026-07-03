@@ -313,6 +313,16 @@ impl WidgetTree {
                 node.widget.on_mount(&mut wctx);
             }
             wctx.__enqueue_reactive_if_dirty();
+            // No `App` exists at build time to absorb the synth `EventCtx`, so a
+            // message posted from `on_mount` (e.g. `Select`/`ListView` initial
+            // selection) is routed through the deferred command queue — the first
+            // shared flush bubbles it from this node (retires the separate
+            // mount-message drain hook).
+            for message in synth.take_messages() {
+                crate::runtime::commands::enqueue_widget_command(
+                    crate::runtime::commands::WidgetCommand::PostMessage(message),
+                );
+            }
         }
     }
 

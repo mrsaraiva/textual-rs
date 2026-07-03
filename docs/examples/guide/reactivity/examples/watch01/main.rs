@@ -63,15 +63,20 @@ impl WatchApp {
     }
 
     /// Python `watch_color(self, old_color, new_color)`: set both panels.
+    ///
+    /// Writes the background straight to each panel's arena node via
+    /// `query_mut(sel).set_styles(..)` (Python `widget.styles.background = color`).
+    /// A post-mount `Static::set_inline_style` would only touch the widget's
+    /// drained seed, so it must go through the node's inline styles here.
     fn watch_color(&mut self, app: &mut App, old: &Color, new: &Color, _ctx: &mut ReactiveCtx) {
         let old = *old;
         let new = *new;
-        let _ = app.with_query_one_mut_as::<Static, _>("#old", |s| {
-            s.set_inline_style(Style::new().bg(old));
-        });
-        let _ = app.with_query_one_mut_as::<Static, _>("#new", |s| {
-            s.set_inline_style(Style::new().bg(new));
-        });
+        let _ = app
+            .query_mut("#old")
+            .map(|q| q.set_styles(|s| s.style = s.style.clone().bg(old)));
+        let _ = app
+            .query_mut("#new")
+            .map(|q| q.set_styles(|s| s.style = s.style.clone().bg(new)));
     }
 }
 
@@ -135,22 +140,14 @@ mod tests {
         assert!(ctx.has_changes(), "color change must be recorded");
     }
 
-    /// LIVENESS PROBE (currently DEAD — see root cause below).
+    /// LIVENESS PROBE: submitting a colour name into the Input must fire the
+    /// app-level `watch_color`, painting the `#new` panel background. We assert
+    /// the panel's *own background* changed (the Input is cleared on submit, so
+    /// the frame alone wouldn't move — there is no echo false positive here).
     ///
-    /// Submitting a colour name into the Input must fire the app-level
-    /// `watch_color`, painting the `#new` panel background. We assert the panel's
-    /// *own background* changed (the Input is cleared on submit, so the frame
-    /// alone wouldn't move — there is no echo false positive here).
-    ///
-    /// ROOT CAUSE (DEAD): the InputSubmitted handler + app-level `watch_color`
-    /// fire correctly (`app.color` becomes the parsed colour), but the watcher
-    /// paints via `Static::set_inline_style`, which writes to the widget's
-    /// detached `seed.styles.style` (emptied at mount). A post-mount
-    /// `set_inline_style` on an in-tree widget never reaches the arena node's
-    /// rendered style, so `#new`'s background stays unset. Styling-pipeline gap
-    /// (same as computed01), distinct from this reactive-dispatch sweep. Flip
-    /// this `#[ignore]` once post-mount `set_inline_style` reaches render, or
-    /// switch the watcher to `query_mut(sel).set_styles(...)`.
+    /// The watcher writes each panel's background straight to its arena node via
+    /// `query_mut(sel).set_styles(..)`, so the post-mount colour reaches render
+    /// (RA2.3: `Static::set_inline_style` no longer stages a write-through).
     #[test]
     fn liveness_submitting_color_repaints_panels() {
         textual::run_test(WatchApp::new(), |pilot| {

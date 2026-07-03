@@ -414,6 +414,14 @@ impl ReactiveCtx {
     pub(crate) fn take_class_ops(&mut self) -> Vec<(NodeId, crate::event::ClassOp)> {
         std::mem::take(&mut self.class_ops)
     }
+
+    /// Whether any class op is queued on this context. Lets callers (e.g.
+    /// `Handle::update_in`) decide to enqueue a runtime reactive entry even when
+    /// no field change / repaint / layout flag was recorded — otherwise a
+    /// class-op-only mutation (Python `self.set_class(...)`) would be dropped.
+    pub fn has_class_ops(&self) -> bool {
+        !self.class_ops.is_empty()
+    }
 }
 
 impl std::fmt::Debug for ReactiveCtx {

@@ -2143,38 +2143,6 @@ impl App {
         aggregate
     }
 
-    /// Drain a freshly mounted node's staged mount-time messages (via
-    /// [`crate::widgets::Widget::take_pending_mount_messages`]) and route them
-    /// through the normal message bus with the mounted node as sender/control.
-    ///
-    /// This is the runtime drain point for the drain-at-mount pending-message
-    /// mechanism: it mirrors how `ctx.post_message(..)` messages are routed, so
-    /// the app's message handlers see mount-time messages at startup exactly as
-    /// in Python Textual (where widgets may post from `on_mount`).
-    fn drain_pending_mount_messages(
-        &mut self,
-        root: &mut dyn Widget,
-        node_id: NodeId,
-    ) -> DispatchOutcome {
-        let staged: Vec<MessageEvent> = self
-            .active_widget_tree_mut()
-            .and_then(|tree| tree.get_mut(node_id))
-            .map(|node| {
-                node.widget
-                    .take_pending_mount_messages()
-                    .into_iter()
-                    .map(|payload| {
-                        MessageEvent::from_boxed(node_id, payload).with_control(node_id)
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-        if staged.is_empty() {
-            return DispatchOutcome::default();
-        }
-        self.dispatch_message_queue_with_runtime(root, staged)
-    }
-
     fn dispatch_background_runtime_messages(&mut self, root: &mut dyn Widget) -> DispatchOutcome {
         // Drain app-level messages first (set_title/set_sub_title broadcasts).
         let mut queue = self.drain_pending_app_messages();
@@ -2375,14 +2343,9 @@ impl App {
                 &mut pending_invalidation,
                 InvalidationScope::Global,
             );
-            // Route any messages the widget staged for mount time
-            // (Widget::take_pending_mount_messages) through the normal bus.
-            let mut mount_msg_outcome = self.drain_pending_mount_messages(root, node_id);
-            self.absorb_outcome(
-                &mut mount_msg_outcome,
-                &mut pending_invalidation,
-                InvalidationScope::Global,
-            );
+            // Mount-time messages (e.g. Select/ListView initial selection) are
+            // posted by the widget's `on_mount` (fired at tree build) and routed
+            // through the command queue, bubbled by the shared reactive flush.
         }
 
         // Dispatch Ready event once after the first successful render.
@@ -4419,12 +4382,11 @@ impl App {
             let mut msg_outcome =
                 self.dispatch_message_queue_with_runtime(root, outcome.messages);
             self.absorb_outcome(&mut msg_outcome, &mut pending, InvalidationScope::Global);
-            let mut mount_msg_outcome = self.drain_pending_mount_messages(root, node_id);
-            self.absorb_outcome(&mut mount_msg_outcome, &mut pending, InvalidationScope::Global);
             // RA2.2: the merged `on_mount(ctx)` for these initial nodes already
             // fired during tree build (`WidgetTree::fire_mount_callbacks`), so it
-            // is NOT re-fired here (that would double-mount). Dynamic recompose
-            // mounts are handled by the shared flush's lifecycle drain.
+            // is NOT re-fired here (that would double-mount). Its mount-time
+            // messages were routed through the command queue there. Dynamic
+            // recompose mounts are handled by the shared flush's lifecycle drain.
         }
 
         // Ready event after first render.
@@ -5779,10 +5741,10 @@ impl App {
     /// calls `run_reactive_phase()` for each, and feeds repaint/layout results
     /// into `pending_invalidation`.
     /// Drain the tree's pending `Mount`/`Unmount` lifecycle events and dispatch
-    /// each: the `Mount`/`Unmount` event itself, any mount-staged messages
-    /// (`take_pending_mount_messages`), and — for mounts — the widget-owned
-    /// [`Widget::on_mount_ctx`] hook (which registers `set_interval` timers);
-    /// for unmounts, purge the node's timers.
+    /// each: the `Mount`/`Unmount` event itself, and — for mounts — the
+    /// widget-owned [`Widget::on_mount`] hook (which registers `set_interval`
+    /// timers and posts any mount-time messages via `ctx.post_message`); for
+    /// unmounts, purge the node's timers.
     ///
     /// Shared by the live loop (`run_widget_tree`) and the headless pump
     /// (`headless_pump`) so a widget mounted via **dynamic recompose** receives
@@ -5826,25 +5788,16 @@ impl App {
             let mut msg_outcome =
                 self.dispatch_message_queue_with_runtime(root, outcome.messages);
             self.absorb_outcome(&mut msg_outcome, pending, InvalidationScope::Global);
-            // For newly mounted nodes, route any messages staged at mount time
-            // (Widget::take_pending_mount_messages) through the bus.
-            let mut mount_msg_outcome = if is_mount {
-                self.drain_pending_mount_messages(root, node_id)
-            } else {
-                DispatchOutcome::default()
-            };
-            self.absorb_outcome(&mut mount_msg_outcome, pending, InvalidationScope::Global);
-            // Widget-owned mount hook (registers set_interval timers, etc.) on
-            // mount; purge the node's timers on unmount (primary cleanup).
+            // Widget-owned mount hook (registers set_interval timers, posts any
+            // mount-time messages via `ctx.post_message` — e.g. Select/ListView
+            // initial selection) on mount; purge the node's timers on unmount.
+            // The posted messages bubble through the shared flush's PostUp path.
             if is_mount {
                 self.run_on_node_widget(node_id, |w, ctx| w.on_mount(ctx), pending);
             } else {
                 self.purge_node_widget_timers(node_id);
             }
-            if outcome.stop_requested
-                || msg_outcome.stop_requested
-                || mount_msg_outcome.stop_requested
-            {
+            if outcome.stop_requested || msg_outcome.stop_requested {
                 // Match the live loop's early-out: stop processing further
                 // lifecycle events once app exit is requested.
                 drain.stop_requested = true;

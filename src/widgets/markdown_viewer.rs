@@ -438,9 +438,6 @@ pub struct MarkdownViewer {
     content_map: HashMap<String, String>,
     /// Whether a TOC-updated message should be emitted on the next event turn.
     toc_dirty: bool,
-    /// Pending TOC visibility class change to apply on the next event turn.
-    /// Some(true) means add `-show-table-of-contents`; Some(false) means remove it.
-    toc_class_pending: Option<bool>,
     /// One-shot identity/style payload consumed at mount.
     seed: NodeSeed,
 }
@@ -475,7 +472,6 @@ impl MarkdownViewer {
             navigator,
             content_map,
             toc_dirty: true,
-            toc_class_pending: None,
             seed: NodeSeed::default(),
         }
     }
@@ -507,13 +503,12 @@ impl MarkdownViewer {
         } else {
             self.classes.retain(|c| c != CLASS);
         }
-        // Queue a class op to propagate to the arena node on the next event turn.
-        // (The widget struct's `classes` field is consumed by take_node_seed at mount;
-        // after mount, CSS resolution reads from the arena node record, so we must
-        // push class changes through EventCtx on the next event.)
-        if show != was_showing {
-            self.toc_class_pending = Some(show);
-        }
+        // The widget struct's `classes` field feeds `take_node_seed` at mount (the
+        // pre-mount / builder path). After mount, CSS resolution reads the arena
+        // node record, so a post-mount caller must additionally apply the class to
+        // the tree through its `ReactiveCtx`/`WidgetCtx` (`ctx.set_class(show,
+        // "-show-table-of-contents")`) — see `examples/markdown/main.rs`.
+        let _ = was_showing;
     }
 
     pub fn is_showing_table_of_contents(&self) -> bool {
@@ -599,11 +594,6 @@ impl MarkdownViewer {
     }
 
     fn flush_toc_message(&mut self, ctx: &mut crate::event::WidgetCtx) {
-        // Flush any pending TOC class change into the arena node record.
-        if let Some(show) = self.toc_class_pending.take() {
-            const CLASS: &str = "-show-table-of-contents";
-            ctx.set_class(show, CLASS);
-        }
         if !self.toc_dirty {
             return;
         }
@@ -738,14 +728,6 @@ impl Widget for MarkdownViewer {
 
     fn style_classes(&self) -> &[String] {
         &self.classes
-    }
-
-    fn drain_pending_class_ops(&mut self) -> Vec<(String, bool)> {
-        if let Some(show) = self.toc_class_pending.take() {
-            vec![("-show-table-of-contents".to_string(), show)]
-        } else {
-            Vec::new()
-        }
     }
 
     fn set_inline_style(&mut self, style: crate::style::Style) {

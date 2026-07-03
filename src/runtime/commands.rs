@@ -52,6 +52,14 @@ pub struct TimerTick {
 pub(crate) type WidgetTimerCallback =
     Box<dyn FnMut(&mut dyn Widget, &mut WidgetCtx, TimerTick) + Send>;
 
+/// An erased closure applied to a resolved target widget with a fresh `WidgetCtx`
+/// ([`WidgetCommand::UpdateWidget`]).
+pub(crate) type WidgetApply = Box<dyn FnOnce(&mut dyn Widget, &mut WidgetCtx) + Send>;
+
+/// An erased closure applied to a target node's inline styles
+/// ([`WidgetCommand::UpdateStyles`]).
+pub(crate) type StyleApply = Box<dyn FnOnce(&mut crate::widgets::WidgetStyles) + Send>;
+
 /// Registry entry for a widget-owned interval timer: its owning node, the
 /// downcast-wrapped callback, and the timing state used to derive each fire's
 /// [`TimerTick::elapsed`] / [`TimerTick::fire_count`].
@@ -93,7 +101,16 @@ pub(crate) enum WidgetCommand {
     /// downcasts to its captured concrete type at drain (a miss logs + drops).
     UpdateWidget {
         target: CommandTarget,
-        apply: Box<dyn FnOnce(&mut dyn Widget, &mut WidgetCtx) + Send>,
+        apply: WidgetApply,
+    },
+    /// Apply a closure to the target node's inline styles (Python
+    /// `widget.styles.<prop> = v`). Homes the post-mount inline-style write path
+    /// that the former inline-style write-through hook staged on the widget:
+    /// the seed is drained at mount, so a post-mount style write must reach the
+    /// arena node record directly. Applied via `WidgetTree::update_styles`.
+    UpdateStyles {
+        target: CommandTarget,
+        apply: StyleApply,
     },
     /// Register a widget-owned interval timer on the SAME `TimerRuntime` as
     /// app-level timers (so `enable_manual_timer_clock` / `Pilot::advance_clock`
@@ -106,6 +123,13 @@ pub(crate) enum WidgetCommand {
         paused: bool,
         callback: WidgetTimerCallback,
     },
+    /// Bubble a message from its sender node during the shared flush (PostUp).
+    /// Homes messages posted from a build-time `on_mount` (fired by
+    /// `WidgetTree::fire_mount_callbacks`, where no `App` exists to absorb the
+    /// synth `EventCtx`'s messages) — e.g. `Select`/`ListView` initial-selection
+    /// messages. The flush pushes it onto `pending_widget_posts`, which
+    /// `run_event_loop_reactive_phase` bubbles from the sender.
+    PostMessage(crate::message::MessageEvent),
     /// Pause a timer by id (deferred `TimerHandle::pause`).
     PauseTimer(u64),
     /// Resume a timer by id (deferred `TimerHandle::resume`).
@@ -163,6 +187,44 @@ pub(crate) fn take_widget_commands() -> Vec<WidgetCommand> {
 /// draining). Lets the headless pump decide whether the flush has work to do.
 pub(crate) fn command_queue_is_nonempty() -> bool {
     RUNTIME_COMMAND_QUEUE.with(|queue| !queue.borrow().is_empty())
+}
+
+/// Test/observability hook: drain the deferred command queue and return the
+/// `(node, ClassOp)` pairs from `AddClass`/`RemoveClass` commands (dropping any
+/// non-class commands). Post-RA2.3 a handler's `ctx.add_class`/`remove_class`
+/// enqueues these commands instead of writing the dispatch `EventCtx`'s class-op
+/// list, so tests that formerly inspected `outcome.class_ops` drain here instead.
+#[doc(hidden)]
+pub fn drain_class_commands_for_test() -> Vec<(NodeId, crate::event::ClassOp)> {
+    take_widget_commands()
+        .into_iter()
+        .filter_map(|cmd| match cmd {
+            WidgetCommand::AddClass {
+                target: CommandTarget::Node(node),
+                class,
+            } => Some((node, crate::event::ClassOp::Add(class))),
+            WidgetCommand::RemoveClass {
+                target: CommandTarget::Node(node),
+                class,
+            } => Some((node, crate::event::ClassOp::Remove(class))),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Test/observability hook: drain the deferred command queue and return the
+/// `MessageEvent`s from `PostMessage` commands (e.g. those a build-time
+/// `on_mount` posted), dropping any non-message commands. Post-RA2.3 a widget's
+/// mount-time messages route through this queue instead of a dedicated drain.
+#[doc(hidden)]
+pub fn drain_mount_posts_for_test() -> Vec<crate::message::MessageEvent> {
+    take_widget_commands()
+        .into_iter()
+        .filter_map(|cmd| match cmd {
+            WidgetCommand::PostMessage(message) => Some(message),
+            _ => None,
+        })
+        .collect()
 }
 
 impl App {
@@ -257,6 +319,17 @@ impl App {
                 };
                 self.run_on_node_widget(node, |w, ctx| apply(w, ctx), pending);
             }
+            WidgetCommand::UpdateStyles { target, apply } => {
+                let Some(node) = self.resolve_command_target(&target) else {
+                    return;
+                };
+                if let Some(tree) = self.active_widget_tree_mut() {
+                    tree.update_styles(node, apply);
+                }
+                // A post-mount inline-style write can change size/spacing/visibility
+                // (Python `widget.styles.x = v` -> `refresh(layout=True)`).
+                pending.request_flags(InvalidationFlags::layout());
+            }
             WidgetCommand::RegisterTimer {
                 node,
                 timer_id,
@@ -278,6 +351,10 @@ impl App {
                     },
                 );
             }
+            WidgetCommand::PostMessage(message) => {
+                // Bubble from the sender during the flush's PostUp pass.
+                self.pending_widget_posts.push(message);
+            }
             WidgetCommand::PauseTimer(id) => {
                 self.timers.pause(id);
             }
@@ -296,25 +373,40 @@ impl App {
     /// Shared by `UpdateWidget` and widget-timer fires. Returns `false` if the
     /// node is not present (caller handles the miss).
     ///
-    /// TRAP (b): the dispatch-ctx guard wraps the closure call, else
-    /// `self.node_id()` returns `NodeId::default()` inside it. TRAP (a): no
-    /// `&mut App` crosses into the closure — the `tree.get_mut` borrow is scoped
-    /// to the call, and the closure only sees `&mut dyn Widget` + `&mut WidgetCtx`.
+    /// Non-generic bool wrapper over [`run_on_node_widget_r`], kept for the
+    /// `()`-returning call sites (timer fires, `UpdateWidget`, `on_mount`).
     pub(crate) fn run_on_node_widget(
         &mut self,
         node: NodeId,
         run: impl FnOnce(&mut dyn Widget, &mut WidgetCtx),
         pending: &mut PendingInvalidation,
     ) -> bool {
+        self.run_on_node_widget_r(node, |w, ctx| run(w, ctx), pending)
+            .is_some()
+    }
+
+    /// Value-returning twin of [`run_on_node_widget`]: run `run` against the
+    /// widget at `node` with a fresh `WidgetCtx`, returning its result (or `None`
+    /// when the node is absent — the `Option<R>` contract `with_widget_mut`
+    /// relies on). Drives the node's reactive fixpoint + absorbs the synthesized
+    /// EventCtx exactly as the bool wrapper does.
+    ///
+    /// TRAP (b): the dispatch-ctx guard wraps the closure call, else
+    /// `self.node_id()` returns `NodeId::default()` inside it. TRAP (a): no
+    /// `&mut App` crosses into the closure — the `tree.get_mut` borrow is scoped
+    /// to the call, and the closure only sees `&mut dyn Widget` + `&mut WidgetCtx`.
+    pub(crate) fn run_on_node_widget_r<R>(
+        &mut self,
+        node: NodeId,
+        run: impl FnOnce(&mut dyn Widget, &mut WidgetCtx) -> R,
+        pending: &mut PendingInvalidation,
+    ) -> Option<R> {
         // Node interaction state for the dispatch guard (so `self.node_id()` /
         // `node_state()` are correct inside the closure).
-        let Some(state) = self
+        let state = self
             .active_widget_tree()
             .and_then(|t| t.get(node))
-            .map(|n| n.state)
-        else {
-            return false;
-        };
+            .map(|n| n.state)?;
         let _guard = super::dispatch_ctx::set_dispatch_recipient(node, state);
 
         // No live EventCtx exists in the flush; synthesize one (TRAP f: the
@@ -324,12 +416,11 @@ impl App {
         synth_event.set_node_id(node);
         let mut wctx = WidgetCtx::new(node, &mut synth_event);
 
-        let mut ran = false;
+        let mut result: Option<R> = None;
         if let Some(tree) = self.active_widget_tree_mut()
             && let Some(n) = tree.get_mut(node)
         {
-            run(n.widget.as_mut(), &mut wctx);
-            ran = true;
+            result = Some(run(n.widget.as_mut(), &mut wctx));
         }
 
         // Drive the target node's reactive fixpoint by enqueueing its recorded
@@ -368,6 +459,6 @@ impl App {
                 .append(&mut outcome.messages);
         }
         self.absorb_outcome(&mut outcome, pending, InvalidationScope::Global);
-        ran
+        result
     }
 }

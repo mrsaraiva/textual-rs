@@ -580,8 +580,10 @@ mod tests {
             ph.on_event(&event, &mut __w);
         }
         assert_eq!(ph.variant(), PlaceholderVariant::Size);
-        // Class ops should reflect the variant change.
-        let ops = ctx.take_class_ops();
+        // Class ops should reflect the variant change. Post-RA2.3 the handler's
+        // `ctx.set_class` enqueues AddClass/RemoveClass commands on the deferred
+        // queue (not the dispatch EventCtx), so drain the command queue.
+        let ops = crate::runtime::drain_class_commands_for_test();
         assert!(
             ops.iter()
                 .any(|(_id, op)| matches!(op, crate::event::ClassOp::Remove(c) if c == "-default"))

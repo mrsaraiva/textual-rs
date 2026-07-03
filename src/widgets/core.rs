@@ -289,26 +289,6 @@ pub trait Widget: Send + Sync + Any {
         NodeSeed::default()
     }
 
-    /// Drain messages this widget wants posted *at mount time*, as boxed
-    /// [`crate::message::Message`] payloads.
-    ///
-    /// Python Textual widgets can post messages from `on_mount` (which has an
-    /// app/message context). In the arena runtime `on_mount(&mut self)` has no
-    /// `EventCtx`, so widgets that need to emit a message as part of their
-    /// initial state (for example `Select(allow_blank=false)` posting
-    /// `SelectChanged` for its auto-selected value) stage those messages here.
-    ///
-    /// The runtime drains this **once, right after the node is mounted**, and
-    /// routes each message through the normal message bus with the mounted
-    /// node as the sender/control — exactly as if the widget had called
-    /// `ctx.post_message(..)`. This is a drain-at-mount adapter over the core
-    /// message flow; it is **not** a separate dispatch path.
-    ///
-    /// Default: no messages.
-    fn take_pending_mount_messages(&mut self) -> Vec<Box<dyn crate::message::Message>> {
-        Vec::new()
-    }
-
     /// Render with full CSS styling, border composition, and segment tagging.
     ///
     /// `_node_id` is the arena-assigned identity used for metadata tagging so
@@ -737,51 +717,6 @@ pub trait Widget: Send + Sync + Any {
     /// Drain pending class add/remove ops that were staged by widget methods called
     /// outside of an event handler (e.g. via `App::with_query_one_mut_as`).
     ///
-    /// Returns a list of `(class_name, add)` pairs where `add = true` means add the
-    /// class and `add = false` means remove it. The runtime calls this after each
-    /// `with_widget_mut` invocation and applies the ops directly to the arena node.
-    ///
-    /// Widgets that stage class changes from non-event-handler contexts should
-    /// override this method to drain and return those pending ops.
-    fn drain_pending_class_ops(&mut self) -> Vec<(String, bool)> {
-        Vec::new()
-    }
-    /// Drain a pending "recompose myself" request staged by a widget method
-    /// called outside of an event handler (e.g. via `App::with_query_one_mut_as`).
-    ///
-    /// Some composed widgets build their arena children from internal state in
-    /// `compose()`/`compose()` (e.g. `Tabs`, whose tab bar is a
-    /// composed subtree). When such state is mutated post-mount through a
-    /// `with_query_one_mut_as` call — which has no `EventCtx` — the widget cannot
-    /// request its own recompose. It stages the request instead; the runtime
-    /// calls this after each `with_widget_mut` invocation and, when `true`,
-    /// recomposes the node's subtree so the new children become visible.
-    ///
-    /// This mirrors Python, where `Tabs.add_tab` mounts the new tab itself, so
-    /// the caller does not need to trigger any refresh. Returns `false` by
-    /// default (leaf widgets and widgets that recompose via reactive changes).
-    fn take_pending_self_recompose(&mut self) -> bool {
-        false
-    }
-    /// Drain a pending inline-style write-through staged by a post-mount
-    /// `set_inline_style` call.
-    ///
-    /// `take_node_seed()` moves a widget's seed (including its inline style) into
-    /// the arena node at mount, emptying the widget-held seed. A subsequent
-    /// post-mount `set_inline_style` (e.g. a reactive `watch_color` doing
-    /// `widget.set_inline_style(Style::new().bg(c))` via `App::with_widget_mut`)
-    /// only updates the now-detached widget seed and never reaches the node's
-    /// rendered style. Widgets that support post-mount inline styling override
-    /// this to return the style that the runtime must cascade onto the arena
-    /// node (`node.styles.style.combine(&returned)`). Mirrors Python's
-    /// `widget.styles.background = color` writing directly to the node styles.
-    ///
-    /// The returned style is *combined over* the node's existing inline style, so
-    /// only the explicitly-set fields override (matching Python's per-property
-    /// `styles.<prop> = value` assignment). Returns `None` when nothing is staged.
-    fn take_inline_style_writethrough(&mut self) -> Option<Style> {
-        None
-    }
     /// Optional intrinsic content width hint (in cells), used by layout when `width: auto`.
     ///
     /// This should return the width of the widget's *content* (excluding margins and borders).

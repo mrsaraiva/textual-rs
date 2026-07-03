@@ -1,5 +1,7 @@
-mod commands;
+pub(crate) mod commands;
 pub use commands::TimerTick;
+#[doc(hidden)]
+pub use commands::{drain_class_commands_for_test, drain_mount_posts_for_test};
 mod devtools;
 pub mod dispatch_ctx;
 mod event_loop;
@@ -2610,59 +2612,22 @@ impl App {
     }
 
     /// Borrow a widget mutably by node id for a scoped update.
+    ///
+    /// Runs `f` against the widget through the shared [`run_on_node_widget_r`]
+    /// path (dispatch-recipient guard + reactive-fixpoint / EventCtx absorption),
+    /// so it converges identically to the other node-scoped mutation entry points.
+    /// Returns `None` when the node is absent (the `Option<R>` contract). The
+    /// closure is ctx-less, so post-mount side effects (class changes,
+    /// inline-style writes, composed-widget self-recompose) that need a ctx go
+    /// through `Handle::update` (`ctx.set_class` / `ctx.update_styles` /
+    /// `ctx.request_recompose`) instead — `with_widget_mut` runs no drain hook.
     pub fn with_widget_mut<R>(
         &mut self,
         node_id: NodeId,
         f: impl FnOnce(&mut dyn Widget) -> R,
     ) -> Option<R> {
-        let tree = self.active_widget_tree_mut()?;
-        let node = tree.get_mut(node_id)?;
-        let result = f(node.widget.as_mut());
-        // Drain any pending class ops that widget methods may have staged on the
-        // widget struct (e.g. MarkdownViewer.toc_class_pending). These are ops the
-        // widget cannot apply itself because it has no EventCtx reference.
-        let pending = node.widget.drain_pending_class_ops();
-        let class_changed = !pending.is_empty();
-        if class_changed {
-            for (class, add) in pending {
-                if add {
-                    tree.add_class(node_id, &class);
-                } else {
-                    tree.remove_class(node_id, &class);
-                }
-            }
-        }
-        // Sync any post-mount inline-style write-through into the arena node.
-        // `take_node_seed()` emptied the widget's seed at mount, so a post-mount
-        // `set_inline_style` (e.g. a reactive `watch_color`) only touched the
-        // detached widget seed. Cascade the staged style onto the node's inline
-        // style so it reaches layout/render (Python `widget.styles.<prop> = v`).
-        let mut self_recompose = false;
-        if let Some(node) = tree.get_mut(node_id) {
-            if let Some(writethrough) = node.widget.take_inline_style_writethrough() {
-                node.styles.style = node.styles.style.combine(&writethrough);
-            }
-            // A composed widget (e.g. `Tabs`) may have mutated internal state that
-            // its `compose()`/`compose()` derives its arena children
-            // from (e.g. `Tabs::add_tab`). Since this mutation path has no
-            // `EventCtx`, the widget stages a self-recompose request the runtime
-            // honours here — so the new children become visible without the caller
-            // triggering a refresh (matches Python `Tabs.add_tab` mounting itself).
-            self_recompose = node.widget.take_pending_self_recompose();
-        }
-        if self_recompose {
-            self.request_widget_recompose_nodes(&[node_id]);
-            self.pending_force_relayout = true;
-        }
-        // A runtime class change can flip descendant `display`/`visibility` and
-        // other layout-affecting CSS. Force a relayout on the next loop iteration
-        // so the affected subtree re-resolves CSS + re-arranges (Python
-        // `add_class`/`remove_class` -> `refresh(layout=True)`). Set after the
-        // `tree` borrow ends to avoid aliasing `self`.
-        if class_changed {
-            self.pending_force_relayout = true;
-        }
-        Some(result)
+        let mut pending = crate::runtime::types::PendingInvalidation::default();
+        self.run_on_node_widget_r(node_id, |widget, _ctx| f(widget), &mut pending)
     }
 
     /// Borrow a widget mutably by node id and downcast to `T`.
@@ -2956,9 +2921,10 @@ impl App {
     /// entry) + automatic subtree repaint via the same path as
     /// `DomQueryMut::refresh` (src/runtime/mod.rs:415).
     ///
-    /// Also drains any pending class ops staged by widget methods (e.g.
-    /// `MarkdownViewer.toc_class_pending`) — the same post-mutation step
-    /// that `with_widget_mut` performs (src/runtime/mod.rs:1623).
+    /// Class changes the closure records through its `ReactiveCtx`
+    /// (`ctx.set_class(..)`) are drained with the enqueued reactive entry by the
+    /// shared flush (`process_reactive_entries_for_node`), so no separate class-op
+    /// drain is needed here (the former widget-staged class-op hook is retired).
     pub(crate) fn handle_update<W: Widget, R>(
         &mut self,
         handle: crate::handle::Handle<W>,
@@ -2966,22 +2932,7 @@ impl App {
     ) -> std::result::Result<R, QueryError> {
         let out = {
             let tree = self.active_widget_tree_mut().ok_or(QueryError::Unmounted)?;
-            let out = handle.update_in(tree, f)?;
-            // Drain pending class ops (same as with_widget_mut, src/runtime/mod.rs:1623).
-            let node_id = handle.node_id();
-            if let Some(node) = tree.get_mut(node_id) {
-                let pending = node.widget.drain_pending_class_ops();
-                if !pending.is_empty() {
-                    for (class, add) in pending {
-                        if add {
-                            tree.add_class(node_id, &class);
-                        } else {
-                            tree.remove_class(node_id, &class);
-                        }
-                    }
-                }
-            }
-            out
+            handle.update_in(tree, f)?
         };
         self.request_query_refresh(&[handle.node_id()]);
         Ok(out)
@@ -5806,14 +5757,10 @@ mod tests {
     struct MountPing;
     crate::impl_message!(MountPing);
 
-    struct MountProbe {
-        staged: Vec<Box<dyn crate::message::Message>>,
-    }
+    struct MountProbe;
     impl MountProbe {
         fn new() -> Self {
-            Self {
-                staged: vec![Box::new(MountPing)],
-            }
+            Self
         }
     }
     impl Widget for MountProbe {
@@ -5826,8 +5773,8 @@ mod tests {
         fn focusable(&self) -> bool {
             true
         }
-        fn take_pending_mount_messages(&mut self) -> Vec<Box<dyn crate::message::Message>> {
-            std::mem::take(&mut self.staged)
+        fn on_mount(&mut self, ctx: &mut crate::event::WidgetCtx) {
+            ctx.post_message(MountPing);
         }
     }
 
@@ -5880,20 +5827,30 @@ mod tests {
     }
 
     #[test]
-    fn mount_under_stages_mount_messages_for_drain() {
+    fn mount_under_posts_mount_message_via_on_mount() {
         let (mut app, _parent) = app_with_root();
         let id = app
             .mount_under("#timers", MountProbe::new())
             .expect("mount probe");
-        // The node went through the canonical mount path; its mount-time message
-        // (#51) is now drainable from the node exactly as the event loop does.
-        let drained = app
-            .active_widget_tree_mut()
-            .and_then(|t| t.get_mut(id))
-            .map(|n| n.widget.take_pending_mount_messages())
-            .unwrap_or_default();
-        assert_eq!(drained.len(), 1);
-        assert!(drained[0].as_any().is::<MountPing>());
+        // RA2.3: the mount-time message (#51) is posted by the widget's `on_mount`
+        // (which the shared lifecycle drain runs), not staged for a dedicated
+        // drain hook. Drive `on_mount` directly with a synthesized ctx and assert
+        // the message it posts.
+        let mut pending = crate::runtime::types::PendingInvalidation::default();
+        let mut posted = false;
+        app.run_on_node_widget(
+            id,
+            |w, ctx| {
+                w.on_mount(ctx);
+            },
+            &mut pending,
+        );
+        // The post bubbled into the pending widget-post queue (PostUp path).
+        posted |= app
+            .pending_widget_posts
+            .iter()
+            .any(|m| m.is::<MountPing>());
+        assert!(posted, "on_mount should post a MountPing");
     }
 
     #[test]

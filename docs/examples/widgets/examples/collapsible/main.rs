@@ -72,9 +72,16 @@ impl TextualApp for CollapsibleApp {
             .unwrap_or_default();
 
         for id in ids {
-            app.with_widget_mut_as::<Collapsible, _>(id, |c| {
+            let Ok(handle) = app.typed_handle::<Collapsible>(id) else {
+                continue;
+            };
+            // Reactive setter: flips `collapsed` AND applies the `-collapsed`
+            // class to the arena node through the ctx (mirrors Python
+            // `collapsible.collapsed = value`), so the `&.-collapsed > Contents
+            // { display: none }` rule hides/shows the body.
+            let _ = handle.update(app, |c, ctx| {
                 if c.is_collapsed() != collapse {
-                    c.toggle();
+                    c.set_collapsed(collapse, ctx);
                 }
             });
         }

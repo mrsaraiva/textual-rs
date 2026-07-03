@@ -717,8 +717,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for Select<T> {
         std::mem::take(&mut self.seed)
     }
 
-    /// Stage a `SelectChanged` for the initially-selected value so the message
-    /// is posted at mount time.
+    /// Post a `SelectChanged` for the initially-selected value at mount.
     ///
     /// Python parity: `Select.value` is a reactive set during init, and
     /// `_watch_value` posts `Select.Changed` whenever it changes — including the
@@ -726,19 +725,17 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for Select<T> {
     /// auto-selected, so apps observe `Changed(first_value)` at startup (e.g. the
     /// `select_widget_no_blank` demo sets its title from the first option).
     ///
-    /// The runtime drains this once right after the node is mounted and routes
-    /// it through the normal message bus (see
-    /// `Widget::take_pending_mount_messages`).
-    fn take_pending_mount_messages(&mut self) -> Vec<Box<dyn crate::message::Message>> {
+    /// RA2.3: posted via `on_mount` (fired with a `WidgetCtx` in every mount
+    /// path), replacing the former mount-message staging hook.
+    fn on_mount(&mut self, ctx: &mut crate::event::WidgetCtx) {
         if let Some(index) = self.cursor.selected()
             && let Some((label, _)) = self.options.get(index)
         {
-            return vec![Box::new(SelectChanged {
+            ctx.post_message(SelectChanged {
                 index,
                 label: label.clone(),
-            })];
+            });
         }
-        Vec::new()
     }
 
     // NOTE: Select intentionally does NOT implement visit_children_mut.

@@ -360,12 +360,6 @@ pub struct Collapsible {
     children: Vec<Box<dyn Widget>>,
     children_extracted: bool,
     seed: NodeSeed,
-    /// Class add/remove ops staged by a post-mount collapsed-state change made
-    /// outside an event handler (e.g. via `App::with_widget_mut_as`). The runtime
-    /// drains these in `with_widget_mut` and applies them to the arena node so the
-    /// `&.-collapsed > Contents { display: none }` rule matches and the body
-    /// shows/hides. Mirrors Python `_update_collapsed` → `set_class(..,-collapsed)`.
-    pending_class_ops: Vec<(String, bool)>,
 }
 
 impl Collapsible {
@@ -384,13 +378,15 @@ impl Collapsible {
             children: Vec::new(),
             children_extracted: false,
             seed,
-            pending_class_ops: Vec::new(),
         }
     }
 
-    /// Keep the detached seed class in sync (off-tree resolution / re-mount) AND
-    /// stage a class op so a post-mount toggle reaches the arena node through the
-    /// `drain_pending_class_ops` seam.
+    /// Keep the detached seed class in sync (off-tree resolution / re-mount).
+    ///
+    /// The real post-mount toggle path is `toggle_with_ctx`, which applies the
+    /// `-collapsed` class to the arena node through the `WidgetCtx` command queue.
+    /// The ctx-less `toggle()` only flips state + seed (used by unit tests /
+    /// pre-mount).
     fn sync_collapsed_class(&mut self) {
         if self.collapsed {
             if !self.seed.classes.iter().any(|c| c == "-collapsed") {
@@ -399,8 +395,6 @@ impl Collapsible {
         } else {
             self.seed.classes.retain(|c| c != "-collapsed");
         }
-        self.pending_class_ops
-            .push(("-collapsed".to_string(), self.collapsed));
     }
 
     pub fn collapsed(mut self, collapsed: bool) -> Self {
@@ -635,10 +629,6 @@ impl Widget for Collapsible {
 
     fn set_inline_style(&mut self, style: crate::style::Style) {
         self.seed.styles.style = style;
-    }
-
-    fn drain_pending_class_ops(&mut self) -> Vec<(String, bool)> {
-        std::mem::take(&mut self.pending_class_ops)
     }
 
     fn take_node_seed(&mut self) -> NodeSeed {
