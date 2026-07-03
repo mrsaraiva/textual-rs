@@ -65,6 +65,7 @@ pub(crate) use containers::{
     CONTAINER_HSCROLLBAR_ID, CONTAINER_SCROLLBAR_CORNER_ID, CONTAINER_VSCROLLBAR_ID,
     SCROLL_VIEW_HSCROLLBAR_ID, SCROLL_VIEW_SCROLLBAR_CORNER_ID, SCROLL_VIEW_VSCROLLBAR_ID,
 };
+#[allow(deprecated)] // `Node` is deprecated (RA2.6) but still re-exported for one release.
 pub use containers::{
     AppRoot, Center, CenterMiddle, Constrained, Container, Frame, Grid, Horizontal,
     HorizontalGroup, HorizontalScroll, ItemGrid, Middle, Node, Overlay, Panel, Right, Row,

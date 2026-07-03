@@ -4466,6 +4466,7 @@ impl Widget for TreeStubWidget {
 }
 
 #[cfg(test)]
+#[allow(deprecated)] // Tests exercise the deprecated `Node` wrapper (RA2.6).
 mod tests {
     use super::*;
     use crate::event::BindingHint;

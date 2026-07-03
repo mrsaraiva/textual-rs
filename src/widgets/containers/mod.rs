@@ -41,6 +41,7 @@ pub use horizontal_group::HorizontalGroup;
 pub use horizontal_scroll::HorizontalScroll;
 pub use item_grid::ItemGrid;
 pub use middle::Middle;
+#[allow(deprecated)]
 pub use node::Node;
 pub use overlay::Overlay;
 pub use panel::Panel;

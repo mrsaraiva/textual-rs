@@ -1,6 +1,7 @@
 use rich_rs::{Console, ConsoleOptions, MetaValue, Renderable, Segment, Segments, Text};
 use std::sync::Arc;
 
+#[allow(deprecated)] // `.class()` builds a `Node` wrapper; deprecated but supported for one release.
 use crate::widgets::{Node, NodeSeed, Widget};
 
 /// Tag a segment with `textual:no_text_style = true` so `apply_style_to_segments`
@@ -136,6 +137,7 @@ impl Static {
     /// with five_by_five `GameCell` as the regression guard — out of this cluster's
     /// allowed-file scope. Re-land seed-based `class()` together with that
     /// height-chrome convention fix.
+    #[allow(deprecated)] // Returns a `Node` wrapper (deprecated RA2.6, supported one release).
     pub fn class(self, value: impl Into<String>) -> Node {
         Node::new(self).class(value)
     }

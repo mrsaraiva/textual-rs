@@ -110,6 +110,7 @@ pub mod prelude {
         Function, Integer, Length, Number, Regex, Url, ValidationResult, Validator, ValidatorRef,
     };
     pub use crate::widget_tree::{LifecycleEvent, QueryError, WidgetNode, WidgetTree};
+    #[allow(deprecated)] // `Node` is deprecated (RA2.6) but re-exported for one release.
     pub use crate::widgets::{
         AppRoot, BindingDecl, BindingsTable, Button, ButtonVariant,
         Cell as DataTableCell, CellJustify, Center,

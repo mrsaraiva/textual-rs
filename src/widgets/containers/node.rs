@@ -1,3 +1,8 @@
+// Node itself is `#[deprecated]` (RA2.6); its own impls/tests reference it, so
+// suppress the lint inside this defining module while the attribute still fires
+// for downstream users.
+#![allow(deprecated)]
+
 use rich_rs::{Console, ConsoleOptions, Renderable, Segments};
 
 use crate::debug::DebugLayout;
@@ -6,6 +11,23 @@ use crate::style::Style;
 
 use crate::widgets::{LayoutConstraints, NodeSeed, Spacer, Widget};
 
+/// Transitional transparent wrapper used to attach a CSS `id`/`class` (and,
+/// optionally, a border title/subtitle) onto a single child widget.
+///
+/// **Deprecated (RA2.6):** `Node` is scheduled for removal once the general
+/// container widgets gain uniform `.id()`/`.class()`/`.border_title()` seed
+/// builders (the "container seed-builder unification", a dedicated 1.x task).
+/// Until then it remains fully supported. Migrate by attaching the id/classes
+/// directly onto the child widget where that widget already supports it (e.g.
+/// `Placeholder::new("x").id("p1")`). See `CHANGELOG.md`.
+///
+/// Note: deprecating `Node` also defers the `elide_transparent_wrapper`
+/// always-fold behavior change — it was gated on Node-elimination, so it rides
+/// the same 1.x removal task, not this freeze.
+#[deprecated(
+    since = "1.0.0",
+    note = "Node is a transitional wrapper scheduled for removal; attach id/classes onto the child widget via .id()/.class(). See CHANGELOG (container seed-builder unification)."
+)]
 pub struct Node {
     child: Box<dyn Widget>,
     seed: NodeSeed,
