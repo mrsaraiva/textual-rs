@@ -20,7 +20,7 @@ impl TextualApp for TickApp {
         )
     }
 
-    fn on_tick_with_app(&mut self, app: &mut App, _tick: u64, ctx: &mut EventCtx) {
+    fn on_tick_with_app(&mut self, app: &mut App, _tick: u64, ctx: &mut textual::event::WidgetCtx) {
         self.tick_count = self.tick_count.saturating_add(1);
         let text = format!("Ticks: {}", self.tick_count);
         let _ = app.with_query_one_mut_as::<Label, _>("Label", |label| {

@@ -174,7 +174,7 @@ impl TextualApp for WorldClockApp {
             .with_child(WorldClock::new("Asia/Tokyo", 9 * 3600))
     }
 
-    fn on_mount_with_app(&mut self, app: &mut App, _ctx: &mut EventCtx) {
+    fn on_mount_with_app(&mut self, app: &mut App, _ctx: &mut textual::event::WidgetCtx) {
         // Python compose: `WorldClock(...).data_bind(WorldClockApp.time)`.
         // Register the field-to-field binding `App.time -> WorldClock.time`:
         // every change to the app's `time` reactive propagates into each
@@ -283,7 +283,7 @@ mod tests {
                 |app_struct, app, _ctx| {
                     app_struct.set_time(0, app.reactive_ctx());
                 },
-                &mut EventCtx::default(),
+                &mut textual::event::WidgetCtx::default(),
             );
             pilot.press(&["space"])?;
             let before = pilot.app().frame_fingerprint();

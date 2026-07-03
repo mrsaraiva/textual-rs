@@ -24,7 +24,7 @@ impl TextualApp for TableApp {
         AppRoot::new().with_child(table)
     }
 
-    fn on_mount_with_app(&mut self, app: &mut App, ctx: &mut EventCtx) {
+    fn on_mount_with_app(&mut self, app: &mut App, ctx: &mut textual::event::WidgetCtx) {
         let _ = app.with_query_one_mut_as::<DataTable, _>("DataTable", |table| {
             table.add_columns(["A", "B", "C"]);
             for number in 1usize..=99 {

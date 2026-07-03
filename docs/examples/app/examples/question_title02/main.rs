@@ -40,7 +40,7 @@ impl TextualApp for MyApp {
         Ok(())
     }
 
-    fn on_mount_with_app(&mut self, app: &mut App, _ctx: &mut EventCtx) {
+    fn on_mount_with_app(&mut self, app: &mut App, _ctx: &mut textual::event::WidgetCtx) {
         app.set_sub_title("The most important question");
     }
 
@@ -56,7 +56,7 @@ impl TextualApp for MyApp {
         &mut self,
         app: &mut App,
         message: &MessageEvent,
-        ctx: &mut EventCtx,
+        ctx: &mut textual::event::WidgetCtx,
     ) {
         if let Some(bp) = message.downcast_ref::<ButtonPressed>() {
             if let Some(id) = &bp.button_id {
@@ -68,7 +68,7 @@ impl TextualApp for MyApp {
         }
     }
 
-    fn on_key_with_app(&mut self, app: &mut App, key: &KeyEventData, _ctx: &mut EventCtx) {
+    fn on_key_with_app(&mut self, app: &mut App, key: &KeyEventData, _ctx: &mut textual::event::WidgetCtx) {
         let key_name = key.name().to_string();
         app.set_title(format!("{}", key_name));
         app.set_sub_title(format!("You just pressed {}!", key_name));

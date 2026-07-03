@@ -49,7 +49,7 @@ impl TextualApp for AnimationApp {
         AppRoot::new().with_child(Static::new("Hello, World!").id("box"))
     }
 
-    fn on_key_with_app(&mut self, app: &mut App, key: &KeyEventData, ctx: &mut EventCtx) {
+    fn on_key_with_app(&mut self, app: &mut App, key: &KeyEventData, ctx: &mut textual::event::WidgetCtx) {
         let opacity_pct: Option<u8> = match key.name() {
             "1" => Some(eased_opacity_pct(0.25)),
             "2" => Some(eased_opacity_pct(0.50)),

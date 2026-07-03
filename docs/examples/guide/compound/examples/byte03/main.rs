@@ -121,15 +121,15 @@ impl Widget for BitSwitch {
         self.inner.compose()
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut textual::event::WidgetCtx) {
         self.inner.on_event(event, ctx);
     }
 
-    fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event_capture(&mut self, event: &Event, ctx: &mut textual::event::WidgetCtx) {
         self.inner.on_event_capture(event, ctx);
     }
 
-    fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
+    fn on_message(&mut self, message: &MessageEvent, ctx: &mut textual::event::WidgetCtx) {
         if let Some(sc) = message.downcast_ref::<SwitchChanged>() {
             // Intercept raw SwitchChanged and re-emit as BitChanged.
             // Python: `on_switch_changed` stops propagation, sets self.value,
@@ -198,15 +198,15 @@ impl Widget for ByteInput {
         self.inner.compose()
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut textual::event::WidgetCtx) {
         self.inner.on_event(event, ctx);
     }
 
-    fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event_capture(&mut self, event: &Event, ctx: &mut textual::event::WidgetCtx) {
         self.inner.on_event_capture(event, ctx);
     }
 
-    fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
+    fn on_message(&mut self, message: &MessageEvent, ctx: &mut textual::event::WidgetCtx) {
         self.inner.on_message(message, ctx);
     }
 
@@ -265,15 +265,15 @@ impl Widget for ByteEditor {
         self.inner.compose()
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut textual::event::WidgetCtx) {
         self.inner.on_event(event, ctx);
     }
 
-    fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event_capture(&mut self, event: &Event, ctx: &mut textual::event::WidgetCtx) {
         self.inner.on_event_capture(event, ctx);
     }
 
-    fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
+    fn on_message(&mut self, message: &MessageEvent, ctx: &mut textual::event::WidgetCtx) {
         self.inner.on_message(message, ctx);
     }
 
@@ -327,7 +327,7 @@ impl TextualApp for ByteInputApp {
         &mut self,
         app: &mut App,
         message: &MessageEvent,
-        ctx: &mut EventCtx,
+        ctx: &mut textual::event::WidgetCtx,
     ) {
         if let Some(_bc) = message.downcast_ref::<BitChanged>() {
             if self.suppress_bit_changed {

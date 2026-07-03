@@ -65,23 +65,23 @@ impl Widget for TooltipButton {
         self.inner.mouse_interactive()
     }
 
-    fn on_mount(&mut self) {
-        self.inner.on_mount();
+    fn on_mount(&mut self, ctx: &mut textual::event::WidgetCtx) {
+        self.inner.on_mount(ctx);
     }
 
     fn on_unmount(&mut self) {
         self.inner.on_unmount();
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut textual::event::WidgetCtx) {
         self.inner.on_event(event, ctx);
     }
 
-    fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event_capture(&mut self, event: &Event, ctx: &mut textual::event::WidgetCtx) {
         self.inner.on_event_capture(event, ctx);
     }
 
-    fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
+    fn on_message(&mut self, message: &MessageEvent, ctx: &mut textual::event::WidgetCtx) {
         self.inner.on_message(message, ctx);
     }
 

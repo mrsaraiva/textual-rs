@@ -92,7 +92,7 @@ impl TextualApp for ContentSwitcherApp {
         AppRoot::new().with_child(buttons).with_child(switcher)
     }
 
-    fn on_mount_with_app(&mut self, app: &mut App, _ctx: &mut EventCtx) {
+    fn on_mount_with_app(&mut self, app: &mut App, _ctx: &mut textual::event::WidgetCtx) {
         let books = [
             ("Dune", 1965),
             ("Dune Messiah", 1969),
@@ -111,7 +111,7 @@ impl TextualApp for ContentSwitcherApp {
         });
     }
 
-    fn on_message_with_app(&mut self, app: &mut App, message: &MessageEvent, _ctx: &mut EventCtx) {
+    fn on_message_with_app(&mut self, app: &mut App, message: &MessageEvent, _ctx: &mut textual::event::WidgetCtx) {
         // Mirror Python: `self.query_one(ContentSwitcher).current = event.button.id`
         if let Some(ev) = message.downcast_ref::<ButtonPressed>() {
             if let Some(ref id) = ev.button_id {

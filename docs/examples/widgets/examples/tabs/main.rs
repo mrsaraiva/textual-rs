@@ -88,7 +88,7 @@ impl TextualApp for TabsApp {
             .with_child(Footer::new())
     }
 
-    fn on_key_with_app(&mut self, app: &mut App, key: &KeyEventData, ctx: &mut EventCtx) {
+    fn on_key_with_app(&mut self, app: &mut App, key: &KeyEventData, ctx: &mut textual::event::WidgetCtx) {
         match key.name() {
             "a" => {
                 // Add next name from rotating list.
@@ -130,7 +130,7 @@ impl TextualApp for TabsApp {
         &mut self,
         app: &mut App,
         message: &MessageEvent,
-        _ctx: &mut EventCtx,
+        _ctx: &mut textual::event::WidgetCtx,
     ) {
         if let Some(ev) = message.downcast_ref::<TabActivated>() {
             // Update label text and ensure it is visible.

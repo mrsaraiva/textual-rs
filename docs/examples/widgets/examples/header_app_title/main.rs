@@ -13,7 +13,7 @@ impl TextualApp for HeaderApp {
         AppRoot::new().with_child(Header::new())
     }
 
-    fn on_mount_with_app(&mut self, app: &mut App, ctx: &mut EventCtx) {
+    fn on_mount_with_app(&mut self, app: &mut App, ctx: &mut textual::event::WidgetCtx) {
         app.set_title("Header Application");
         app.set_sub_title("With title and sub-title");
         ctx.request_repaint();

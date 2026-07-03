@@ -65,7 +65,7 @@ impl TextualApp for SelectApp {
         AppRoot::new().with_child(Header::new()).with_child(select)
     }
 
-    fn on_key_with_app(&mut self, app: &mut App, key: &KeyEventData, ctx: &mut EventCtx) {
+    fn on_key_with_app(&mut self, app: &mut App, key: &KeyEventData, ctx: &mut textual::event::WidgetCtx) {
         if key.name() == "s" {
             let new_options: Vec<(String, String)> = ALTERNATE_LINES
                 .iter()
@@ -84,7 +84,7 @@ impl TextualApp for SelectApp {
         &mut self,
         app: &mut App,
         message: &MessageEvent,
-        _ctx: &mut EventCtx,
+        _ctx: &mut textual::event::WidgetCtx,
     ) {
         if let Some(ev) = message.downcast_ref::<SelectChanged>() {
             app.set_title(ev.label.clone());

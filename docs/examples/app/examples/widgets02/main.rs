@@ -12,11 +12,11 @@ impl TextualApp for WelcomeApp {
         AppRoot::new()
     }
 
-    fn on_key_with_app(&mut self, app: &mut App, _key: &KeyEventData, _ctx: &mut EventCtx) {
+    fn on_key_with_app(&mut self, app: &mut App, _key: &KeyEventData, _ctx: &mut textual::event::WidgetCtx) {
         let _ = app.mount(Welcome::new());
     }
 
-    fn on_button_pressed(&mut self, _description: &str, ctx: &mut EventCtx) {
+    fn on_button_pressed(&mut self, _description: &str, ctx: &mut textual::event::WidgetCtx) {
         ctx.request_stop();
         ctx.set_handled();
     }

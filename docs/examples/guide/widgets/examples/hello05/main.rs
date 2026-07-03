@@ -106,7 +106,7 @@ impl Widget for Hello {
 
     /// Mirrors Python `on_mount`: calls `action_next_word` to show the first
     /// greeting immediately on startup.
-    fn on_mount(&mut self) {
+    fn on_mount(&mut self, _ctx: &mut textual::event::WidgetCtx) {
         self.action_next_word();
     }
 
@@ -116,7 +116,7 @@ impl Widget for Hello {
         HELLO_ACTIONS
     }
 
-    fn execute_action(&mut self, action: &ParsedAction, ctx: &mut EventCtx) -> bool {
+    fn execute_action(&mut self, action: &ParsedAction, ctx: &mut textual::event::WidgetCtx) -> bool {
         if action.name == "next_word" {
             self.action_next_word();
             ctx.request_repaint();

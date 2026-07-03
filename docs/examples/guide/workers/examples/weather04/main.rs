@@ -49,7 +49,7 @@ impl WeatherApp {
     /// fetched result is applied to the `Static` widget via `App::call_from_thread`,
     /// posting the update onto the UI thread (Rust runs the worker off-thread,
     /// where direct widget access would be unsafe).
-    fn spawn_weather_worker(city: String, ctx: &mut EventCtx) {
+    fn spawn_weather_worker(city: String, ctx: &mut textual::event::WidgetCtx) {
         ctx.request_exclusive_worker_task("update_weather", Some("weather"), move |token| {
             if city.is_empty() {
                 if !token.is_cancelled() {
@@ -92,13 +92,13 @@ impl TextualApp for WeatherApp {
         &mut self,
         value: &str,
         _validation: &ValidationResult,
-        ctx: &mut EventCtx,
+        ctx: &mut textual::event::WidgetCtx,
     ) {
         Self::spawn_weather_worker(value.trim().to_string(), ctx);
         ctx.request_repaint();
     }
 
-    fn on_message_with_app(&mut self, _app: &mut App, message: &MessageEvent, _ctx: &mut EventCtx) {
+    fn on_message_with_app(&mut self, _app: &mut App, message: &MessageEvent, _ctx: &mut textual::event::WidgetCtx) {
         if let Some(w) = message.downcast_ref::<WorkerStateChanged>() {
             // Mirror Python's `on_worker_state_changed`: log the event.
             // Python calls `self.log(event)`; Rust logs to stderr (no console sink yet).

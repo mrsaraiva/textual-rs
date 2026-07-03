@@ -143,11 +143,11 @@ impl Widget for Stopwatch {
         false
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut textual::event::WidgetCtx) {
         self.inner.on_event(event, ctx);
     }
 
-    fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event_capture(&mut self, event: &Event, ctx: &mut textual::event::WidgetCtx) {
         self.inner.on_event_capture(event, ctx);
     }
 

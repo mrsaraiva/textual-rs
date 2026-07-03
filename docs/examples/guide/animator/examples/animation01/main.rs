@@ -26,7 +26,7 @@ impl TextualApp for AnimationApp {
         AppRoot::new().with_child(Static::new("Hello, World!").id("box"))
     }
 
-    fn on_mount_with_app(&mut self, app: &mut App, ctx: &mut EventCtx) {
+    fn on_mount_with_app(&mut self, app: &mut App, ctx: &mut textual::event::WidgetCtx) {
         if let Ok(node_id) = app.query_one("#box") {
             ctx.animate_style(
                 node_id,

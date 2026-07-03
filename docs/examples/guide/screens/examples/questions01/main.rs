@@ -121,7 +121,7 @@ impl TextualApp for QuestionsApp {
     /// Rust: spawn a worker that pushes the screen and suspends on the result.
     /// `App::push_screen_wait` blocks the worker until the screen dismisses; the
     /// returned `bool` selects the notification, posted back onto the UI thread.
-    fn on_mount_with_app(&mut self, _app: &mut App, ctx: &mut EventCtx) {
+    fn on_mount_with_app(&mut self, _app: &mut App, ctx: &mut textual::event::WidgetCtx) {
         ctx.request_worker_task(Some("questions"), |_token| {
             let result =
                 App::push_screen_wait(Box::new(QuestionScreen::new("Do you like Textual?")))

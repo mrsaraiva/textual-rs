@@ -51,7 +51,7 @@ impl TextualApp for TableApp {
         AppRoot::new().with_child(table)
     }
 
-    fn on_mount_with_app(&mut self, app: &mut App, ctx: &mut EventCtx) {
+    fn on_mount_with_app(&mut self, app: &mut App, ctx: &mut textual::event::WidgetCtx) {
         let initial_cursor = self.next_cursor();
 
         if let Ok(nid) = app.query_one("DataTable") {
@@ -68,7 +68,7 @@ impl TextualApp for TableApp {
         ctx.request_repaint();
     }
 
-    fn on_key_with_app(&mut self, app: &mut App, key: &KeyEventData, ctx: &mut EventCtx) {
+    fn on_key_with_app(&mut self, app: &mut App, key: &KeyEventData, ctx: &mut textual::event::WidgetCtx) {
         if key.name() == "c" {
             let next_cursor = self.next_cursor();
             if let Ok(nid) = app.query_one("DataTable") {

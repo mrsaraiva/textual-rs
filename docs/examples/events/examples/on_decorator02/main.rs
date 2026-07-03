@@ -69,11 +69,11 @@ impl TextualApp for OnDecoratorApp {
             .with_child(Button::new("Quit").id("quit"))
     }
 
-    fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
+    fn on_message(&mut self, message: &MessageEvent, ctx: &mut textual::event::WidgetCtx) {
         // Route through the declarative table, exactly like Python's `@on`
         // dispatch in `_get_dispatch_methods`.
         let mut router = std::mem::take(&mut self.router);
-        router.dispatch(self, message, ctx);
+        router.dispatch(self, message, ctx.event_ctx_mut());
         self.router = router;
     }
 }

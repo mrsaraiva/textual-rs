@@ -24,7 +24,7 @@ impl TextualApp for ActionsApp {
         AppRoot::new()
     }
 
-    fn on_key_with_app(&mut self, app: &mut App, key: &KeyEventData, ctx: &mut EventCtx) {
+    fn on_key_with_app(&mut self, app: &mut App, key: &KeyEventData, ctx: &mut textual::event::WidgetCtx) {
         if key.name() == "r" {
             // Python: await self.run_action("set_background('red')")
             app.run_action("set_background('red')");
@@ -33,7 +33,7 @@ impl TextualApp for ActionsApp {
     }
 
     /// Custom app action handler — mirrors Python `action_set_background`.
-    fn on_app_action_str(&mut self, app: &mut App, action: &str, ctx: &mut EventCtx) {
+    fn on_app_action_str(&mut self, app: &mut App, action: &str, ctx: &mut textual::event::WidgetCtx) {
         if let Some(parsed) = parse_action(action) {
             if parsed.name == "set_background" {
                 if let Some(color_name) = parsed.arguments.first() {

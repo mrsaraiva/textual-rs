@@ -43,7 +43,7 @@ impl TextualApp for CheckboxApp {
         AppRoot::new().with_child(vs)
     }
 
-    fn on_mount_with_app(&mut self, app: &mut App, ctx: &mut EventCtx) {
+    fn on_mount_with_app(&mut self, app: &mut App, ctx: &mut textual::event::WidgetCtx) {
         // Set "Grumman" initially checked.
         if let Ok(nid) = app.query_one("#grumman") {
             let mut rctx = ReactiveCtx::new(nid);

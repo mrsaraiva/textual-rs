@@ -40,7 +40,7 @@ fn current_time_local() -> String {
 }
 
 /// Python `update_clock`: set the Digits display to the current time.
-fn update_clock(app: &mut App, ctx: &mut EventCtx) {
+fn update_clock(app: &mut App, ctx: &mut textual::event::EventCtx) {
     let time = current_time_local();
     let _ = app.with_query_one_mut_as::<Digits, _>("Digits", |digits| {
         digits.update(time);
@@ -62,7 +62,7 @@ impl TextualApp for ClockApp {
         AppRoot::new().with_child(Digits::new(time))
     }
 
-    fn on_mount_with_app(&mut self, app: &mut App, _ctx: &mut EventCtx) {
+    fn on_mount_with_app(&mut self, app: &mut App, _ctx: &mut textual::event::WidgetCtx) {
         // Python: self.set_interval(1, self.update_clock).
         app.set_interval(
             std::time::Duration::from_secs(1),

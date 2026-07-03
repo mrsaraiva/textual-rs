@@ -171,18 +171,18 @@ impl Widget for Stopwatch {
         false
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut textual::event::WidgetCtx) {
         if let Event::Key(_) = event {
             // Pass through to inner
         }
         self.inner.on_event(event, ctx);
     }
 
-    fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event_capture(&mut self, event: &Event, ctx: &mut textual::event::WidgetCtx) {
         self.inner.on_event_capture(event, ctx);
     }
 
-    fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
+    fn on_message(&mut self, message: &MessageEvent, ctx: &mut textual::event::WidgetCtx) {
         if let Some(bp) = message.downcast_ref::<ButtonPressed>() {
             match bp.button_id.as_deref() {
                 Some("start") => {

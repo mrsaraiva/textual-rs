@@ -38,15 +38,15 @@ impl Widget for KeyLog {
         self.log.on_node_state_changed(old, new);
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut textual::event::WidgetCtx) {
         self.log.on_event(event, ctx);
     }
 
-    fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event_capture(&mut self, event: &Event, ctx: &mut textual::event::WidgetCtx) {
         self.log.on_event_capture(event, ctx);
     }
 
-    fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
+    fn on_message(&mut self, message: &MessageEvent, ctx: &mut textual::event::WidgetCtx) {
         if message.downcast_ref::<ClearKeyLogMessage>().is_some() {
             self.log.clear();
             ctx.request_repaint();
@@ -56,7 +56,7 @@ impl Widget for KeyLog {
         self.log.on_message(message, ctx);
     }
 
-    fn on_mouse_scroll(&mut self, dx: i32, dy: i32, ctx: &mut EventCtx) {
+    fn on_mouse_scroll(&mut self, dx: i32, dy: i32, ctx: &mut textual::event::WidgetCtx) {
         self.log.on_mouse_scroll(dx, dy, ctx);
     }
 
@@ -164,7 +164,7 @@ impl TextualApp for KeysApp {
         Ok(())
     }
 
-    fn on_key_with_app(&mut self, app: &mut App, key: &KeyEventData, ctx: &mut EventCtx) {
+    fn on_key_with_app(&mut self, app: &mut App, key: &KeyEventData, ctx: &mut textual::event::WidgetCtx) {
         let key_name = key.name();
         let _ = app.with_query_one_mut_as::<KeyLog, _>("KeyLog", |key_log| {
             let log = &mut key_log.log;
@@ -194,7 +194,7 @@ impl TextualApp for KeysApp {
         ctx.request_repaint();
     }
 
-    fn on_button_pressed(&mut self, description: &str, ctx: &mut EventCtx) {
+    fn on_button_pressed(&mut self, description: &str, ctx: &mut textual::event::WidgetCtx) {
         match description {
             "Clear" => {
                 ctx.post_message(ClearKeyLogMessage);

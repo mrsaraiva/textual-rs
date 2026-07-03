@@ -80,7 +80,7 @@ impl TextualApp for SwitchApp {
             )
     }
 
-    fn on_mount_with_app(&mut self, app: &mut App, _ctx: &mut EventCtx) {
+    fn on_mount_with_app(&mut self, app: &mut App, _ctx: &mut textual::event::WidgetCtx) {
         // Mirror Python: `focused_switch.focus()` — give the third switch initial focus.
         let _ = app.action_focus("focused-switch");
     }

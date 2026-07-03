@@ -1374,6 +1374,13 @@ impl<'a> WidgetCtx<'a> {
     ) {
         self.event_ctx.request_exclusive_worker_task(key, name, task);
     }
+
+    /// Run `f` with message type `M` prevented from being emitted (Python
+    /// `with self.prevent(M):`). The closure receives the underlying `EventCtx`.
+    #[inline]
+    pub fn prevent<M: Message, R>(&mut self, f: impl FnOnce(&mut EventCtx) -> R) -> R {
+        self.event_ctx.prevent::<M, R>(f)
+    }
 }
 
 // `WidgetCtx` derefs to its `ReactiveCtx` so the generated reactive setters

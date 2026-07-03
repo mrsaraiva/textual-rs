@@ -57,7 +57,7 @@ impl TextualApp for WeatherApp {
         &mut self,
         app: &mut App,
         message: &MessageEvent,
-        ctx: &mut EventCtx,
+        ctx: &mut textual::event::WidgetCtx,
     ) {
         if let Some(m) = message.downcast_ref::<InputChanged>() {
             let city = m.value.trim().to_string();

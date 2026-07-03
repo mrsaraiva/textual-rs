@@ -81,7 +81,7 @@ impl TextualApp for StyledProgressBar {
             .with_child(Footer::new())
     }
 
-    fn on_mount_with_app(&mut self, app: &mut App, _ctx: &mut EventCtx) {
+    fn on_mount_with_app(&mut self, app: &mut App, _ctx: &mut textual::event::WidgetCtx) {
         // Python on_mount: set_interval(1 / 10, self.make_progress, pause=True).
         self.progress_timer = Some(app.set_interval(
             Duration::from_secs_f64(1.0 / 10.0),
@@ -95,7 +95,7 @@ impl TextualApp for StyledProgressBar {
         ));
     }
 
-    fn on_app_action_str(&mut self, app: &mut App, action: &str, ctx: &mut EventCtx) {
+    fn on_app_action_str(&mut self, app: &mut App, action: &str, ctx: &mut textual::event::WidgetCtx) {
         if action == "start" {
             // Python action_start: query_one(ProgressBar).update(total=100); timer.resume().
             let _ = app.with_query_one_mut_as::<ProgressBar, _>("#progress_bar", |bar| {

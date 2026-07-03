@@ -96,7 +96,7 @@ impl TextualApp for ComputedApp {
             .with_child(Static::new("").id("color"))
     }
 
-    fn on_message_with_app(&mut self, app: &mut App, message: &MessageEvent, ctx: &mut EventCtx) {
+    fn on_message_with_app(&mut self, app: &mut App, message: &MessageEvent, ctx: &mut textual::event::WidgetCtx) {
         if let Some(m) = message.downcast_ref::<InputChanged>() {
             let sender = message.sender;
             // Parse the channel value; ignore non-integer input (Python rings the bell).

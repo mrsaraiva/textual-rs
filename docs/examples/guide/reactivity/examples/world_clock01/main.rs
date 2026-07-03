@@ -189,7 +189,7 @@ impl TextualApp for WorldClockApp {
             .with_child(WorldClock::new("Asia/Tokyo", 9 * 3600))
     }
 
-    fn on_mount_with_app(&mut self, app: &mut App, _ctx: &mut EventCtx) {
+    fn on_mount_with_app(&mut self, app: &mut App, _ctx: &mut textual::event::WidgetCtx) {
         // Python on_mount: self.update_time(); self.set_interval(1, self.update_time).
         // Seed the initial time, then register the repeating timer; each fire
         // re-enters the app struct and bumps the `time` reactive, whose watcher
@@ -273,7 +273,7 @@ mod tests {
                 |app_struct, app, _ctx| {
                     app_struct.set_time(0, app.reactive_ctx());
                 },
-                &mut EventCtx::default(),
+                &mut textual::event::WidgetCtx::default(),
             );
             // Flush the seed (and its fan-out) through the app-reactive bridge.
             pilot.press(&["space"])?;

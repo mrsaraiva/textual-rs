@@ -92,7 +92,7 @@ impl TextualApp for ModesApp {
         AppRoot::new()
     }
 
-    fn on_mount_with_app(&mut self, app: &mut App, _ctx: &mut EventCtx) {
+    fn on_mount_with_app(&mut self, app: &mut App, _ctx: &mut textual::event::WidgetCtx) {
         app.switch_mode("dashboard");
     }
 }

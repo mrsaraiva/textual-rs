@@ -81,7 +81,7 @@ impl TextualApp for DataApp {
         ])
     }
 
-    fn on_mount_with_app(&mut self, app: &mut App, _ctx: &mut EventCtx) {
+    fn on_mount_with_app(&mut self, app: &mut App, _ctx: &mut textual::event::WidgetCtx) {
         // Python on_mount: for each DataTable -> loading = True; load_data(...).
         for i in 0..4usize {
             let selector = format!("#table{i}");

@@ -14,7 +14,7 @@ use textual::prelude::*;
 struct ToastApp;
 
 impl TextualApp for ToastApp {
-    fn on_mount_with_app(&mut self, app: &mut App, _ctx: &mut EventCtx) {
+    fn on_mount_with_app(&mut self, app: &mut App, _ctx: &mut textual::event::WidgetCtx) {
         // Information notification (default timeout, no title — matches Python).
         app.notify(
             "It's an older code, sir, but it checks out.",

@@ -65,7 +65,7 @@ impl TextualApp for ValidateApp {
             .with_child(RichLog::new().highlight(true))
     }
 
-    fn on_message_with_app(&mut self, app: &mut App, message: &MessageEvent, ctx: &mut EventCtx) {
+    fn on_message_with_app(&mut self, app: &mut App, message: &MessageEvent, ctx: &mut textual::event::WidgetCtx) {
         if let Some(bp) = message.downcast_ref::<ButtonPressed>() {
             match bp.button_id.as_deref() {
                 // `set_count` validates (clamps) before storing, so reading

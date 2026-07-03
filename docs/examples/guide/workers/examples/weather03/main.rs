@@ -55,7 +55,7 @@ impl WeatherApp {
     /// In Python, calling this method after the decorator is applied spawns an exclusive
     /// worker. In Rust, `request_exclusive_worker_task` on the `EventCtx` provides the
     /// same semantics: any previous worker with the same key is cancelled first.
-    fn spawn_weather_worker(city: String, result_holder: Arc<Mutex<Option<String>>>, ctx: &mut EventCtx) {
+    fn spawn_weather_worker(city: String, result_holder: Arc<Mutex<Option<String>>>, ctx: &mut textual::event::WidgetCtx) {
         ctx.request_exclusive_worker_task("update_weather", Some("weather"), move |token| {
             if city.is_empty() {
                 *result_holder.lock().unwrap_or_else(|e| e.into_inner()) = None;
@@ -85,7 +85,7 @@ impl TextualApp for WeatherApp {
         &mut self,
         value: &str,
         _validation: &ValidationResult,
-        ctx: &mut EventCtx,
+        ctx: &mut textual::event::WidgetCtx,
     ) {
         // Mirror Python's `self.update_weather(message.value)` — the `@work` decorator
         // on `update_weather` makes this call dispatch a new exclusive worker.
@@ -98,7 +98,7 @@ impl TextualApp for WeatherApp {
         &mut self,
         app: &mut App,
         message: &MessageEvent,
-        ctx: &mut EventCtx,
+        ctx: &mut textual::event::WidgetCtx,
     ) {
         if let Some(w) = message.downcast_ref::<WorkerStateChanged>() {
             if matches!(w.state, WorkerState::Success) {

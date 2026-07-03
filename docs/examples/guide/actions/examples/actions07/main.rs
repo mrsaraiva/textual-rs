@@ -65,7 +65,7 @@ impl TextualApp for PagesApp {
         Some(true)
     }
 
-    fn on_app_action_str(&mut self, app: &mut App, action: &str, ctx: &mut EventCtx) {
+    fn on_app_action_str(&mut self, app: &mut App, action: &str, ctx: &mut textual::event::WidgetCtx) {
         match action {
             "next" => {
                 if self.page_no < PAGES_COUNT - 1 {

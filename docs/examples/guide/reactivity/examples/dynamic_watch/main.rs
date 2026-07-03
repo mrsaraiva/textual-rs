@@ -86,7 +86,7 @@ impl Widget for Counter {
     }
 
     // Python `on_button_pressed`: self.counter += 10.
-    fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
+    fn on_message(&mut self, message: &MessageEvent, ctx: &mut textual::event::WidgetCtx) {
         if let Some(bp) = message.downcast_ref::<ButtonPressed>() {
             if bp.button_id.as_deref() == Some("plus-btn") {
                 let node_id = self.node_id();
@@ -123,7 +123,7 @@ impl TextualApp for WatchApp {
             .with_child(ProgressBar::new(Some(100.0)).id("progress"))
     }
 
-    fn on_mount_with_app(&mut self, app: &mut App, ctx: &mut EventCtx) {
+    fn on_mount_with_app(&mut self, app: &mut App, ctx: &mut textual::event::WidgetCtx) {
         // Python `ProgressBar(total=100, show_eta=False)`: disable ETA display.
         if let Ok(progress_id) = app.query_one("#progress") {
             let mut rctx = ReactiveCtx::new(progress_id);

@@ -13,7 +13,7 @@ impl TextualApp for InputApp {
         AppRoot::new().with_child(RichLog::new())
     }
 
-    fn on_key_with_app(&mut self, app: &mut App, key: &KeyEventData, ctx: &mut EventCtx) {
+    fn on_key_with_app(&mut self, app: &mut App, key: &KeyEventData, ctx: &mut textual::event::WidgetCtx) {
         let key_name = key.name().to_string();
         let character = key.character;
         let is_printable = key.is_printable;

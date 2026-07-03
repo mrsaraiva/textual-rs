@@ -220,15 +220,15 @@ impl Widget for Stopwatch {
         false
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut textual::event::WidgetCtx) {
         self.inner.on_event(event, ctx);
     }
 
-    fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event_capture(&mut self, event: &Event, ctx: &mut textual::event::WidgetCtx) {
         self.inner.on_event_capture(event, ctx);
     }
 
-    fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
+    fn on_message(&mut self, message: &MessageEvent, ctx: &mut textual::event::WidgetCtx) {
         if let Some(bp) = message.downcast_ref::<ButtonPressed>() {
             match bp.button_id.as_deref() {
                 // Python stopwatch05: buttons ONLY toggle the `started` class.
@@ -289,7 +289,7 @@ impl TextualApp for StopwatchApp {
             .with_child(VerticalScroll::new().with_child(Vertical::new().with_compose(stopwatches)))
     }
 
-    fn on_mount_with_app(&mut self, app: &mut App, _ctx: &mut EventCtx) {
+    fn on_mount_with_app(&mut self, app: &mut App, _ctx: &mut textual::event::WidgetCtx) {
         // Python TimeDisplay.on_mount: self.set_interval(1 / 60, self.update_time).
         // Widgets can't self-register timers in this runtime, so the app owns one
         // 1/60s interval that drives `update_time` on every TimeDisplay. Each call

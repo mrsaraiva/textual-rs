@@ -24,7 +24,7 @@ impl Widget for AutoParenEditor {
         self.child.on_node_state_changed(old, new);
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut textual::event::WidgetCtx) {
         if let Event::Key(key) = event
             && key.code == crossterm::event::KeyCode::Char('(')
             && self.node_state().focused
@@ -38,7 +38,7 @@ impl Widget for AutoParenEditor {
         self.child.on_event(event, ctx);
     }
 
-    fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event_capture(&mut self, event: &Event, ctx: &mut textual::event::WidgetCtx) {
         self.child.on_event_capture(event, ctx);
     }
 

@@ -52,7 +52,7 @@ impl TextualApp for QuestionApp {
         &mut self,
         _app: &mut App,
         message: &MessageEvent,
-        ctx: &mut EventCtx,
+        ctx: &mut textual::event::WidgetCtx,
     ) {
         if let Some(m) = message.downcast_ref::<ButtonPressed>() {
             if let Some(id) = &m.button_id {

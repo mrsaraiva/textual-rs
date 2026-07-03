@@ -62,7 +62,7 @@ impl TextualApp for WeatherApp {
         &mut self,
         value: &str,
         _validation: &ValidationResult,
-        ctx: &mut EventCtx,
+        ctx: &mut textual::event::WidgetCtx,
     ) {
         let city = value.trim().to_string();
         let result_holder = Arc::clone(&self.weather_result);
@@ -87,7 +87,7 @@ impl TextualApp for WeatherApp {
         &mut self,
         app: &mut App,
         message: &MessageEvent,
-        ctx: &mut EventCtx,
+        ctx: &mut textual::event::WidgetCtx,
     ) {
         if let Some(w) = message.downcast_ref::<WorkerStateChanged>() {
             if matches!(w.state, WorkerState::Success) {

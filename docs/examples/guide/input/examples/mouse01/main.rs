@@ -88,15 +88,15 @@ impl Widget for Ball {
         self.inner.on_node_state_changed(old, new);
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut textual::event::WidgetCtx) {
         self.inner.on_event(event, ctx);
     }
 
-    fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event_capture(&mut self, event: &Event, ctx: &mut textual::event::WidgetCtx) {
         self.inner.on_event_capture(event, ctx);
     }
 
-    fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
+    fn on_message(&mut self, message: &MessageEvent, ctx: &mut textual::event::WidgetCtx) {
         self.inner.on_message(message, ctx);
     }
 
@@ -104,7 +104,7 @@ impl Widget for Ball {
         self.inner.on_mouse_move(x, y)
     }
 
-    fn on_mouse_scroll(&mut self, dx: i32, dy: i32, ctx: &mut EventCtx) {
+    fn on_mouse_scroll(&mut self, dx: i32, dy: i32, ctx: &mut textual::event::WidgetCtx) {
         self.inner.on_mouse_scroll(dx, dy, ctx);
     }
 
@@ -164,7 +164,7 @@ impl Widget for MouseScreen {
         ]
     }
 
-    fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event_capture(&mut self, event: &Event, ctx: &mut textual::event::WidgetCtx) {
         if let Event::MouseMove(m) = event {
             ctx.post_message(MouseMoved {
                 screen_x: m.screen_x,
@@ -173,12 +173,12 @@ impl Widget for MouseScreen {
         }
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut textual::event::WidgetCtx) {
         self.log.on_event(event, ctx);
         self.ball.on_event(event, ctx);
     }
 
-    fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
+    fn on_message(&mut self, message: &MessageEvent, ctx: &mut textual::event::WidgetCtx) {
         self.log.on_message(message, ctx);
         self.ball.on_message(message, ctx);
     }
@@ -187,7 +187,7 @@ impl Widget for MouseScreen {
         self.log.on_mouse_move(x, y) || self.ball.on_mouse_move(x, y)
     }
 
-    fn on_mouse_scroll(&mut self, dx: i32, dy: i32, ctx: &mut EventCtx) {
+    fn on_mouse_scroll(&mut self, dx: i32, dy: i32, ctx: &mut textual::event::WidgetCtx) {
         self.log.on_mouse_scroll(dx, dy, ctx);
         self.ball.on_mouse_scroll(dx, dy, ctx);
     }
@@ -224,7 +224,7 @@ impl TextualApp for MouseApp {
         &mut self,
         app: &mut App,
         message: &MessageEvent,
-        ctx: &mut EventCtx,
+        ctx: &mut textual::event::WidgetCtx,
     ) {
         if let Some(m) = message.downcast_ref::<MouseMoved>() {
             let screen_x = m.screen_x;
