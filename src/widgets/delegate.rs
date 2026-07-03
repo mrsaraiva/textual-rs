@@ -524,7 +524,7 @@ macro_rules! delegate_renderable {
 /// If this changes, update the expected value and audit partial delegation sites:
 /// `rg -n "delegate-audit:" src/widgets`
 #[cfg(test)]
-const WIDGET_DELEGATE_METHOD_COUNT_EXPECTED: usize = 60;
+const WIDGET_DELEGATE_METHOD_COUNT_EXPECTED: usize = 59;
 
 /// Generate a complete `impl Widget + impl Renderable` block forwarding
 /// **every** method to `self.$field`. Use for thin wrappers with zero
