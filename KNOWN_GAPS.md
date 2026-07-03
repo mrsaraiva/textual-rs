@@ -1,14 +1,23 @@
-# Known Gaps — textual-rs 1.0.0
+# Known Gaps — textual-rs (pre-1.0)
 
-textual-rs 1.0.0 reproduces the **vast majority** of Python Textual's documented demo suite — every core subsystem (reactive engine, workers, timers, screens, action dispatch, the `Content` styled-text layer, DataTable, the Pilot test harness, the CSS engine, grid/dock/layers layout) is real and faithful. This file tracks the **deliberately-deferred** parity gaps, each with its root cause and target.
+> **Status note (2026-07-02):** 1.0 has been **redefined** from "every demo passes" to
+> **"hardened core + honest gaps + proven extension story"** (see
+> `docs/devel/ROAD_TO_1.0_PIVOT.md`). Demo parity is the **verification floor**, not the release
+> gate; the demo tail ships across 1.x. This file lists the *measured* gaps against the **real-app**
+> harness, not the retired headless estimate.
 
-Parity is measured by reproducing Python's own documentation examples in Rust:
+Parity is measured against real Python by the real-app PTY harness (real Rust binary vs real Python
+app, both in PTY+vt100, full cell-grid + truecolor compare) plus the styled/plain harnesses:
 - **Styled per-cell-RGB harness** (`tests/visual_parity.rs`): **85 / 87** exact.
 - **Plain-text PTY harness** (`tests/pty_parity.rs`): **186 / 186**.
-- **Interactive functional harness** (Pilot, per-demo `#[test]` liveness probes): **139 / 141 LIVE** — every interactive demo is driven headless (click / key / type / hover / `advance_clock` / worker-pump) and asserted to actually *respond*, not merely render. The 2 non-LIVE are `inline01`/`inline02` (inline render mode → 1.1, below).
-- **Comprehensive demo audit** (309 Python doc examples): ~92% faithful at 1.0.
+- **Real-app interactive parity** (`tests/pty_interactive.rs`, real Rust vs real Python): **~68 / 117**
+  exact and climbing. *(The earlier "139/141 LIVE" figure came from an in-process headless harness that
+  diverged from the live loop and ignored color — it was inflated and is retired. Manual PTY spot-checks
+  confirmed the real-app harness is truth.)*
 
-> **Why a functional harness:** static-render parity can pass while a demo's core feature is dead (the tutorial stopwatch rendered perfectly but its clock never ticked). 1.0 is gated on *functional* verification — if a demo is in the docs, it works.
+> **Why real-app parity:** static render — and even an in-process "liveness" probe — can pass while the
+> live app is broken (the tutorial stopwatch rendered perfectly and its headless probe was green, but its
+> clock was dead in a real terminal). Only running the real binary against real Python catches this.
 
 ## Deferred to 1.1 (feature gaps)
 
