@@ -9,6 +9,25 @@ until the API stabilizes.
 
 ### Framework fundamentals
 
+- **Mount-time messages + composed-widget self-recompose go through the ctx**
+  (RA2.3) — the last two post-mount drain hooks are retired:
+  - `Widget::take_pending_mount_messages` is gone. Widgets that emitted a message
+    at mount (`Select`/`ListView` initial selection) now post it from
+    `on_mount(&mut self, ctx)` via `ctx.post_message`. For the initial-mount path
+    (where `on_mount` fires at tree build with no `App` to absorb the message),
+    the post is routed through the deferred command queue as a new `PostMessage`
+    command and bubbled by the first shared flush — so mount messages work in the
+    initial, dynamic-recompose, and headless paths identically.
+  - `Widget::take_pending_self_recompose` is gone. A composed widget whose child
+    set is mutated at runtime (`Tabs::add_tab`/`remove_tab`/`clear`) no longer
+    stages a self-recompose for `with_widget_mut` to drain; the caller requests it
+    through the ctx (`ctx.request_recompose()` in a `Handle::update` closure). The
+    `tabs` demo switches its add/remove/clear from `with_query_one_mut_as` to
+    `Handle::update` + `ctx.request_recompose()`. `Handle::update_in` now enqueues
+    its reactive entry when the closure only requested a recompose or a class op.
+  - `App::with_widget_mut` no longer runs any post-closure drain hook (all three —
+    class ops, inline-style write-through, self-recompose — are retired).
+
 - **`WidgetCtx` class ops route through the deferred command queue** (RA2.3) —
   `ctx.add_class`/`remove_class`/`set_class`/`add_class_to`/`remove_class_from`
   now enqueue `WidgetCommand::AddClass`/`RemoveClass` (applied by the shared flush)

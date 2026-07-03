@@ -242,11 +242,6 @@ fn method_table() -> Vec<MethodSpec> {
             quote! { fn compose(&mut self) -> textual::compose::ComposeResult },
             quote! { compose() }
         ),
-        m!(
-            "take_pending_mount_messages",
-            quote! { fn take_pending_mount_messages(&mut self) -> Vec<Box<dyn textual::message::Message>> },
-            quote! { take_pending_mount_messages() }
-        ),
         // ── Focus / node state ─────────────────────────────────────────
         m!("focusable", quote! { fn focusable(&self) -> bool }, quote! { focusable() }),
         m!("can_focus", quote! { fn can_focus(&self) -> bool }, quote! { can_focus() }),

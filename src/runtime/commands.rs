@@ -97,7 +97,7 @@ pub(crate) enum WidgetCommand {
     },
     /// Apply a closure to the target node's inline styles (Python
     /// `widget.styles.<prop> = v`). Homes the post-mount inline-style write path
-    /// that `take_inline_style_writethrough` used to stage on the widget struct:
+    /// that the former inline-style write-through hook staged on the widget:
     /// the seed is drained at mount, so a post-mount style write must reach the
     /// arena node record directly. Applied via `WidgetTree::update_styles`.
     UpdateStyles {
@@ -115,6 +115,13 @@ pub(crate) enum WidgetCommand {
         paused: bool,
         callback: WidgetTimerCallback,
     },
+    /// Bubble a message from its sender node during the shared flush (PostUp).
+    /// Homes messages posted from a build-time `on_mount` (fired by
+    /// `WidgetTree::fire_mount_callbacks`, where no `App` exists to absorb the
+    /// synth `EventCtx`'s messages) — e.g. `Select`/`ListView` initial-selection
+    /// messages. The flush pushes it onto `pending_widget_posts`, which
+    /// `run_event_loop_reactive_phase` bubbles from the sender.
+    PostMessage(crate::message::MessageEvent),
     /// Pause a timer by id (deferred `TimerHandle::pause`).
     PauseTimer(u64),
     /// Resume a timer by id (deferred `TimerHandle::resume`).
@@ -192,6 +199,21 @@ pub fn drain_class_commands_for_test() -> Vec<(NodeId, crate::event::ClassOp)> {
                 target: CommandTarget::Node(node),
                 class,
             } => Some((node, crate::event::ClassOp::Remove(class))),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Test/observability hook: drain the deferred command queue and return the
+/// `MessageEvent`s from `PostMessage` commands (e.g. those a build-time
+/// `on_mount` posted), dropping any non-message commands. Post-RA2.3 a widget's
+/// mount-time messages route through this queue instead of a dedicated drain.
+#[doc(hidden)]
+pub fn drain_mount_posts_for_test() -> Vec<crate::message::MessageEvent> {
+    take_widget_commands()
+        .into_iter()
+        .filter_map(|cmd| match cmd {
+            WidgetCommand::PostMessage(message) => Some(message),
             _ => None,
         })
         .collect()
@@ -320,6 +342,10 @@ impl App {
                         fire_count: 0,
                     },
                 );
+            }
+            WidgetCommand::PostMessage(message) => {
+                // Bubble from the sender during the flush's PostUp pass.
+                self.pending_widget_posts.push(message);
             }
             WidgetCommand::PauseTimer(id) => {
                 self.timers.pause(id);

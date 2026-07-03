@@ -160,7 +160,7 @@ impl<'a> WidgetCtx<'a> {
     /// arena node record. This is the post-mount inline-style write path — the
     /// widget's node seed is drained at mount, so mutating the seed after mount is
     /// invisible; route style writes here so they reach layout/render (retires the
-    /// `take_inline_style_writethrough` staging hook).
+    /// former inline-style write-through staging hook).
     pub fn update_styles<F>(&mut self, f: F)
     where
         F: FnOnce(&mut crate::widgets::WidgetStyles) + Send + 'static,

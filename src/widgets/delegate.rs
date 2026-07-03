@@ -145,12 +145,6 @@ macro_rules! delegate_widget_method {
         }
     };
 
-    ($field:ident, take_pending_mount_messages) => {
-        fn take_pending_mount_messages(&mut self) -> Vec<Box<dyn $crate::message::Message>> {
-            self.$field.take_pending_mount_messages()
-        }
-    };
-
     // ── Focus ──────────────────────────────────────────────────────────
 
     ($field:ident, focusable) => {
@@ -551,7 +545,6 @@ macro_rules! delegate_widget_to {
                     render_lines,
                     // Composition
                     compose,
-                    take_pending_mount_messages,
                     // Focus / node state
                     focusable,
                     can_focus,

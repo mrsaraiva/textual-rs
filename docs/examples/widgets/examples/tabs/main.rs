@@ -91,12 +91,17 @@ impl TextualApp for TabsApp {
     fn on_key_with_app(&mut self, app: &mut App, key: &KeyEventData, ctx: &mut textual::event::WidgetCtx) {
         match key.name() {
             "a" => {
-                // Add next name from rotating list.
+                // Add next name from rotating list. Mutating the tab set changes
+                // the composed tab bar, so request a recompose through the ctx
+                // (mirrors Python's self-mounting `Tabs.add_tab`).
                 let name = NAMES[self.next_name_index % NAMES.len()].to_string();
                 self.next_name_index = (self.next_name_index + 1) % NAMES.len();
-                let _ = app.with_query_one_mut_as::<Tabs, _>("Tabs", |tabs| {
-                    tabs.add_tab(name);
-                });
+                if let Ok(tabs) = app.query_one_typed::<Tabs>("Tabs") {
+                    let _ = tabs.update(app, |tabs, ctx| {
+                        tabs.add_tab(name);
+                        ctx.request_recompose();
+                    });
+                }
                 ctx.set_handled();
                 ctx.request_repaint();
             }
@@ -107,18 +112,24 @@ impl TextualApp for TabsApp {
                     .ok()
                     .flatten();
                 if let Some(id) = active_id {
-                    let _ = app.with_query_one_mut_as::<Tabs, _>("Tabs", |tabs| {
-                        tabs.remove_tab(&id);
-                    });
+                    if let Ok(tabs) = app.query_one_typed::<Tabs>("Tabs") {
+                        let _ = tabs.update(app, |tabs, ctx| {
+                            tabs.remove_tab(&id);
+                            ctx.request_recompose();
+                        });
+                    }
                 }
                 ctx.set_handled();
                 ctx.request_repaint();
             }
             "c" => {
                 // Clear all tabs.
-                let _ = app.with_query_one_mut_as::<Tabs, _>("Tabs", |tabs| {
-                    tabs.clear();
-                });
+                if let Ok(tabs) = app.query_one_typed::<Tabs>("Tabs") {
+                    let _ = tabs.update(app, |tabs, ctx| {
+                        tabs.clear();
+                        ctx.request_recompose();
+                    });
+                }
                 ctx.set_handled();
                 ctx.request_repaint();
             }

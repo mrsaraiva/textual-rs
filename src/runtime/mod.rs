@@ -1,7 +1,7 @@
-mod commands;
+pub(crate) mod commands;
 pub use commands::TimerTick;
 #[doc(hidden)]
-pub use commands::drain_class_commands_for_test;
+pub use commands::{drain_class_commands_for_test, drain_mount_posts_for_test};
 mod devtools;
 pub mod dispatch_ctx;
 mod event_loop;
@@ -2620,24 +2620,12 @@ impl App {
         let tree = self.active_widget_tree_mut()?;
         let node = tree.get_mut(node_id)?;
         let result = f(node.widget.as_mut());
-        // Post-mount class changes now flow through the widget's `WidgetCtx`/
-        // `ReactiveCtx` (`ctx.set_class` → command queue / reactive entry), and
-        // inline-style writes through `WidgetCtx::update_styles` — no widget-staged
-        // class-op / write-through drain here.
-        let mut self_recompose = false;
-        if let Some(node) = tree.get_mut(node_id) {
-            // A composed widget (e.g. `Tabs`) may have mutated internal state that
-            // its `compose()`/`compose()` derives its arena children
-            // from (e.g. `Tabs::add_tab`). Since this mutation path has no
-            // `EventCtx`, the widget stages a self-recompose request the runtime
-            // honours here — so the new children become visible without the caller
-            // triggering a refresh (matches Python `Tabs.add_tab` mounting itself).
-            self_recompose = node.widget.take_pending_self_recompose();
-        }
-        if self_recompose {
-            self.request_widget_recompose_nodes(&[node_id]);
-            self.pending_force_relayout = true;
-        }
+        // Post-mount side effects (class changes, inline-style writes, and
+        // self-recompose for composed widgets like `Tabs`) now flow through the
+        // widget's `WidgetCtx`/`ReactiveCtx` — `ctx.set_class` (command queue),
+        // `ctx.update_styles` (UpdateStyles command), and `ctx.request_recompose`
+        // (reactive entry). `with_widget_mut`'s closure is ctx-less, so callers
+        // that need those effects use `Handle::update` instead.
         Some(result)
     }
 
@@ -2935,7 +2923,7 @@ impl App {
     /// Class changes the closure records through its `ReactiveCtx`
     /// (`ctx.set_class(..)`) are drained with the enqueued reactive entry by the
     /// shared flush (`process_reactive_entries_for_node`), so no separate class-op
-    /// drain is needed here (retired with `drain_pending_class_ops`).
+    /// drain is needed here (the former widget-staged class-op hook is retired).
     pub(crate) fn handle_update<W: Widget, R>(
         &mut self,
         handle: crate::handle::Handle<W>,
@@ -5768,14 +5756,10 @@ mod tests {
     struct MountPing;
     crate::impl_message!(MountPing);
 
-    struct MountProbe {
-        staged: Vec<Box<dyn crate::message::Message>>,
-    }
+    struct MountProbe;
     impl MountProbe {
         fn new() -> Self {
-            Self {
-                staged: vec![Box::new(MountPing)],
-            }
+            Self
         }
     }
     impl Widget for MountProbe {
@@ -5788,8 +5772,8 @@ mod tests {
         fn focusable(&self) -> bool {
             true
         }
-        fn take_pending_mount_messages(&mut self) -> Vec<Box<dyn crate::message::Message>> {
-            std::mem::take(&mut self.staged)
+        fn on_mount(&mut self, ctx: &mut crate::event::WidgetCtx) {
+            ctx.post_message(MountPing);
         }
     }
 
@@ -5842,20 +5826,30 @@ mod tests {
     }
 
     #[test]
-    fn mount_under_stages_mount_messages_for_drain() {
+    fn mount_under_posts_mount_message_via_on_mount() {
         let (mut app, _parent) = app_with_root();
         let id = app
             .mount_under("#timers", MountProbe::new())
             .expect("mount probe");
-        // The node went through the canonical mount path; its mount-time message
-        // (#51) is now drainable from the node exactly as the event loop does.
-        let drained = app
-            .active_widget_tree_mut()
-            .and_then(|t| t.get_mut(id))
-            .map(|n| n.widget.take_pending_mount_messages())
-            .unwrap_or_default();
-        assert_eq!(drained.len(), 1);
-        assert!(drained[0].as_any().is::<MountPing>());
+        // RA2.3: the mount-time message (#51) is posted by the widget's `on_mount`
+        // (which the shared lifecycle drain runs), not staged for a dedicated
+        // drain hook. Drive `on_mount` directly with a synthesized ctx and assert
+        // the message it posts.
+        let mut pending = crate::runtime::types::PendingInvalidation::default();
+        let mut posted = false;
+        app.run_on_node_widget(
+            id,
+            |w, ctx| {
+                w.on_mount(ctx);
+            },
+            &mut pending,
+        );
+        // The post bubbled into the pending widget-post queue (PostUp path).
+        posted |= app
+            .pending_widget_posts
+            .iter()
+            .any(|m| m.is::<MountPing>());
+        assert!(posted, "on_mount should post a MountPing");
     }
 
     #[test]

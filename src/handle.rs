@@ -173,7 +173,11 @@ impl<W: Widget> Handle<W> {
             let widget = resolve_node_mut::<W>(tree, self.node, self.tree_id)?;
             f(widget, &mut rctx)
         };
-        if rctx.has_changes() || rctx.needs_repaint() || rctx.needs_layout() || rctx.has_class_ops()
+        if rctx.has_changes()
+            || rctx.needs_repaint()
+            || rctx.needs_layout()
+            || rctx.needs_recompose()
+            || rctx.has_class_ops()
         {
             enqueue_runtime_reactive_entry(RuntimeReactiveEntry::new(self.node, rctx));
         }

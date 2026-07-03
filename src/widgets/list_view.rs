@@ -503,19 +503,21 @@ impl Widget for ListView {
         vec![("-highlight", highlighted), ("-hovered", hovered)]
     }
 
-    fn take_pending_mount_messages(&mut self) -> Vec<Box<dyn crate::message::Message>> {
+    /// Post the initial `ListViewSelectionChanged` at mount, mirroring Python's
+    /// `watch_index` firing for the initial highlight. RA2.3: this replaces the
+    /// former mount-message staging hook — `on_mount` runs with a `WidgetCtx` in
+    /// every mount path, so the message posts (and bubbles) through the normal bus.
+    fn on_mount(&mut self, ctx: &mut crate::event::WidgetCtx) {
         if self.pending_initial_highlight
             && self.is_selectable(self.selected)
             && let Some(item) = self.item_text.get(self.selected)
         {
-            self.pending_initial_highlight = false;
-            return vec![Box::new(ListViewSelectionChanged {
+            ctx.post_message(ListViewSelectionChanged {
                 index: self.selected,
                 item: item.clone(),
-            })];
+            });
         }
         self.pending_initial_highlight = false;
-        Vec::new()
     }
 
     fn on_node_state_changed(
@@ -891,20 +893,34 @@ mod tests {
         assert!(c1.contains(&("-hovered", false)));
     }
 
-    #[test]
-    fn initial_highlight_message_staged_at_mount() {
-        let mut list = ListView::new(vec!["A".into(), "B".into()]);
-        let msgs = list.take_pending_mount_messages();
-        assert_eq!(msgs.len(), 1);
-        assert!(msgs[0].as_any().is::<ListViewSelectionChanged>());
-        // Drained once.
-        assert!(list.take_pending_mount_messages().is_empty());
+    /// Run `on_mount` with a synthesized `WidgetCtx` and return the messages it
+    /// posted (RA2.3 replaced the former mount-message staging hook).
+    fn on_mount_messages(list: &mut ListView) -> Vec<crate::message::MessageEvent> {
+        let mut ctx = crate::event::EventCtx::default();
+        {
+            let mut wctx = crate::event::WidgetCtx::__from_dispatch(
+                crate::node_id::NodeId::default(),
+                &mut ctx,
+            );
+            list.on_mount(&mut wctx);
+        }
+        ctx.take_messages()
     }
 
     #[test]
-    fn empty_list_stages_no_initial_highlight() {
+    fn initial_highlight_message_posted_at_mount() {
+        let mut list = ListView::new(vec!["A".into(), "B".into()]);
+        let msgs = on_mount_messages(&mut list);
+        assert_eq!(msgs.len(), 1);
+        assert!(msgs[0].is::<ListViewSelectionChanged>());
+        // Only fires once — the pending flag is cleared at mount.
+        assert!(on_mount_messages(&mut list).is_empty());
+    }
+
+    #[test]
+    fn empty_list_posts_no_initial_highlight() {
         let mut list = ListView::new(vec![]);
-        assert!(list.take_pending_mount_messages().is_empty());
+        assert!(on_mount_messages(&mut list).is_empty());
     }
 
     // ── Selection / message tests ───────────────────────────────────────
