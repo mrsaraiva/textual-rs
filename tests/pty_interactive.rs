@@ -929,10 +929,16 @@ fn stopwatch06_clock_advances_after_start() {
     let py_adv = run(&AppKind::Python("tutorial", "stopwatch06"));
     eprintln!("stopwatch06: rust_advanced={rust_adv} py_advanced={py_adv}");
 
+    // PARITY (RA2.2): both clocks advance after Start. Previously Rust's clock did
+    // NOT advance — its `TimeDisplay` registered its `set_interval` in the
+    // (formerly separate) `on_mount_ctx` hook, which the LIVE loop never fired for
+    // initial nodes, so the timer never registered. The RA2.2 `on_mount` merge
+    // (fire_mount_callbacks now fires the merged `on_mount(ctx)` for initial nodes)
+    // + the drift-free `TimerTick.elapsed` accumulation make Rust match Python.
     assert!(
-        py_adv != rust_adv,
-        "HARNESS BLIND: stopwatch06 clock-advance behaviour looks identical.\n\
-         Expected Python's clock to advance after Start and Rust's not to (or vice versa)."
+        rust_adv && py_adv,
+        "stopwatch06 clock must advance after Start in BOTH Rust and Python \
+         (rust_advanced={rust_adv}, py_advanced={py_adv})."
     );
 }
 
