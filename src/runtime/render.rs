@@ -4049,28 +4049,27 @@ mod tests {
 
     #[test]
     fn sort_children_by_layer_without_layers_preserves_dom_order() {
-        // The CommandPalette type-string special-case was retired (RA2.4): the
-        // palette floats on top via DOM-last mount order (`AppRoot::compose`),
-        // and real `overlay: screen` surfaces float via `paint_deferred_overlays`.
-        // With no `layers:` declaration, `sort_children_by_layer` must therefore
-        // preserve DOM order with no widget-type special-casing.
+        // Overlays float on top via DOM-last mount order, and real `overlay: screen`
+        // surfaces float via `paint_deferred_overlays`. With no `layers:` declaration,
+        // `sort_children_by_layer` must preserve DOM order with no widget-type
+        // special-casing.
         use crate::widget_tree::WidgetTree;
-        use crate::widgets::{AppRoot, CommandPalette, Label};
+        use crate::widgets::{AppRoot, Label};
 
         let sheet = crate::css::default_widget_stylesheet();
         let _guard = crate::css::set_style_context(sheet);
 
         let mut tree = WidgetTree::new();
         let root = tree.set_root(Box::new(AppRoot::new()));
-        let palette = tree.mount(root, Box::new(CommandPalette::new(Label::new("body"))));
+        let first = tree.mount(root, Box::new(Label::new("first")));
         let other = tree.mount(root, Box::new(Label::new("other")));
 
         let children = tree.children(root).to_vec();
         let sorted = sort_children_by_layer(&tree, root, &children);
         assert_eq!(
             sorted,
-            vec![palette, other],
-            "no layers declaration must preserve DOM order (no command-palette special-case)"
+            vec![first, other],
+            "no layers declaration must preserve DOM order (no widget-type special-case)"
         );
     }
 
@@ -4189,150 +4188,6 @@ mod tests {
             frame.get(0, 0).text,
             "W",
             "overlay: screen content must be drained + painted by the render entry"
-        );
-    }
-
-    #[test]
-    fn command_palette_tree_open_tints_underlay_but_not_panel_surface() {
-        use crate::event::{Action, Event, EventCtx};
-        use crate::widget_tree::WidgetTree;
-        use crate::widgets::{AppRoot, CommandPalette, Spacer};
-        use rich_rs::{Segment, Segments, SimpleColor, Style};
-
-        struct StyledUnderlay;
-
-        impl Widget for StyledUnderlay {
-            fn render(
-                &self,
-                _console: &rich_rs::Console,
-                _options: &rich_rs::ConsoleOptions,
-            ) -> Segments {
-                let mut segment = Segment::new("Fear is the mind-killer.");
-                segment.style = Some(
-                    Style::new()
-                        .with_color(SimpleColor::Rgb {
-                            r: 240,
-                            g: 240,
-                            b: 240,
-                        })
-                        .with_bgcolor(SimpleColor::Rgb {
-                            r: 80,
-                            g: 30,
-                            b: 30,
-                        }),
-                );
-                vec![segment].into()
-            }
-        }
-
-        let sheet = crate::css::default_widget_stylesheet();
-        let _guard = crate::css::set_style_context(sheet);
-
-        let mut tree = WidgetTree::new();
-        let root = tree.set_root(Box::new(AppRoot::new()));
-        tree.mount(root, Box::new(StyledUnderlay));
-
-        let palette = CommandPalette::new(Spacer::new(1))
-            .with_tree_wrapped_child_visible(false)
-            .with_host_layout();
-        let palette_id = tree.mount(root, Box::new(palette));
-
-        let palette_children = {
-            let node = tree.get_mut(palette_id).expect("palette node should exist");
-            node.widget.compose()
-        };
-        for child in palette_children {
-            tree.mount(palette_id, child.into_widget());
-        }
-
-        let resolved_bg = {
-            let meta = crate::css::node_selector_meta(&tree, palette_id);
-            let resolved = crate::css::resolve_node_style(&tree, palette_id, &meta);
-            resolved.bg
-        };
-        let bg = resolved_bg.expect("CommandPalette must resolve a background color");
-        assert!(
-            bg.a > 0.0 && bg.a < 1.0,
-            "CommandPalette background should be translucent for shared dim path (alpha={})",
-            bg.a
-        );
-
-        let console = rich_rs::Console::new();
-        let mut root_widget = AppRoot::new();
-        let baseline_frame = render_tree_to_frame(&mut tree, &mut root_widget, &console, 60, 14);
-        let palette_rect = tree
-            .get(palette_id)
-            .expect("palette node should exist")
-            .layout_rect;
-        let palette_node = tree.get(palette_id).expect("palette node should exist");
-        assert!(
-            palette_node.widget.preserve_underlay(),
-            "palette should opt into preserve-underlay rendering"
-        );
-        assert!(palette_node.display, "palette node should be displayed");
-        assert_eq!(
-            palette_node.visibility,
-            crate::style::Visibility::Visible,
-            "palette node should be visible"
-        );
-        assert!(
-            palette_rect.x1 > palette_rect.x0 && palette_rect.y1 > palette_rect.y0,
-            "palette layout rect should be non-zero after layout"
-        );
-        assert_eq!(
-            palette_rect.x0, 0,
-            "runtime-host command palette should start at screen left"
-        );
-        assert_eq!(
-            palette_rect.y0, 0,
-            "runtime-host command palette should start at screen top"
-        );
-        let sample_x = (palette_rect.x0.max(0) as usize).min(59);
-        let sample_y = (palette_rect.y0.max(0) as usize).min(13);
-        let baseline_underlay_style = baseline_frame
-            .get(sample_x, sample_y)
-            .style
-            .clone()
-            .unwrap_or_default();
-
-        {
-            let node = tree.get_mut(palette_id).expect("palette node should exist");
-            let mut ctx = EventCtx::default();
-            {
-                let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
-                node.widget
-                    .on_event(&Event::Action(Action::CommandPalette), &mut __w);
-            }
-        }
-
-        let frame = render_tree_to_frame(&mut tree, &mut root_widget, &console, 60, 14);
-
-        let underlay_style = frame
-            .get(sample_x, sample_y)
-            .style
-            .clone()
-            .unwrap_or_default();
-        assert!(
-            underlay_style.bgcolor != baseline_underlay_style.bgcolor
-                || underlay_style.color != baseline_underlay_style.color,
-            "underlay outside the palette panel should be visually tinted when palette is open"
-        );
-        assert_ne!(
-            underlay_style.dim,
-            Some(true),
-            "shared dim path should tint background instead of forcing dim text style"
-        );
-
-        let panel_cell = frame.get(1, 3);
-        let panel_style = panel_cell.style.clone().unwrap_or_default();
-        assert!(
-            panel_style.bgcolor.is_some(),
-            "panel surface should be painted when palette is open"
-        );
-        assert_ne!(
-            panel_style.dim,
-            Some(true),
-            "palette panel surface should remain undimmed"
         );
     }
 

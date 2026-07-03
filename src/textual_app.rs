@@ -13,7 +13,7 @@ use crate::message::{CommandPaletteCommand, MessageEvent};
 use crate::node_id::NodeId;
 use crate::reactive::{ReactiveCtx, ReactiveWidget};
 use crate::validation::ValidationResult;
-use crate::widgets::{AppRoot, BindingDecl, CommandPalette, Spacer, Widget};
+use crate::widgets::{AppRoot, BindingDecl, Spacer, Widget};
 use crate::{App, Result};
 
 /// Trait-based, Rust-idiomatic app definition for textual-rs.
@@ -340,12 +340,9 @@ impl OverlayScreenStack {
 struct TextualAppAdapter<T: TextualApp> {
     app: Arc<Mutex<T>>,
     app_child: Box<dyn Widget>,
-    command_palette_visible: bool,
-    /// Whether the Wave-1 composed `CommandPaletteScreen` is currently pushed.
+    /// Whether the composed `CommandPaletteScreen` is currently pushed.
     /// Re-entrancy guard for `ctrl+p` (Python guards re-opening while the palette
-    /// is the top screen, `command.py:736-746`). Distinct from
-    /// `command_palette_visible` (which drives the legacy always-mounted host,
-    /// kept inert + hidden in Wave 1).
+    /// is the top screen, `command.py:736-746`).
     palette_screen_open: bool,
     help_panel_visible: bool,
     children_extracted: bool,
@@ -376,14 +373,6 @@ fn build_textual_app_runtime_root<T: TextualApp>(
 }
 
 impl<T: TextualApp> TextualAppAdapter<T> {
-    fn make_command_palette_host() -> CommandPalette {
-        // Keep command palette always mounted for global app bindings, but
-        // out of normal flow so it behaves as a modal overlay.
-        CommandPalette::new(Spacer::new(1))
-            .with_tree_wrapped_child_visible(false)
-            .with_host_layout()
-    }
-
     fn new(app: Arc<Mutex<T>>, child: impl Widget + 'static) -> Self {
         let mut message_handlers = crate::message_handlers::MessageHandlers::new();
         {
@@ -393,7 +382,6 @@ impl<T: TextualApp> TextualAppAdapter<T> {
         Self {
             app,
             app_child: Box::new(child),
-            command_palette_visible: false,
             palette_screen_open: false,
             help_panel_visible: false,
             children_extracted: false,
@@ -584,10 +572,6 @@ impl<T: TextualApp> TextualAppAdapter<T> {
                 )));
             }),
         );
-    }
-
-    fn command_palette_visible_in_tree(&self) -> bool {
-        self.command_palette_visible
     }
 
     /// Drain any pending reactive changes accumulated on `app.reactive_ctx()`
@@ -1005,18 +989,7 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
         }
         self.children_extracted = true;
         let app_child = std::mem::replace(&mut self.app_child, Box::new(Spacer::new(1)));
-        let command_palette = Self::make_command_palette_host();
-        vec![
-            crate::compose::ChildDecl::new(app_child),
-            crate::compose::ChildDecl::new(Box::new(command_palette)),
-        ]
-    }
-
-    fn child_display_for_tree(&self, child_index: usize) -> Option<bool> {
-        match child_index {
-            1 => Some(self.command_palette_visible_in_tree()),
-            _ => None,
-        }
+        vec![crate::compose::ChildDecl::new(app_child)]
     }
 
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
@@ -1091,9 +1064,7 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
             self.open_command_palette_screen(app, ctx);
             return;
         }
-        if self.sync_help_panel_visible_from_runtime(app) && self.command_palette_visible {
-            self.publish_command_palette_commands(ctx);
-        }
+        self.sync_help_panel_visible_from_runtime(app);
         self.app
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -1180,7 +1151,6 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
             return;
         }
         if message.is::<crate::message::CommandPaletteOpened>() {
-            self.command_palette_visible = true;
             self.initialize_command_palette_providers(ctx);
             self.app
                 .lock()
@@ -1190,7 +1160,6 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
                 return;
             }
         } else if message.is::<crate::message::CommandPaletteClosed>() {
-            self.command_palette_visible = false;
             self.palette_screen_open = false;
             self.shutdown_command_palette_providers(ctx);
             self.app
@@ -1220,14 +1189,8 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
         }
         if message.is::<crate::message::AppShowHelpPanel>() {
             self.help_panel_visible = true;
-            if self.command_palette_visible {
-                self.publish_command_palette_commands(ctx);
-            }
         } else if message.is::<crate::message::AppHideHelpPanel>() {
             self.help_panel_visible = false;
-            if self.command_palette_visible {
-                self.publish_command_palette_commands(ctx);
-            }
         }
         // Typed handler registry (Block between A and B).
         // Dispatches all registered handlers for the message's concrete payload type.
@@ -1477,7 +1440,6 @@ mod tests {
     use crate::action::parse_action;
     use crate::keys::KeyEventData;
     use crate::node_id::node_id_from_ffi;
-    use crate::style::Position;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use rich_rs::{Console, ConsoleOptions, Segments};
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -2062,6 +2024,10 @@ mod tests {
             "unsupported maximize command should not be published until runtime maximize exists"
         );
 
+        // Toggling the help panel updates the adapter's tracked state so the NEXT
+        // palette-open snapshot (`gather_command_palette_commands`) reflects it. The
+        // palette is a pushed screen that snapshots at open, so there is no
+        // republish-to-a-live-host anymore.
         let mut show_ctx = EventCtx::default();
         {
             let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut show_ctx);
@@ -2069,21 +2035,13 @@ mod tests {
             &MessageEvent::new(NodeId::default(), crate::message::AppShowHelpPanel),
             &mut __w);
         }
-        let show_messages = show_ctx.take_messages();
-        let show_commands = show_messages
-            .iter()
-            .find_map(|event| {
-                event
-                    .downcast_ref::<crate::message::CommandPaletteSetCommands>()
-                    .map(|m| m.commands.clone())
-            })
-            .expect("show-help should republish command palette commands while open");
-        let keys_help = show_commands
-            .iter()
+        let show_keys_help = adapter
+            .system_commands()
+            .into_iter()
             .find(|command| command.id == "keys")
-            .map(|command| command.help.clone())
+            .map(|command| command.help)
             .expect("keys command should be present");
-        assert_eq!(keys_help, "Hide the keys and widget help panel");
+        assert_eq!(show_keys_help, "Hide the keys and widget help panel");
 
         let mut hide_ctx = EventCtx::default();
         {
@@ -2092,22 +2050,14 @@ mod tests {
             &MessageEvent::new(NodeId::default(), crate::message::AppHideHelpPanel),
             &mut __w);
         }
-        let hide_messages = hide_ctx.take_messages();
-        let hide_commands = hide_messages
-            .iter()
-            .find_map(|event| {
-                event
-                    .downcast_ref::<crate::message::CommandPaletteSetCommands>()
-                    .map(|m| m.commands.clone())
-            })
-            .expect("hide-help should republish command palette commands while open");
-        let keys_help = hide_commands
-            .iter()
+        let hide_keys_help = adapter
+            .system_commands()
+            .into_iter()
             .find(|command| command.id == "keys")
-            .map(|command| command.help.clone())
+            .map(|command| command.help)
             .expect("keys command should be present");
         assert_eq!(
-            keys_help,
+            hide_keys_help,
             "Show help for the focused widget and a summary of available keys"
         );
     }
@@ -2220,75 +2170,19 @@ mod tests {
         }));
         let mut adapter = TextualAppAdapter::new(app, NoopWidget::new());
 
-        let mut first = adapter.compose();
-        assert_eq!(first.len(), 2);
+        // The palette is now a pushed modal screen, not an always-mounted host:
+        // the adapter composes exactly the app body, once.
+        let first = adapter.compose();
+        assert_eq!(first.len(), 1);
         assert!(
-            first
+            !first
                 .iter()
                 .any(|child| child.widget().style_type() == "CommandPalette"),
-            "runtime root should include a live CommandPalette host child"
-        );
-        let palette = first
-            .iter()
-            .find(|child| child.widget().style_type() == "CommandPalette")
-            .expect("command palette child should be present");
-        assert_eq!(
-            palette.widget().style().and_then(|style| style.position),
-            Some(Position::Absolute),
-            "command palette host should be out-of-flow overlay in runtime root"
-        );
-        let palette = first
-            .iter_mut()
-            .find(|child| child.widget().style_type() == "CommandPalette")
-            .expect("command palette child should be present");
-        let palette_children = palette.widget_mut().compose();
-        assert_eq!(
-            palette_children.len(),
-            1,
-            "command palette host should expose one wrapped child subtree"
-        );
-        assert_eq!(
-            palette.widget().child_display_for_tree(0),
-            Some(false),
-            "command palette host wrapped child should stay hidden in tree mode"
-        );
-        assert_eq!(
-            adapter.child_display_for_tree(1),
-            Some(false),
-            "command palette host should be hidden in tree when closed"
+            "runtime root should NOT include a legacy CommandPalette host child"
         );
 
         let second = adapter.compose();
         assert!(second.is_empty());
-    }
-
-    #[test]
-    fn adapter_shows_command_palette_host_when_palette_opens() {
-        let app = Arc::new(Mutex::new(TestApp {
-            provider_state: ProviderState {
-                startup_count: Arc::new(AtomicUsize::new(0)),
-                shutdown_count: Arc::new(AtomicUsize::new(0)),
-                selected_count: Arc::new(AtomicUsize::new(0)),
-            },
-            hooks: HookState::default(),
-        }));
-        let mut adapter = TextualAppAdapter::new(app, NoopWidget::new());
-        let _ = adapter.compose();
-        assert_eq!(adapter.child_display_for_tree(1), Some(false));
-
-        let mut ctx = EventCtx::default();
-        {
-            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
-            adapter.on_message(
-            &MessageEvent::new(node_id_from_ffi(42), crate::message::CommandPaletteOpened)
-                .with_control(node_id_from_ffi(42)),
-            &mut __w);
-        }
-        assert_eq!(
-            adapter.child_display_for_tree(1),
-            Some(true),
-            "command palette host should become visible in tree once opened"
-        );
     }
 
     #[test]
@@ -2818,25 +2712,6 @@ mod tests {
                 "expected invalid arity for {action}"
             );
         }
-    }
-
-    #[test]
-    fn textual_app_runtime_root_includes_command_palette_host() {
-        let app = Arc::new(Mutex::new(TestApp {
-            provider_state: ProviderState {
-                startup_count: Arc::new(AtomicUsize::new(0)),
-                shutdown_count: Arc::new(AtomicUsize::new(0)),
-                selected_count: Arc::new(AtomicUsize::new(0)),
-            },
-            hooks: HookState::default(),
-        }));
-        let mut root = build_textual_app_runtime_root(app, crate::widgets::AppRoot::new());
-        assert!(
-            root.compose()
-                .iter()
-                .any(|child| child.widget().style_type() == "CommandPalette"),
-            "runtime root should compose a command palette host widget"
-        );
     }
 
     #[test]

@@ -38,7 +38,7 @@ use super::routing::{
 use super::types::{DispatchOutcome, PendingInvalidation, StylesheetReload};
 use crate::node_id::{NodeId, node_id_to_ffi};
 use crate::reactive::RuntimeReactiveEntry;
-use crate::widgets::{CommandPalette, Widget};
+use crate::widgets::Widget;
 
 // ── Worker request accumulator ──────────────────────────────────────
 //
@@ -2628,83 +2628,6 @@ impl App {
                             }
                         }
 
-                        // When command palette is open, route all non-priority keys
-                        // directly through event dispatch and skip declarative/app
-                        // bindings for normal app actions. This matches modal input
-                        // capture semantics (typing should search, not switch tabs).
-                        if let Some(palette_target) = self.open_command_palette_target() {
-                            let mut key_outcome =
-                                self.dispatch_event_auto(root, Event::Key(key.clone()));
-                            debug_input(&format!(
-                                "[input] palette-open key dispatch handled={} repaint={} messages={}",
-                                key_outcome.handled,
-                                key_outcome.repaint_requested,
-                                key_outcome.messages.len()
-                            ));
-                            let palette_scope = if key_outcome.messages.is_empty()
-                                && !key_outcome.invalidation.layout
-                                && !key_outcome.invalidation.style
-                            {
-                                InvalidationScope::Widget(palette_target)
-                            } else {
-                                InvalidationScope::Global
-                            };
-                            self.absorb_outcome(
-                                &mut key_outcome,
-                                &mut pending_invalidation,
-                                palette_scope,
-                            );
-                            let mut msg_outcome = self
-                                .dispatch_message_queue_with_runtime(root, key_outcome.messages);
-                            self.absorb_outcome(
-                                &mut msg_outcome,
-                                &mut pending_invalidation,
-                                InvalidationScope::Global,
-                            );
-                            if key_outcome.stop_requested || msg_outcome.stop_requested {
-                                break 'event_loop;
-                            }
-                            // Command palette key path must render immediately; otherwise
-                            // this early-continue defers visible updates to the next loop
-                            // after `poll(timeout)`, creating perceptible input lag.
-                            if pending_invalidation.is_dirty() || self.resized_since_last_render {
-                                let render_started = Instant::now();
-                                let regions = pending_invalidation
-                                    .content_regions
-                                    .as_render_regions(self.frame.width, self.frame.height);
-                                let layout_invalidation = pending_invalidation.flags.layout
-                                    || pending_invalidation.flags.style
-                                    || self.resized_since_last_render;
-                                self.render_widget_with_regions(
-                                    root,
-                                    regions.as_deref(),
-                                    layout_invalidation,
-                                )?;
-                                self.apply_layout_info_to_tree();
-                                self.publish_devtools_snapshot(root);
-                                pending_invalidation = PendingInvalidation::default();
-                                immediate_render_us = render_started.elapsed().as_micros();
-                            }
-                            if event::poll(Duration::ZERO)? {
-                                pending_input_event = Some(event::read()?);
-                            }
-                            input_dispatch_us = input_started.elapsed().as_micros();
-                            if timing_on {
-                                debug_timing(&format!(
-                                    "[timing] early_continue reason=palette_key_path input={} dispatch_us={} immediate_render_us={} loop_us={} dirty={} flags(c={} s={} l={})",
-                                    input_kind,
-                                    input_dispatch_us,
-                                    immediate_render_us,
-                                    loop_started.elapsed().as_micros(),
-                                    pending_invalidation.is_dirty(),
-                                    pending_invalidation.flags.content,
-                                    pending_invalidation.flags.style,
-                                    pending_invalidation.flags.layout
-                                ));
-                            }
-                            continue;
-                        }
-
                         // Declarative BINDINGS: walk the active chain (focused→root,
                         // or screen-body root when unfocused) plus App::BINDINGS
                         // beneath an active screen.
@@ -4908,16 +4831,6 @@ impl App {
             }
         }
 
-        // Command-palette open: route keys directly.
-        if let Some(_palette_target) = self.open_command_palette_target() {
-            let mut key_outcome = self.dispatch_event_auto(root, Event::Key(key.clone()));
-            self.absorb_outcome(&mut key_outcome, pending, InvalidationScope::Global);
-            let mut msg_outcome =
-                self.dispatch_message_queue_with_runtime(root, key_outcome.messages);
-            self.absorb_outcome(&mut msg_outcome, pending, InvalidationScope::Global);
-            return;
-        }
-
         // Declarative BINDINGS: active chain (focused→root, or screen-body root
         // when unfocused) plus App::BINDINGS beneath an active screen.
         let binding_match = self.active_widget_tree().and_then(|tree| {
@@ -6133,14 +6046,6 @@ impl App {
         false
     }
 
-    fn open_command_palette_target(&mut self) -> Option<NodeId> {
-        let target = self.query_one("CommandPalette").ok()?;
-        let open = self
-            .with_widget_mut_as::<CommandPalette, _>(target, |palette| palette.is_open())
-            .unwrap_or(false);
-        if open { Some(target) } else { None }
-    }
-
     fn ensure_runtime_tree(&mut self, root: &mut dyn Widget) {
         if self.active_widget_tree().is_none() {
             self.build_widget_tree(root);
@@ -6150,47 +6055,10 @@ impl App {
     /// Dispatch an event through the arena tree.
     fn dispatch_event_auto(&mut self, root: &mut dyn Widget, event: Event) -> DispatchOutcome {
         self.ensure_runtime_tree(root);
+        // ctrl+p dismisses the Header's command-palette tooltip (a Header feature,
+        // independent of how the palette itself opens).
         let dismissed_tooltip = matches!(&event, Event::Action(Action::CommandPalette))
             && self.start_command_palette_tooltip_cooldown();
-        let palette_target = self.open_command_palette_target();
-        if matches!(&event, Event::Action(Action::CommandPalette))
-            && let Ok(target) = self.query_one("CommandPalette")
-        {
-            let tree = self.active_widget_tree_mut().expect("tree should exist");
-            let mut direct = dispatch_event_to_target_tree(tree, target, &event);
-            if dismissed_tooltip {
-                direct.repaint_requested = true;
-                direct
-                    .invalidation
-                    .merge(crate::event::InvalidationFlags::layout());
-            }
-            if direct.handled {
-                return direct;
-            }
-        }
-
-        if let Some(target) = palette_target
-            && !matches!(&event, Event::Action(Action::CommandPalette))
-            && matches!(
-                &event,
-                Event::Action(_)
-                    | Event::Key(_)
-                    | Event::MouseDown(_)
-                    | Event::MouseUp(_)
-                    | Event::MouseScroll(_)
-                    | Event::Tick(_)
-            )
-        {
-            let tree = self.active_widget_tree_mut().expect("tree should exist");
-            let mut direct = dispatch_event_to_target_tree(tree, target, &event);
-            if dismissed_tooltip {
-                direct.repaint_requested = true;
-                direct
-                    .invalidation
-                    .merge(crate::event::InvalidationFlags::layout());
-            }
-            return direct;
-        }
 
         // The root widget (e.g. TextualAppAdapter) is not mounted in the arena,
         // so app-level key capture on root must run before tree dispatch.
@@ -6338,47 +6206,11 @@ impl App {
         event: &Event,
     ) -> DispatchOutcome {
         self.ensure_runtime_tree(root);
+        // ctrl+p dismisses the Header's command-palette tooltip (a Header feature,
+        // independent of how the palette itself opens).
         let dismissed_tooltip = matches!(event, Event::Action(Action::CommandPalette))
             && self.start_command_palette_tooltip_cooldown();
-        if matches!(event, Event::Action(Action::CommandPalette))
-            && let Ok(target) = self.query_one("CommandPalette")
-        {
-            let tree = self.active_widget_tree_mut().expect("tree should exist");
-            let mut direct = dispatch_event_to_target_tree(tree, target, event);
-            if dismissed_tooltip {
-                direct.repaint_requested = true;
-                direct
-                    .invalidation
-                    .merge(crate::event::InvalidationFlags::layout());
-            }
-            if direct.handled {
-                return direct;
-            }
-        }
-
-        let palette_target = self.open_command_palette_target();
         let tree = self.active_widget_tree_mut().expect("tree should exist");
-        if let Some(palette_target) = palette_target
-            && !matches!(event, Event::Action(Action::CommandPalette))
-            && matches!(
-                event,
-                Event::Action(_)
-                    | Event::Key(_)
-                    | Event::MouseDown(_)
-                    | Event::MouseUp(_)
-                    | Event::MouseScroll(_)
-                    | Event::Tick(_)
-            )
-        {
-            let mut direct = dispatch_event_to_target_tree(tree, palette_target, event);
-            if dismissed_tooltip {
-                direct.repaint_requested = true;
-                direct
-                    .invalidation
-                    .merge(crate::event::InvalidationFlags::layout());
-            }
-            return direct;
-        }
         let mut outcome = dispatch_event_to_target_tree(tree, _target, event);
         if dismissed_tooltip {
             outcome.repaint_requested = true;
@@ -6566,8 +6398,7 @@ mod tests {
         ClipboardBackend, collect_clipboard_runtime_messages_with_backend,
         collect_stylesheet_affected_widgets_root, focused_help_message, parse_simulated_key,
         set_overlay_modal_display_tree, should_dispatch_binding_hints,
-        should_dispatch_focused_help, sync_widget_controlled_child_display_tree,
-        transition_requests_for_style_change,
+        should_dispatch_focused_help, transition_requests_for_style_change,
     };
     use crate::App;
     use crate::action::{ActionDecl, ParsedAction, parse_action, resolve_action};
@@ -7012,42 +6843,6 @@ mod tests {
     }
 
     #[test]
-    fn command_palette_renders_from_runtime_root_in_tree_mode() {
-        let mut app = super::App::new().expect("app should initialize");
-        let mut root = crate::widgets::CommandPalette::new(crate::widgets::Label::new("body"));
-
-        app.build_widget_tree(&mut root);
-        assert!(app.widget_tree.is_some(), "tree mode should be active");
-
-        if let Some(tree) = app.widget_tree.as_mut() {
-            let _ = sync_widget_controlled_child_display_tree(tree, &root);
-        }
-
-        let outcome = app.dispatch_event_auto(&mut root, Event::Action(Action::CommandPalette));
-        assert!(
-            outcome.handled,
-            "open action should be handled by runtime root"
-        );
-        let msg_outcome = app.dispatch_message_queue_with_runtime(&mut root, outcome.messages);
-        assert!(!msg_outcome.stop_requested);
-
-        if let Some(tree) = app.widget_tree.as_mut() {
-            let changed = sync_widget_controlled_child_display_tree(tree, &root);
-            assert!(
-                !changed,
-                "opening palette should preserve wrapped subtree display in tree mode"
-            );
-        }
-
-        app.render_widget(&mut root).expect("render should succeed");
-        let lines = app.frame.as_plain_lines().join("\n");
-        assert!(
-            lines.contains("Search for commands"),
-            "opened palette UI should render in tree mode"
-        );
-    }
-
-    #[test]
     fn command_palette_action_dismisses_visible_system_tooltip_immediately() {
         struct TooltipHost;
 
@@ -7064,12 +6859,6 @@ mod tests {
         let mut tree = crate::widget_tree::WidgetTree::new();
         let root_id = tree.set_root(Box::new(AppRoot::new()));
         let tooltip_owner = tree.mount(root_id, Box::new(TooltipHost));
-        tree.mount(
-            root_id,
-            Box::new(crate::widgets::CommandPalette::new(
-                crate::widgets::Label::new("body"),
-            )),
-        );
         App::mount_system_tooltip(&mut tree, root_id);
         if let Some(node) = tree.get_mut(tooltip_owner) {
             node.layout_rect = crate::widget_tree::Rect {
@@ -7118,67 +6907,6 @@ mod tests {
         assert!(
             !app.update_hover_tooltip(1, 0),
             "command palette open should start a cooldown that suppresses immediate tooltip re-show"
-        );
-    }
-
-    #[test]
-    fn open_command_palette_routes_tick_away_from_focused_tree_widget() {
-        struct TickSwallowProbe {
-            ticks: Arc<AtomicUsize>,
-        }
-
-        impl Widget for TickSwallowProbe {
-            fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
-                Segments::new()
-            }
-
-            fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
-                if matches!(event, Event::Tick(_)) {
-                    self.ticks.fetch_add(1, Ordering::SeqCst);
-                    ctx.set_handled();
-                }
-            }
-
-            fn focusable(&self) -> bool {
-                true
-            }
-        }
-
-        let mut tree = crate::widget_tree::WidgetTree::new();
-        let root_id = tree.set_root(Box::new(AppRoot::new()));
-        let tick_hits = Arc::new(AtomicUsize::new(0));
-        let probe_id = tree.mount(
-            root_id,
-            Box::new(TickSwallowProbe {
-                ticks: Arc::clone(&tick_hits),
-            }),
-        );
-        tree.set_focus_state(probe_id, true);
-        tree.mount(
-            root_id,
-            Box::new(crate::widgets::CommandPalette::new(
-                crate::widgets::Label::new("body"),
-            )),
-        );
-
-        let mut app = test_app_with_tree(tree);
-        let mut runtime_root = StyleNode::new("RuntimeRoot");
-
-        let open =
-            app.dispatch_event_auto(&mut runtime_root, Event::Action(Action::CommandPalette));
-        assert!(
-            open.handled,
-            "open action should be handled by command palette"
-        );
-        let msg_outcome = app.dispatch_message_queue_with_runtime(&mut runtime_root, open.messages);
-        assert!(!msg_outcome.stop_requested);
-
-        let tick = app.dispatch_event_auto(&mut runtime_root, Event::Tick(1));
-        assert!(tick.handled, "open palette should handle tick in tree mode");
-        assert_eq!(
-            tick_hits.load(Ordering::SeqCst),
-            0,
-            "focused underlay widget should not receive tick while palette is open"
         );
     }
 

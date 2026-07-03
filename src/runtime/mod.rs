@@ -2120,22 +2120,10 @@ impl App {
         if !self.query("HelpPanel")?.is_empty() {
             return Ok(false);
         }
-        let mut mount_parent = match self.active_widget_tree().and_then(|tree| tree.root()) {
+        let mount_parent = match self.active_widget_tree().and_then(|tree| tree.root()) {
             Some(root) => root,
             None => return Ok(false),
         };
-
-        if let Ok(command_palette_ids) = self.query("CommandPalette")
-            && let Some(command_palette_id) = command_palette_ids.into_ids().first().copied()
-            && let Some(tree) = self.active_widget_tree()
-            && let Some(adapter_id) = tree.get(command_palette_id).and_then(|node| node.parent)
-            && let Some(app_content_id) = tree.children(adapter_id).first().copied()
-        {
-            // In TextualApp runtime roots, CommandPalette is hosted as the second child
-            // of the adapter (first child = normal app subtree). Mount HelpPanel into
-            // that app subtree so CommandPalette remains the top-most overlay.
-            mount_parent = app_content_id;
-        }
 
         if let Some(tree) = self.active_widget_tree_mut() {
             tree.mount(mount_parent, Box::new(HelpPanel::new()));
@@ -6182,44 +6170,6 @@ mod tests {
 
         let tree = app.widget_tree.as_ref().expect("tree exists");
         assert!(tree.node_state(second).focused);
-    }
-
-    #[test]
-    fn action_show_help_panel_mounts_under_app_content_when_command_palette_is_present() {
-        let mut tree = WidgetTree::new();
-        let root = tree.set_root(Box::new(AppRoot::new()));
-        let app_content = tree.mount(root, Box::new(AppRoot::new()));
-        tree.mount(
-            root,
-            Box::new(crate::widgets::CommandPalette::new(
-                crate::widgets::Label::new("body"),
-            )),
-        );
-
-        let mut app = App::new().expect("app should initialize");
-        app.widget_tree = Some(tree);
-
-        assert_eq!(app.action_show_help_panel(), Ok(true));
-
-        let help_ids = app
-            .query("HelpPanel")
-            .expect("selector should resolve")
-            .into_ids();
-        assert_eq!(
-            help_ids.len(),
-            1,
-            "exactly one help panel should be mounted"
-        );
-
-        let tree = app.widget_tree.as_ref().expect("tree exists");
-        let parent = tree
-            .get(help_ids[0])
-            .and_then(|node| node.parent)
-            .expect("help panel should have a parent");
-        assert_eq!(
-            parent, app_content,
-            "help panel should mount under app content so command palette remains topmost"
-        );
     }
 
     #[test]
