@@ -1123,7 +1123,7 @@ fn widgets02_welcome_alignment_and_rule_colour() {
 /// input: type into the first Input; the typed text + cursor should render
 /// identically on both apps (deterministic, no clock/header).
 #[test]
-#[ignore = "BUG (out of scope; own-surface :focus tint FIXED): the focused Input own-surface `background-tint: $foreground 5%` now matches Python (bg #272727 on both). Residual = 1 cell: the text cursor block past end-of-text — Python paints a reverse cursor cell (fg $background / bg $foreground #e0e0e0) at the caret past the last glyph; Rust emits no cursor segment there so it keeps the tinted surface. The cursor renderable lives in src/widgets/input.rs, outside this task's CSS scope."]
+#[ignore = "BUG (FLAKY — kept ignored rather than flip a 9/10): the focused Input own-surface tint matches Python (#272727 both). Residual is ≤1 cell and blink-phase-dependent: Python paints a reverse cursor cell (fg $background / bg $foreground #e0e0e0) at the caret PAST the last glyph; whether it's visible at capture depends on the cursor blink phase, so this passes ~9/10 and fails 1/10. Un-ignoring would add a timing-race green. Root: past-end reverse-cursor cell (src/widgets/input.rs); pinning the blink phase in a live PTY isn't available."]
 fn parity_input_typing() {
     let script = [Step::SendKeys("Marcos"), Step::Wait(250)];
     let (rf, pf) = widgets_both("input", &script, 400);
@@ -1156,7 +1156,7 @@ fn parity_input_validation_failure() {
 /// masked_input: typing digits into a credit-card mask renders the same
 /// separators + placeholder on both apps.
 #[test]
-#[ignore = "BUG (out of scope; own-surface :focus tint FIXED): the focused MaskedInput own-surface tint now matches Python (bg #272727 on both). Residual = 245 cells, all the border FG: Python treats the partial card number as invalid and paints `&.-invalid:focus { border: tall $error }` (#b93c5b) while Rust keeps the valid `:focus` border ($border #0178d4). The `-invalid` state comes from MaskedInput template validation (src/widgets/input.rs / validation), outside this task's CSS scope."]
+#[ignore = "BUG: the focused MaskedInput own-surface tint matches Python (bg #272727 both). Residual = 245 colour cells, all border FG: Python treats the partial card number as invalid and paints `&.-invalid:focus { border: tall $error }` (#b93c5b) while Rust keeps the valid `:focus` border ($border #0178d4). Root: MaskedInput template validation doesn't set the `-invalid` state (see KNOWN_GAPS: Pretty expand + MaskedInput invalid)."]
 fn parity_masked_input_typing() {
     let script = [Step::SendKeys("4242424242"), Step::Wait(300)];
     let (rf, pf) = widgets_both("masked_input", &script, 400);
@@ -1168,7 +1168,7 @@ fn parity_masked_input_typing() {
 /// checkbox: the focused checkbox toggles on Space. Initial focus is
 /// "#initial_focus" (Kaitain) per the demo.
 #[test]
-#[ignore = "BUG (decl-id/focus root FIXED in p2-withcompose): `#initial_focus` is assigned via `ChildDecl::with_id` on a `VerticalScroll::with_compose` child; that id is now propagated onto the mounted node (the `ScrollableContainer` flatten path was dropping the inner Container's `ChildDecl` metadata), so `query_mut(\"#initial_focus\").focus()` resolves and the Kaitain checkbox is focused — its `:focus { border: tall $border; background-tint: $foreground 5% }` now matches Python (both palettes carry $border #0178d4 ×9 and tinted #272727 ×32; glyph_diffs=0). Residual dropped 55→8 colour cells, two unrelated roots: 5 cells `[magenta]Ginaz` markup fg (#ff00ff vs #e0e0e0, Checkbox label BBCode markup not colourised) + 3 cells the `.-on` checked-mark `X` fg (#8ad4a1 vs #000f18, `&.-on > .toggle--button` checked component colour) — both outside this task's scope."]
+#[ignore = "BUG: `#initial_focus` (the Kaitain checkbox) is focused and its `:focus` border+tint match Python (glyph_diffs=0). Residual = 8 colour cells, two roots: 5 cells `[magenta]Ginaz` label markup fg (#ff00ff vs #e0e0e0 — Checkbox label BBCode markup not colourised) + 3 cells the `.-on` checked-mark `X` fg (#8ad4a1 vs #000f18 — `&.-on > .toggle--button` checked component colour). See KNOWN_GAPS (widget-label markup + widget-local component colours)."]
 fn parity_checkbox_toggle() {
     let script = [Step::Key(Key::Space), Step::Wait(250)];
     let (rf, pf) = widgets_both("checkbox", &script, 400);
@@ -1177,7 +1177,7 @@ fn parity_checkbox_toggle() {
 
 /// switch: the focused switch toggles on Enter/Space.
 #[test]
-#[ignore = "DEMO-PORT GAP (framework align/auto-size root FIXED in pc1-autosize): vertical `middle` align + auto-width container centering now work. Residual is a demo-port omission: the Rust `switch` demo builds the top `Static(\"[b]Example switches\\n\")` WITHOUT `.class(\"label\")` (Python passes `classes=\"label\"`), so it has UNSET width and fills 120 cols, making the align bounding box full-width and defeating horizontal centering. Fix requires the demo to add `.class(\"label\")` — outside this root's allowed files (src/layout only)."]
+#[ignore = "BUG (demo-port label gap COMPLETED in the 1.0 sweep — the top Static now carries `.class(\"label\")`, so glyph parity is exact, 250->0). Residual = 6 colour cells: the focused Switch slider-knob track colour split after toggle (2-cell offset in the on/off fill) + the `#custom-design` custom slider/background colours (darkslateblue #483d8b not rendered on the track). Root: Switch slider render + custom component colours, a widget concern."]
 fn parity_switch_toggle() {
     let script = [Step::Key(Key::Enter), Step::Wait(250)];
     let (rf, pf) = widgets_both("switch", &script, 400);
@@ -1200,10 +1200,11 @@ fn parity_radio_button_select() {
 
 /// radio_set: two RadioSets; Down arrow within the focused set.
 #[test]
-#[ignore = "DEMO GAP: focus tint + selection colours (#242f38/#0178d4/#153854) now match Python; \
-            the only remaining diff is 3 cells where the Python demo renders 'Kurgan, [bold italic red]The[/]' \
-            (Rich markup) while the Rust demo uses plain 'Kurgan, The'. Needs a demo-file change (out of \
-            this task's allowed widget-file scope)."]
+#[ignore = "BUG (NOT a demo fix — verified in the 1.0 sweep): focus tint + selection colours match \
+            Python; residual = 3 cells where Python renders 'Kurgan, [bold italic red]The[/]' in red. \
+            Putting the Rich markup in the Rust demo makes it WORSE — RadioButton labels render BBCode \
+            LITERALLY in Rust (the `[bold italic red]The[/]` text shows verbatim, 21 glyph cells). Root: \
+            widget-label markup not parsed/colourised (shared class with the Checkbox `[magenta]` label)."]
 fn parity_radio_set_navigate() {
     let script = [
         Step::SendKeys("\x1b[B"),
@@ -1395,7 +1396,7 @@ fn parity_tabbed_content_label_color() {
 
 /// content_switcher: click the Markdown button to switch panes.
 #[test]
-#[ignore = "BUG: ContentSwitcher button/markdown surface colours differ from Python (130 cells) after switching to the Markdown pane."]
+#[ignore = "BUG: ContentSwitcher button/markdown surface colours differ from Python (37 colour cells; re-measured, was 130) after switching to the Markdown pane. See KNOWN_GAPS (widget-local surface colours)."]
 fn parity_content_switcher_switch() {
     // The two buttons sit on row 1; "Markdown" is the second button.
     let script = [Step::Click(20, 1), Step::Wait(350)];
@@ -1467,7 +1468,7 @@ fn parity_rich_log_keypress() {
 
 /// log: static content written on_ready; assert initial parity.
 #[test]
-#[ignore = "BUG: Log surface bg is #121212 (Rust) vs #000000 (Python) — Log default background not pure black. 120 cells."]
+#[ignore = "BUG (re-measured — the annotation's whole-background claim was misleading): the Log BODY surface already matches (#272727 focus-tinted on both). Residual = the last row (row 29) only, 120 cells: Python paints the Log surface #000000 there while Rust shows the screen default #121212. Root: Log bottom-row vertical-fill/extent, NOT the `$surface` background token (changing the token would break the now-matching body)."]
 fn parity_log_content() {
     let script = [Step::Wait(300)];
     let (rf, pf) = widgets_both("log", &script, 400);
@@ -1550,7 +1551,7 @@ fn region_advances(
 
 /// computed01: typing a red value live recomputes the colour swatch background.
 #[test]
-#[ignore = "BUG (2 blockers, both OUTSIDE this root's `src/widgets/input.rs` scope): Python's `Input(\"0\", ...)` pre-fills all three channels with \"0\" and relies on `select_on_focus=True` so typing \"123\" REPLACES the selected \"0\". Rust's demo (docs/examples/.../computed01/main.rs) constructs the Inputs with NO initial value (placeholder only), so green/blue render their placeholder instead of \"0\" (29 glyph cells). The framework now supports an initial value via `Input::with_value` (this root), but flipping computed01 also needs (a) the demo updated to pass `.with_value(\"0\")` and (b) `select_on_focus` on Input (select-all-on-focus) — neither is in the allowed file set."]
+#[ignore = "BUG (framework feature gap — NOT a demo-only fix): Python's `Input(\"0\", ...)` pre-fills each channel with \"0\" and relies on `select_on_focus=True` so typing \"123\" REPLACES the selected \"0\". `Input::with_value` exists, but Rust's Input has NO `select_on_focus` (select-all-on-focus), so pre-filling \"0\" and typing would yield \"0123\" != Python. 29 glyph cells. Root: implement Input select-on-focus (a 1.x feature) — see KNOWN_GAPS."]
 fn parity_computed01_color() {
     let script = [Step::SendKeys("123"), Step::Wait(300)];
     let (rf, pf) = cat_both("computed01", "guide/reactivity", &script, 400);
@@ -1568,7 +1569,7 @@ fn parity_watch01_color() {
 /// validate01: the focused +1 button is pressed 3× via Enter; the validated
 /// reactive caps at 10 and each press appends `count = N` to the RichLog.
 #[test]
-#[ignore = "BUG (out of scope; button :focus/hover tint FIXED): the focused +1 Button surface now matches Python (#55c076 on both). Residual = 57 cells: (a) 54 RichLog scrollbar-track cells — Python paints the track bg #000000 (fg $foreground) while Rust leaves the widget surface #1e1e1e (fg #003054); (b) 3 RichLog number-highlight glyphs where Rich renders the repr integer in truecolor #58d1eb vs Rust's ansi cyan (index 6). Both are RichLog/scrollbar rendering (rich-rs + runtime), outside this task's CSS scope."]
+#[ignore = "BUG: the focused +1 Button surface matches Python (#55c076 both). Residual = 57 colour cells: (a) 54 RichLog scrollbar-track cells — Python paints the track bg #000000 while Rust leaves the widget surface #1e1e1e; (b) 3 RichLog number-highlight glyphs — Rich renders the repr integer truecolor #58d1eb vs Rust ansi cyan. Both are RichLog/scrollbar rendering (see KNOWN_GAPS: RichLog/Log surface + repr-highlight)."]
 fn parity_validate01_count() {
     let script = [
         Step::Key(Key::Enter),
@@ -1666,7 +1667,7 @@ fn parity_stopwatch03_layout() {
 /// stopwatch04: clicking the first Start button adds the `started` class
 /// (purely a styling change — no clock yet). Click Start, compare.
 #[test]
-#[ignore = "GLYPH PARITY (class-state root FIXED in pc2-classstate): clicking Start now adds `.started`, whose `.started #start { display:none }` / `.started #stop { display:block }` / `.started #reset { visibility:hidden }` descendant CSS is re-resolved + relaid-out. Python and Rust now both show only \"Stop\" (glyph_diffs=0). Residual is colour-only: the revealed error `#stop` button surface rounds #b93c5b (rust) vs #ba4461 (py) — the Color.a u8-vs-float blend keystone, out of this root's allowed files."]
+#[ignore = "BUG: clicking Start adds `.started` and the display/visibility descendant CSS re-resolves + relays out — both apps now show only \"Stop\" (glyph_diffs=0). Residual is colour-only (182 cells): the revealed error `#stop` button surface rounds #b93c5b (rust) vs #ba4461 (py) — the `Color.a` u8-vs-float alpha blend keystone (see KNOWN_GAPS)."]
 fn parity_stopwatch04_start_class() {
     let script = [Step::Click(8, 4), Step::Wait(300)];
     let (rf, pf) = cat_both("stopwatch04", "tutorial", &script, 400);
@@ -1706,7 +1707,7 @@ fn parity_counter01_render() {
 
 /// counter02: the focused counter increments on `k`/up. Press `k`.
 #[test]
-#[ignore = "DEMO-PORT GAP (framework auto-size root FIXED in pc1-autosize): same as counter01 — the Rust `counter02` demo CSS omits `Counter { height: auto }` (Python inherits it from `Static`), so the leaf's UNSET height correctly fills the container. Framework `height: auto` measurement is fixed; the demo CSS fix is outside this root's allowed files (src/layout only)."]
+#[ignore = "BUG (demo `Counter { height: auto }` COMPLETED in the 1.0 sweep, glyph 78->24). Residual = 24 glyph cells on the Footer row: Python renders a multi-key binding (`up,k`) showing only the FIRST key symbol (`↑ Increment`), while Rust's Footer shows both keys (`↑ k Increment  ↓ j Decrement`). Root: Footer binding-hint display of comma-separated multi-key bindings, a framework Footer concern."]
 fn parity_counter02_increment() {
     let script = [Step::SendKeys("k"), Step::Wait(300)];
     let (rf, pf) = cat_both("counter02", "guide/widgets", &script, 400);
@@ -1938,7 +1939,7 @@ fn parity_question03_layout() {
 /// question_title01: a Header (with title/subtitle) + question + buttons.
 /// Header row 0 carries a live clock, excluded from the glyph comparison.
 #[test]
-#[ignore = "BUG: glyph-perfect but the Header SUBTITLE text fg is #e0e0e0 (Rust, full $text) vs #a0a3a6 (Python, dimmed muted subtitle). 139 colour cells. Root: Header sub-title text colour not dimmed to the muted token."]
+#[ignore = "BUG: glyph-perfect but the Header SUBTITLE text fg is #e0e0e0 (Rust, full $text) vs #a0a3a6 (Python, dimmed). 25 colour cells (re-measured; was 139). Root: `HeaderTitle::render` emits one plain segment; Python's `App.format_title` applies Rich `dim` to the ` — ` separator + subtitle (`stylize(\"dim\")`). Fix = emit the subtitle+separator as `dim` segments (render-logic, not a colour token)."]
 fn parity_question_title01_layout() {
     let script = [Step::Wait(300)];
     let (rf, pf) = cat_both("question_title01", "app", &script, 400);
@@ -2319,7 +2320,7 @@ fn parity_command02_palette_open() {
 /// the colour hex). Click the first (#008080); the screen bg animates to that
 /// colour over 0.5s. Wait past the animation and compare the settled screen.
 #[test]
-#[ignore = "DEMO-PORT GAP (framework auto-size root FIXED in pc1-autosize): a `height: auto` bordered leaf now sizes to content+chrome. Residual is two demo-port divergences, both outside this root's allowed files (src/layout only): (a) the Rust `ColorButton.render()` returns the hex `#008080` while Python returns `Color(0, 128, 128)` (str(Color)); (b) the Rust demo CSS hardcodes `ColorButton { height: 5 }` instead of Python's inherited `Static { height: auto }` (which sizes to 3 rows). Fixing needs the demo render() + CSS `height: auto`."]
+#[ignore = "BUG (demo port COMPLETED in the 1.0 sweep: `ColorButton::render()` now returns `Color(r, g, b)` (str(Color)) and the CSS uses `height: auto`, so glyph parity is exact, 1004->0). Residual = 3600 colour cells: clicking a ColorButton does NOT set/animate the Screen background in the live loop — Python's screen fills with the selected colour (#008080), Rust stays screen-default (#121212). Root: ColorButton `Event::Click` -> `ColorSelected` -> Screen `set_bg` not taking effect in the live run_sync loop (click-event delivery to custom-widget `on_event`, or live set_bg-on-Screen), a runtime concern outside the demo."]
 fn parity_events_custom01_select() {
     let script = [Step::Click(6, 2), Step::Wait(900)];
     let (rf, pf) = cat_both("custom01", "events", &script, 600);
@@ -2487,12 +2488,7 @@ fn parity_animator_animation01() {
 /// compound/byte01: 8 BitSwitches + an Input (not wired). Tab from the Input to
 /// the first Switch and toggle it with Space; compare the rendered grid.
 #[test]
-#[ignore = "BUG (background-tint over-tint FIXED in pc6-segtint): the focused Switch slider track \
-            now matches Python (#000f18, colour_diffs=0; BG palettes identical) — `background-tint` \
-            is folded into the widget's OWN surface only (src/css/selectors/segments.rs), so the \
-            slider's opaque `$panel-darken-2` renderable bg is no longer double-tinted. Residual \
-            (4 glyph cells): Rust renders the Input placeholder `byte` while Python renders it blank \
-            (Input placeholder root — explicitly out of scope for this task's allowed files)."]
+#[ignore = "BUG: the focused Switch slider track matches Python (#000f18, colour_diffs=0). Residual = 4 glyph cells: Rust renders the Input placeholder `byte` while Python renders it blank. Root: Input placeholder shown where Python is blank (widget-local, see KNOWN_GAPS)."]
 fn parity_compound_byte01() {
     let script = [Step::Key(Key::Tab), Step::Key(Key::Space), Step::Wait(300)];
     let (rf, pf) = cat_both("byte01", "guide/compound", &script, 400);
@@ -2503,12 +2499,7 @@ fn parity_compound_byte01() {
 /// writes the integer value into the Input. Tab to the first (bit 7) Switch and
 /// toggle it; the Input should read "128" on both.
 #[test]
-#[ignore = "BUG (background-tint over-tint FIXED in pc6-segtint): the focused Switch slider track \
-            now matches Python (#000f18, colour_diffs=0; BG palettes identical) — `background-tint` \
-            is folded into the widget's OWN surface only (src/css/selectors/segments.rs), so the \
-            slider's opaque `$panel-darken-2` renderable bg is no longer double-tinted. Residual \
-            (3 glyph cells): Rust renders the Input value `128` while Python renders it blank \
-            (Input placeholder/value root — explicitly out of scope for this task's allowed files)."]
+#[ignore = "BUG: the focused Switch slider track matches Python (#000f18, colour_diffs=0). Residual = 3 glyph cells: Rust renders the Input value `128` while Python renders it blank. Root: Input value/placeholder shown where Python is blank (widget-local, see KNOWN_GAPS)."]
 fn parity_compound_byte02() {
     let script = [Step::Key(Key::Tab), Step::Key(Key::Space), Step::Wait(400)];
     let (rf, pf) = cat_both("byte02", "guide/compound", &script, 400);
