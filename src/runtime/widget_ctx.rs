@@ -234,7 +234,7 @@ impl<W: Widget> Handle<W> {
 /// DRAIN (the proven `with_widget_mut_as` pattern). A downcast miss (the target
 /// resolved to a different concrete type) logs loudly and drops — a user bug,
 /// never a panic.
-fn make_update_apply<W, F>(f: F) -> Box<dyn FnOnce(&mut dyn Widget, &mut WidgetCtx) + Send>
+fn make_update_apply<W, F>(f: F) -> super::commands::WidgetApply
 where
     W: Widget,
     F: FnOnce(&mut W, &mut WidgetCtx) + Send + 'static,

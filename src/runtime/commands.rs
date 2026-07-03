@@ -52,6 +52,14 @@ pub struct TimerTick {
 pub(crate) type WidgetTimerCallback =
     Box<dyn FnMut(&mut dyn Widget, &mut WidgetCtx, TimerTick) + Send>;
 
+/// An erased closure applied to a resolved target widget with a fresh `WidgetCtx`
+/// ([`WidgetCommand::UpdateWidget`]).
+pub(crate) type WidgetApply = Box<dyn FnOnce(&mut dyn Widget, &mut WidgetCtx) + Send>;
+
+/// An erased closure applied to a target node's inline styles
+/// ([`WidgetCommand::UpdateStyles`]).
+pub(crate) type StyleApply = Box<dyn FnOnce(&mut crate::widgets::WidgetStyles) + Send>;
+
 /// Registry entry for a widget-owned interval timer: its owning node, the
 /// downcast-wrapped callback, and the timing state used to derive each fire's
 /// [`TimerTick::elapsed`] / [`TimerTick::fire_count`].
@@ -93,7 +101,7 @@ pub(crate) enum WidgetCommand {
     /// downcasts to its captured concrete type at drain (a miss logs + drops).
     UpdateWidget {
         target: CommandTarget,
-        apply: Box<dyn FnOnce(&mut dyn Widget, &mut WidgetCtx) + Send>,
+        apply: WidgetApply,
     },
     /// Apply a closure to the target node's inline styles (Python
     /// `widget.styles.<prop> = v`). Homes the post-mount inline-style write path
@@ -102,7 +110,7 @@ pub(crate) enum WidgetCommand {
     /// arena node record directly. Applied via `WidgetTree::update_styles`.
     UpdateStyles {
         target: CommandTarget,
-        apply: Box<dyn FnOnce(&mut crate::widgets::WidgetStyles) + Send>,
+        apply: StyleApply,
     },
     /// Register a widget-owned interval timer on the SAME `TimerRuntime` as
     /// app-level timers (so `enable_manual_timer_clock` / `Pilot::advance_clock`
