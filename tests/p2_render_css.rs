@@ -861,7 +861,11 @@ fn p2g34_hatch_bordered_node_fills_inner_row_not_border_title() {
 }
 
 #[test]
-fn p2g34_overlay_screen_blends_with_underlay() {
+fn p2g34_overlay_screen_escapes_on_top_not_blended() {
+    // RA2.4: `overlay: screen` is a placement/clip ESCAPE (Python `_compositor`),
+    // NOT a colour blend. An opaque `overlay: screen` child is deferred and
+    // painted at the top z of the layer OVER the base — so the cell reads the
+    // overlay's OWN colour (red), never a screen-blend of base+overlay (magenta).
     let base_style = Style::new()
         .width(Scalar::Percent(100.0))
         .height(Scalar::Percent(100.0))
@@ -881,13 +885,13 @@ fn p2g34_overlay_screen_blends_with_underlay() {
         .get(0, 0)
         .style
         .and_then(|s| s.bgcolor)
-        .map(|c| c)
-        .expect("blended background color should exist");
+        .expect("overlay-escape background color should exist");
     assert_eq!(
         bg,
-        textual::style::Color::parse("#ff00ff")
+        textual::style::Color::parse("#ff0000")
             .unwrap()
-            .to_simple_opaque()
+            .to_simple_opaque(),
+        "overlay: screen must paint its own colour on top (escape), not a blend"
     );
 }
 
