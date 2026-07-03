@@ -9,7 +9,7 @@ use crate::css;
 use crate::debug::DebugLayout;
 use crate::debug::debug_input;
 use crate::event::{
-    AnimationEase, AnimationLevel, AnimationRequest, AnimationValueEvent, Event, EventCtx,
+    AnimationEase, AnimationLevel, AnimationRequest, AnimationValueEvent, Event,
 };
 use crate::message::{MessageEvent, ScrollbarAxis, ScrollbarScrollTo};
 use crate::node_id::NodeId;
@@ -245,7 +245,7 @@ impl AppRoot {
         &mut self,
         axis: ScrollbarAxis,
         to: f32,
-        ctx: &mut EventCtx,
+        ctx: &mut crate::event::WidgetCtx,
     ) -> bool {
         let from = self.axis_offset(axis);
         let to = self.clamped_axis_offset(axis, to);
@@ -375,7 +375,7 @@ impl Widget for AppRoot {
         Widget::render(self, console, options)
     }
 
-    fn on_mount(&mut self) {}
+    fn on_mount(&mut self, _ctx: &mut crate::event::WidgetCtx) {}
 
     fn on_unmount(&mut self) {}
 
@@ -408,9 +408,9 @@ impl Widget for AppRoot {
         AppRoot::set_virtual_content_size(self, width, height);
     }
 
-    fn on_event_capture(&mut self, _event: &Event, _ctx: &mut EventCtx) {}
+    fn on_event_capture(&mut self, _event: &Event, _ctx: &mut crate::event::WidgetCtx) {}
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         if let Event::AnimationValue(AnimationValueEvent {
             target,
             attribute,
@@ -492,7 +492,7 @@ impl Widget for AppRoot {
         }
     }
 
-    fn on_message(&mut self, msg: &MessageEvent, ctx: &mut EventCtx) {
+    fn on_message(&mut self, msg: &MessageEvent, ctx: &mut crate::event::WidgetCtx) {
         let Some(ScrollbarScrollTo {
             axis,
             offset,
@@ -513,7 +513,7 @@ impl Widget for AppRoot {
         ctx.set_handled();
     }
 
-    fn on_mouse_scroll(&mut self, delta_x: i32, delta_y: i32, ctx: &mut EventCtx) {
+    fn on_mouse_scroll(&mut self, delta_x: i32, delta_y: i32, ctx: &mut crate::event::WidgetCtx) {
         let before_x = self.offset_x;
         let before_y = self.offset_y;
 

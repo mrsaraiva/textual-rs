@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::event::{Event, EventCtx, MouseDownEvent};
+use crate::event::{Event, MouseDownEvent};
 use crate::message::*;
 use crate::widgets::delegate::{delegate_renderable, delegate_widget_method};
 
@@ -220,7 +220,7 @@ impl DirectoryTree {
         self.tree = tree;
     }
 
-    fn update_node_expanded_state(&mut self, index: usize, expanded: bool, ctx: &mut EventCtx) {
+    fn update_node_expanded_state(&mut self, index: usize, expanded: bool, ctx: &mut crate::event::WidgetCtx) {
         let Some(entry) = self.visible_entries.get(index).cloned() else {
             return;
         };
@@ -249,7 +249,7 @@ impl DirectoryTree {
         self.rebuild_tree(Some(entry.path));
     }
 
-    fn spawn_directory_load(&mut self, path: &Path, ctx: &mut EventCtx) {
+    fn spawn_directory_load(&mut self, path: &Path, ctx: &mut crate::event::WidgetCtx) {
         if self.inflight_loads_by_path.contains_key(path) {
             return;
         }
@@ -270,7 +270,7 @@ impl DirectoryTree {
         });
     }
 
-    fn cancel_inflight_loads_for(&mut self, path: &Path, ctx: &mut EventCtx) {
+    fn cancel_inflight_loads_for(&mut self, path: &Path, ctx: &mut crate::event::WidgetCtx) {
         let task_ids = self
             .inflight_loads_by_path
             .iter()
@@ -291,7 +291,7 @@ impl DirectoryTree {
         &mut self,
         task_id: u64,
         result: &AsyncTaskResult,
-        ctx: &mut EventCtx,
+        ctx: &mut crate::event::WidgetCtx,
     ) {
         let Some(path) = self.inflight_loads_by_task.remove(&task_id) else {
             return;
@@ -353,7 +353,7 @@ impl DirectoryTree {
     /// Reload a specific directory node's children. If the node at `node_index`
     /// is a directory and was expanded, its children are cleared and re-read
     /// (spawning an async load if needed).
-    pub fn reload_node(&mut self, node_index: usize, ctx: &mut EventCtx) {
+    pub fn reload_node(&mut self, node_index: usize, ctx: &mut crate::event::WidgetCtx) {
         let Some(entry) = self.visible_entries.get(node_index) else {
             return;
         };
@@ -414,7 +414,7 @@ impl Widget for DirectoryTree {
         self.tree.on_resize(self.last_width, self.last_height);
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         match event {
             Event::MouseDown(mouse) if mouse.target == self.node_id() => {
                 self.tree.on_event(
@@ -432,7 +432,7 @@ impl Widget for DirectoryTree {
         }
     }
 
-    fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
+    fn on_message(&mut self, message: &MessageEvent, ctx: &mut crate::event::WidgetCtx) {
         if let Some(m) = message.downcast_ref::<AsyncTaskCompleted>() {
             if m.target == self.node_id() {
                 self.apply_directory_load_result(m.task_id, &m.result, ctx);

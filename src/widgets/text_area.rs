@@ -7,7 +7,7 @@ use unicode_segmentation::UnicodeSegmentation;
 use rich_rs::{Console, ConsoleOptions, Segment, Segments};
 use tree_sitter::{Parser, Query, QueryCursor};
 
-use crate::event::{Event, EventCtx};
+use crate::event::Event;
 use crate::message::*;
 use crate::style::{Color, Style, parse_color_like};
 use crate::{Error, Result};
@@ -546,11 +546,11 @@ impl TextArea {
         self.lines.join("\n")
     }
 
-    fn post_changed(&self, ctx: &mut EventCtx) {
+    fn post_changed(&self, ctx: &mut crate::event::WidgetCtx) {
         ctx.post_message(TextAreaChanged { value: self.text() });
     }
 
-    fn post_selection_changed(&self, ctx: &mut EventCtx) {
+    fn post_selection_changed(&self, ctx: &mut crate::event::WidgetCtx) {
         let (a, b) = normalized_selection(self.selection);
         ctx.post_message(TextAreaSelectionChanged {
             start: (a.row, a.col),
@@ -1324,7 +1324,7 @@ impl Widget for TextArea {
         ]
     }
 
-    fn execute_action(&mut self, action: &ParsedAction, ctx: &mut EventCtx) -> bool {
+    fn execute_action(&mut self, action: &ParsedAction, ctx: &mut crate::event::WidgetCtx) -> bool {
         if self.read_only {
             return false;
         }
@@ -1356,7 +1356,7 @@ impl Widget for TextArea {
         }
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         match event {
             Event::AppFocus(active) => {
                 self.app_active = *active;
@@ -1632,7 +1632,7 @@ impl Widget for TextArea {
         }
     }
 
-    fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
+    fn on_message(&mut self, message: &MessageEvent, ctx: &mut crate::event::WidgetCtx) {
         if let Some(m) = message.downcast_ref::<TextEditClipboardPaste>() {
             if m.target != self.node_id() {
                 return;

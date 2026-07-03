@@ -5,7 +5,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
 use crate::compose::ComposeResult;
-use crate::event::{BindingHint, Event, EventCtx};
+use crate::event::{BindingHint, Event};
 use crate::message::*;
 
 use super::{NodeSeed, Widget};
@@ -82,7 +82,7 @@ impl Widget for HeaderIcon {
         true
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         match event {
             Event::BindingsChanged(bindings)
                 if self.apply_bindings(bindings) => {
@@ -202,7 +202,7 @@ impl Widget for HeaderTitle {
         "HeaderTitle"
     }
 
-    fn on_message(&mut self, message: &crate::message::MessageEvent, ctx: &mut EventCtx) {
+    fn on_message(&mut self, message: &crate::message::MessageEvent, ctx: &mut crate::event::WidgetCtx) {
         if let Some(m) = message.downcast_ref::<ScreenTitleChanged>() {
             self.title = m
                 .title
@@ -589,7 +589,7 @@ impl Widget for Header {
         true
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         match event {
             Event::MouseDown(mouse) => {
                 self.pressed = true;
@@ -632,7 +632,7 @@ impl Widget for Header {
         self.press_in_toggle_zone = false;
     }
 
-    fn on_message(&mut self, message: &crate::message::MessageEvent, ctx: &mut EventCtx) {
+    fn on_message(&mut self, message: &crate::message::MessageEvent, ctx: &mut crate::event::WidgetCtx) {
         if let Some(m) = message.downcast_ref::<ScreenTitleChanged>() {
             // Direct field assignment (internal call site — not reactive setter).
             self.title = m

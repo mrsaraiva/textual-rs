@@ -5,7 +5,7 @@ use rich_rs::{Console, ConsoleOptions, MetaValue, Renderable, Segment, Segments,
 use std::sync::{Arc, RwLock};
 use unicode_width::UnicodeWidthChar;
 
-use crate::event::{Event, EventCtx};
+use crate::event::Event;
 use crate::message::ActionDispatchRequested;
 use crate::widgets::markdown_model::{
     MarkdownBlock, parse_markdown_blocks, parse_markdown_headings,
@@ -1123,7 +1123,7 @@ impl Widget for MarkdownParagraphBlock {
         }
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         if let Event::MouseUp(mouse) = event
             && mouse.target.is_some_and(|t| t == self.node_id())
             && let Some(href) =
@@ -1518,7 +1518,7 @@ impl Widget for MarkdownInlineItem {
         }
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         if let Event::MouseUp(mouse) = event
             && mouse.target.is_some_and(|t| t == self.node_id())
             && let Some(href) =
@@ -1762,7 +1762,7 @@ impl Widget for MarkdownTableCell {
         }
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         if let Event::MouseUp(mouse) = event
             && mouse.target.is_some_and(|t| t == self.node_id())
             && let Some(href) =
@@ -2541,7 +2541,7 @@ impl Widget for Markdown {
         }
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         if matches!(event, Event::Tick(_)) && self.pending_recompose {
             ctx.request_recompose();
             self.pending_recompose = false;

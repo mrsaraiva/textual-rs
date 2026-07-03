@@ -4,7 +4,7 @@ use rich_rs::{Console, ConsoleOptions, Renderable, Segments};
 use std::time::Instant;
 use unicode_segmentation::UnicodeSegmentation;
 
-use crate::event::{Event, EventCtx};
+use crate::event::Event;
 use crate::message::*;
 use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
 use crate::style::{Color, parse_color_like};
@@ -429,7 +429,7 @@ impl Input {
         true
     }
 
-    fn post_changed(&mut self, ctx: &mut EventCtx) {
+    fn post_changed(&mut self, ctx: &mut crate::event::WidgetCtx) {
         ctx.post_message(InputChanged {
             value: self.text.clone(),
             validation: self.validation_result.clone(),
@@ -720,7 +720,7 @@ impl Widget for Input {
         vec![BindingDecl::new("enter", "submit", "Submit")]
     }
 
-    fn execute_action(&mut self, action: &ParsedAction, ctx: &mut EventCtx) -> bool {
+    fn execute_action(&mut self, action: &ParsedAction, ctx: &mut crate::event::WidgetCtx) -> bool {
         match action.name.as_str() {
             "submit" => {
                 ctx.post_message(InputSubmitted {
@@ -733,7 +733,7 @@ impl Widget for Input {
         }
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         match event {
             Event::AppFocus(active) => {
                 self.chrome.handle_app_focus(*active);
@@ -978,7 +978,7 @@ impl Widget for Input {
         }
     }
 
-    fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
+    fn on_message(&mut self, message: &MessageEvent, ctx: &mut crate::event::WidgetCtx) {
         if let Some(m) = message.downcast_ref::<TextEditClipboardPaste>() {
             if m.target != self.node_id() {
                 return;

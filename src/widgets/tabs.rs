@@ -8,7 +8,6 @@ use crate::action::ParsedAction;
 use crate::compose::{ChildDecl, ComposeResult};
 use crate::event::{
     AnimationEase, AnimationLevel, AnimationRequest, AnimationValueEvent, BindingHint, Event,
-    EventCtx,
 };
 use crate::message::{
     Message, TabActivated, TabClicked, TabDisabled, TabEnabled, TabHidden, TabShown, TabsCleared,
@@ -131,7 +130,7 @@ impl Widget for Tab {
         Some(rich_rs::cell_len(self.label.as_str()).max(1))
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         if self.disabled {
             return;
         }
@@ -447,7 +446,7 @@ impl Tabs {
             .unwrap_or(false)
     }
 
-    pub fn set_active_id(&mut self, id: &str, ctx: Option<&mut EventCtx>) -> bool {
+    pub fn set_active_id(&mut self, id: &str, ctx: Option<&mut crate::event::WidgetCtx>) -> bool {
         let state = self.state.lock().expect("tabs state lock");
         let Some(index) = self.index_for_id(&state, id) else {
             return false;
@@ -609,7 +608,7 @@ impl Tabs {
         format!("#{} #tabs-list > #{tab_id}", self.scope_id)
     }
 
-    fn request_runtime_focus(&self, ctx: &mut EventCtx) {
+    fn request_runtime_focus(&self, ctx: &mut crate::event::WidgetCtx) {
         ctx.post_message(crate::message::AppFocus {
             widget_id: self.scope_id.clone(),
         });
@@ -737,7 +736,7 @@ impl Tabs {
         true
     }
 
-    fn activate(&mut self, index: usize, mut ctx: Option<&mut EventCtx>) -> bool {
+    fn activate(&mut self, index: usize, mut ctx: Option<&mut crate::event::WidgetCtx>) -> bool {
         let mut state = self.state.lock().expect("tabs state lock");
         if state.tabs.is_empty() {
             state.active = None;
@@ -854,7 +853,7 @@ impl Tabs {
         self.activate_prev_with_ctx(None);
     }
 
-    fn activate_prev_with_ctx(&mut self, ctx: Option<&mut EventCtx>) {
+    fn activate_prev_with_ctx(&mut self, ctx: Option<&mut crate::event::WidgetCtx>) {
         self.move_active(-1, ctx);
     }
 
@@ -862,7 +861,7 @@ impl Tabs {
         self.activate_next_with_ctx(None);
     }
 
-    fn activate_next_with_ctx(&mut self, ctx: Option<&mut EventCtx>) {
+    fn activate_next_with_ctx(&mut self, ctx: Option<&mut crate::event::WidgetCtx>) {
         self.move_active(1, ctx);
     }
 
@@ -954,7 +953,7 @@ impl Tabs {
         }
     }
 
-    fn move_active(&mut self, direction: i32, ctx: Option<&mut EventCtx>) {
+    fn move_active(&mut self, direction: i32, ctx: Option<&mut crate::event::WidgetCtx>) {
         let state = self.state.lock().expect("tabs state lock");
         let candidates = self.potential_active_indices(&state);
         if candidates.is_empty() {
@@ -1146,7 +1145,7 @@ impl Widget for Tabs {
         self.focused
     }
 
-    fn on_mount(&mut self) {
+    fn on_mount(&mut self, _ctx: &mut crate::event::WidgetCtx) {
         let mut state = self.state.lock().expect("tabs state lock");
         self.ensure_active_exists(&mut state);
         drop(state);
@@ -1209,7 +1208,7 @@ impl Widget for Tabs {
         ]
     }
 
-    fn execute_action(&mut self, action: &ParsedAction, ctx: &mut EventCtx) -> bool {
+    fn execute_action(&mut self, action: &ParsedAction, ctx: &mut crate::event::WidgetCtx) -> bool {
         match action.name.as_str() {
             "previous" => {
                 self.activate_prev_with_ctx(Some(ctx));
@@ -1225,9 +1224,9 @@ impl Widget for Tabs {
         }
     }
 
-    fn on_event_capture(&mut self, _event: &Event, _ctx: &mut EventCtx) {}
+    fn on_event_capture(&mut self, _event: &Event, _ctx: &mut crate::event::WidgetCtx) {}
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         self.live = true;
         {
             let mut pending = self.pending_messages.lock().expect("tabs pending lock");
@@ -1300,7 +1299,7 @@ impl Widget for Tabs {
         }
     }
 
-    fn on_message(&mut self, message: &crate::message::MessageEvent, ctx: &mut EventCtx) {
+    fn on_message(&mut self, message: &crate::message::MessageEvent, ctx: &mut crate::event::WidgetCtx) {
         if let Some(clicked) = message.downcast_ref::<TabClicked>() {
             if clicked.id.is_empty() {
                 return;

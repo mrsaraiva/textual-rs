@@ -1,7 +1,7 @@
 use crossterm::event::KeyCode;
 use rich_rs::{Console, ConsoleOptions, Renderable, Segments};
 
-use crate::event::{Action, Event, EventCtx};
+use crate::event::{Action, Event};
 use crate::message::*;
 use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
 
@@ -117,7 +117,7 @@ impl Switch {
 
     // ── Internal helpers ─────────────────────────────────────────────────
 
-    fn emit_changed(&self, ctx: &mut EventCtx) {
+    fn emit_changed(&self, ctx: &mut crate::event::WidgetCtx) {
         ctx.post_message(SwitchChanged { value: self.value });
     }
 
@@ -199,7 +199,7 @@ impl Widget for Switch {
         Some(SWITCH_WIDTH)
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         if self.disabled {
             return;
         }

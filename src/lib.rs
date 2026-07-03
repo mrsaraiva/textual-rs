@@ -42,7 +42,7 @@ pub use keys::KeyEventData;
 pub use node_id::{NodeId, node_id_from_ffi, node_id_to_ffi};
 pub use reactive::ReactiveCtx;
 pub use reactive::ReactiveWidget;
-pub use runtime::{App, DomQuery, DomQueryMut, TimerHandle};
+pub use runtime::{App, DomQuery, DomQueryMut, TimerHandle, TimerTick};
 pub use screen::{Screen, ScreenMessageCtx, ScreenResult, ScreenResultCallback, ScreenStack};
 pub use style::{Color, Style, Theme};
 pub use theme::{NamedTheme, available_theme_names, get_theme, register_theme};
@@ -66,9 +66,13 @@ pub mod prelude {
     pub use crate::handle::{Handle, HandleSink, HandleSlot};
     pub use crate::css::{StyleSelector, StyleSheet, resolve_component_style, set_style_context};
     pub use crate::debug::DebugLayout;
+    // NOTE: `EventCtx` is intentionally NOT in the prelude (RA2.2). It is now
+    // internal/structural — the runtime synthesizes it and `WidgetCtx` wraps it;
+    // widget handlers receive `WidgetCtx`. Reach `EventCtx` via `crate::event::EventCtx`
+    // for the rare internal/adapter that needs it directly.
     pub use crate::event::{
-        Action, ActionMap, AnimationEase, BindingHint, ClassOp, ClickEvent, Event, EventCtx,
-        KeyBind, MouseEnterEvent, MouseLeaveEvent, PasteEvent, WidgetCtx,
+        Action, ActionMap, AnimationEase, BindingHint, ClassOp, ClickEvent, Event, KeyBind,
+        MouseEnterEvent, MouseLeaveEvent, PasteEvent, WidgetCtx,
     };
     pub use crate::keys::{KeyEventData, format_key_display, key_to_identifier};
     pub use crate::message::*;
@@ -78,6 +82,7 @@ pub mod prelude {
     pub use crate::runtime::{
         App, CallFromThreadError, DispatchOutcome, DomQuery, DomQueryMut, PushScreenWaitError,
         TimerHandle,
+        TimerTick,
         WidgetQuery,
         build_widget_tree_from_root,
         dispatch_event_to_target_tree, dispatch_event_tree, dispatch_message_queue_tree,

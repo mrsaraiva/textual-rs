@@ -1,7 +1,7 @@
 use crossterm::event::KeyCode;
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
-use crate::event::{Action, Event, EventCtx};
+use crate::event::{Action, Event};
 use crate::message::*;
 
 use super::option_list::{OptionItem, OptionList};
@@ -157,7 +157,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> SelectionList<T> {
     // ── Public API ──────────────────────────────────────────────────
 
     /// Toggle the selection state of the item at `index`.
-    pub fn toggle(&mut self, index: usize, ctx: &mut EventCtx) {
+    pub fn toggle(&mut self, index: usize, ctx: &mut crate::event::WidgetCtx) {
         if index >= self.selected_set.len() || !self.item_is_selectable(index) {
             return;
         }
@@ -169,7 +169,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> SelectionList<T> {
     }
 
     /// Mark the item at `index` as selected (no-op if already selected).
-    pub fn select(&mut self, index: usize, ctx: &mut EventCtx) {
+    pub fn select(&mut self, index: usize, ctx: &mut crate::event::WidgetCtx) {
         if index >= self.selected_set.len()
             || self.selected_set[index]
             || !self.item_is_selectable(index)
@@ -182,7 +182,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> SelectionList<T> {
     }
 
     /// Mark the item at `index` as deselected (no-op if already deselected).
-    pub fn deselect(&mut self, index: usize, ctx: &mut EventCtx) {
+    pub fn deselect(&mut self, index: usize, ctx: &mut crate::event::WidgetCtx) {
         if index >= self.selected_set.len()
             || !self.selected_set[index]
             || !self.item_is_selectable(index)
@@ -195,7 +195,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> SelectionList<T> {
     }
 
     /// Select all items.
-    pub fn select_all(&mut self, ctx: &mut EventCtx) {
+    pub fn select_all(&mut self, ctx: &mut crate::event::WidgetCtx) {
         let selectable: Vec<bool> = (0..self.selected_set.len())
             .map(|index| self.item_is_selectable(index))
             .collect();
@@ -213,7 +213,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> SelectionList<T> {
     }
 
     /// Toggle all items (selected become deselected and vice versa).
-    pub fn toggle_all(&mut self, ctx: &mut EventCtx) {
+    pub fn toggle_all(&mut self, ctx: &mut crate::event::WidgetCtx) {
         let selectable: Vec<bool> = (0..self.selected_set.len())
             .map(|index| self.item_is_selectable(index))
             .collect();
@@ -231,7 +231,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> SelectionList<T> {
     }
 
     /// Deselect all items.
-    pub fn deselect_all(&mut self, ctx: &mut EventCtx) {
+    pub fn deselect_all(&mut self, ctx: &mut crate::event::WidgetCtx) {
         let selectable: Vec<bool> = (0..self.selected_set.len())
             .map(|index| self.item_is_selectable(index))
             .collect();
@@ -323,7 +323,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for SelectionList<T> {
         self.inner.on_layout(width, height);
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         if self.disabled {
             return;
         }
@@ -400,7 +400,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for SelectionList<T> {
         changed || inner_changed
     }
 
-    fn on_mouse_scroll(&mut self, delta_x: i32, delta_y: i32, ctx: &mut EventCtx) {
+    fn on_mouse_scroll(&mut self, delta_x: i32, delta_y: i32, ctx: &mut crate::event::WidgetCtx) {
         if self.disabled {
             return;
         }

@@ -1,6 +1,6 @@
 use rich_rs::{Segment, Segments};
 
-use crate::event::{Event, EventCtx, MouseDownEvent, MouseMoveEvent};
+use crate::event::{Event, MouseDownEvent, MouseMoveEvent};
 use crate::message::ScrollbarScrollTo;
 use crate::style::{Color, Overflow, ScrollbarGutter, ScrollbarVisibility, Style};
 use crate::widgets::{NodeSeed, Widget};
@@ -826,7 +826,7 @@ impl Widget for ScrollBar {
         out
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         match event {
             Event::MouseDown(MouseDownEvent {
                 target,

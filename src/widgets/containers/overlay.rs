@@ -1,7 +1,7 @@
 use crossterm::event::KeyCode;
 use rich_rs::{Console, ConsoleOptions, Renderable, Segments};
 
-use crate::event::{Event, EventCtx};
+use crate::event::Event;
 use crate::message::*;
 use crate::render::{Cell, FrameBuffer};
 
@@ -113,7 +113,7 @@ impl Overlay {
         }
     }
 
-    fn set_visible(&mut self, visible: bool, ctx: &mut EventCtx) {
+    fn set_visible(&mut self, visible: bool, ctx: &mut crate::event::WidgetCtx) {
         if self.visible == visible {
             return;
         }
@@ -192,10 +192,10 @@ impl Widget for Overlay {
         Self::compose_overlay(&base, &top).to_segments()
     }
 
-    fn on_mount(&mut self) {
+    fn on_mount(&mut self, ctx: &mut crate::event::WidgetCtx) {
         if !self.children_extracted {
-            self.base.on_mount();
-            self.modal.on_mount();
+            self.base.on_mount(ctx);
+            self.modal.on_mount(ctx);
         }
     }
 
@@ -227,7 +227,7 @@ impl Widget for Overlay {
         }
     }
 
-    fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event_capture(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         if self.children_extracted {
             // Tree mode: tree handles capture routing to children.
             return;
@@ -244,7 +244,7 @@ impl Widget for Overlay {
         }
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         if self.children_extracted {
             // Tree mode: handle overlay-specific behavior only.
             if self.dismiss_on_escape
@@ -285,7 +285,7 @@ impl Widget for Overlay {
         }
     }
 
-    fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
+    fn on_message(&mut self, message: &MessageEvent, ctx: &mut crate::event::WidgetCtx) {
         // Overlay-specific message handling (works in both modes).
         if let Some(m) = message.downcast_ref::<OverlaySetVisible>() {
             if m.overlay == self.node_id() {

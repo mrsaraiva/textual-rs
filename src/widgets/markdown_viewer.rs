@@ -6,7 +6,7 @@ use rich_rs::{Console, ConsoleOptions, Segments};
 
 use crate::action::{ActionDecl, ParsedAction};
 use crate::compose::ComposeResult;
-use crate::event::{Event, EventCtx};
+use crate::event::Event;
 use crate::message::{
     MarkdownTableOfContentsSelected, MarkdownTableOfContentsUpdated, MessageEvent,
     NavigatorUpdated, ScrollbarAxis, ScrollbarScrollTo, TreeNodeActivated,
@@ -232,7 +232,7 @@ impl Widget for MarkdownTableOfContents {
         true
     }
 
-    fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
+    fn on_message(&mut self, message: &MessageEvent, ctx: &mut crate::event::WidgetCtx) {
         if let Some(m) = message.downcast_ref::<MarkdownTableOfContentsUpdated>() {
             if let Ok(mut shared) = self.shared_headings.write() {
                 *shared = m.headings.clone();
@@ -598,7 +598,7 @@ impl MarkdownViewer {
         self.toc_dirty = true;
     }
 
-    fn flush_toc_message(&mut self, ctx: &mut EventCtx) {
+    fn flush_toc_message(&mut self, ctx: &mut crate::event::WidgetCtx) {
         // Flush any pending TOC class change into the arena node record.
         if let Some(show) = self.toc_class_pending.take() {
             const CLASS: &str = "-show-table-of-contents";
@@ -775,17 +775,17 @@ impl Widget for MarkdownViewer {
         true
     }
 
-    fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event_capture(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         self.flush_toc_message(ctx);
         self.inner.on_event_capture(event, ctx);
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         self.flush_toc_message(ctx);
         self.inner.on_event(event, ctx);
     }
 
-    fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
+    fn on_message(&mut self, message: &MessageEvent, ctx: &mut crate::event::WidgetCtx) {
         self.flush_toc_message(ctx);
         if let Some(m) = message.downcast_ref::<MarkdownTableOfContentsUpdated>() {
             if let Ok(mut shared_headings) = self.shared_headings.write() {
@@ -825,7 +825,7 @@ impl Widget for MarkdownViewer {
         MARKDOWN_VIEWER_ACTIONS
     }
 
-    fn execute_action(&mut self, action: &ParsedAction, ctx: &mut EventCtx) -> bool {
+    fn execute_action(&mut self, action: &ParsedAction, ctx: &mut crate::event::WidgetCtx) -> bool {
         if action.name == "link"
             && let Some(href) = action.arguments.first()
             && self.follow_link(href)

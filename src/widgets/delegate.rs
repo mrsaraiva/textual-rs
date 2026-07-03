@@ -174,7 +174,7 @@ macro_rules! delegate_widget_method {
     // ── Lifecycle ──────────────────────────────────────────────────────
 
     ($field:ident, on_mount) => {
-        fn on_mount(&mut self) { self.$field.on_mount(); }
+        fn on_mount(&mut self, ctx: &mut $crate::event::WidgetCtx) { self.$field.on_mount(ctx); }
     };
 
     ($field:ident, on_unmount) => {
@@ -205,7 +205,7 @@ macro_rules! delegate_widget_method {
         fn on_event_capture(
             &mut self,
             event: &$crate::event::Event,
-            ctx: &mut $crate::event::EventCtx,
+            ctx: &mut $crate::event::WidgetCtx,
         ) {
             self.$field.on_event_capture(event, ctx);
         }
@@ -215,7 +215,7 @@ macro_rules! delegate_widget_method {
         fn on_event(
             &mut self,
             event: &$crate::event::Event,
-            ctx: &mut $crate::event::EventCtx,
+            ctx: &mut $crate::event::WidgetCtx,
         ) {
             self.$field.on_event(event, ctx);
         }
@@ -225,7 +225,7 @@ macro_rules! delegate_widget_method {
         fn on_message(
             &mut self,
             message: &$crate::message::MessageEvent,
-            ctx: &mut $crate::event::EventCtx,
+            ctx: &mut $crate::event::WidgetCtx,
         ) {
             self.$field.on_message(message, ctx);
         }
@@ -236,7 +236,7 @@ macro_rules! delegate_widget_method {
             &mut self,
             delta_x: i32,
             delta_y: i32,
-            ctx: &mut $crate::event::EventCtx,
+            ctx: &mut $crate::event::WidgetCtx,
         ) {
             self.$field.on_mouse_scroll(delta_x, delta_y, ctx);
         }
@@ -255,7 +255,7 @@ macro_rules! delegate_widget_method {
             &mut self,
             app: &mut $crate::App,
             key: &$crate::keys::KeyEventData,
-            ctx: &mut $crate::event::EventCtx,
+            ctx: &mut $crate::event::WidgetCtx,
         ) {
             self.$field.on_app_key(app, key, ctx);
         }
@@ -266,7 +266,7 @@ macro_rules! delegate_widget_method {
             &mut self,
             app: &mut $crate::App,
             action: $crate::event::Action,
-            ctx: &mut $crate::event::EventCtx,
+            ctx: &mut $crate::event::WidgetCtx,
         ) {
             self.$field.on_app_action(app, action, ctx);
         }
@@ -277,7 +277,7 @@ macro_rules! delegate_widget_method {
             &mut self,
             app: &mut $crate::App,
             message: &$crate::message::MessageEvent,
-            ctx: &mut $crate::event::EventCtx,
+            ctx: &mut $crate::event::WidgetCtx,
         ) {
             self.$field.on_app_message(app, message, ctx);
         }
@@ -288,7 +288,7 @@ macro_rules! delegate_widget_method {
             &mut self,
             app: &mut $crate::App,
             tick: u64,
-            ctx: &mut $crate::event::EventCtx,
+            ctx: &mut $crate::event::WidgetCtx,
         ) {
             self.$field.on_app_tick(app, tick, ctx);
         }
@@ -298,7 +298,7 @@ macro_rules! delegate_widget_method {
         fn on_app_mount(
             &mut self,
             app: &mut $crate::App,
-            ctx: &mut $crate::event::EventCtx,
+            ctx: &mut $crate::event::WidgetCtx,
         ) {
             self.$field.on_app_mount(app, ctx);
         }
@@ -372,7 +372,7 @@ macro_rules! delegate_widget_method {
         fn execute_action(
             &mut self,
             action: &$crate::action::ParsedAction,
-            ctx: &mut $crate::event::EventCtx,
+            ctx: &mut $crate::event::WidgetCtx,
         ) -> bool {
             self.$field.execute_action(action, ctx)
         }
@@ -493,7 +493,7 @@ macro_rules! delegate_widget_method {
     };
 
     ($field:ident, selection_updated) => {
-        fn selection_updated(&mut self, ctx: &mut $crate::event::EventCtx) {
+        fn selection_updated(&mut self, ctx: &mut $crate::event::WidgetCtx) {
             self.$field.selection_updated(ctx);
         }
     };

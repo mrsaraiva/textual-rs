@@ -1,7 +1,7 @@
 use rich_rs::{Console, ConsoleOptions, Renderable, Segments};
 
 use crate::debug::DebugLayout;
-use crate::event::{Event, EventCtx};
+use crate::event::Event;
 use crate::style::Style;
 
 use crate::widgets::{LayoutConstraints, NodeSeed, Spacer, Widget};
@@ -93,7 +93,7 @@ impl Widget for Node {
         Segments::new()
     }
 
-    fn on_mount(&mut self) {}
+    fn on_mount(&mut self, _ctx: &mut crate::event::WidgetCtx) {}
 
     fn on_unmount(&mut self) {}
 
@@ -101,9 +101,9 @@ impl Widget for Node {
 
     fn on_resize(&mut self, _width: u16, _height: u16) {}
 
-    fn on_event_capture(&mut self, _event: &Event, _ctx: &mut EventCtx) {}
+    fn on_event_capture(&mut self, _event: &Event, _ctx: &mut crate::event::WidgetCtx) {}
 
-    fn on_event(&mut self, _event: &Event, _ctx: &mut EventCtx) {}
+    fn on_event(&mut self, _event: &Event, _ctx: &mut crate::event::WidgetCtx) {}
 
     fn focusable(&self) -> bool {
         false

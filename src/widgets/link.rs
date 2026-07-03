@@ -1,7 +1,7 @@
 use crossterm::event::KeyCode;
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments, StyleMeta};
 
-use crate::event::{Action, Event, EventCtx};
+use crate::event::{Action, Event};
 use crate::message::*;
 
 use super::{NodeSeed, Widget};
@@ -77,7 +77,7 @@ impl Link {
         self
     }
 
-    fn activate(&mut self, ctx: &mut EventCtx) {
+    fn activate(&mut self, ctx: &mut crate::event::WidgetCtx) {
         if !self.url.is_empty() {
             // Attempt to open the URL in the default browser/handler.
             if let Err(err) = open::that(&self.url) {
@@ -135,7 +135,7 @@ impl Widget for Link {
         )
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         let focused = self.node_state().focused;
         match event {
             Event::MouseDown(mouse) if mouse.target == self.node_id() => {

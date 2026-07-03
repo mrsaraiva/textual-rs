@@ -1,7 +1,7 @@
 use crossterm::event::KeyCode;
 use rich_rs::{Console, ConsoleOptions, MetaValue, Renderable, Segment, Segments, Text};
 
-use crate::event::{Action, Event, EventCtx};
+use crate::event::{Action, Event};
 use crate::message::*;
 
 #[path = "toggle_option.rs"]
@@ -530,20 +530,20 @@ impl OptionList {
         self.offset = self.offset.min(self.max_offset());
     }
 
-    fn emit_highlighted(&self, ctx: &mut EventCtx) {
+    fn emit_highlighted(&self, ctx: &mut crate::event::WidgetCtx) {
         if let Some(index) = self.cursor.highlighted() {
             ctx.post_message(OptionHighlighted { index });
         }
     }
 
-    fn emit_selected(&self, ctx: &mut EventCtx) {
+    fn emit_selected(&self, ctx: &mut crate::event::WidgetCtx) {
         if let Some(index) = self.cursor.highlighted() {
             ctx.post_message(OptionSelected { index });
         }
     }
 
     /// Move highlight to a specific index. Skips separators and disabled items.
-    fn highlight_index(&mut self, index: usize, ctx: &mut EventCtx) {
+    fn highlight_index(&mut self, index: usize, ctx: &mut crate::event::WidgetCtx) {
         if index >= self.items.len() {
             return;
         }
@@ -560,7 +560,7 @@ impl OptionList {
     }
 
     /// Move highlight by `delta`, skipping separators and disabled items.
-    fn move_highlight(&mut self, delta: isize, ctx: &mut EventCtx) {
+    fn move_highlight(&mut self, delta: isize, ctx: &mut crate::event::WidgetCtx) {
         if self.selectable_count() == 0 {
             return;
         }
@@ -596,7 +596,7 @@ impl OptionList {
         self.viewport_height.saturating_sub(1).max(1)
     }
 
-    fn scroll_by_rows(&mut self, delta_rows: isize, ctx: &mut EventCtx) {
+    fn scroll_by_rows(&mut self, delta_rows: isize, ctx: &mut crate::event::WidgetCtx) {
         let before = self.offset;
         if delta_rows.is_negative() {
             self.offset = self.offset.saturating_sub(delta_rows.unsigned_abs());
@@ -611,7 +611,7 @@ impl OptionList {
     }
 
     /// Confirm the currently highlighted item (Enter or click).
-    fn confirm_selection(&mut self, ctx: &mut EventCtx) {
+    fn confirm_selection(&mut self, ctx: &mut crate::event::WidgetCtx) {
         let Some(index) = self.cursor.highlighted() else {
             return;
         };
@@ -643,7 +643,7 @@ impl Widget for OptionList {
         self.ensure_visible();
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         if self.disabled {
             return;
         }
@@ -762,7 +762,7 @@ impl Widget for OptionList {
         false
     }
 
-    fn on_mouse_scroll(&mut self, _delta_x: i32, delta_y: i32, ctx: &mut EventCtx) {
+    fn on_mouse_scroll(&mut self, _delta_x: i32, delta_y: i32, ctx: &mut crate::event::WidgetCtx) {
         if self.disabled {
             return;
         }
@@ -998,7 +998,7 @@ impl Widget for OptionList {
         vec![crate::compose::ChildDecl::new(Box::new(vbar))]
     }
 
-    fn on_message(&mut self, event: &MessageEvent, ctx: &mut EventCtx) {
+    fn on_message(&mut self, event: &MessageEvent, ctx: &mut crate::event::WidgetCtx) {
         let Some(payload) = event.downcast_ref::<ScrollbarScrollTo>() else {
             return;
         };

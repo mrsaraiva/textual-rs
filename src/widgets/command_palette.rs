@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use crate::event::{
-    Action, AnimationEase, AnimationLevel, AnimationRequest, AnimationValueEvent, Event, EventCtx,
+    Action, AnimationEase, AnimationLevel, AnimationRequest, AnimationValueEvent, Event,
 };
 use crate::message::*;
 use crate::render::{Cell, FrameBuffer};
@@ -431,8 +431,8 @@ impl Widget for CommandInput {
         Widget::render(&self.input, console, options)
     }
 
-    fn on_mount(&mut self) {
-        self.input.on_mount();
+    fn on_mount(&mut self, ctx: &mut crate::event::WidgetCtx) {
+        self.input.on_mount(ctx);
     }
 
     fn on_unmount(&mut self) {
@@ -451,7 +451,7 @@ impl Widget for CommandInput {
         self.input.on_layout(width, height);
     }
 
-    fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event_capture(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         let state = NodeState {
             focused: self.focused,
             ..Default::default()
@@ -460,7 +460,7 @@ impl Widget for CommandInput {
         self.input.on_event_capture(event, ctx);
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         let state = NodeState {
             focused: self.focused,
             ..Default::default()
@@ -469,7 +469,7 @@ impl Widget for CommandInput {
         self.input.on_event(event, ctx);
     }
 
-    fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
+    fn on_message(&mut self, message: &MessageEvent, ctx: &mut crate::event::WidgetCtx) {
         self.input.on_message(message, ctx);
     }
 
@@ -477,7 +477,7 @@ impl Widget for CommandInput {
         self.input.on_mouse_move(x, y)
     }
 
-    fn on_mouse_scroll(&mut self, delta_x: i32, delta_y: i32, ctx: &mut EventCtx) {
+    fn on_mouse_scroll(&mut self, delta_x: i32, delta_y: i32, ctx: &mut crate::event::WidgetCtx) {
         self.input.on_mouse_scroll(delta_x, delta_y, ctx);
     }
 
@@ -748,8 +748,8 @@ impl Widget for CommandList {
         self.render_with_help_style(console, options, help_style_override)
     }
 
-    fn on_mount(&mut self) {
-        self.list.on_mount();
+    fn on_mount(&mut self, ctx: &mut crate::event::WidgetCtx) {
+        self.list.on_mount(ctx);
     }
 
     fn on_unmount(&mut self) {
@@ -768,11 +768,11 @@ impl Widget for CommandList {
         self.list.on_layout(1, (height / 2).max(1));
     }
 
-    fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event_capture(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         self.list.on_event_capture(event, ctx);
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         match event {
             Event::MouseDown(mouse) => {
                 // CommandList renders each entry as two visual rows
@@ -790,7 +790,7 @@ impl Widget for CommandList {
         }
     }
 
-    fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
+    fn on_message(&mut self, message: &MessageEvent, ctx: &mut crate::event::WidgetCtx) {
         self.list.on_message(message, ctx);
     }
 
@@ -798,7 +798,7 @@ impl Widget for CommandList {
         self.list.on_mouse_move(x, y / 2)
     }
 
-    fn on_mouse_scroll(&mut self, delta_x: i32, delta_y: i32, ctx: &mut EventCtx) {
+    fn on_mouse_scroll(&mut self, delta_x: i32, delta_y: i32, ctx: &mut crate::event::WidgetCtx) {
         self.list
             .on_mouse_scroll(delta_x, delta_y.saturating_mul(2), ctx);
     }
@@ -1027,7 +1027,7 @@ impl CommandPalette {
         self.list.set_surface_bg(panel_bg);
     }
 
-    fn animate_key_panel_width(&mut self, from: usize, to: usize, ctx: &mut EventCtx) {
+    fn animate_key_panel_width(&mut self, from: usize, to: usize, ctx: &mut crate::event::WidgetCtx) {
         if from == to {
             self.key_panel_render_width = to as f32;
             return;
@@ -1051,7 +1051,7 @@ impl CommandPalette {
         }
     }
 
-    fn animate_panel_y(&mut self, from: f32, to: f32, ctx: &mut EventCtx) {
+    fn animate_panel_y(&mut self, from: f32, to: f32, ctx: &mut crate::event::WidgetCtx) {
         if (from - to).abs() < f32::EPSILON {
             self.panel_render_y = to;
             return;
@@ -1216,7 +1216,7 @@ impl CommandPalette {
         }
     }
 
-    fn set_key_panel_visible(&mut self, visible: bool, ctx: &mut EventCtx) {
+    fn set_key_panel_visible(&mut self, visible: bool, ctx: &mut crate::event::WidgetCtx) {
         if self.show_key_panel == visible {
             return;
         }
@@ -1234,7 +1234,7 @@ impl CommandPalette {
         ctx.request_repaint();
     }
 
-    fn set_open(&mut self, open: bool, ctx: &mut EventCtx) {
+    fn set_open(&mut self, open: bool, ctx: &mut crate::event::WidgetCtx) {
         if self.open == open
             && ((self.open && self.panel_visible) || (!self.open && !self.panel_visible))
         {
@@ -1319,7 +1319,7 @@ impl CommandPalette {
         ctx.request_repaint();
     }
 
-    fn execute_selected(&mut self, ctx: &mut EventCtx) {
+    fn execute_selected(&mut self, ctx: &mut crate::event::WidgetCtx) {
         if self.provider_results.is_empty() {
             self.set_open(false, ctx);
             return;
@@ -1658,14 +1658,14 @@ impl Widget for CommandPalette {
         }
     }
 
-    fn on_mount(&mut self) {
+    fn on_mount(&mut self, ctx: &mut crate::event::WidgetCtx) {
         self.update_surface_styles();
         if !self.is_tree_mode() {
-            self.child.on_mount();
+            self.child.on_mount(ctx);
         }
-        self.query.on_mount();
-        self.list.on_mount();
-        self.key_panel.on_mount();
+        self.query.on_mount(ctx);
+        self.list.on_mount(ctx);
+        self.key_panel.on_mount(ctx);
     }
 
     fn on_unmount(&mut self) {
@@ -1782,7 +1782,7 @@ impl Widget for CommandPalette {
             .on_layout(results_w.max(1) as u16, results_h.max(1) as u16);
     }
 
-    fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event_capture(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         if matches!(event, Event::AppFocus(..)) {
             if !self.is_tree_mode() {
                 self.child.on_event_capture(event, ctx);
@@ -1819,7 +1819,7 @@ impl Widget for CommandPalette {
         ]
     }
 
-    fn execute_action(&mut self, action: &ParsedAction, ctx: &mut EventCtx) -> bool {
+    fn execute_action(&mut self, action: &ParsedAction, ctx: &mut crate::event::WidgetCtx) -> bool {
         match action.name.as_str() {
             "dismiss" => {
                 self.set_open(false, ctx);
@@ -1830,7 +1830,7 @@ impl Widget for CommandPalette {
         }
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         if let Event::AnimationValue(AnimationValueEvent {
             target,
             attribute,
@@ -2063,7 +2063,7 @@ impl Widget for CommandPalette {
         }
     }
 
-    fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
+    fn on_message(&mut self, message: &MessageEvent, ctx: &mut crate::event::WidgetCtx) {
         if self.open
             && (message.is::<OverlaySetVisible>()
                 || message.is::<OverlayToggle>()
@@ -2159,7 +2159,7 @@ impl Widget for CommandPalette {
         self.list.on_mouse_move(0, u16::MAX)
     }
 
-    fn on_mouse_scroll(&mut self, delta_x: i32, delta_y: i32, ctx: &mut EventCtx) {
+    fn on_mouse_scroll(&mut self, delta_x: i32, delta_y: i32, ctx: &mut crate::event::WidgetCtx) {
         if self.open {
             self.list.on_mouse_scroll(delta_x, delta_y, ctx);
             if !ctx.handled() {
@@ -2271,7 +2271,11 @@ impl crate::screen::Screen for CommandPaletteScreen {
             palette.set_commands(self.commands.clone());
         }
         // Auto-open: the palette opens immediately when composed as a screen.
-        let mut ctx = crate::event::EventCtx::default();
+        let mut ectx = crate::event::EventCtx::default();
+        let mut ctx = crate::event::WidgetCtx::__from_dispatch(
+            crate::node_id::NodeId::default(),
+            &mut ectx,
+        );
         palette.set_open(true, &mut ctx);
         Box::new(palette)
     }
@@ -2340,7 +2344,7 @@ mod tests {
             Segments::new()
         }
 
-        fn on_event(&mut self, event: &Event, _ctx: &mut EventCtx) {
+        fn on_event(&mut self, event: &Event, _ctx: &mut crate::event::WidgetCtx) {
             if matches!(event, Event::MouseDown(_)) {
                 self.mouse_downs.fetch_add(1, Ordering::Relaxed);
             }
@@ -3228,7 +3232,7 @@ mod tests {
         let mut palette = CommandPalette::new(Label::new("body"));
         assert!(palette.bindings().is_empty());
 
-        palette.set_open(true, &mut EventCtx::default());
+        palette.set_open(true, &mut crate::event::WidgetCtx::default());
         let bindings = palette.bindings();
         assert!(!bindings.is_empty());
         assert!(bindings.iter().any(|b| b.action == "dismiss"));
@@ -3238,7 +3242,7 @@ mod tests {
     fn execute_action_handles_dismiss() {
         use crate::action::ParsedAction;
         let mut palette = CommandPalette::new(Label::new("body"));
-        palette.set_open(true, &mut EventCtx::default());
+        palette.set_open(true, &mut crate::event::WidgetCtx::default());
         assert!(palette.is_open());
         let mut ctx = EventCtx::default();
         let action = ParsedAction {

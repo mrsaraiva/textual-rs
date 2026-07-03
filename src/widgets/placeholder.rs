@@ -2,7 +2,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
-use crate::event::{Event, EventCtx};
+use crate::event::Event;
 use crate::message::*;
 use crate::style::Color;
 
@@ -215,7 +215,7 @@ impl Widget for Placeholder {
         self.last_height = height as usize;
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         if self.node_state().disabled {
             return;
         }

@@ -6,7 +6,7 @@ use unicode_width::UnicodeWidthChar;
 use rich_rs::highlighter::repr_highlighter;
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments, Text};
 
-use crate::event::{Action, Event, EventCtx};
+use crate::event::{Action, Event};
 use crate::message::*;
 
 use super::helpers::adjust_line_length_no_bg;
@@ -517,7 +517,7 @@ impl RichLog {
         );
     }
 
-    fn emit_scroll_changed_message(&self, ctx: &mut EventCtx) {
+    fn emit_scroll_changed_message(&self, ctx: &mut crate::event::WidgetCtx) {
         ctx.post_message(RichLogScrolled {
             offset: self.offset_y,
             max_offset: self.max_offset(),
@@ -747,7 +747,7 @@ impl Widget for RichLog {
         true
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         if let Event::Action(action) = event {
             let before = self.offset_y;
             match action {
@@ -771,7 +771,7 @@ impl Widget for RichLog {
         }
     }
 
-    fn on_mouse_scroll(&mut self, _delta_x: i32, delta_y: i32, ctx: &mut EventCtx) {
+    fn on_mouse_scroll(&mut self, _delta_x: i32, delta_y: i32, ctx: &mut crate::event::WidgetCtx) {
         if delta_y == 0 {
             return;
         }
@@ -796,7 +796,7 @@ impl Widget for RichLog {
         std::mem::take(&mut self.seed)
     }
 
-    fn on_message(&mut self, event: &MessageEvent, ctx: &mut EventCtx) {
+    fn on_message(&mut self, event: &MessageEvent, ctx: &mut crate::event::WidgetCtx) {
         let Some(payload) = event.downcast_ref::<ScrollbarScrollTo>() else {
             return;
         };

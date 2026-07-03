@@ -3,7 +3,7 @@ use rich_rs::{Console, ConsoleOptions, MetaValue, Renderable, Segment, Segments}
 
 use crate::compose::ComposeResult;
 use crate::content::{Content, ContentPart};
-use crate::event::{Action, Event, EventCtx};
+use crate::event::{Action, Event};
 use crate::message::*;
 #[cfg(test)]
 use crate::node_id::NodeId;
@@ -112,7 +112,7 @@ impl Checkbox {
 
     // ── Internal helpers ─────────────────────────────────────────────────
 
-    fn emit_changed(&self, ctx: &mut EventCtx) {
+    fn emit_changed(&self, ctx: &mut crate::event::WidgetCtx) {
         ctx.post_message(CheckboxChanged {
             checked: self.checked,
         });
@@ -129,7 +129,7 @@ impl Checkbox {
         self.seed.classes = classes;
     }
 
-    fn toggle_reactive(&mut self, ctx: &mut EventCtx) {
+    fn toggle_reactive(&mut self, ctx: &mut crate::event::WidgetCtx) {
         let node_id = self.node_id();
         let mut reactive = ReactiveCtx::new(node_id);
         self.set_checked(!self.checked, &mut reactive);
@@ -185,7 +185,7 @@ impl Widget for Checkbox {
         vec![BindingDecl::new("enter,space", "toggle", "Toggle checkbox")]
     }
 
-    fn execute_action(&mut self, action: &ParsedAction, ctx: &mut EventCtx) -> bool {
+    fn execute_action(&mut self, action: &ParsedAction, ctx: &mut crate::event::WidgetCtx) -> bool {
         match action.name.as_str() {
             "toggle" => {
                 if self.disabled {
@@ -203,7 +203,7 @@ impl Widget for Checkbox {
         Some(self)
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         if self.disabled {
             return;
         }

@@ -4,7 +4,7 @@ use rich_rs::{Console, ConsoleOptions, MetaValue, Renderable, Segment, Segments}
 use crate::compose::ComposeResult;
 use crate::content::Content;
 use crate::css;
-use crate::event::{Event, EventCtx};
+use crate::event::Event;
 use crate::message::*;
 
 use super::{NodeSeed, Widget};
@@ -135,7 +135,7 @@ impl Widget for CollapsibleTitle {
     /// The title is the focusable node (Python `CollapsibleTitle`), so it owns
     /// the toggle interaction: `enter` while focused, or a click, posts a
     /// [`CollapsibleTitleToggle`] that bubbles to the parent `Collapsible`.
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         match event {
             Event::MouseDown(mouse) if mouse.target == self.node_id() => {
                 self.pressed = true;
@@ -488,7 +488,7 @@ impl Collapsible {
         self.sync_collapsed_class();
     }
 
-    fn toggle_with_ctx(&mut self, ctx: &mut EventCtx) {
+    fn toggle_with_ctx(&mut self, ctx: &mut crate::event::WidgetCtx) {
         self.collapsed = !self.collapsed;
         if self.collapsed {
             ctx.add_class("-collapsed");
@@ -609,7 +609,7 @@ impl Widget for Collapsible {
     /// (the focusable node) posts a toggle message on `enter`/click, and the
     /// enclosing `Collapsible` flips its `collapsed` state and stops
     /// propagation (so a nested outer `Collapsible` is not also toggled).
-    fn on_message(&mut self, message: &crate::message::MessageEvent, ctx: &mut EventCtx) {
+    fn on_message(&mut self, message: &crate::message::MessageEvent, ctx: &mut crate::event::WidgetCtx) {
         if message.is::<CollapsibleTitleToggle>() {
             self.toggle_with_ctx(ctx);
         }

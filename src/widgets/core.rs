@@ -4,7 +4,7 @@ use std::any::Any;
 use crate::action::{ActionDecl, ParsedAction};
 use crate::compose::ComposeResult;
 use crate::debug::DebugLayout;
-use crate::event::{Action, BindingHint, Event, EventCtx};
+use crate::event::{Action, BindingHint, Event, WidgetCtx};
 use crate::message::MessageEvent;
 use crate::node_id::{self, NodeId};
 use crate::reactive::ReactiveWidget;
@@ -368,12 +368,12 @@ pub trait Widget: Send + Sync + Any {
     ) -> Segments {
         self.render(console, options)
     }
-    fn on_mount(&mut self) {}
-    /// Mount hook WITH a handler context (WidgetCtx build, step 4). Called once
-    /// when the node is mounted, after `on_mount()`. Additive and default no-op;
-    /// widgets that own timers register them here via
-    /// [`crate::event::WidgetCtx::set_interval`]. `on_mount()` is unchanged.
-    fn on_mount_ctx(&mut self, _ctx: &mut crate::event::WidgetCtx) {}
+    /// Mount hook. Called once when the node is mounted, receiving a
+    /// [`WidgetCtx`] so widgets can register timers via
+    /// [`crate::event::WidgetCtx::set_interval`], query descendants, post
+    /// messages, or mutate reactive state as part of mount. (RA2.2 merged the
+    /// former no-arg `on_mount()` and `on_mount_ctx(ctx)` into this one hook.)
+    fn on_mount(&mut self, _ctx: &mut WidgetCtx) {}
     fn on_unmount(&mut self) {}
     fn on_tick(&mut self, _tick: u64) {}
     fn on_resize(&mut self, _width: u16, _height: u16) {}
@@ -384,9 +384,9 @@ pub trait Widget: Send + Sync + Any {
     /// content extent. Scroll hosts override this to update their internal state
     /// (e.g. scrollbar thumb sizing). The default is a no-op for non-scroll widgets.
     fn set_virtual_content_size(&mut self, _width: usize, _height: usize) {}
-    fn on_event_capture(&mut self, _event: &Event, _ctx: &mut EventCtx) {}
-    fn on_event(&mut self, _event: &Event, _ctx: &mut EventCtx) {}
-    fn on_message(&mut self, _message: &MessageEvent, _ctx: &mut EventCtx) {}
+    fn on_event_capture(&mut self, _event: &Event, _ctx: &mut WidgetCtx) {}
+    fn on_event(&mut self, _event: &Event, _ctx: &mut WidgetCtx) {}
+    fn on_message(&mut self, _message: &MessageEvent, _ctx: &mut WidgetCtx) {}
     /// Optional runtime-level app key hook.
     ///
     /// The runtime calls this before normal widget key dispatch, passing the
@@ -395,14 +395,14 @@ pub trait Widget: Send + Sync + Any {
         &mut self,
         _app: &mut crate::App,
         _key: &crate::keys::KeyEventData,
-        _ctx: &mut EventCtx,
+        _ctx: &mut WidgetCtx,
     ) {
     }
     /// Optional runtime-level app action hook.
     ///
     /// Called for unhandled actions so app wrappers can run selector/query-based
     /// behavior with mutable runtime access.
-    fn on_app_action(&mut self, _app: &mut crate::App, _action: Action, _ctx: &mut EventCtx) {}
+    fn on_app_action(&mut self, _app: &mut crate::App, _action: Action, _ctx: &mut WidgetCtx) {}
     /// Called by the runtime when a declarative binding's action string cannot be
     /// resolved by `resolve_action` and `execute_action`.  Only `TextualAppAdapter`
     /// overrides this.
@@ -410,7 +410,7 @@ pub trait Widget: Send + Sync + Any {
         &mut self,
         _app: &mut crate::App,
         _action: &str,
-        _ctx: &mut EventCtx,
+        _ctx: &mut WidgetCtx,
     ) {
     }
     /// Optional runtime-level app message hook.
@@ -420,14 +420,14 @@ pub trait Widget: Send + Sync + Any {
         &mut self,
         _app: &mut crate::App,
         _message: &MessageEvent,
-        _ctx: &mut EventCtx,
+        _ctx: &mut WidgetCtx,
     ) {
     }
     /// Optional runtime-level app tick hook.
     ///
     /// Runs once per runtime tick after `on_tick` and before `Event::Tick`
     /// dispatch, allowing app wrappers to use query/mutation APIs.
-    fn on_app_tick(&mut self, _app: &mut crate::App, _tick: u64, _ctx: &mut EventCtx) {}
+    fn on_app_tick(&mut self, _app: &mut crate::App, _tick: u64, _ctx: &mut WidgetCtx) {}
     /// Optional runtime-level app-timer hook.
     ///
     /// Invoked by the runtime when one or more app-level timers (registered via
@@ -436,13 +436,13 @@ pub trait Widget: Send + Sync + Any {
     /// app-reactive bridge, so a callback that mutates a reactive field (e.g.
     /// `self.time = now`) fires its watcher in the same turn — mirroring Python's
     /// `Timer._tick` invoking the callback in the target's context.
-    fn on_app_timer(&mut self, _app: &mut crate::App, _ctx: &mut EventCtx) {}
+    fn on_app_timer(&mut self, _app: &mut crate::App, _ctx: &mut WidgetCtx) {}
     /// Optional runtime-level app mount hook.
     ///
     /// Called once after the widget tree is fully built and mounted, passing
     /// the active [`crate::App`] handle. Used by app wrappers to dispatch
     /// init-phase reactive changes after the widget tree is available.
-    fn on_app_mount(&mut self, _app: &mut crate::App, _ctx: &mut EventCtx) {}
+    fn on_app_mount(&mut self, _app: &mut crate::App, _ctx: &mut WidgetCtx) {}
     /// Optional visibility override for tree child nodes by child index.
     ///
     /// Tree mode can query this every frame and mirror it to child node
@@ -501,7 +501,7 @@ pub trait Widget: Send + Sync + Any {
         &[]
     }
     /// Execute a parsed action. Returns `true` if the action was handled.
-    fn execute_action(&mut self, _action: &ParsedAction, _ctx: &mut EventCtx) -> bool {
+    fn execute_action(&mut self, _action: &ParsedAction, _ctx: &mut WidgetCtx) -> bool {
         false
     }
     /// Gate whether an action may run on this widget (its action namespace).
@@ -584,7 +584,7 @@ pub trait Widget: Send + Sync + Any {
         None
     }
     /// Optional callback invoked after runtime updates this widget's selection.
-    fn selection_updated(&mut self, _ctx: &mut EventCtx) {}
+    fn selection_updated(&mut self, _ctx: &mut WidgetCtx) {}
 
     /// Return content scroll offset applied to descendants during render.
     ///
@@ -631,7 +631,7 @@ pub trait Widget: Send + Sync + Any {
     ///
     /// `delta_y > 0` scrolls down, `delta_y < 0` scrolls up.
     /// `delta_x > 0` scrolls right, `delta_x < 0` scrolls left.
-    fn on_mouse_scroll(&mut self, _delta_x: i32, _delta_y: i32, _ctx: &mut EventCtx) {}
+    fn on_mouse_scroll(&mut self, _delta_x: i32, _delta_y: i32, _ctx: &mut WidgetCtx) {}
     /// Called after a render pass to inform the widget of its content-box size in cells.
     ///
     /// Coordinates for mouse events (`MouseDownEvent` / `MouseUpEvent` / `on_mouse_move`) are

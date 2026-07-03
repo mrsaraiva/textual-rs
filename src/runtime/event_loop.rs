@@ -3,7 +3,7 @@ use crate::debug::{debug_input, debug_render, debug_timing, timing_enabled};
 use crate::event::{
     Action, AnimationEase, AnimationRequest, AnimationValueEvent, BlurEvent, ClassOp, Event,
     EventCtx, FocusEvent, MountEvent, MouseDownEvent, MouseScrollEvent, MouseUpEvent, ReadyEvent,
-    StyleAnimationRequest, StyleValue, UnmountEvent,
+    StyleAnimationRequest, StyleValue, UnmountEvent, WidgetCtx,
 };
 use crate::keys::KeyEventData;
 use crate::message::MessageEvent;
@@ -219,7 +219,10 @@ fn execute_action_with_dispatch_target(
     target: NodeId,
 ) -> bool {
     let _dispatch_guard = set_dispatch_recipient(target, crate::widgets::NodeState::default());
-    widget.execute_action(action, ctx)
+    let mut wctx = WidgetCtx::__from_dispatch(target, ctx);
+    let handled = widget.execute_action(action, &mut wctx);
+    wctx.__enqueue_reactive_if_dirty();
+    handled
 }
 
 /// Run a string action through the full Python-faithful dispatch chain and merge
@@ -339,7 +342,11 @@ fn dispatch_action_string(
     // --- App custom-action fallback (user `action_<name>` methods) ---
     {
         let mut ctx = EventCtx::default();
-        root.on_app_unhandled_action(app, action_str, &mut ctx);
+        {
+            let mut __wctx = WidgetCtx::__from_dispatch(NodeId::default(), &mut ctx);
+            root.on_app_unhandled_action(app, action_str, &mut __wctx);
+            __wctx.__enqueue_reactive_if_dirty();
+        }
         if ctx.handled() {
             let mut outcome = DispatchOutcome {
                 handled: true,
@@ -372,7 +379,11 @@ fn dispatch_simulated_key_like_input(
 ) {
     // App-level key hook.
     let mut app_key_ctx = EventCtx::default();
-    root.on_app_key(app, &key, &mut app_key_ctx);
+    {
+        let mut __wctx = WidgetCtx::__from_dispatch(NodeId::default(), &mut app_key_ctx);
+        root.on_app_key(app, &key, &mut __wctx);
+        __wctx.__enqueue_reactive_if_dirty();
+    }
     pass.repaint_requested |= app_key_ctx.repaint_requested();
     pass.invalidation.merge(app_key_ctx.invalidation());
     pass.stop_requested |= app_key_ctx.stop_requested();
@@ -471,7 +482,11 @@ fn dispatch_simulated_key_like_input(
         // Called when no action_registry handler exists and execute_action declined.
         {
             let mut fallback_ctx = EventCtx::default();
-            root.on_app_unhandled_action(app, &action_str, &mut fallback_ctx);
+            {
+                let mut __wctx = WidgetCtx::__from_dispatch(NodeId::default(), &mut fallback_ctx);
+                root.on_app_unhandled_action(app, &action_str, &mut __wctx);
+                __wctx.__enqueue_reactive_if_dirty();
+            }
             if fallback_ctx.handled() {
                 pass.repaint_requested |= fallback_ctx.repaint_requested();
                 pass.invalidation.merge(fallback_ctx.invalidation());
@@ -2231,7 +2246,16 @@ impl App {
         // jobs so blocked workers unblock.
         let _call_from_thread_guard = CallFromThreadGuard::register();
 
-        root.on_mount();
+        {
+            // RA2.2: the app root's own mount hook now takes a `&mut WidgetCtx`.
+            // The arena tree does not exist yet (built just below), so synthesize
+            // a throwaway ctx rooted at `NodeId::default()`; the root adapter's
+            // mount does app-level setup with no node-scoped side effects.
+            let mut synth = EventCtx::default();
+            let mut wctx = WidgetCtx::__from_dispatch(NodeId::default(), &mut synth);
+            root.on_mount(&mut wctx);
+            wctx.__enqueue_reactive_if_dirty();
+        }
 
         // Build the arena-based widget tree by extracting children from root.
         // Runtime dispatch stays tree-driven even when only the synthetic root
@@ -2258,7 +2282,11 @@ impl App {
         // existing tree nodes via `query_one` / `query_mut`.
         {
             let mut mount_ctx = crate::event::EventCtx::default();
-            root.on_app_mount(self, &mut mount_ctx);
+            {
+                let mut __wctx = WidgetCtx::__from_dispatch(NodeId::default(), &mut mount_ctx);
+                root.on_app_mount(self, &mut __wctx);
+                __wctx.__enqueue_reactive_if_dirty();
+            }
             // Absorb the mount ctx so its outcome (worker requests, messages,
             // invalidation, recompositions, animations) flows into the runtime.
             // Without this the live loop dropped everything staged on the ctx —
@@ -2497,7 +2525,11 @@ impl App {
 
                         // App-level key hook with runtime handle (Textual-style).
                         let mut app_key_ctx = EventCtx::default();
-                        root.on_app_key(self, &key, &mut app_key_ctx);
+                        {
+                            let mut __wctx = WidgetCtx::__from_dispatch(NodeId::default(), &mut app_key_ctx);
+                            root.on_app_key(self, &key, &mut __wctx);
+                            __wctx.__enqueue_reactive_if_dirty();
+                        }
                         if app_key_ctx.repaint_requested() {
                             pending_invalidation.request_full_content();
                         }
@@ -2855,7 +2887,11 @@ impl App {
                             // Called when no action_registry handler exists and execute_action declined.
                             {
                                 let mut fallback_ctx = EventCtx::default();
-                                root.on_app_unhandled_action(self, &action_str, &mut fallback_ctx);
+                                {
+                                    let mut __wctx = WidgetCtx::__from_dispatch(NodeId::default(), &mut fallback_ctx);
+                                    root.on_app_unhandled_action(self, &action_str, &mut __wctx);
+                                    __wctx.__enqueue_reactive_if_dirty();
+                                }
                                 if fallback_ctx.handled() {
                                     let mut fallback_outcome = DispatchOutcome {
                                         handled: true,
@@ -3798,7 +3834,11 @@ impl App {
             // mutations fire their watchers in the same turn.
             if self.has_pending_timer_fires() {
                 let mut timer_ctx = EventCtx::default();
-                root.on_app_timer(self, &mut timer_ctx);
+                {
+                    let mut __wctx = WidgetCtx::__from_dispatch(NodeId::default(), &mut timer_ctx);
+                    root.on_app_timer(self, &mut __wctx);
+                    __wctx.__enqueue_reactive_if_dirty();
+                }
                 let mut timer_outcome = DispatchOutcome {
                     handled: timer_ctx.handled(),
                     repaint_requested: timer_ctx.repaint_requested(),
@@ -4124,7 +4164,11 @@ impl App {
                 root.on_tick(tick);
 
                 let mut app_tick_ctx = EventCtx::default();
-                root.on_app_tick(self, tick, &mut app_tick_ctx);
+                {
+                    let mut __wctx = WidgetCtx::__from_dispatch(NodeId::default(), &mut app_tick_ctx);
+                    root.on_app_tick(self, tick, &mut __wctx);
+                    __wctx.__enqueue_reactive_if_dirty();
+                }
                 let mut app_tick_outcome = DispatchOutcome {
                     handled: app_tick_ctx.handled(),
                     repaint_requested: app_tick_ctx.repaint_requested(),
@@ -4296,7 +4340,16 @@ impl App {
         self.headless = true;
         self.start()?;
 
-        root.on_mount();
+        {
+            // RA2.2: the app root's own mount hook now takes a `&mut WidgetCtx`.
+            // The arena tree does not exist yet (built just below), so synthesize
+            // a throwaway ctx rooted at `NodeId::default()`; the root adapter's
+            // mount does app-level setup with no node-scoped side effects.
+            let mut synth = EventCtx::default();
+            let mut wctx = WidgetCtx::__from_dispatch(NodeId::default(), &mut synth);
+            root.on_mount(&mut wctx);
+            wctx.__enqueue_reactive_if_dirty();
+        }
         self.build_widget_tree(root);
         if let Some(tree) = self.active_widget_tree_mut() {
             let _ = sync_widget_controlled_child_display_tree(tree, root);
@@ -4313,7 +4366,11 @@ impl App {
         let mut pending = PendingInvalidation::default();
         {
             let mut mount_ctx = crate::event::EventCtx::default();
-            root.on_app_mount(self, &mut mount_ctx);
+            {
+                let mut __wctx = WidgetCtx::__from_dispatch(NodeId::default(), &mut mount_ctx);
+                root.on_app_mount(self, &mut __wctx);
+                __wctx.__enqueue_reactive_if_dirty();
+            }
             // Absorb the mount ctx so its outcome (worker requests, messages,
             // invalidation, recompositions) flows into the runtime — in
             // particular, worker requests issued from `on_mount_with_app`
@@ -4364,8 +4421,10 @@ impl App {
             self.absorb_outcome(&mut msg_outcome, &mut pending, InvalidationScope::Global);
             let mut mount_msg_outcome = self.drain_pending_mount_messages(root, node_id);
             self.absorb_outcome(&mut mount_msg_outcome, &mut pending, InvalidationScope::Global);
-            // Widget-owned mount hook (registers set_interval timers, etc.).
-            self.run_on_node_widget(node_id, |w, ctx| w.on_mount_ctx(ctx), &mut pending);
+            // RA2.2: the merged `on_mount(ctx)` for these initial nodes already
+            // fired during tree build (`WidgetTree::fire_mount_callbacks`), so it
+            // is NOT re-fired here (that would double-mount). Dynamic recompose
+            // mounts are handled by the shared flush's lifecycle drain.
         }
 
         // Ready event after first render.
@@ -4438,7 +4497,11 @@ impl App {
                 // (see the `root.on_app_timer(...)` call in `run_with`). Without
                 // this, headless/Pilot timer ticks fire the callback but never the
                 // app-level `watch_*`, so time-driven clock demos looked dead.
-                root.on_app_timer(self, &mut ctx);
+                {
+                    let mut __wctx = WidgetCtx::__from_dispatch(NodeId::default(), &mut ctx);
+                    root.on_app_timer(self, &mut __wctx);
+                    __wctx.__enqueue_reactive_if_dirty();
+                }
                 let mut outcome = DispatchOutcome {
                     handled: ctx.handled(),
                     repaint_requested: ctx.repaint_requested(),
@@ -4746,7 +4809,11 @@ impl App {
 
             // App-level tick hook (mirrors the live loop's `on_app_tick`).
             let mut app_tick_ctx = EventCtx::default();
-            root.on_app_tick(self, tick, &mut app_tick_ctx);
+            {
+                let mut __wctx = WidgetCtx::__from_dispatch(NodeId::default(), &mut app_tick_ctx);
+                root.on_app_tick(self, tick, &mut __wctx);
+                __wctx.__enqueue_reactive_if_dirty();
+            }
             let mut app_tick_outcome = DispatchOutcome {
                 handled: app_tick_ctx.handled(),
                 repaint_requested: app_tick_ctx.repaint_requested(),
@@ -4797,7 +4864,11 @@ impl App {
 
         // App-level key hook.
         let mut app_key_ctx = EventCtx::default();
-        root.on_app_key(self, &key, &mut app_key_ctx);
+        {
+            let mut __wctx = WidgetCtx::__from_dispatch(NodeId::default(), &mut app_key_ctx);
+            root.on_app_key(self, &key, &mut __wctx);
+            __wctx.__enqueue_reactive_if_dirty();
+        }
         if app_key_ctx.repaint_requested() {
             pending.request_full_content();
         }
@@ -4939,7 +5010,11 @@ impl App {
 
             // App-defined custom action fallback.
             let mut fallback_ctx = EventCtx::default();
-            root.on_app_unhandled_action(self, &action_str, &mut fallback_ctx);
+            {
+                let mut __wctx = WidgetCtx::__from_dispatch(NodeId::default(), &mut fallback_ctx);
+                root.on_app_unhandled_action(self, &action_str, &mut __wctx);
+                __wctx.__enqueue_reactive_if_dirty();
+            }
             if fallback_ctx.handled() {
                 let mut fallback_outcome = DispatchOutcome {
                     handled: true,
@@ -5762,7 +5837,7 @@ impl App {
             // Widget-owned mount hook (registers set_interval timers, etc.) on
             // mount; purge the node's timers on unmount (primary cleanup).
             if is_mount {
-                self.run_on_node_widget(node_id, |w, ctx| w.on_mount_ctx(ctx), pending);
+                self.run_on_node_widget(node_id, |w, ctx| w.on_mount(ctx), pending);
             } else {
                 self.purge_node_widget_timers(node_id);
             }
@@ -6079,7 +6154,11 @@ impl App {
         // so app-level key capture on root must run before tree dispatch.
         let mut root_capture_ctx = EventCtx::default();
         if matches!(&event, Event::Key(..)) {
-            root.on_event_capture(&event, &mut root_capture_ctx);
+            {
+                let mut __wctx = WidgetCtx::__from_dispatch(NodeId::default(), &mut root_capture_ctx);
+                root.on_event_capture(&event, &mut __wctx);
+                __wctx.__enqueue_reactive_if_dirty();
+            }
             if root_capture_ctx.handled() {
                 return DispatchOutcome {
                     handled: root_capture_ctx.handled(),
@@ -6153,7 +6232,11 @@ impl App {
             )
         {
             let mut root_event_ctx = EventCtx::default();
-            root.on_event(&event, &mut root_event_ctx);
+            {
+                let mut __wctx = WidgetCtx::__from_dispatch(NodeId::default(), &mut root_event_ctx);
+                root.on_event(&event, &mut __wctx);
+                __wctx.__enqueue_reactive_if_dirty();
+            }
             outcome.handled |= root_event_ctx.handled();
             outcome.repaint_requested |= root_event_ctx.repaint_requested();
             outcome.invalidation.merge(root_event_ctx.invalidation());
@@ -6175,7 +6258,11 @@ impl App {
             && let Event::Action(action) = &event
         {
             let mut app_action_ctx = EventCtx::default();
-            root.on_app_action(self, *action, &mut app_action_ctx);
+            {
+                let mut __wctx = WidgetCtx::__from_dispatch(NodeId::default(), &mut app_action_ctx);
+                root.on_app_action(self, *action, &mut __wctx);
+                __wctx.__enqueue_reactive_if_dirty();
+            }
             outcome.handled |= app_action_ctx.handled();
             outcome.repaint_requested |= app_action_ctx.repaint_requested();
             outcome.invalidation.merge(app_action_ctx.invalidation());
@@ -6302,9 +6389,17 @@ impl App {
         // messages to root so app hooks still run in tree mode.
         for message in initial {
             let mut ctx = EventCtx::default();
-            root.on_message(&message, &mut ctx);
+            {
+                let mut __wctx = WidgetCtx::__from_dispatch(NodeId::default(), &mut ctx);
+                root.on_message(&message, &mut __wctx);
+                __wctx.__enqueue_reactive_if_dirty();
+            }
             if !ctx.handled() {
-                root.on_app_message(self, &message, &mut ctx);
+                {
+                    let mut __wctx = WidgetCtx::__from_dispatch(NodeId::default(), &mut ctx);
+                    root.on_app_message(self, &message, &mut __wctx);
+                    __wctx.__enqueue_reactive_if_dirty();
+                }
             }
             outcome.handled |= ctx.handled();
             outcome.repaint_requested |= ctx.repaint_requested();

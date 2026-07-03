@@ -2,7 +2,7 @@ use rich_rs::{Console, ConsoleOptions, Renderable, Segments};
 use std::collections::HashSet;
 use std::time::Instant;
 
-use crate::event::{Event, EventCtx};
+use crate::event::Event;
 use crate::message::*;
 use crate::style::{Color, parse_color_like};
 use crate::validation::{ValidationResult, ValidatorRef};
@@ -609,7 +609,7 @@ impl MaskedInput {
         self.value.iter().collect()
     }
 
-    fn post_changed(&mut self, ctx: &mut EventCtx) {
+    fn post_changed(&mut self, ctx: &mut crate::event::WidgetCtx) {
         ctx.post_message(InputChanged {
             value: self.value_str(),
             validation: self.validation_result.clone(),
@@ -853,7 +853,7 @@ impl Widget for MaskedInput {
         true
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         match event {
             Event::AppFocus(active) => {
                 self.chrome.handle_app_focus(*active);
@@ -983,7 +983,7 @@ impl Widget for MaskedInput {
         }
     }
 
-    fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
+    fn on_message(&mut self, message: &MessageEvent, ctx: &mut crate::event::WidgetCtx) {
         if let Some(m) = message.downcast_ref::<TextEditClipboardPaste>() {
             if m.target != self.node_id() {
                 return;

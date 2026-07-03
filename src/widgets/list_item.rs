@@ -11,7 +11,7 @@ use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
 use crate::compose::ComposeResult;
 use crate::css;
-use crate::event::{Event, EventCtx};
+use crate::event::Event;
 use crate::message::*;
 
 use super::{NodeSeed, Widget};
@@ -175,7 +175,7 @@ impl Widget for ListItem {
         "ListItem"
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         if let Event::MouseDown(mouse) = event {
             if mouse.target == self.node_id() && !self.disabled {
                 // Inform the parent ListView so it can highlight + select this

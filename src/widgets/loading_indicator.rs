@@ -1,6 +1,6 @@
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
-use crate::event::{Event, EventCtx};
+use crate::event::Event;
 use crate::style::{Color, parse_color_like};
 
 use super::{NodeSeed, Widget, helpers::adjust_line_length_no_bg};
@@ -74,7 +74,7 @@ impl Widget for LoadingIndicator {
 
     /// Block input events during capture phase (like Python's `on_input` stopper).
     /// Non-input events (Tick, Resize, AppFocus, BindingsChanged) are allowed through.
-    fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event_capture(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         match event {
             Event::Key(_)
             | Event::Action(_)

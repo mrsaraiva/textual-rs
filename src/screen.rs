@@ -323,16 +323,16 @@ impl Widget for ScreenHost {
             .unwrap_or_default()
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         if let Ok(mut screen) = self.screen.lock() {
-            let mut screen_ctx = ScreenMessageCtx::new(ctx, &self.dismiss_slot);
+            let mut screen_ctx = ScreenMessageCtx::new(ctx.event_ctx_mut(), &self.dismiss_slot);
             screen.on_event(event, &mut screen_ctx);
         }
     }
 
-    fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
+    fn on_message(&mut self, message: &MessageEvent, ctx: &mut crate::event::WidgetCtx) {
         if let Ok(mut screen) = self.screen.lock() {
-            let mut screen_ctx = ScreenMessageCtx::new(ctx, &self.dismiss_slot);
+            let mut screen_ctx = ScreenMessageCtx::new(ctx.event_ctx_mut(), &self.dismiss_slot);
             screen.on_message(message, &mut screen_ctx);
         }
     }

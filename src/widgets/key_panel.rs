@@ -2,7 +2,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
-use crate::event::{Action, BindingHint, Event, EventCtx};
+use crate::event::{Action, BindingHint, Event};
 use crate::keys::format_key_display;
 use crate::message::*;
 use crate::style::parse_color_like;
@@ -369,7 +369,7 @@ impl KeyPanel {
         self.set_bindings(mapped);
     }
 
-    fn emit_scroll_changed_message(&self, ctx: &mut EventCtx) {
+    fn emit_scroll_changed_message(&self, ctx: &mut crate::event::WidgetCtx) {
         ctx.post_message(KeyPanelScrolled {
             offset: self.offset_y,
             max_offset: self.max_offset(),
@@ -453,7 +453,7 @@ impl Widget for KeyPanel {
         out
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         if let Event::BindingsChanged(bindings) = event {
             let previous = self.table.bindings.clone();
             self.set_binding_hints(bindings);
@@ -491,7 +491,7 @@ impl Widget for KeyPanel {
         }
     }
 
-    fn on_mouse_scroll(&mut self, _delta_x: i32, delta_y: i32, ctx: &mut EventCtx) {
+    fn on_mouse_scroll(&mut self, _delta_x: i32, delta_y: i32, ctx: &mut crate::event::WidgetCtx) {
         if delta_y == 0 || !self.can_scroll() {
             return;
         }
@@ -520,7 +520,7 @@ impl Widget for KeyPanel {
         std::mem::take(&mut self.seed)
     }
 
-    fn on_message(&mut self, event: &MessageEvent, ctx: &mut EventCtx) {
+    fn on_message(&mut self, event: &MessageEvent, ctx: &mut crate::event::WidgetCtx) {
         let Some(payload) = event.downcast_ref::<ScrollbarScrollTo>() else {
             return;
         };

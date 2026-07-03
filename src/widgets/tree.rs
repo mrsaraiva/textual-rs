@@ -1,7 +1,7 @@
 use crossterm::event::{KeyCode, KeyModifiers};
 use rich_rs::{Console, ConsoleOptions, MetaValue, Renderable, Segment, Segments};
 
-use crate::event::{Action, Event, EventCtx};
+use crate::event::{Action, Event};
 use crate::message::*;
 
 use crate::action::ParsedAction;
@@ -391,7 +391,7 @@ impl Tree {
     }
 
     /// Programmatically select a node: moves cursor and emits `TreeNodeSelected`.
-    pub fn select_node(&mut self, node_index: usize, ctx: &mut EventCtx) {
+    pub fn select_node(&mut self, node_index: usize, ctx: &mut crate::event::WidgetCtx) {
         let nodes = self.visible_nodes();
         let total = nodes.len();
         if total == 0 || node_index >= total {
@@ -581,7 +581,7 @@ impl Tree {
         }
     }
 
-    fn emit_selected(&self, ctx: &mut EventCtx, nodes: &[VisibleNode]) {
+    fn emit_selected(&self, ctx: &mut crate::event::WidgetCtx, nodes: &[VisibleNode]) {
         if let Some(node) = nodes.get(self.selected) {
             if node.disabled {
                 return;
@@ -594,7 +594,7 @@ impl Tree {
         }
     }
 
-    fn emit_activated(&self, ctx: &mut EventCtx, index: usize, nodes: &[VisibleNode]) {
+    fn emit_activated(&self, ctx: &mut crate::event::WidgetCtx, index: usize, nodes: &[VisibleNode]) {
         if let Some(node) = nodes.get(index) {
             if node.disabled {
                 return;
@@ -607,7 +607,7 @@ impl Tree {
         }
     }
 
-    fn emit_highlighted(&self, ctx: &mut EventCtx, nodes: &[VisibleNode]) {
+    fn emit_highlighted(&self, ctx: &mut crate::event::WidgetCtx, nodes: &[VisibleNode]) {
         if let Some(node) = nodes.get(self.selected) {
             ctx.post_message(TreeNodeHighlighted {
                 index: self.selected,
@@ -616,7 +616,7 @@ impl Tree {
         }
     }
 
-    fn emit_toggled(&self, ctx: &mut EventCtx, index: usize, label: String, expanded: bool) {
+    fn emit_toggled(&self, ctx: &mut crate::event::WidgetCtx, index: usize, label: String, expanded: bool) {
         ctx.post_message(TreeNodeToggled {
             index,
             label: label.clone(),
@@ -629,7 +629,7 @@ impl Tree {
         }
     }
 
-    fn select_index(&mut self, index: usize, ctx: &mut EventCtx) {
+    fn select_index(&mut self, index: usize, ctx: &mut crate::event::WidgetCtx) {
         let nodes = self.visible_nodes();
         let total = nodes.len();
         if total == 0 {
@@ -648,7 +648,7 @@ impl Tree {
         }
     }
 
-    fn move_selection(&mut self, delta: isize, ctx: &mut EventCtx) {
+    fn move_selection(&mut self, delta: isize, ctx: &mut crate::event::WidgetCtx) {
         let nodes = self.visible_nodes();
         let total = nodes.len();
         if total == 0 || self.selectable_count() == 0 {
@@ -672,7 +672,7 @@ impl Tree {
         self.viewport_height.saturating_sub(1).max(1)
     }
 
-    fn toggle_selected(&mut self, ctx: &mut EventCtx) {
+    fn toggle_selected(&mut self, ctx: &mut crate::event::WidgetCtx) {
         let nodes = self.visible_nodes();
         let Some(info) = nodes.get(self.selected).cloned() else {
             return;
@@ -690,7 +690,7 @@ impl Tree {
         ctx.request_repaint();
     }
 
-    fn toggle_index(&mut self, index: usize, ctx: &mut EventCtx) {
+    fn toggle_index(&mut self, index: usize, ctx: &mut crate::event::WidgetCtx) {
         let nodes = self.visible_nodes();
         let Some(info) = nodes.get(index).cloned() else {
             return;
@@ -708,7 +708,7 @@ impl Tree {
         ctx.request_repaint();
     }
 
-    fn collapse_or_parent(&mut self, ctx: &mut EventCtx) {
+    fn collapse_or_parent(&mut self, ctx: &mut crate::event::WidgetCtx) {
         let nodes = self.visible_nodes();
         let Some(info) = nodes.get(self.selected).cloned() else {
             return;
@@ -732,7 +732,7 @@ impl Tree {
         }
     }
 
-    fn expand_or_child(&mut self, ctx: &mut EventCtx) {
+    fn expand_or_child(&mut self, ctx: &mut crate::event::WidgetCtx) {
         let nodes = self.visible_nodes();
         let Some(info) = nodes.get(self.selected).cloned() else {
             return;
@@ -755,7 +755,7 @@ impl Tree {
     // ── Shift-key navigation (QW-22) ───────────────────────────────────
 
     /// Move cursor to the previous sibling; if none, move to parent.
-    fn cursor_previous_sibling(&mut self, ctx: &mut EventCtx) {
+    fn cursor_previous_sibling(&mut self, ctx: &mut crate::event::WidgetCtx) {
         let nodes = self.visible_nodes();
         let Some(info) = nodes.get(self.selected) else {
             return;
@@ -792,7 +792,7 @@ impl Tree {
     ///
     /// Python Textual semantics: if no next sibling exists at the current level,
     /// climb to the parent and try *its* next sibling instead.
-    fn cursor_next_sibling(&mut self, ctx: &mut EventCtx) {
+    fn cursor_next_sibling(&mut self, ctx: &mut crate::event::WidgetCtx) {
         let nodes = self.visible_nodes();
         let Some(info) = nodes.get(self.selected) else {
             return;
@@ -848,7 +848,7 @@ impl Tree {
     }
 
     /// Move cursor directly to the parent node.
-    fn cursor_parent(&mut self, ctx: &mut EventCtx) {
+    fn cursor_parent(&mut self, ctx: &mut crate::event::WidgetCtx) {
         let nodes = self.visible_nodes();
         let Some(info) = nodes.get(self.selected) else {
             return;
@@ -867,7 +867,7 @@ impl Tree {
     /// Python Textual's `action_toggle_expand_all` operates on the *siblings* at the
     /// cursor's level: if all expandable siblings are collapsed, expand them all;
     /// otherwise collapse them all.  Each sibling's full subtree is also toggled.
-    fn toggle_expand_all_selected(&mut self, ctx: &mut EventCtx) {
+    fn toggle_expand_all_selected(&mut self, ctx: &mut crate::event::WidgetCtx) {
         let nodes = self.visible_nodes();
         let Some(info) = nodes.get(self.selected).cloned() else {
             return;
@@ -899,7 +899,7 @@ impl Tree {
         ctx.request_repaint();
     }
 
-    fn scroll_offset(&mut self, delta_rows: isize, ctx: &mut EventCtx) {
+    fn scroll_offset(&mut self, delta_rows: isize, ctx: &mut crate::event::WidgetCtx) {
         let before = self.offset;
         self.offset = ScrollView::line_scroll_by(
             self.offset,
@@ -1174,7 +1174,7 @@ impl Widget for Tree {
         ]
     }
 
-    fn execute_action(&mut self, action: &ParsedAction, ctx: &mut EventCtx) -> bool {
+    fn execute_action(&mut self, action: &ParsedAction, ctx: &mut crate::event::WidgetCtx) -> bool {
         match action.name.as_str() {
             "cursor_up" => {
                 self.move_selection(-1, ctx);
@@ -1254,7 +1254,7 @@ impl Widget for Tree {
         }
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         match event {
             Event::MouseDown(mouse) if mouse.target == self.node_id() => {
                 let nodes = self.visible_nodes();
@@ -1423,7 +1423,7 @@ impl Widget for Tree {
         false
     }
 
-    fn on_mouse_scroll(&mut self, _delta_x: i32, delta_y: i32, ctx: &mut EventCtx) {
+    fn on_mouse_scroll(&mut self, _delta_x: i32, delta_y: i32, ctx: &mut crate::event::WidgetCtx) {
         if delta_y == 0 {
             return;
         }

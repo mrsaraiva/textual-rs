@@ -2,7 +2,7 @@ use crossterm::event::{KeyCode, KeyModifiers};
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
 use crate::content::Content;
-use crate::event::{Action, Event, EventCtx};
+use crate::event::{Action, Event};
 use crate::message::*;
 use crate::style::{Color, Style, TextAlign, parse_color_like};
 
@@ -1410,7 +1410,7 @@ impl Widget for DataTable {
         ]
     }
 
-    fn execute_action(&mut self, action: &ParsedAction, ctx: &mut EventCtx) -> bool {
+    fn execute_action(&mut self, action: &ParsedAction, ctx: &mut crate::event::WidgetCtx) -> bool {
         let width = self.content_width as usize;
         let height = self.content_height as usize;
         let visible_rows = self.visible_rows_for_viewport(height);
@@ -1560,7 +1560,7 @@ impl Widget for DataTable {
         handled
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         let visible_rows = self.visible_rows();
         let mut selection_changed = false;
         let mut cursor_changed = false;
@@ -1879,7 +1879,7 @@ impl Widget for DataTable {
         }
     }
 
-    fn on_mouse_scroll(&mut self, delta_x: i32, _delta_y: i32, ctx: &mut EventCtx) {
+    fn on_mouse_scroll(&mut self, delta_x: i32, _delta_y: i32, ctx: &mut crate::event::WidgetCtx) {
         if delta_x == 0 {
             return;
         }
@@ -2173,7 +2173,7 @@ impl Widget for DataTable {
         std::mem::take(&mut self.seed)
     }
 
-    fn on_message(&mut self, event: &MessageEvent, ctx: &mut EventCtx) {
+    fn on_message(&mut self, event: &MessageEvent, ctx: &mut crate::event::WidgetCtx) {
         let Some(payload) = event.downcast_ref::<ScrollbarScrollTo>() else {
             return;
         };

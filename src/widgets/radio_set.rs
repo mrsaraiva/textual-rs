@@ -1,7 +1,7 @@
 use crossterm::event::KeyCode;
 use rich_rs::{Console, ConsoleOptions, MetaValue, Renderable, Segment, Segments};
 
-use crate::event::{Event, EventCtx};
+use crate::event::Event;
 use crate::message::*;
 
 use super::{
@@ -191,7 +191,7 @@ impl RadioSet {
 
     /// Toggle the currently selected button. Enforces mutual exclusion:
     /// if the selected button is being turned on, turn off the previously pressed one.
-    fn toggle_selected(&mut self, ctx: &mut EventCtx) {
+    fn toggle_selected(&mut self, ctx: &mut crate::event::WidgetCtx) {
         if self.disabled || self.buttons.is_empty() {
             return;
         }
@@ -275,7 +275,7 @@ impl Widget for RadioSet {
         }
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         if self.disabled || self.buttons.is_empty() {
             return;
         }
@@ -308,7 +308,7 @@ impl Widget for RadioSet {
         }
     }
 
-    fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
+    fn on_message(&mut self, message: &MessageEvent, ctx: &mut crate::event::WidgetCtx) {
         // Intercept RadioButtonChanged messages from child buttons.
         // This handles the case where a child button is toggled directly
         // (e.g. via its own event handler if it ever receives one).

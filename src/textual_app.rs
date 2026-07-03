@@ -86,7 +86,7 @@ pub trait TextualApp: Send + 'static {
     ///
     /// Mirrors Python Textual's `on_mount` handler timing: all child widgets
     /// already exist and can be reached via `app.query_one()` / `app.query_mut()`.
-    fn on_mount_with_app(&mut self, _app: &mut App, _ctx: &mut EventCtx) {}
+    fn on_mount_with_app(&mut self, _app: &mut App, _ctx: &mut crate::event::WidgetCtx) {}
 
     /// Register typed message handlers. Called once before the runtime starts.
     ///
@@ -139,13 +139,13 @@ pub trait TextualApp: Send + 'static {
     }
 
     /// App-level action hook. Called after widget dispatch if the event was not handled.
-    fn on_action(&mut self, _action: Action, _ctx: &mut EventCtx) {}
+    fn on_action(&mut self, _action: Action, _ctx: &mut crate::event::WidgetCtx) {}
 
     /// App-level action hook with mutable runtime handle.
     ///
     /// This mirrors Python Textual-style app callbacks where action handlers can
     /// query/mutate application state via the runtime handle.
-    fn on_action_with_app(&mut self, app: &mut App, action: Action, ctx: &mut EventCtx) {
+    fn on_action_with_app(&mut self, app: &mut App, action: Action, ctx: &mut crate::event::WidgetCtx) {
         let _ = app;
         self.on_action(action, ctx);
     }
@@ -157,19 +157,19 @@ pub trait TextualApp: Send + 'static {
     /// Override this instead of `on_key_with_app` for actions tied to declarative
     /// bindings.  The `action` string is exactly what was declared as the action
     /// in `BindingDecl::new(key, action, description)`.
-    fn on_app_action_str(&mut self, _app: &mut App, _action: &str, _ctx: &mut EventCtx) {}
+    fn on_app_action_str(&mut self, _app: &mut App, _action: &str, _ctx: &mut crate::event::WidgetCtx) {}
 
     /// App-level key hook.
     ///
     /// Called during capture phase before child widgets, allowing global key
     /// interception akin to Python Textual's app-level key handling.
-    fn on_key(&mut self, _key: &KeyEventData, _ctx: &mut EventCtx) {}
+    fn on_key(&mut self, _key: &KeyEventData, _ctx: &mut crate::event::WidgetCtx) {}
 
     /// App-level key hook with mutable runtime handle.
     ///
     /// This is the Python Textual-aligned surface for app callbacks that need
     /// query/mutation APIs (`query_one`, `query_mut`, etc.) while handling keys.
-    fn on_key_with_app(&mut self, app: &mut App, key: &KeyEventData, ctx: &mut EventCtx) {
+    fn on_key_with_app(&mut self, app: &mut App, key: &KeyEventData, ctx: &mut crate::event::WidgetCtx) {
         let _ = app;
         self.on_key(key, ctx);
     }
@@ -178,65 +178,65 @@ pub trait TextualApp: Send + 'static {
     ///
     /// Called once per runtime tick after widget `on_tick` and before `Event::Tick`
     /// dispatch.
-    fn on_tick(&mut self, _tick: u64, _ctx: &mut EventCtx) {}
+    fn on_tick(&mut self, _tick: u64, _ctx: &mut crate::event::WidgetCtx) {}
 
     /// App-level tick hook with mutable runtime handle.
-    fn on_tick_with_app(&mut self, app: &mut App, tick: u64, ctx: &mut EventCtx) {
+    fn on_tick_with_app(&mut self, app: &mut App, tick: u64, ctx: &mut crate::event::WidgetCtx) {
         let _ = app;
         self.on_tick(tick, ctx);
     }
 
     /// App-level message hook. Called after widget message dispatch if not handled.
-    fn on_message(&mut self, _message: &MessageEvent, _ctx: &mut EventCtx) {}
+    fn on_message(&mut self, _message: &MessageEvent, _ctx: &mut crate::event::WidgetCtx) {}
 
     /// App-level message hook with mutable runtime handle.
-    fn on_message_with_app(&mut self, app: &mut App, message: &MessageEvent, ctx: &mut EventCtx) {
+    fn on_message_with_app(&mut self, app: &mut App, message: &MessageEvent, ctx: &mut crate::event::WidgetCtx) {
         let _ = app;
         self.on_message(message, ctx);
     }
 
     /// Typed convenience hook for button-pressed messages.
-    fn on_button_pressed(&mut self, _description: &str, _ctx: &mut EventCtx) {}
+    fn on_button_pressed(&mut self, _description: &str, _ctx: &mut crate::event::WidgetCtx) {}
 
     /// Typed convenience hook for input-changed messages.
     fn on_input_changed(
         &mut self,
         _value: &str,
         _validation: &ValidationResult,
-        _ctx: &mut EventCtx,
+        _ctx: &mut crate::event::WidgetCtx,
     ) {
     }
 
     /// Typed convenience hook for input-submitted messages.
-    fn on_input_submitted(&mut self, _value: &str, _ctx: &mut EventCtx) {}
+    fn on_input_submitted(&mut self, _value: &str, _ctx: &mut crate::event::WidgetCtx) {}
 
     /// Typed convenience hook for text-area-changed messages.
-    fn on_text_area_changed(&mut self, _value: &str, _ctx: &mut EventCtx) {}
+    fn on_text_area_changed(&mut self, _value: &str, _ctx: &mut crate::event::WidgetCtx) {}
 
     /// Typed convenience hook for checkbox-changed messages.
-    fn on_checkbox_changed(&mut self, _checked: bool, _ctx: &mut EventCtx) {}
+    fn on_checkbox_changed(&mut self, _checked: bool, _ctx: &mut crate::event::WidgetCtx) {}
 
     /// Typed convenience hook for list-view-selection-changed messages.
-    fn on_list_view_selection_changed(&mut self, _index: usize, _item: &str, _ctx: &mut EventCtx) {}
+    fn on_list_view_selection_changed(&mut self, _index: usize, _item: &str, _ctx: &mut crate::event::WidgetCtx) {}
 
     /// Typed convenience hook for list-view-activation messages.
-    fn on_list_view_item_activated(&mut self, _index: usize, _item: &str, _ctx: &mut EventCtx) {}
+    fn on_list_view_item_activated(&mut self, _index: usize, _item: &str, _ctx: &mut crate::event::WidgetCtx) {}
 
     /// Typed convenience hook for tab-activated messages.
-    fn on_tab_activated(&mut self, _index: usize, _title: &str, _ctx: &mut EventCtx) {}
+    fn on_tab_activated(&mut self, _index: usize, _title: &str, _ctx: &mut crate::event::WidgetCtx) {}
 
     /// Typed convenience hook for command palette open.
-    fn on_command_palette_opened(&mut self, _ctx: &mut EventCtx) {}
+    fn on_command_palette_opened(&mut self, _ctx: &mut crate::event::WidgetCtx) {}
 
     /// Typed convenience hook for command palette close.
-    fn on_command_palette_closed(&mut self, _ctx: &mut EventCtx) {}
+    fn on_command_palette_closed(&mut self, _ctx: &mut crate::event::WidgetCtx) {}
 
     /// Typed convenience hook for command palette selection.
     fn on_command_palette_command_selected(
         &mut self,
         _id: &str,
         _title: &str,
-        _ctx: &mut EventCtx,
+        _ctx: &mut crate::event::WidgetCtx,
     ) {
     }
 
@@ -270,16 +270,16 @@ pub trait TextualApp: Send + 'static {
 /// Command provider lifecycle for TextualApp command palette integration.
 pub trait CommandPaletteProvider: Send + Sync {
     /// Called when the command palette opens.
-    fn startup(&mut self, _ctx: &mut EventCtx) {}
+    fn startup(&mut self, _ctx: &mut crate::event::WidgetCtx) {}
 
     /// Return the commands currently provided by this provider.
     fn commands(&mut self) -> Vec<CommandPaletteCommand>;
 
     /// Called when one of this provider's commands is selected.
-    fn on_command_selected(&mut self, _command_id: &str, _ctx: &mut EventCtx) {}
+    fn on_command_selected(&mut self, _command_id: &str, _ctx: &mut crate::event::WidgetCtx) {}
 
     /// Called when the command palette closes.
-    fn shutdown(&mut self, _ctx: &mut EventCtx) {}
+    fn shutdown(&mut self, _ctx: &mut crate::event::WidgetCtx) {}
 }
 
 /// Explicit push/pop helper for apps that model screen-like navigation with overlays.
@@ -308,7 +308,7 @@ impl OverlayScreenStack {
         self.stack.last().copied()
     }
 
-    pub fn push(&mut self, _sender: NodeId, overlay: NodeId, ctx: &mut EventCtx) -> bool {
+    pub fn push(&mut self, _sender: NodeId, overlay: NodeId, ctx: &mut crate::event::WidgetCtx) -> bool {
         if self.current() == Some(overlay) {
             return false;
         }
@@ -321,7 +321,7 @@ impl OverlayScreenStack {
         true
     }
 
-    pub fn pop(&mut self, _sender: NodeId, ctx: &mut EventCtx) -> Option<NodeId> {
+    pub fn pop(&mut self, _sender: NodeId, ctx: &mut crate::event::WidgetCtx) -> Option<NodeId> {
         let removed = self.stack.pop()?;
         ctx.hide_overlay(removed);
         if let Some(previous) = self.current() {
@@ -330,7 +330,7 @@ impl OverlayScreenStack {
         Some(removed)
     }
 
-    pub fn clear(&mut self, _sender: NodeId, ctx: &mut EventCtx) {
+    pub fn clear(&mut self, _sender: NodeId, ctx: &mut crate::event::WidgetCtx) {
         while let Some(overlay) = self.stack.pop() {
             ctx.hide_overlay(overlay);
         }
@@ -435,7 +435,7 @@ impl<T: TextualApp> TextualAppAdapter<T> {
         false
     }
 
-    fn publish_command_palette_commands(&mut self, ctx: &mut EventCtx) {
+    fn publish_command_palette_commands(&mut self, ctx: &mut crate::event::WidgetCtx) {
         self.command_palette_provider_index.clear();
         let mut commands = self.system_commands();
         for (provider_index, provider) in self.command_palette_providers.iter_mut().enumerate() {
@@ -450,7 +450,7 @@ impl<T: TextualApp> TextualAppAdapter<T> {
         }
     }
 
-    fn shutdown_command_palette_providers(&mut self, ctx: &mut EventCtx) {
+    fn shutdown_command_palette_providers(&mut self, ctx: &mut crate::event::WidgetCtx) {
         for provider in &mut self.command_palette_providers {
             provider.shutdown(ctx);
         }
@@ -458,7 +458,7 @@ impl<T: TextualApp> TextualAppAdapter<T> {
         self.command_palette_provider_index.clear();
     }
 
-    fn initialize_command_palette_providers(&mut self, ctx: &mut EventCtx) {
+    fn initialize_command_palette_providers(&mut self, ctx: &mut crate::event::WidgetCtx) {
         self.shutdown_command_palette_providers(ctx);
         self.command_palette_providers = self
             .app
@@ -471,7 +471,7 @@ impl<T: TextualApp> TextualAppAdapter<T> {
         self.publish_command_palette_commands(ctx);
     }
 
-    fn handle_command_palette_selection(&mut self, command_id: &str, ctx: &mut EventCtx) {
+    fn handle_command_palette_selection(&mut self, command_id: &str, ctx: &mut crate::event::WidgetCtx) {
         let Some((provider_index, original_command_id)) =
             self.command_palette_provider_index.get(command_id).cloned()
         else {
@@ -498,7 +498,7 @@ impl<T: TextualApp> TextualAppAdapter<T> {
     /// Repaint/layout/styles flags from setters and watchers are all propagated
     /// to `ctx` (using `EventCtx::request_repaint`,
     /// `request_layout_invalidation`, `request_style_invalidation`).
-    fn dispatch_app_reactive(&self, app: &mut App, ctx: &mut EventCtx) {
+    fn dispatch_app_reactive(&self, app: &mut App, ctx: &mut crate::event::WidgetCtx) {
         let mut needs_repaint = false;
         let mut needs_layout = false;
         let mut needs_styles = false;
@@ -631,7 +631,7 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
             .check_action(action, parameters)
     }
 
-    fn execute_action(&mut self, action: &ParsedAction, ctx: &mut EventCtx) -> bool {
+    fn execute_action(&mut self, action: &ParsedAction, ctx: &mut crate::event::WidgetCtx) -> bool {
         fn selector_and_class(action: &ParsedAction) -> Option<(&str, &str)> {
             if action.arguments.len() != 2 {
                 return None;
@@ -920,8 +920,8 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
         self.app_child.render_styled(console, options)
     }
 
-    fn on_mount(&mut self) {
-        self.app_child.on_mount();
+    fn on_mount(&mut self, ctx: &mut crate::event::WidgetCtx) {
+        self.app_child.on_mount(ctx);
         self.app
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -929,7 +929,8 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
     }
 
     fn on_unmount(&mut self) {
-        let mut ctx = EventCtx::default();
+        let mut ectx = EventCtx::default();
+        let mut ctx = crate::event::WidgetCtx::__from_dispatch(NodeId::default(), &mut ectx);
         self.shutdown_command_palette_providers(&mut ctx);
         self.app_child.on_unmount();
     }
@@ -950,15 +951,15 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
         self.app_child.on_mouse_move(x, y)
     }
 
-    fn on_mouse_scroll(&mut self, delta_x: i32, delta_y: i32, ctx: &mut EventCtx) {
+    fn on_mouse_scroll(&mut self, delta_x: i32, delta_y: i32, ctx: &mut crate::event::WidgetCtx) {
         self.app_child.on_mouse_scroll(delta_x, delta_y, ctx);
     }
 
-    fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event_capture(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         self.app_child.on_event_capture(event, ctx);
     }
 
-    fn on_app_key(&mut self, app: &mut App, key: &KeyEventData, ctx: &mut EventCtx) {
+    fn on_app_key(&mut self, app: &mut App, key: &KeyEventData, ctx: &mut crate::event::WidgetCtx) {
         self.app
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -966,7 +967,7 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
         self.dispatch_app_reactive(app, ctx);
     }
 
-    fn on_app_action(&mut self, app: &mut App, action: Action, ctx: &mut EventCtx) {
+    fn on_app_action(&mut self, app: &mut App, action: Action, ctx: &mut crate::event::WidgetCtx) {
         self.app
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -974,7 +975,7 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
         self.dispatch_app_reactive(app, ctx);
     }
 
-    fn on_app_unhandled_action(&mut self, app: &mut App, action: &str, ctx: &mut EventCtx) {
+    fn on_app_unhandled_action(&mut self, app: &mut App, action: &str, ctx: &mut crate::event::WidgetCtx) {
         self.app
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -982,7 +983,7 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
         self.dispatch_app_reactive(app, ctx);
     }
 
-    fn on_app_message(&mut self, app: &mut App, message: &MessageEvent, ctx: &mut EventCtx) {
+    fn on_app_message(&mut self, app: &mut App, message: &MessageEvent, ctx: &mut crate::event::WidgetCtx) {
         if self.sync_help_panel_visible_from_runtime(app) && self.command_palette_visible {
             self.publish_command_palette_commands(ctx);
         }
@@ -993,7 +994,7 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
         self.dispatch_app_reactive(app, ctx);
     }
 
-    fn on_app_tick(&mut self, app: &mut App, tick: u64, ctx: &mut EventCtx) {
+    fn on_app_tick(&mut self, app: &mut App, tick: u64, ctx: &mut crate::event::WidgetCtx) {
         self.app
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -1001,16 +1002,16 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
         self.dispatch_app_reactive(app, ctx);
     }
 
-    fn on_app_timer(&mut self, app: &mut App, ctx: &mut EventCtx) {
+    fn on_app_timer(&mut self, app: &mut App, ctx: &mut crate::event::WidgetCtx) {
         // Run due app-level timer callbacks (set_interval / set_timer). Each
         // callback may mutate reactive fields via `app.reactive_ctx()`; the
         // app-reactive bridge then fires the corresponding watchers, exactly as
         // it does after `on_app_tick`.
-        app.run_due_timer_callbacks(ctx);
+        app.run_due_timer_callbacks(ctx.event_ctx_mut());
         self.dispatch_app_reactive(app, ctx);
     }
 
-    fn on_app_mount(&mut self, app: &mut App, ctx: &mut EventCtx) {
+    fn on_app_mount(&mut self, app: &mut App, ctx: &mut crate::event::WidgetCtx) {
         // Register the type-erased app struct so timer callbacks (and any other
         // runtime callback) can re-enter it via `app.with_app_struct::<T>()`.
         app.set_app_struct(Arc::clone(&self.app) as Arc<Mutex<dyn std::any::Any + Send>>);
@@ -1062,11 +1063,11 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
         self.dispatch_app_reactive(app, ctx);
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         self.app_child.on_event(event, ctx);
     }
 
-    fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
+    fn on_message(&mut self, message: &MessageEvent, ctx: &mut crate::event::WidgetCtx) {
         self.app_child.on_message(message, ctx);
         if ctx.handled() {
             return;
@@ -1122,7 +1123,7 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
         // (Block B), so `command_palette_visible` / `help_panel_visible` are already set.
         {
             let mut app = self.app.lock().unwrap_or_else(|e| e.into_inner());
-            self.message_handlers.dispatch(&mut *app, message, ctx);
+            self.message_handlers.dispatch(&mut *app, message, ctx.event_ctx_mut());
         }
         if ctx.handled() {
             return;
@@ -1450,7 +1451,7 @@ mod tests {
     }
 
     impl CommandPaletteProvider for TestProvider {
-        fn startup(&mut self, _ctx: &mut EventCtx) {
+        fn startup(&mut self, _ctx: &mut crate::event::WidgetCtx) {
             self.state.startup_count.fetch_add(1, Ordering::SeqCst);
         }
 
@@ -1462,13 +1463,13 @@ mod tests {
             }]
         }
 
-        fn on_command_selected(&mut self, command_id: &str, _ctx: &mut EventCtx) {
+        fn on_command_selected(&mut self, command_id: &str, _ctx: &mut crate::event::WidgetCtx) {
             if command_id == "deploy" {
                 self.state.selected_count.fetch_add(1, Ordering::SeqCst);
             }
         }
 
-        fn shutdown(&mut self, _ctx: &mut EventCtx) {
+        fn shutdown(&mut self, _ctx: &mut crate::event::WidgetCtx) {
             self.state.shutdown_count.fetch_add(1, Ordering::SeqCst);
         }
     }
@@ -1489,7 +1490,7 @@ mod tests {
             })]
         }
 
-        fn on_button_pressed(&mut self, description: &str, _ctx: &mut EventCtx) {
+        fn on_button_pressed(&mut self, description: &str, _ctx: &mut crate::event::WidgetCtx) {
             self.hooks.last_button = Some(description.to_string());
         }
 
@@ -1497,22 +1498,22 @@ mod tests {
             &mut self,
             value: &str,
             validation: &ValidationResult,
-            _ctx: &mut EventCtx,
+            _ctx: &mut crate::event::WidgetCtx,
         ) {
             self.hooks
                 .input_changed
                 .replace((value.to_string(), validation.is_valid));
         }
 
-        fn on_input_submitted(&mut self, value: &str, _ctx: &mut EventCtx) {
+        fn on_input_submitted(&mut self, value: &str, _ctx: &mut crate::event::WidgetCtx) {
             self.hooks.input_submitted = Some(value.to_string());
         }
 
-        fn on_text_area_changed(&mut self, value: &str, _ctx: &mut EventCtx) {
+        fn on_text_area_changed(&mut self, value: &str, _ctx: &mut crate::event::WidgetCtx) {
             self.hooks.text_area_changed = Some(value.to_string());
         }
 
-        fn on_checkbox_changed(&mut self, checked: bool, _ctx: &mut EventCtx) {
+        fn on_checkbox_changed(&mut self, checked: bool, _ctx: &mut crate::event::WidgetCtx) {
             self.hooks.checkbox_changed = Some(checked);
         }
 
@@ -1520,24 +1521,24 @@ mod tests {
             &mut self,
             index: usize,
             item: &str,
-            _ctx: &mut EventCtx,
+            _ctx: &mut crate::event::WidgetCtx,
         ) {
             self.hooks.list_selection = Some((index, item.to_string()));
         }
 
-        fn on_list_view_item_activated(&mut self, index: usize, item: &str, _ctx: &mut EventCtx) {
+        fn on_list_view_item_activated(&mut self, index: usize, item: &str, _ctx: &mut crate::event::WidgetCtx) {
             self.hooks.list_activated = Some((index, item.to_string()));
         }
 
-        fn on_tab_activated(&mut self, index: usize, title: &str, _ctx: &mut EventCtx) {
+        fn on_tab_activated(&mut self, index: usize, title: &str, _ctx: &mut crate::event::WidgetCtx) {
             self.hooks.tab_activated = Some((index, title.to_string()));
         }
 
-        fn on_command_palette_opened(&mut self, _ctx: &mut EventCtx) {
+        fn on_command_palette_opened(&mut self, _ctx: &mut crate::event::WidgetCtx) {
             self.hooks.command_palette_events.push("opened".to_string());
         }
 
-        fn on_command_palette_closed(&mut self, _ctx: &mut EventCtx) {
+        fn on_command_palette_closed(&mut self, _ctx: &mut crate::event::WidgetCtx) {
             self.hooks.command_palette_events.push("closed".to_string());
         }
 
@@ -1545,14 +1546,14 @@ mod tests {
             &mut self,
             id: &str,
             _title: &str,
-            _ctx: &mut EventCtx,
+            _ctx: &mut crate::event::WidgetCtx,
         ) {
             self.hooks
                 .command_palette_events
                 .push(format!("selected:{id}"));
         }
 
-        fn on_message(&mut self, _message: &MessageEvent, _ctx: &mut EventCtx) {
+        fn on_message(&mut self, _message: &MessageEvent, _ctx: &mut crate::event::WidgetCtx) {
             self.hooks.fallback_count += 1;
         }
     }
@@ -1586,7 +1587,7 @@ mod tests {
             Segments::new()
         }
 
-        fn on_event_capture(&mut self, event: &Event, _ctx: &mut EventCtx) {
+        fn on_event_capture(&mut self, event: &Event, _ctx: &mut crate::event::WidgetCtx) {
             if matches!(event, Event::Key(_)) {
                 self.capture_hits.fetch_add(1, Ordering::SeqCst);
             }
@@ -1603,7 +1604,7 @@ mod tests {
             crate::widgets::AppRoot::new()
         }
 
-        fn on_key(&mut self, _key: &KeyEventData, ctx: &mut EventCtx) {
+        fn on_key(&mut self, _key: &KeyEventData, ctx: &mut crate::event::WidgetCtx) {
             self.key_hits.fetch_add(1, Ordering::SeqCst);
             if self.handle_key {
                 ctx.set_handled();
@@ -1622,15 +1623,15 @@ mod tests {
             crate::widgets::AppRoot::new()
         }
 
-        fn on_action(&mut self, _action: Action, _ctx: &mut EventCtx) {
+        fn on_action(&mut self, _action: Action, _ctx: &mut crate::event::WidgetCtx) {
             self.action_hits.fetch_add(1, Ordering::SeqCst);
         }
 
-        fn on_message(&mut self, _message: &MessageEvent, _ctx: &mut EventCtx) {
+        fn on_message(&mut self, _message: &MessageEvent, _ctx: &mut crate::event::WidgetCtx) {
             self.message_hits.fetch_add(1, Ordering::SeqCst);
         }
 
-        fn on_tick(&mut self, _tick: u64, _ctx: &mut EventCtx) {
+        fn on_tick(&mut self, _tick: u64, _ctx: &mut crate::event::WidgetCtx) {
             self.tick_hits.fetch_add(1, Ordering::SeqCst);
         }
     }
@@ -1646,7 +1647,7 @@ mod tests {
             crate::widgets::AppRoot::new()
         }
 
-        fn on_action_with_app(&mut self, app: &mut App, _action: Action, _ctx: &mut EventCtx) {
+        fn on_action_with_app(&mut self, app: &mut App, _action: Action, _ctx: &mut crate::event::WidgetCtx) {
             app.set_css_runtime_pseudos(true, false, true);
             self.action_hits.fetch_add(1, Ordering::SeqCst);
         }
@@ -1655,7 +1656,7 @@ mod tests {
             &mut self,
             app: &mut App,
             _message: &MessageEvent,
-            _ctx: &mut EventCtx,
+            _ctx: &mut crate::event::WidgetCtx,
         ) {
             let (inline, ansi, nocolor) = app.css_runtime_pseudos();
             if inline && !ansi && nocolor {
@@ -1663,7 +1664,7 @@ mod tests {
             }
         }
 
-        fn on_tick_with_app(&mut self, app: &mut App, _tick: u64, _ctx: &mut EventCtx) {
+        fn on_tick_with_app(&mut self, app: &mut App, _tick: u64, _ctx: &mut crate::event::WidgetCtx) {
             let _ = app.query_one_optional("Button");
             self.tick_hits.fetch_add(1, Ordering::SeqCst);
         }
@@ -2594,19 +2595,19 @@ mod tests {
             AppRoot::new()
         }
 
-        fn on_key_with_app(&mut self, app: &mut App, _key: &KeyEventData, _ctx: &mut EventCtx) {
+        fn on_key_with_app(&mut self, app: &mut App, _key: &KeyEventData, _ctx: &mut crate::event::WidgetCtx) {
             self.set_count(self.count + 1, app.reactive_ctx());
         }
 
-        fn on_action_with_app(&mut self, app: &mut App, _action: Action, _ctx: &mut EventCtx) {
+        fn on_action_with_app(&mut self, app: &mut App, _action: Action, _ctx: &mut crate::event::WidgetCtx) {
             self.set_count(self.count + 10, app.reactive_ctx());
         }
 
-        fn on_tick_with_app(&mut self, app: &mut App, _tick: u64, _ctx: &mut EventCtx) {
+        fn on_tick_with_app(&mut self, app: &mut App, _tick: u64, _ctx: &mut crate::event::WidgetCtx) {
             self.set_count(self.count + 100, app.reactive_ctx());
         }
 
-        fn on_mount_with_app(&mut self, app: &mut App, _ctx: &mut EventCtx) {
+        fn on_mount_with_app(&mut self, app: &mut App, _ctx: &mut crate::event::WidgetCtx) {
             // Simulate init: call setter so watcher fires once at mount.
             self.set_count(self.count, app.reactive_ctx());
         }
@@ -2735,7 +2736,7 @@ mod tests {
                 AppRoot::new()
             }
 
-            fn on_key_with_app(&mut self, app: &mut App, _key: &KeyEventData, _ctx: &mut EventCtx) {
+            fn on_key_with_app(&mut self, app: &mut App, _key: &KeyEventData, _ctx: &mut crate::event::WidgetCtx) {
                 use crate::reactive::ReactiveFlags;
                 // Even if setter is called, reactive_widget_mut() == None means
                 // no watcher dispatch — changes are just discarded.
@@ -3020,7 +3021,7 @@ mod tests {
     impl TextualApp for InitOrderApp {
         fn compose(&mut self) -> AppRoot { AppRoot::new() }
 
-        fn on_mount_with_app(&mut self, _app: &mut App, _ctx: &mut EventCtx) {
+        fn on_mount_with_app(&mut self, _app: &mut App, _ctx: &mut crate::event::WidgetCtx) {
             self.log.push("on_mount_with_app");
         }
 
@@ -3100,7 +3101,7 @@ mod tests {
             });
         }
 
-        fn on_button_pressed(&mut self, _description: &str, _ctx: &mut EventCtx) {
+        fn on_button_pressed(&mut self, _description: &str, _ctx: &mut crate::event::WidgetCtx) {
             self.builtin_hook_count += 1;
         }
     }
@@ -3126,7 +3127,7 @@ mod tests {
             });
         }
 
-        fn on_button_pressed(&mut self, _description: &str, _ctx: &mut EventCtx) {
+        fn on_button_pressed(&mut self, _description: &str, _ctx: &mut crate::event::WidgetCtx) {
             self.builtin_hook_count += 1;
         }
     }

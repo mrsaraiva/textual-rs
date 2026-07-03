@@ -1,7 +1,7 @@
 use crossterm::event::KeyCode;
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
-use crate::event::{Event, EventCtx, MouseDownEvent};
+use crate::event::{Event, MouseDownEvent};
 use crate::message::*;
 use crate::render::{Cell, FrameBuffer};
 use crate::runtime::dispatch_ctx::set_dispatch_recipient;
@@ -262,7 +262,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Select<T> {
 
     // ── Internals ───────────────────────────────────────────────────
 
-    fn set_open(&mut self, open: bool, ctx: &mut EventCtx) {
+    fn set_open(&mut self, open: bool, ctx: &mut crate::event::WidgetCtx) {
         if self.open == open {
             return;
         }
@@ -287,7 +287,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Select<T> {
         ctx.request_repaint();
     }
 
-    fn apply_selection(&mut self, index: usize, ctx: &mut EventCtx) {
+    fn apply_selection(&mut self, index: usize, ctx: &mut crate::event::WidgetCtx) {
         if index >= self.options.len() {
             return;
         }
@@ -417,7 +417,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for Select<T> {
         ]
     }
 
-    fn execute_action(&mut self, action: &ParsedAction, ctx: &mut EventCtx) -> bool {
+    fn execute_action(&mut self, action: &ParsedAction, ctx: &mut crate::event::WidgetCtx) -> bool {
         if self.disabled {
             return false;
         }
@@ -442,7 +442,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for Select<T> {
         }
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         if self.disabled {
             return;
         }
@@ -557,7 +557,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for Select<T> {
         }
     }
 
-    fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
+    fn on_message(&mut self, message: &MessageEvent, ctx: &mut crate::event::WidgetCtx) {
         // Handle OptionSelected from inner list.
         if message.sender == self.node_id() {
             if let Some(OptionSelected { index }) = message.downcast_ref::<OptionSelected>() {
@@ -582,7 +582,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for Select<T> {
         false
     }
 
-    fn on_mouse_scroll(&mut self, delta_x: i32, delta_y: i32, ctx: &mut EventCtx) {
+    fn on_mouse_scroll(&mut self, delta_x: i32, delta_y: i32, ctx: &mut crate::event::WidgetCtx) {
         if self.disabled {
             return;
         }
@@ -814,7 +814,7 @@ mod tests {
         make_select().with_allow_blank(true)
     }
 
-    fn dispatch_messages(sel: &mut Select<i32>, ctx: &mut EventCtx) -> Vec<MessageEvent> {
+    fn dispatch_messages(sel: &mut Select<i32>, ctx: &mut crate::event::WidgetCtx) -> Vec<MessageEvent> {
         let mut delivered = Vec::new();
         loop {
             let batch = ctx.take_messages();

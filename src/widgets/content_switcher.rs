@@ -2,7 +2,7 @@ use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
 use crate::compose::ComposeResult;
 use crate::css;
-use crate::event::{Event, EventCtx};
+use crate::event::Event;
 use crate::widgets::delegate::delegate_widget_method;
 
 use super::{
@@ -273,9 +273,9 @@ impl Widget for ContentSwitcher {
         Some(self.current_child_index() == Some(child_index))
     }
 
-    fn on_mount(&mut self) {
+    fn on_mount(&mut self, ctx: &mut crate::event::WidgetCtx) {
         for child in &mut self.children {
-            child.on_mount();
+            child.on_mount(ctx);
         }
     }
 
@@ -297,19 +297,19 @@ impl Widget for ContentSwitcher {
         }
     }
 
-    fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event_capture(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         if let Some(child) = self.visible_child_mut() {
             child.on_event_capture(event, ctx);
         }
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         if let Some(child) = self.visible_child_mut() {
             child.on_event(event, ctx);
         }
     }
 
-    fn on_message(&mut self, message: &crate::message::MessageEvent, ctx: &mut EventCtx) {
+    fn on_message(&mut self, message: &crate::message::MessageEvent, ctx: &mut crate::event::WidgetCtx) {
         if let Some(child) = self.visible_child_mut() {
             child.on_message(message, ctx);
         }

@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use crossterm::event::{KeyCode, KeyModifiers};
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments, Style as RichStyle};
 
-use crate::event::{Action, Event, EventCtx};
+use crate::event::{Action, Event};
 use crate::message::*;
 
 use super::helpers::adjust_line_length_no_bg;
@@ -326,7 +326,7 @@ impl Log {
         );
     }
 
-    fn emit_scroll_changed_message(&self, ctx: &mut EventCtx) {
+    fn emit_scroll_changed_message(&self, ctx: &mut crate::event::WidgetCtx) {
         ctx.post_message(RichLogScrolled {
             offset: self.offset_y,
             max_offset: self.max_offset(),
@@ -655,7 +655,7 @@ impl Widget for Log {
         true
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         // WP-24: handle key events for copy
         if let Event::Key(key) = event {
             if self.node_state().focused {
@@ -728,7 +728,7 @@ impl Widget for Log {
         }
     }
 
-    fn on_mouse_scroll(&mut self, _delta_x: i32, delta_y: i32, ctx: &mut EventCtx) {
+    fn on_mouse_scroll(&mut self, _delta_x: i32, delta_y: i32, ctx: &mut crate::event::WidgetCtx) {
         if delta_y == 0 {
             return;
         }
@@ -777,7 +777,7 @@ impl Widget for Log {
         self.selected_text()
     }
 
-    fn on_message(&mut self, event: &MessageEvent, ctx: &mut EventCtx) {
+    fn on_message(&mut self, event: &MessageEvent, ctx: &mut crate::event::WidgetCtx) {
         let Some(payload) = event.downcast_ref::<ScrollbarScrollTo>() else {
             return;
         };

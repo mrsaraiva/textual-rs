@@ -3,7 +3,7 @@ use std::ops::Range;
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments, Text};
 
 use crate::debug::debug_message;
-use crate::event::{Event, EventCtx};
+use crate::event::Event;
 use crate::message::*;
 use crate::renderables::Styled;
 
@@ -583,7 +583,7 @@ impl Footer {
             .collect()
     }
 
-    fn apply_bindings(&mut self, next: Vec<FooterBinding>, ctx: &mut EventCtx) {
+    fn apply_bindings(&mut self, next: Vec<FooterBinding>, ctx: &mut crate::event::WidgetCtx) {
         if next == self.bindings {
             return;
         }
@@ -853,7 +853,7 @@ impl Widget for Footer {
         Some(1)
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         match event {
             Event::AppFocus(active) => {
                 self.app_focused = *active;

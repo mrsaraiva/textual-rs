@@ -3,7 +3,7 @@ use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
 use crate::compose::ComposeResult;
 use crate::css;
-use crate::event::{Action, Event, EventCtx};
+use crate::event::{Action, Event};
 use crate::message::*;
 
 use crate::action::ParsedAction;
@@ -364,7 +364,7 @@ impl ListView {
     }
 
     /// Post the Python `ListView.Highlighted` message for the current selection.
-    fn emit_highlighted(&self, ctx: &mut EventCtx) {
+    fn emit_highlighted(&self, ctx: &mut crate::event::WidgetCtx) {
         if self.is_selectable(self.selected)
             && let Some(item) = self.item_text.get(self.selected)
         {
@@ -376,7 +376,7 @@ impl ListView {
     }
 
     /// Post the Python `ListView.Selected` message for `index`.
-    fn emit_selected(&self, index: usize, ctx: &mut EventCtx) {
+    fn emit_selected(&self, index: usize, ctx: &mut crate::event::WidgetCtx) {
         if self.is_selectable(index)
             && let Some(item) = self.item_text.get(index)
         {
@@ -387,7 +387,7 @@ impl ListView {
         }
     }
 
-    fn select_index(&mut self, index: usize, ctx: &mut EventCtx) {
+    fn select_index(&mut self, index: usize, ctx: &mut crate::event::WidgetCtx) {
         if self.selectable_count() == 0 {
             return;
         }
@@ -403,7 +403,7 @@ impl ListView {
         }
     }
 
-    fn move_selection(&mut self, delta: isize, ctx: &mut EventCtx) {
+    fn move_selection(&mut self, delta: isize, ctx: &mut crate::event::WidgetCtx) {
         if self.selectable_count() == 0 {
             return;
         }
@@ -435,7 +435,7 @@ impl ListView {
             .map(|w| w.max(1))
     }
 
-    fn scroll_offset(&mut self, delta_rows: isize, ctx: &mut EventCtx) {
+    fn scroll_offset(&mut self, delta_rows: isize, ctx: &mut crate::event::WidgetCtx) {
         let before = self.offset;
         self.offset = ScrollView::line_scroll_by(
             self.offset,
@@ -551,7 +551,7 @@ impl Widget for ListView {
         ]
     }
 
-    fn execute_action(&mut self, action: &ParsedAction, ctx: &mut EventCtx) -> bool {
+    fn execute_action(&mut self, action: &ParsedAction, ctx: &mut crate::event::WidgetCtx) -> bool {
         match action.name.as_str() {
             "cursor_up" => {
                 self.move_selection(-1, ctx);
@@ -596,7 +596,7 @@ impl Widget for ListView {
         }
     }
 
-    fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
+    fn on_message(&mut self, message: &MessageEvent, ctx: &mut crate::event::WidgetCtx) {
         // A child ListItem was clicked (Python: `_on_list_item__child_clicked`):
         // focus the list, highlight the item, and post `Selected`.
         if let Some(clicked) = message.downcast_ref::<ListItemChildClicked>() {
@@ -614,7 +614,7 @@ impl Widget for ListView {
         }
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         match event {
             // Headless mouse path (row-based): used when ListView is embedded as
             // a state model (the command palette) rather than mounted with real
@@ -717,7 +717,7 @@ impl Widget for ListView {
         false
     }
 
-    fn on_mouse_scroll(&mut self, _delta_x: i32, delta_y: i32, ctx: &mut EventCtx) {
+    fn on_mouse_scroll(&mut self, _delta_x: i32, delta_y: i32, ctx: &mut crate::event::WidgetCtx) {
         if delta_y == 0 {
             return;
         }

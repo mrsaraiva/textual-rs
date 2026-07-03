@@ -1,5 +1,4 @@
 use crate::compose::ComposeResult;
-use crate::event::EventCtx;
 use crate::widgets::{BindingDecl, Container, Widget};
 
 use super::ScrollView;
@@ -174,7 +173,7 @@ impl Widget for ScrollableContainer {
         bindings
     }
 
-    fn execute_action(&mut self, action: &crate::action::ParsedAction, ctx: &mut EventCtx) -> bool {
+    fn execute_action(&mut self, action: &crate::action::ParsedAction, ctx: &mut crate::event::WidgetCtx) -> bool {
         match action.name.as_str() {
             "page_left" => {
                 let before = self.inner.offset_x();

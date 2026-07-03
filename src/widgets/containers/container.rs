@@ -5,7 +5,7 @@ use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 use crate::compose::ComposeResult;
 use crate::css;
 use crate::debug::DebugLayout;
-use crate::event::{Event, EventCtx};
+use crate::event::Event;
 use crate::message::{MessageEvent, ScrollbarAxis, ScrollbarScrollTo};
 use crate::style::Overflow;
 use crate::widgets::{NodeSeed, Widget, helpers::apply_debug_box, scrollbar_max_offset};
@@ -301,7 +301,7 @@ impl Widget for Container {
         out
     }
 
-    fn on_mount(&mut self) {}
+    fn on_mount(&mut self, _ctx: &mut crate::event::WidgetCtx) {}
 
     fn on_unmount(&mut self) {}
 
@@ -330,9 +330,9 @@ impl Widget for Container {
         self.clamp_offsets();
     }
 
-    fn on_event_capture(&mut self, _event: &Event, _ctx: &mut EventCtx) {}
+    fn on_event_capture(&mut self, _event: &Event, _ctx: &mut crate::event::WidgetCtx) {}
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         if !self.is_scroll_host() {
             return;
         }
@@ -386,7 +386,7 @@ impl Widget for Container {
         }
     }
 
-    fn on_message(&mut self, msg: &MessageEvent, ctx: &mut EventCtx) {
+    fn on_message(&mut self, msg: &MessageEvent, ctx: &mut crate::event::WidgetCtx) {
         let Some(ScrollbarScrollTo { axis, offset, .. }) = msg.downcast_ref::<ScrollbarScrollTo>()
         else {
             return;
@@ -400,7 +400,7 @@ impl Widget for Container {
         ctx.set_handled();
     }
 
-    fn on_mouse_scroll(&mut self, delta_x: i32, delta_y: i32, ctx: &mut EventCtx) {
+    fn on_mouse_scroll(&mut self, delta_x: i32, delta_y: i32, ctx: &mut crate::event::WidgetCtx) {
         if !self.is_scroll_host() {
             return;
         }

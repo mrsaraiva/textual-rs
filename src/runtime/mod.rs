@@ -1,4 +1,5 @@
 mod commands;
+pub use commands::TimerTick;
 mod devtools;
 pub mod dispatch_ctx;
 mod event_loop;
@@ -563,7 +564,7 @@ pub struct App {
     /// Widget-owned interval callbacks (`WidgetCtx::set_interval`), keyed by the
     /// timer id and carrying the owning node. Fired against the node's widget with
     /// a fresh `WidgetCtx` by [`App::run_due_widget_timer_callbacks`].
-    widget_timer_callbacks: HashMap<u64, (NodeId, commands::WidgetTimerCallback)>,
+    widget_timer_callbacks: HashMap<u64, commands::WidgetTimerEntry>,
     /// Widget-owned timer ids whose deadline elapsed this drain but whose callback
     /// has not yet run (parallel to `pending_timer_fires`).
     pending_widget_timer_fires: Vec<u64>,
@@ -978,10 +979,28 @@ impl App {
     pub(crate) fn run_due_widget_timer_callbacks(&mut self, pending: &mut PendingInvalidation) {
         let due = std::mem::take(&mut self.pending_widget_timer_fires);
         for timer_id in due {
-            let Some((node, mut callback)) = self.widget_timer_callbacks.remove(&timer_id) else {
+            let Some(entry) = self.widget_timer_callbacks.remove(&timer_id) else {
                 continue;
             };
-            let ran = self.run_on_node_widget(node, |w, ctx| callback(w, ctx), pending);
+            let commands::WidgetTimerEntry {
+                node,
+                mut callback,
+                last_fire,
+                fire_count,
+            } = entry;
+            // Per-fire timing: real clock elapsed since the previous fire, so a
+            // time-accumulating callback stays drift-free (and deterministic under
+            // the manual clock). `skip`-coalesced backlog fires still advance by the
+            // true elapsed time.
+            let now = self.timers.now();
+            let elapsed = now.saturating_duration_since(last_fire);
+            let new_count = fire_count + 1;
+            let tick = commands::TimerTick {
+                elapsed,
+                fire_count: new_count,
+            };
+            let ran =
+                self.run_on_node_widget(node, |w, ctx| callback(w, ctx, tick), pending);
             if !ran {
                 // Node unmounted since scheduling: purge (backstop), drop callback.
                 self.timers.cancel(timer_id);
@@ -990,7 +1009,15 @@ impl App {
             // Reinsert only if still scheduled (repeating, not stopped by the
             // callback). One-shot / stopped timers are dropped here.
             if self.timers.contains(timer_id) {
-                self.widget_timer_callbacks.insert(timer_id, (node, callback));
+                self.widget_timer_callbacks.insert(
+                    timer_id,
+                    commands::WidgetTimerEntry {
+                        node,
+                        callback,
+                        last_fire: now,
+                        fire_count: new_count,
+                    },
+                );
             }
         }
     }
@@ -1001,7 +1028,7 @@ impl App {
         let ids: Vec<u64> = self
             .widget_timer_callbacks
             .iter()
-            .filter(|(_, (owner, _))| *owner == node)
+            .filter(|(_, entry)| entry.node == node)
             .map(|(id, _)| *id)
             .collect();
         for id in ids {
@@ -1906,7 +1933,9 @@ impl App {
             if changed {
                 let mut selection_ctx = EventCtx::default();
                 selection_ctx.set_node_id(target);
-                widget.selection_updated(&mut selection_ctx);
+                let mut __wctx = crate::event::WidgetCtx::__from_dispatch(target, &mut selection_ctx);
+                widget.selection_updated(&mut __wctx);
+                __wctx.__enqueue_reactive_if_dirty();
             }
             changed
         })
@@ -1927,7 +1956,9 @@ impl App {
             if changed {
                 let mut selection_ctx = EventCtx::default();
                 selection_ctx.set_node_id(target);
-                widget.selection_updated(&mut selection_ctx);
+                let mut __wctx = crate::event::WidgetCtx::__from_dispatch(target, &mut selection_ctx);
+                widget.selection_updated(&mut __wctx);
+                __wctx.__enqueue_reactive_if_dirty();
             }
             changed
         })
@@ -2004,7 +2035,9 @@ impl App {
             if changed {
                 let mut selection_ctx = EventCtx::default();
                 selection_ctx.set_node_id(target);
-                widget.selection_updated(&mut selection_ctx);
+                let mut __wctx = crate::event::WidgetCtx::__from_dispatch(target, &mut selection_ctx);
+                widget.selection_updated(&mut __wctx);
+                __wctx.__enqueue_reactive_if_dirty();
             }
             changed
         })
@@ -2022,7 +2055,9 @@ impl App {
             if changed {
                 let mut selection_ctx = EventCtx::default();
                 selection_ctx.set_node_id(target);
-                widget.selection_updated(&mut selection_ctx);
+                let mut __wctx = crate::event::WidgetCtx::__from_dispatch(target, &mut selection_ctx);
+                widget.selection_updated(&mut __wctx);
+                __wctx.__enqueue_reactive_if_dirty();
             }
             changed
         })

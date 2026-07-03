@@ -19,7 +19,8 @@ use std::time::Duration;
 
 use super::TimerHandle;
 use super::commands::{
-    CommandTarget, WidgetCommand, WidgetTimerCallback, alloc_widget_timer_id, enqueue_widget_command,
+    CommandTarget, TimerTick, WidgetCommand, WidgetTimerCallback, alloc_widget_timer_id,
+    enqueue_widget_command,
 };
 use crate::event::WidgetCtx;
 use crate::handle::Handle;
@@ -161,13 +162,13 @@ impl<'a> WidgetCtx<'a> {
     pub fn set_interval<W, F>(&mut self, interval: Duration, paused: bool, mut f: F) -> TimerHandle
     where
         W: Widget,
-        F: FnMut(&mut W, &mut WidgetCtx) + Send + 'static,
+        F: FnMut(&mut W, &mut WidgetCtx, TimerTick) + Send + 'static,
     {
         let timer_id = alloc_widget_timer_id();
         let callback: WidgetTimerCallback =
-            Box::new(move |widget: &mut dyn Widget, wctx: &mut WidgetCtx| {
+            Box::new(move |widget: &mut dyn Widget, wctx: &mut WidgetCtx, tick: TimerTick| {
                 match (widget as &mut dyn Any).downcast_mut::<W>() {
-                    Some(concrete) => f(concrete, wctx),
+                    Some(concrete) => f(concrete, wctx, tick),
                     None => crate::debug::debug_render(&format!(
                         "[widget-timer] fire downcast miss: node is not {}",
                         std::any::type_name::<W>()

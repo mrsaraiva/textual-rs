@@ -2,7 +2,7 @@ use crossterm::event::KeyCode;
 use rich_rs::{Console, ConsoleOptions, MetaValue, Renderable, Segment, Segments, Text};
 
 use crate::debug::{debug_input, debug_message};
-use crate::event::{Action, Event, EventCtx};
+use crate::event::{Action, Event};
 use crate::message::*;
 #[cfg(test)]
 use crate::node_id::NodeId;
@@ -337,7 +337,7 @@ impl Button {
     /// When `self.action` is `Some`, an `ActionDispatchRequested` message is
     /// posted and `ButtonPressed` is suppressed, matching Python Textual's
     /// behavior where `action` takes precedence over `Pressed`.
-    fn dispatch_press(&mut self, ctx: &mut EventCtx) {
+    fn dispatch_press(&mut self, ctx: &mut crate::event::WidgetCtx) {
         if let Some(ref action_str) = self.action {
             debug_message(&format!(
                 "[button] dispatch action=\"{}\" label=\"{}\"",
@@ -490,7 +490,7 @@ impl Widget for Button {
         Some(self.label_cell_len().saturating_add(2).max(1))
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         if self.disabled {
             return;
         }
@@ -570,7 +570,7 @@ impl Widget for Button {
         vec![BindingDecl::new("enter,space", "press", "Press button")]
     }
 
-    fn execute_action(&mut self, action: &ParsedAction, ctx: &mut EventCtx) -> bool {
+    fn execute_action(&mut self, action: &ParsedAction, ctx: &mut crate::event::WidgetCtx) -> bool {
         if self.disabled {
             return false;
         }
