@@ -15,7 +15,8 @@ pub use selectors::{
 /// instead of hardcoding colours.
 pub use selectors::resolve_component_style;
 pub(crate) use selectors::{
-    Combinator, SelectorChain, SelectorMeta, apply_display_visibility_to_tree,
+    Combinator, SelectorChain, SelectorMeta, ancestor_selector_fingerprint,
+    apply_display_visibility_to_tree,
     apply_style_to_segments, apply_widget_opacity_to_segments, begin_style_render_pass,
     current_ancestor_composited_background, current_composited_background, current_host_style,
     current_parent_style, current_self_style,

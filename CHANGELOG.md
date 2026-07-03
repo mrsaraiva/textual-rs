@@ -719,6 +719,21 @@ demo to a verified-working state.
 
 ### Fixed
 
+- **Ancestor pseudo-class changes now re-bake a transparent child's glyph
+  background (frozen-ancestor-bg re-capture)** — the frozen-ancestor-background
+  mechanism (Python `visual_style`-cache parity) kept a transparent child's
+  baked ancestor surface keyed only on the child's OWN style identity, so an
+  ancestor's `:focus`/`:hover`/class change that altered the composited surface
+  (e.g. `Select:focus > SelectCurrent { background-tint }` no longer matching
+  after focus moved into the Select's overlay) left the child's glyph cells
+  painted on the STALE surface while the surrounding fill repainted live. The
+  cache fingerprint now also covers the ancestor selector-identity chain
+  (type/id/classes/pseudo-states), matching Python's `update_styles` cascade
+  which clears every descendant's cached `visual_style` on class/pseudo
+  changes. Ancestor INLINE style mutations (e.g. an action setting
+  `screen.styles.background`) still deliberately keep the frozen surface —
+  Python parity (`guide/actions`). Fixes the arena `Select` bar keeping its
+  focus tint on the label glyphs after the dropdown opens.
 - **Auto-size (`width: auto`/`height: auto`) now honoured for custom leaf widgets
   that render content directly** — a childless widget with `width: auto`/`height:
   auto` that reports no intrinsic size (e.g. a `Static`-subclass port rendering

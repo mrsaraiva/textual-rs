@@ -16,6 +16,7 @@ pub use context::{
 // Re-exported for future use by the event loop / monolithic render path.
 #[allow(unused_imports)]
 pub use context::{FocusWithinGuard, set_focus_within};
+pub(crate) use context::ancestor_selector_fingerprint;
 pub(crate) use parser::parse_selector_list;
 
 // Public re-export: component-class resolution for custom widgets.

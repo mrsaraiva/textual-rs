@@ -61,18 +61,41 @@ thread_local! {
     > = std::cell::RefCell::new(std::collections::HashMap::new());
 }
 
-/// Fingerprint of a node's OWN (non-inherited) style identity — the render-time
-/// analogue of Python's `styles._cache_key`. It must change when the node's own
-/// styling changes (so it re-captures the live ancestor surface) but stay stable
-/// under ancestor-only background changes (so those do NOT leak into the child).
-/// `background` is not an inherited property, so a child's own `bg`/tint/opacity
-/// plus interaction state capture the cases that would re-bake `visual_style`.
+/// Fingerprint of a node's style-cache identity — the render-time analogue of
+/// Python's `visual_style` cache validity. Two components:
+///
+/// 1. The node's OWN (non-inherited) style identity (Python `styles._cache_key`):
+///    it must change when the node's own styling changes (so it re-captures the
+///    live ancestor surface). `background` is not an inherited property, so a
+///    child's own `bg`/tint/opacity plus interaction state capture the cases
+///    that would re-bake `visual_style`.
+/// 2. The ANCESTOR selector-identity chain (type/id/classes/pseudo-states from
+///    the render-time selector stack). In Python, a class or pseudo-class
+///    change anywhere in the chain routes through `app.update_styles(node)`,
+///    which re-applies the stylesheet to the node and ALL descendants and
+///    clears each descendant's cached `visual_style` (`notify_style_update`) —
+///    so e.g. an ancestor losing `:focus` (dropping a `background-tint` rule,
+///    the `Select:focus > SelectCurrent` case) re-bakes the child's transparent
+///    glyphs over the fresh ancestor surface.
+///
+/// LOAD-BEARING BOUNDARY: the fingerprint must stay STABLE under ancestor-only
+/// resolved-style VALUE changes (a direct inline mutation like
+/// `styles.background = "red"` on an ancestor — the `guide/actions` case).
+/// Python inline mutations do NOT cascade `notify_style_update` to
+/// descendants, so the child keeps the ancestor surface captured at its own
+/// last content render — that deliberate staleness is exactly what
+/// `FROZEN_ANCESTOR_BG` replicates (see the note above). Hashing ancestor
+/// resolved style VALUES here would destroy it; only selector IDENTITY may be
+/// hashed.
 fn node_own_style_fingerprint(
     resolved: &crate::style::Style,
     node: &crate::widget_tree::WidgetNode,
 ) -> u64 {
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
+    // Component 2: ancestor selector identity — re-capture on ancestor
+    // class/pseudo-state changes, never on ancestor inline style values.
+    crate::css::ancestor_selector_fingerprint().hash(&mut h);
     if let Some(bg) = resolved.bg {
         (bg.r, bg.g, bg.b, bg.a.to_bits()).hash(&mut h);
     } else {

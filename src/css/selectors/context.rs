@@ -111,6 +111,32 @@ pub(super) fn is_focus_within(node: NodeId) -> bool {
     FOCUS_WITHIN_IDS.with(|v| v.borrow().contains(&node))
 }
 
+// -- Ancestor selector identity ----------------------------------------------
+
+/// Hash of the current ancestor selector-identity chain (the render-time
+/// `SELECTOR_STACK`: each ancestor's type/id/classes/pseudo-states).
+///
+/// This is the render-time analogue of "which stylesheet rules can match my
+/// ancestors right now". It changes when an ancestor's classes or pseudo-state
+/// (`:focus`, `:hover`, ...) change — the cases where Python's
+/// `app.update_styles(node)` cascade re-applies the stylesheet to every
+/// descendant and clears each one's cached `visual_style`
+/// (`notify_style_update`). It deliberately does NOT cover ancestor resolved
+/// style VALUES, so a direct inline mutation (e.g. `styles.background = ...` on
+/// an ancestor) leaves it unchanged — matching Python, where inline mutations
+/// do not cascade and descendants keep their cached ancestor surface.
+///
+/// Consumed by the frozen-ancestor-background mechanism in
+/// `runtime::render` (`FROZEN_ANCESTOR_BG`).
+pub(crate) fn ancestor_selector_fingerprint() -> u64 {
+    use std::hash::{Hash, Hasher};
+    SELECTOR_STACK.with(|stack| {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        stack.borrow().hash(&mut hasher);
+        hasher.finish()
+    })
+}
+
 pub struct StyleContextGuard(Option<StyleSheet>);
 
 pub fn set_style_context(stylesheet: StyleSheet) -> StyleContextGuard {

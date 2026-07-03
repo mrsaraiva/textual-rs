@@ -6,6 +6,8 @@ mod devtools;
 pub mod dispatch_ctx;
 mod event_loop;
 #[cfg(test)]
+mod frozen_bg_regression;
+#[cfg(test)]
 mod overlay_focus_regression;
 mod widget_ctx;
 mod helpers;

@@ -149,7 +149,7 @@ impl SelectorChain {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct SelectorMeta {
     pub(super) type_name: String,
     pub(super) type_aliases: Vec<String>,
@@ -174,7 +174,7 @@ impl SelectorMeta {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub(super) struct SelectorStates {
     pub(super) disabled: bool,
     pub(super) focused: bool,
