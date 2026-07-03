@@ -134,7 +134,7 @@ impl TextualApp for CounterApp {
         ]))
     }
 
-    fn on_message_with_app(&mut self, app: &mut App, message: &MessageEvent, ctx: &mut EventCtx) {
+    fn on_message_with_app(&mut self, app: &mut App, message: &MessageEvent, ctx: &mut textual::event::WidgetCtx) {
         if let Some(bp) = message.downcast_ref::<ButtonPressed>() {
             if bp.button_id.as_deref() == Some("inc") {
                 let next = self.count.fetch_add(1, Ordering::SeqCst) + 1;
@@ -172,7 +172,7 @@ impl TextualApp for TickApp {
         AppRoot::new().with_child(Static::new(tick_label(0)).id("ticks"))
     }
 
-    fn on_mount_with_app(&mut self, app: &mut App, _ctx: &mut EventCtx) {
+    fn on_mount_with_app(&mut self, app: &mut App, _ctx: &mut textual::event::WidgetCtx) {
         // Python: self.set_interval(1, self.tick). Each fire increments the
         // tick counter and rewrites the readout — exactly a clock's update.
         let ticks = Arc::clone(&self.ticks);

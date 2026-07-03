@@ -76,8 +76,8 @@ impl Widget for Countdown {
         Some(self)
     }
 
-    fn on_mount_ctx(&mut self, ctx: &mut WidgetCtx) {
-        let handle = ctx.set_interval::<Self, _>(Duration::from_secs(1), false, |w, wctx| {
+    fn on_mount(&mut self, ctx: &mut WidgetCtx) {
+        let handle = ctx.set_interval::<Self, _>(Duration::from_secs(1), false, |w, wctx, _tick| {
             w.tick(wctx);
         });
         *self.handle_slot.lock().unwrap() = Some(handle);
@@ -207,7 +207,7 @@ impl Widget for Host {
         }
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut textual::event::WidgetCtx) {
         if let Event::Key(_) = event {
             // Flip `show` via the widget's own reactive setter and enqueue the
             // change so the reactive phase requests a recompose of this node.

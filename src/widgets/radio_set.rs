@@ -539,6 +539,7 @@ impl ReactiveWidget for RadioSet {}
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::event::EventCtx;
     use crate::keys::KeyEventData;
     use crate::node_id::NodeId;
     use crate::runtime::dispatch_ctx::set_dispatch_recipient;
@@ -565,13 +566,19 @@ mod tests {
         let _guard = set_dispatch_recipient(id, focused_state());
         let down = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
         let mut ctx1 = EventCtx::default();
-        set.on_event(&Event::Key(down), &mut ctx1);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx1);
+            set.on_event(&Event::Key(down), &mut __w);
+        }
         assert_eq!(set.selected_index(), 1);
 
         let space =
             KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
         let mut ctx2 = EventCtx::default();
-        set.on_event(&Event::Key(space), &mut ctx2);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx2);
+            set.on_event(&Event::Key(space), &mut __w);
+        }
         assert_eq!(set.pressed_index(), Some(1));
         let messages = ctx2.take_messages();
         assert!(messages.iter().any(|m| {
@@ -588,7 +595,10 @@ mod tests {
         let space =
             KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
         let mut ctx = EventCtx::default();
-        set.on_event(&Event::Key(space), &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            set.on_event(&Event::Key(space), &mut __w);
+        }
         assert_eq!(set.pressed_index(), Some(0));
     }
 
@@ -605,7 +615,10 @@ mod tests {
 
         let down = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
         let mut ctx = EventCtx::default();
-        set.on_event(&Event::Key(down), &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            set.on_event(&Event::Key(down), &mut __w);
+        }
         assert_eq!(set.selected_index(), 3);
     }
 
@@ -616,7 +629,9 @@ mod tests {
             .with_button(RadioButton::new("B").disabled(true));
 
         let mut ctx = EventCtx::default();
-        set.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            set.on_event(
             &Event::MouseDown(crate::event::MouseDownEvent {
                 target: NodeId::default(),
                 screen_x: 0,
@@ -624,8 +639,8 @@ mod tests {
                 x: 0,
                 y: 1,
             }),
-            &mut ctx,
-        );
+            &mut __w);
+        }
 
         assert!(!ctx.handled());
         assert_eq!(set.pressed_index(), None);
@@ -638,7 +653,10 @@ mod tests {
         let _guard = set_dispatch_recipient(id, focused_state());
         let down = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
         let mut ctx = EventCtx::default();
-        set.on_event(&Event::Key(down), &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            set.on_event(&Event::Key(down), &mut __w);
+        }
         assert!(!ctx.handled());
         assert!(!set.focusable());
     }
@@ -689,7 +707,9 @@ mod tests {
         let _guard = set_dispatch_recipient(id, NodeState::default());
 
         let mut ctx = EventCtx::default();
-        set.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            set.on_event(
             &Event::MouseDown(crate::event::MouseDownEvent {
                 target: id,
                 screen_x: 0,
@@ -697,8 +717,8 @@ mod tests {
                 x: 0,
                 y: 0,
             }),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         // First button (index 0) should be selected.
         assert_eq!(set.pressed_index(), Some(0));
     }
@@ -715,7 +735,9 @@ mod tests {
         let _guard = set_dispatch_recipient(my_id, NodeState::default());
 
         let mut ctx = EventCtx::default();
-        set.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            set.on_event(
             &Event::MouseDown(crate::event::MouseDownEvent {
                 target: other_id,
                 screen_x: 0,
@@ -723,8 +745,8 @@ mod tests {
                 x: 0,
                 y: 0,
             }),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         assert!(!ctx.handled());
         assert_eq!(set.pressed_index(), None);
     }

@@ -814,7 +814,7 @@ mod tests {
         make_select().with_allow_blank(true)
     }
 
-    fn dispatch_messages(sel: &mut Select<i32>, ctx: &mut crate::event::WidgetCtx) -> Vec<MessageEvent> {
+    fn dispatch_messages(sel: &mut Select<i32>, ctx: &mut EventCtx) -> Vec<MessageEvent> {
         let mut delivered = Vec::new();
         loop {
             let batch = ctx.take_messages();
@@ -823,7 +823,11 @@ mod tests {
             }
             delivered.extend(batch.clone());
             for message in batch {
-                sel.on_message(&message, ctx);
+                let mut __w = crate::event::WidgetCtx::__from_dispatch(
+                    crate::node_id::NodeId::default(),
+                    ctx,
+                );
+                sel.on_message(&message, &mut __w);
             }
         }
         delivered
@@ -846,7 +850,10 @@ mod tests {
 
         let key = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
         let mut ctx = EventCtx::default();
-        sel.on_event(&Event::Key(key), &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            sel.on_event(&Event::Key(key), &mut __w);
+        }
         assert!(sel.is_open());
         assert!(ctx.handled());
     }
@@ -861,13 +868,19 @@ mod tests {
         // Open
         let key = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
         let mut ctx = EventCtx::default();
-        sel.on_event(&Event::Key(key), &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            sel.on_event(&Event::Key(key), &mut __w);
+        }
         assert!(sel.is_open());
 
         // Close
         let esc = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
         let mut ctx2 = EventCtx::default();
-        sel.on_event(&Event::Key(esc), &mut ctx2);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx2);
+            sel.on_event(&Event::Key(esc), &mut __w);
+        }
         assert!(!sel.is_open());
     }
 
@@ -881,17 +894,26 @@ mod tests {
         // Open
         let enter = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
         let mut ctx = EventCtx::default();
-        sel.on_event(&Event::Key(enter.clone()), &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            sel.on_event(&Event::Key(enter.clone()), &mut __w);
+        }
         assert!(sel.is_open());
 
         // Move down once
         let down = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
         let mut ctx2 = EventCtx::default();
-        sel.on_event(&Event::Key(down), &mut ctx2);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx2);
+            sel.on_event(&Event::Key(down), &mut __w);
+        }
 
         // Confirm with Enter
         let mut ctx3 = EventCtx::default();
-        sel.on_event(&Event::Key(enter), &mut ctx3);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx3);
+            sel.on_event(&Event::Key(enter), &mut __w);
+        }
         let delivered = dispatch_messages(&mut sel, &mut ctx3);
         assert!(!sel.is_open());
         assert_eq!(sel.value(), Some(&2)); // Beta
@@ -921,11 +943,16 @@ mod tests {
         let open_key =
             KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
         let mut open_ctx = EventCtx::default();
-        sel.on_event(&Event::Key(open_key), &mut open_ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut open_ctx);
+            sel.on_event(&Event::Key(open_key), &mut __w);
+        }
         assert!(sel.is_open());
 
         let mut click_ctx = EventCtx::default();
-        sel.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut click_ctx);
+            sel.on_event(
             &Event::MouseDown(MouseDownEvent {
                 target: NodeId::default(),
                 screen_x: 1,
@@ -933,8 +960,8 @@ mod tests {
                 x: 1,
                 y: 1,
             }),
-            &mut click_ctx,
-        );
+            &mut __w);
+        }
         let delivered = dispatch_messages(&mut sel, &mut click_ctx);
 
         assert!(!sel.is_open());
@@ -984,7 +1011,10 @@ mod tests {
 
         let open = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
         let mut ctx = EventCtx::default();
-        sel.on_event(&Event::Key(open), &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            sel.on_event(&Event::Key(open), &mut __w);
+        }
 
         assert!(sel.is_open());
         assert_eq!(sel.list.highlighted(), Some(0));
@@ -1004,11 +1034,16 @@ mod tests {
 
         let open = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
         let mut open_ctx = EventCtx::default();
-        sel.on_event(&Event::Key(open), &mut open_ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut open_ctx);
+            sel.on_event(&Event::Key(open), &mut __w);
+        }
         assert!(sel.is_open());
 
         let mut click_ctx = EventCtx::default();
-        sel.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut click_ctx);
+            sel.on_event(
             &Event::MouseDown(MouseDownEvent {
                 target: NodeId::default(),
                 screen_x: 1,
@@ -1016,8 +1051,8 @@ mod tests {
                 x: 1,
                 y: 1,
             }),
-            &mut click_ctx,
-        );
+            &mut __w);
+        }
 
         // Value unchanged — still Alpha (auto-selected, disabled Beta ignored).
         assert_eq!(sel.value(), Some(&1));
@@ -1031,12 +1066,17 @@ mod tests {
 
         let key = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
         let mut key_ctx = EventCtx::default();
-        sel.on_event(&Event::Key(key), &mut key_ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut key_ctx);
+            sel.on_event(&Event::Key(key), &mut __w);
+        }
         assert!(!sel.is_open());
         assert!(!key_ctx.handled());
 
         let mut click_ctx = EventCtx::default();
-        sel.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut click_ctx);
+            sel.on_event(
             &Event::MouseDown(MouseDownEvent {
                 target: widget_node_id(&sel),
                 screen_x: 0,
@@ -1044,8 +1084,8 @@ mod tests {
                 x: 0,
                 y: 0,
             }),
-            &mut click_ctx,
-        );
+            &mut __w);
+        }
         assert!(!sel.is_open());
         assert!(!click_ctx.handled());
         assert!(!sel.focusable());
@@ -1061,7 +1101,10 @@ mod tests {
         // Open
         let enter = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
         let mut ctx = EventCtx::default();
-        sel.on_event(&Event::Key(enter), &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            sel.on_event(&Event::Key(enter), &mut __w);
+        }
         assert!(sel.is_open());
 
         // Advance tick so type-to-search has a time reference.
@@ -1071,7 +1114,10 @@ mod tests {
         let g_key =
             KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE));
         let mut ctx2 = EventCtx::default();
-        sel.on_event(&Event::Key(g_key), &mut ctx2);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx2);
+            sel.on_event(&Event::Key(g_key), &mut __w);
+        }
 
         assert_eq!(sel.list.highlighted(), Some(2));
         assert!(ctx2.handled());
@@ -1094,7 +1140,10 @@ mod tests {
         // Open
         let enter = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
         let mut ctx = EventCtx::default();
-        sel.on_event(&Event::Key(enter), &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            sel.on_event(&Event::Key(enter), &mut __w);
+        }
         assert!(sel.is_open());
 
         // Type 'a' at tick 10 — should match "Apple" (index 0).
@@ -1102,7 +1151,10 @@ mod tests {
         let a_key =
             KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
         let mut ctx2 = EventCtx::default();
-        sel.on_event(&Event::Key(a_key), &mut ctx2);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx2);
+            sel.on_event(&Event::Key(a_key), &mut __w);
+        }
         assert_eq!(sel.list.highlighted(), Some(0));
 
         // Type 'p' at tick 11 — buffer is "ap", matches "Apple" (index 0).
@@ -1110,7 +1162,10 @@ mod tests {
         let p_key =
             KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::NONE));
         let mut ctx3 = EventCtx::default();
-        sel.on_event(&Event::Key(p_key), &mut ctx3);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx3);
+            sel.on_event(&Event::Key(p_key), &mut __w);
+        }
         assert_eq!(sel.list.highlighted(), Some(0));
 
         // Type 'r' at tick 12 — buffer is "apr", matches "Apricot" (index 1).
@@ -1118,7 +1173,10 @@ mod tests {
         let r_key =
             KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE));
         let mut ctx4 = EventCtx::default();
-        sel.on_event(&Event::Key(r_key), &mut ctx4);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx4);
+            sel.on_event(&Event::Key(r_key), &mut __w);
+        }
         assert_eq!(sel.list.highlighted(), Some(1));
     }
 
@@ -1132,14 +1190,20 @@ mod tests {
         // Open
         let enter = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
         let mut ctx = EventCtx::default();
-        sel.on_event(&Event::Key(enter), &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            sel.on_event(&Event::Key(enter), &mut __w);
+        }
 
         // Type 'b' at tick 10 — highlights "Beta" (index 1).
         sel.on_tick(10);
         let b_key =
             KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Char('b'), KeyModifiers::NONE));
         let mut ctx2 = EventCtx::default();
-        sel.on_event(&Event::Key(b_key), &mut ctx2);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx2);
+            sel.on_event(&Event::Key(b_key), &mut __w);
+        }
         assert_eq!(sel.list.highlighted(), Some(1));
 
         // Simulate timeout via on_tick.
@@ -1150,7 +1214,10 @@ mod tests {
         let a_key =
             KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
         let mut ctx3 = EventCtx::default();
-        sel.on_event(&Event::Key(a_key), &mut ctx3);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx3);
+            sel.on_event(&Event::Key(a_key), &mut __w);
+        }
         assert_eq!(sel.list.highlighted(), Some(0));
     }
 
@@ -1183,13 +1250,19 @@ mod tests {
         // Open
         let enter = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
         let mut ctx = EventCtx::default();
-        sel.on_event(&Event::Key(enter), &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            sel.on_event(&Event::Key(enter), &mut __w);
+        }
         assert!(sel.is_open());
 
         // Escape — should clear selection (allow_blank=true)
         let esc = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
         let mut ctx2 = EventCtx::default();
-        sel.on_event(&Event::Key(esc), &mut ctx2);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx2);
+            sel.on_event(&Event::Key(esc), &mut __w);
+        }
         assert!(!sel.is_open());
         assert!(sel.value().is_none());
     }
@@ -1206,13 +1279,19 @@ mod tests {
         // Open
         let enter = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
         let mut ctx = EventCtx::default();
-        sel.on_event(&Event::Key(enter), &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            sel.on_event(&Event::Key(enter), &mut __w);
+        }
         assert!(sel.is_open());
 
         // Escape — should NOT clear (allow_blank=false)
         let esc = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
         let mut ctx2 = EventCtx::default();
-        sel.on_event(&Event::Key(esc), &mut ctx2);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx2);
+            sel.on_event(&Event::Key(esc), &mut __w);
+        }
         assert!(!sel.is_open());
         assert_eq!(sel.value(), Some(&2)); // Still Beta
     }
@@ -1296,7 +1375,10 @@ mod tests {
         // Open the dropdown
         let enter = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
         let mut ctx = EventCtx::default();
-        sel.on_event(&Event::Key(enter), &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            sel.on_event(&Event::Key(enter), &mut __w);
+        }
         assert!(sel.is_open());
 
         // compose() should still return empty even when open
@@ -1316,7 +1398,7 @@ mod tests {
             arguments: vec![],
         };
         assert!(!sel.is_open());
-        assert!(sel.execute_action(&action, &mut ctx));
+        assert!({ let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx); sel.execute_action(&action, &mut __w) });
         assert!(sel.is_open());
     }
 
@@ -1331,7 +1413,9 @@ mod tests {
         let _guard = set_dispatch_recipient(id, NodeState::default());
 
         let mut ctx = EventCtx::default();
-        sel.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            sel.on_event(
             &Event::MouseDown(MouseDownEvent {
                 target: id,
                 screen_x: 0,
@@ -1339,8 +1423,8 @@ mod tests {
                 x: 0,
                 y: 0,
             }),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         assert!(ctx.handled());
         assert!(sel.is_open());
     }
@@ -1361,12 +1445,17 @@ mod tests {
         let open_key =
             KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
         let mut open_ctx = EventCtx::default();
-        sel.on_event(&Event::Key(open_key), &mut open_ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut open_ctx);
+            sel.on_event(&Event::Key(open_key), &mut __w);
+        }
         assert!(sel.is_open());
 
         // Click with a different target (outside) — should close dropdown.
         let mut ctx = EventCtx::default();
-        sel.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            sel.on_event(
             &Event::MouseDown(MouseDownEvent {
                 target: other_id,
                 screen_x: 0,
@@ -1374,8 +1463,8 @@ mod tests {
                 x: 0,
                 y: 0,
             }),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         assert!(ctx.handled());
         assert!(!sel.is_open());
     }

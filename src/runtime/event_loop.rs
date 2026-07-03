@@ -6650,7 +6650,7 @@ mod tests {
             ACTIONS
         }
 
-        fn execute_action(&mut self, action: &ParsedAction, ctx: &mut EventCtx) -> bool {
+        fn execute_action(&mut self, action: &ParsedAction, ctx: &mut crate::event::WidgetCtx) -> bool {
             if action.name != "select" || action.arguments.len() != 1 {
                 return false;
             }
@@ -6692,7 +6692,7 @@ mod tests {
             Segments::new()
         }
 
-        fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+        fn on_event_capture(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
             if matches!(event, Event::Key(..)) {
                 self.key_hits.fetch_add(1, Ordering::SeqCst);
                 if self.handle_key {
@@ -6701,7 +6701,7 @@ mod tests {
             }
         }
 
-        fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
             if matches!(event, Event::Action(..)) {
                 self.action_hits.fetch_add(1, Ordering::SeqCst);
                 if self.handle_action {
@@ -6710,24 +6710,24 @@ mod tests {
             }
         }
 
-        fn on_app_action(&mut self, _app: &mut App, _action: Action, ctx: &mut EventCtx) {
+        fn on_app_action(&mut self, _app: &mut App, _action: Action, ctx: &mut crate::event::WidgetCtx) {
             self.app_action_hits.fetch_add(1, Ordering::SeqCst);
             ctx.set_handled();
         }
 
-        fn on_message(&mut self, _message: &MessageEvent, ctx: &mut EventCtx) {
+        fn on_message(&mut self, _message: &MessageEvent, ctx: &mut crate::event::WidgetCtx) {
             self.message_hits.fetch_add(1, Ordering::SeqCst);
             if self.handle_message {
                 ctx.set_handled();
             }
         }
 
-        fn on_app_message(&mut self, _app: &mut App, _message: &MessageEvent, ctx: &mut EventCtx) {
+        fn on_app_message(&mut self, _app: &mut App, _message: &MessageEvent, ctx: &mut crate::event::WidgetCtx) {
             self.app_message_hits.fetch_add(1, Ordering::SeqCst);
             ctx.set_handled();
         }
 
-        fn on_app_tick(&mut self, _app: &mut App, _tick: u64, _ctx: &mut EventCtx) {
+        fn on_app_tick(&mut self, _app: &mut App, _tick: u64, _ctx: &mut crate::event::WidgetCtx) {
             self.app_tick_hits.fetch_add(1, Ordering::SeqCst);
         }
     }
@@ -6741,7 +6741,7 @@ mod tests {
             Segments::new()
         }
 
-        fn on_event_capture(&mut self, event: &Event, _ctx: &mut EventCtx) {
+        fn on_event_capture(&mut self, event: &Event, _ctx: &mut crate::event::WidgetCtx) {
             if matches!(event, Event::Key(..)) {
                 self.capture_hits.fetch_add(1, Ordering::SeqCst);
             }
@@ -6937,7 +6937,7 @@ mod tests {
                 Segments::new()
             }
 
-            fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+            fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
                 if matches!(event, Event::Key(..)) {
                     self.on_event_key_hits.fetch_add(1, Ordering::SeqCst);
                     ctx.set_handled();
@@ -7090,7 +7090,7 @@ mod tests {
                 Segments::new()
             }
 
-            fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+            fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
                 if matches!(event, Event::Tick(_)) {
                     self.ticks.fetch_add(1, Ordering::SeqCst);
                     ctx.set_handled();
@@ -7974,7 +7974,7 @@ mod tests {
             Segments::new()
         }
 
-        fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
+        fn on_message(&mut self, message: &MessageEvent, ctx: &mut crate::event::WidgetCtx) {
             if let Some(m) = message.downcast_ref::<crate::message::WorkerStateChanged>() {
                 match m.state {
                     crate::worker::WorkerState::Success => {
@@ -8139,7 +8139,7 @@ mod tests {
             Segments::new()
         }
 
-        fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
+        fn on_message(&mut self, message: &MessageEvent, ctx: &mut crate::event::WidgetCtx) {
             if message.is::<crate::message::FooterBindingsUpdated>() {
                 ctx.post_message(crate::message::AppAddClass {
                     selector: "Button".to_string(),
@@ -8275,7 +8275,7 @@ mod tests {
             Segments::new()
         }
 
-        fn on_message(&mut self, message: &MessageEvent, _ctx: &mut EventCtx) {
+        fn on_message(&mut self, message: &MessageEvent, _ctx: &mut crate::event::WidgetCtx) {
             if message.is::<crate::message::AppShowHelpPanel>() {
                 self.show_messages += 1;
             } else if message.is::<crate::message::AppHideHelpPanel>() {
@@ -8479,7 +8479,7 @@ mod tests {
             ACTIONS
         }
 
-        fn execute_action(&mut self, action: &ParsedAction, ctx: &mut EventCtx) -> bool {
+        fn execute_action(&mut self, action: &ParsedAction, ctx: &mut crate::event::WidgetCtx) -> bool {
             if action.name != "add_class" || action.arguments.len() != 2 {
                 return false;
             }
@@ -8521,7 +8521,7 @@ mod tests {
         if let Some(tree_mut) = app.widget_tree.as_mut()
             && let Some(node) = tree_mut.get_mut(resolved.node)
         {
-            assert!(node.widget.execute_action(&parsed, &mut ctx));
+            assert!({ let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx); node.widget.execute_action(&parsed, &mut __w) });
         }
         let messages = ctx.take_messages();
         assert_eq!(messages.len(), 1);
@@ -8676,7 +8676,7 @@ mod tests {
             Segments::new()
         }
 
-        fn on_event(&mut self, event: &Event, _ctx: &mut EventCtx) {
+        fn on_event(&mut self, event: &Event, _ctx: &mut crate::event::WidgetCtx) {
             match event {
                 Event::Action(Action::Toggle) => self.set_value(1),
                 Event::Mount(_mount) => self.enqueue_init_watcher(),
@@ -8893,7 +8893,7 @@ mod tests {
             "CommandProbe"
         }
 
-        fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
             if let Event::Action(Action::Toggle) = event {
                 crate::runtime::commands::enqueue_widget_command(
                     crate::runtime::commands::WidgetCommand::AddClass {
@@ -9299,7 +9299,7 @@ mod tests {
         fn style_type(&self) -> &'static str {
             "PostSink"
         }
-        fn on_message(&mut self, message: &MessageEvent, _ctx: &mut EventCtx) {
+        fn on_message(&mut self, message: &MessageEvent, _ctx: &mut crate::event::WidgetCtx) {
             if message.downcast_ref::<Ping>().is_some() {
                 self.pings.fetch_add(1, Ordering::SeqCst);
             }
@@ -9382,7 +9382,7 @@ mod tests {
                 &mut self,
                 _app: &mut App,
                 action: &str,
-                ctx: &mut EventCtx,
+                ctx: &mut crate::event::WidgetCtx,
             ) {
                 *self.recorded.lock().unwrap() = Some(action.to_string());
                 ctx.set_handled();

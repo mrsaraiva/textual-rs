@@ -1040,6 +1040,7 @@ impl Renderable for OptionList {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::event::EventCtx;
     use crate::node_id::NodeId;
     use crate::runtime::dispatch_ctx::set_dispatch_recipient;
     use crate::widgets::NodeState;
@@ -1072,7 +1073,7 @@ mod tests {
         assert_eq!(list.highlighted(), Some(0));
 
         let mut ctx = EventCtx::default();
-        list.move_highlight(1, &mut ctx);
+        { let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx); list.move_highlight(1, &mut __w) };
         // Should skip the separator and land on Beta (index 2).
         assert_eq!(list.highlighted(), Some(2));
     }
@@ -1090,7 +1091,7 @@ mod tests {
         assert_eq!(list.highlighted(), Some(0));
 
         let mut ctx = EventCtx::default();
-        list.move_highlight(1, &mut ctx);
+        { let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx); list.move_highlight(1, &mut __w) };
         assert_eq!(list.highlighted(), Some(2));
     }
 
@@ -1108,13 +1109,13 @@ mod tests {
         // End goes to last selectable
         let mut ctx = EventCtx::default();
         if let Some(last) = list.last_selectable() {
-            list.highlight_index(last, &mut ctx);
+            { let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx); list.highlight_index(last, &mut __w) };
         }
         assert_eq!(list.highlighted(), Some(3));
 
         // Home goes to first selectable
         if let Some(first) = list.first_selectable() {
-            list.highlight_index(first, &mut ctx);
+            { let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx); list.highlight_index(first, &mut __w) };
         }
         assert_eq!(list.highlighted(), Some(0));
     }
@@ -1126,7 +1127,7 @@ mod tests {
         list.on_layout(40, 10);
 
         let mut ctx = EventCtx::default();
-        list.confirm_selection(&mut ctx);
+        { let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx); list.confirm_selection(&mut __w) };
         let messages = ctx.take_messages();
         assert!(messages.iter().any(|m| {
             m.downcast_ref::<OptionSelected>()
@@ -1141,7 +1142,9 @@ mod tests {
         list.on_layout(40, 10);
 
         let mut ctx = EventCtx::default();
-        list.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            list.on_event(
             &Event::MouseDown(crate::event::MouseDownEvent {
                 target: NodeId::default(),
                 screen_x: 0,
@@ -1149,8 +1152,8 @@ mod tests {
                 x: 0,
                 y: 1,
             }),
-            &mut ctx,
-        );
+            &mut __w);
+        }
 
         assert!(ctx.handled());
         let messages = ctx.take_messages();
@@ -1196,7 +1199,7 @@ mod tests {
         list.on_layout(40, 10);
 
         let mut ctx = EventCtx::default();
-        list.move_highlight(-1, &mut ctx);
+        { let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx); list.move_highlight(-1, &mut __w) };
         assert_eq!(list.highlighted(), Some(2));
     }
 
@@ -1218,7 +1221,10 @@ mod tests {
             crossterm::event::KeyModifiers::NONE,
         ));
         let mut ctx = EventCtx::default();
-        list.on_event(&Event::Key(key), &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            list.on_event(&Event::Key(key), &mut __w);
+        }
         assert_eq!(list.highlighted(), Some(2));
         assert!(ctx.handled());
     }
@@ -1237,7 +1243,10 @@ mod tests {
             crossterm::event::KeyModifiers::NONE,
         ));
         let mut ctx = EventCtx::default();
-        list.on_event(&Event::Key(key), &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            list.on_event(&Event::Key(key), &mut __w);
+        }
 
         assert_eq!(list.highlighted(), before);
         assert!(!ctx.handled());
@@ -1252,7 +1261,10 @@ mod tests {
         assert!(list.on_mouse_move(0, 0));
 
         let mut ctx = EventCtx::default();
-        list.on_event(&Event::AppFocus(false), &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            list.on_event(&Event::AppFocus(false), &mut __w);
+        }
 
         assert!(list.hovered_index.is_none());
         assert!(ctx.repaint_requested());
@@ -1419,7 +1431,9 @@ mod tests {
         let _guard = set_dispatch_recipient(id, NodeState::default());
 
         let mut ctx = EventCtx::default();
-        list.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            list.on_event(
             &Event::MouseDown(crate::event::MouseDownEvent {
                 target: id,
                 screen_x: 0,
@@ -1427,8 +1441,8 @@ mod tests {
                 x: 0,
                 y: 1,
             }),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         assert!(ctx.handled());
     }
 
@@ -1446,7 +1460,9 @@ mod tests {
         let _guard = set_dispatch_recipient(my_id, NodeState::default());
 
         let mut ctx = EventCtx::default();
-        list.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            list.on_event(
             &Event::MouseDown(crate::event::MouseDownEvent {
                 target: other_id,
                 screen_x: 0,
@@ -1454,8 +1470,8 @@ mod tests {
                 x: 0,
                 y: 1,
             }),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         assert!(!ctx.handled());
     }
 
@@ -1493,7 +1509,9 @@ mod tests {
         list.on_layout(40, 5); // viewport 5 lines, 20 lines total -> overflow
 
         let mut ctx = EventCtx::default();
-        list.on_message(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            list.on_message(
             &MessageEvent::new(
                 NodeId::default(),
                 ScrollbarScrollTo {
@@ -1503,8 +1521,8 @@ mod tests {
                     scroll_duration: None,
                 },
             ),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         assert!(ctx.handled());
         assert_eq!(list.offset_for_click(), 4);
         assert_eq!(list.scroll_offset_f32(), (0.0, 4.0));
@@ -1519,7 +1537,9 @@ mod tests {
         list.on_layout(40, 6); // max offset = 10 - 6 = 4
 
         let mut ctx = EventCtx::default();
-        list.on_message(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            list.on_message(
             &MessageEvent::new(
                 NodeId::default(),
                 ScrollbarScrollTo {
@@ -1529,8 +1549,8 @@ mod tests {
                     scroll_duration: None,
                 },
             ),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         assert_eq!(list.offset_for_click(), 4);
     }
 
@@ -1539,7 +1559,9 @@ mod tests {
         let mut list = OptionList::with_items(vec![OptionItem::new("A"), OptionItem::new("B")]);
         list.on_layout(40, 5);
         let mut ctx = EventCtx::default();
-        list.on_message(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            list.on_message(
             &MessageEvent::new(
                 NodeId::default(),
                 ScrollbarScrollTo {
@@ -1549,8 +1571,8 @@ mod tests {
                     scroll_duration: None,
                 },
             ),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         assert!(!ctx.handled());
         assert_eq!(list.offset_for_click(), 0);
     }

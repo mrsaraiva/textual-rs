@@ -1,6 +1,7 @@
 use rich_rs::Console;
 use slotmap::SlotMap;
 use textual::prelude::*;
+use textual::event::EventCtx;
 use textual::reactive::ReactiveCtx;
 use textual::render::FrameBuffer;
 use textual::runtime::dispatch_ctx::set_dispatch_recipient;
@@ -130,7 +131,7 @@ fn data_table_row_cursor_actions_can_scroll_horizontal_viewport() {
     table.on_layout(12, 4);
 
     let mut ctx = EventCtx::default();
-    table.on_event(&Event::Action(Action::ScrollRight), &mut ctx);
+    { let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx); table.on_event(&Event::Action(Action::ScrollRight), &mut __w) };
     assert!(ctx.handled());
 
     let console = Console::new();

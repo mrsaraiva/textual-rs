@@ -263,7 +263,7 @@ impl Widget for GameCell {
     // toggle_cross directly). Mouse-click presses are absorbed here; a future
     // RA-1 demo enhancement could re-emit a custom GameCellPressed { row, col }
     // message instead (Alternative G in SPEC-RA5).
-    fn on_message(&mut self, msg: &MessageEvent, ctx: &mut EventCtx) {
+    fn on_message(&mut self, msg: &MessageEvent, ctx: &mut textual::event::WidgetCtx) {
         if msg.downcast_ref::<ButtonPressed>().is_some() {
             ctx.set_handled();
         }
@@ -285,8 +285,8 @@ impl Widget for GameCell {
         true
     }
 
-    fn on_event_capture(&mut self, _event: &Event, _ctx: &mut EventCtx) {}
-    fn on_event(&mut self, _event: &Event, _ctx: &mut EventCtx) {}
+    fn on_event_capture(&mut self, _event: &Event, _ctx: &mut textual::event::WidgetCtx) {}
+    fn on_event(&mut self, _event: &Event, _ctx: &mut textual::event::WidgetCtx) {}
 }
 
 impl Renderable for GameCell {
@@ -347,9 +347,9 @@ impl Widget for GameHeader {
         std::mem::take(&mut self.seed)
     }
 
-    fn on_event_capture(&mut self, _event: &Event, _ctx: &mut EventCtx) {}
-    fn on_event(&mut self, _event: &Event, _ctx: &mut EventCtx) {}
-    fn on_message(&mut self, _msg: &MessageEvent, _ctx: &mut EventCtx) {}
+    fn on_event_capture(&mut self, _event: &Event, _ctx: &mut textual::event::WidgetCtx) {}
+    fn on_event(&mut self, _event: &Event, _ctx: &mut textual::event::WidgetCtx) {}
+    fn on_message(&mut self, _msg: &MessageEvent, _ctx: &mut textual::event::WidgetCtx) {}
 }
 
 impl Renderable for GameHeader {
@@ -428,9 +428,9 @@ impl Widget for WinnerMessage {
         std::mem::take(&mut self.seed)
     }
 
-    fn on_event_capture(&mut self, _event: &Event, _ctx: &mut EventCtx) {}
-    fn on_event(&mut self, _event: &Event, _ctx: &mut EventCtx) {}
-    fn on_message(&mut self, _msg: &MessageEvent, _ctx: &mut EventCtx) {}
+    fn on_event_capture(&mut self, _event: &Event, _ctx: &mut textual::event::WidgetCtx) {}
+    fn on_event(&mut self, _event: &Event, _ctx: &mut textual::event::WidgetCtx) {}
+    fn on_message(&mut self, _msg: &MessageEvent, _ctx: &mut textual::event::WidgetCtx) {}
 }
 
 impl Renderable for WinnerMessage {
@@ -462,9 +462,9 @@ impl Widget for HelpRoot {
         Widget::render(&ScrollView::new(Markdown::new(HELP_TEXT)), console, options)
     }
 
-    fn on_event_capture(&mut self, _event: &Event, _ctx: &mut EventCtx) {}
-    fn on_event(&mut self, _event: &Event, _ctx: &mut EventCtx) {}
-    fn on_message(&mut self, _msg: &MessageEvent, _ctx: &mut EventCtx) {}
+    fn on_event_capture(&mut self, _event: &Event, _ctx: &mut textual::event::WidgetCtx) {}
+    fn on_event(&mut self, _event: &Event, _ctx: &mut textual::event::WidgetCtx) {}
+    fn on_message(&mut self, _msg: &MessageEvent, _ctx: &mut textual::event::WidgetCtx) {}
 }
 
 impl Renderable for HelpRoot {
@@ -656,11 +656,11 @@ impl TextualApp for FiveByFiveApp {
             .with_child(Footer::new())
     }
 
-    fn on_mount_with_app(&mut self, app: &mut App, _ctx: &mut EventCtx) {
+    fn on_mount_with_app(&mut self, app: &mut App, _ctx: &mut textual::event::WidgetCtx) {
         self.new_game(app);
     }
 
-    fn on_key_with_app(&mut self, app: &mut App, key: &KeyEventData, ctx: &mut EventCtx) {
+    fn on_key_with_app(&mut self, app: &mut App, key: &KeyEventData, ctx: &mut textual::event::WidgetCtx) {
         let handled = match key.name() {
             // Navigation — arrow keys, WASD, hjkl
             "up" | "w" | "k" => {

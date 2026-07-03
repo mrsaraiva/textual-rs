@@ -1784,7 +1784,7 @@ fn parity_checker04_board() {
 #[ignore = "BUG: while DataTable.loading=True, Python renders a LoadingIndicator (animated `●` dots) in all four panels; Rust renders a fully BLANK screen (no indicator, panels empty). The `loading` reactive does not mount/draw a LoadingIndicator. Root: DataTable/Widget `loading` state has no LoadingIndicator overlay in Rust."]
 fn parity_loading01_indicator() {
     fn loading_shown(kind: &AppKind) -> bool {
-        let mut app = spawn(kind);
+        let app = spawn(kind);
         // Do NOT settle() — the spinner animates so the screen never stabilises;
         // sample at a fixed point inside the guaranteed loading window instead.
         std::thread::sleep(Duration::from_millis(1200));

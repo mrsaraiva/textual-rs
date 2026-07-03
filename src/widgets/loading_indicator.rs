@@ -270,6 +270,7 @@ fn gradient_3stop(dim: Color, mid: Color, bright: Color, t: f64) -> Color {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::event::EventCtx;
     use crate::node_id::NodeId;
 
     #[test]
@@ -296,7 +297,10 @@ mod tests {
         let mut li = LoadingIndicator::new();
         let event = Event::Action(Action::FocusNext);
         let mut ctx = EventCtx::default();
-        li.on_event_capture(&event, &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            li.on_event_capture(&event, &mut __w);
+        }
         assert!(ctx.handled());
     }
 
@@ -305,7 +309,10 @@ mod tests {
         let mut li = LoadingIndicator::new();
         let event = Event::Tick(0);
         let mut ctx = EventCtx::default();
-        li.on_event_capture(&event, &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            li.on_event_capture(&event, &mut __w);
+        }
         assert!(!ctx.handled());
     }
 
@@ -356,7 +363,10 @@ mod tests {
         ));
         let event = Event::Key(key_data);
         let mut ctx = EventCtx::default();
-        li.on_event_capture(&event, &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            li.on_event_capture(&event, &mut __w);
+        }
         assert!(ctx.handled());
     }
 
@@ -371,7 +381,10 @@ mod tests {
             target: NodeId::default(),
         });
         let mut ctx = EventCtx::default();
-        li.on_event_capture(&event, &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            li.on_event_capture(&event, &mut __w);
+        }
         assert!(ctx.handled());
     }
 
@@ -380,7 +393,10 @@ mod tests {
         let mut li = LoadingIndicator::new();
         let event = Event::Resize(80, 24);
         let mut ctx = EventCtx::default();
-        li.on_event_capture(&event, &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            li.on_event_capture(&event, &mut __w);
+        }
         assert!(!ctx.handled());
     }
 

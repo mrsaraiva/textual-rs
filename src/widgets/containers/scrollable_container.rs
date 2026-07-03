@@ -265,6 +265,7 @@ delegate_renderable!(ScrollableContainer);
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::event::EventCtx;
     use crate::message::{MessageEvent, ScrollbarAxis, ScrollbarScrollTo};
     use crate::prelude::Label;
 
@@ -289,7 +290,9 @@ mod tests {
         let mut sc = ScrollableContainer::new().with_child(Label::new("line\n".repeat(20)));
         sc.set_virtual_content_size(20, 100);
         let mut ctx = EventCtx::default();
-        sc.on_message(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            sc.on_message(
             &MessageEvent::new(
                 crate::node_id::NodeId::default(),
                 ScrollbarScrollTo {
@@ -299,8 +302,8 @@ mod tests {
                     scroll_duration: None,
                 },
             ),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         assert_eq!(sc.scroll_offset().1, 6);
         assert!(
             ctx.handled(),

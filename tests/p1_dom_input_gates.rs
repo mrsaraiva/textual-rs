@@ -46,7 +46,7 @@ impl Widget for ClickProbe {
         true
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut textual::event::WidgetCtx) {
         let this = self.node_id();
         match event {
             Event::MouseDown(mouse) if mouse.target == this => {
@@ -109,7 +109,7 @@ impl Widget for LayoutClickProbe {
         true
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut textual::event::WidgetCtx) {
         let this = self.node_id();
         match event {
             Event::MouseDown(mouse) if mouse.target == this => {
@@ -165,7 +165,7 @@ impl Widget for HoverProbe {
         Some(1)
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut textual::event::WidgetCtx) {
         match event {
             Event::Enter(_) => {
                 self.set_hovered(true);
@@ -220,7 +220,7 @@ impl Widget for FocusProbe {
         true
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut textual::event::WidgetCtx) {
         match event {
             Event::Focus(_) => {
                 self.set_focus(true);
@@ -414,7 +414,7 @@ impl Widget for DataTableNavProbe {
         self.inner.on_layout(width, height);
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut textual::event::WidgetCtx) {
         match event {
             Event::Focus(_) => {
                 self.focused = true;
@@ -495,7 +495,7 @@ fn p1_gate_row_click_targets_correct_child_by_x() {
         .with_child(ClickProbe::new("right", sink.clone()));
     let mut ctx = EventCtx::default();
 
-    root.on_event(
+    { let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx); root.on_event(
         &Event::MouseDown(MouseDownEvent {
             target: NodeId::default(),
             screen_x: 9,
@@ -503,9 +503,8 @@ fn p1_gate_row_click_targets_correct_child_by_x() {
             x: 9,
             y: 0,
         }),
-        &mut ctx,
-    );
-    root.on_event(
+        &mut __w) };
+    { let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx); root.on_event(
         &Event::MouseUp(MouseUpEvent {
             target: Some(NodeId::default()),
             screen_x: 9,
@@ -513,8 +512,7 @@ fn p1_gate_row_click_targets_correct_child_by_x() {
             x: 9,
             y: 0,
         }),
-        &mut ctx,
-    );
+        &mut __w) };
 
     let descriptions = sink.lock().unwrap_or_else(|e| e.into_inner()).clone();
     assert_eq!(
@@ -601,9 +599,9 @@ fn p1_gate_row_focus_next_prev_cycles_children() {
         .with_child(FocusProbe::new("right", sink.clone()));
     let mut ctx = EventCtx::default();
 
-    root.on_event(&Event::Action(Action::FocusNext), &mut ctx);
-    root.on_event(&Event::Action(Action::FocusNext), &mut ctx);
-    root.on_event(&Event::Action(Action::FocusPrev), &mut ctx);
+    { let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx); root.on_event(&Event::Action(Action::FocusNext), &mut __w) };
+    { let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx); root.on_event(&Event::Action(Action::FocusNext), &mut __w) };
+    { let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx); root.on_event(&Event::Action(Action::FocusPrev), &mut __w) };
 
     let events = sink.lock().unwrap_or_else(|e| e.into_inner()).clone();
     assert!(
@@ -667,17 +665,16 @@ fn p1_gate_row_focus_routes_arrow_keys_to_datatable() {
         .with_child(DataTableNavProbe::new(sink.clone()));
     root.on_layout(20, 5);
 
-    root.on_event(&Event::Action(Action::FocusNext), &mut EventCtx::default());
-    root.on_event(&Event::Action(Action::FocusNext), &mut EventCtx::default());
+    { let mut __e = textual::event::EventCtx::default(); let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut __e); root.on_event(&Event::Action(Action::FocusNext), &mut __w) };
+    { let mut __e = textual::event::EventCtx::default(); let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut __e); root.on_event(&Event::Action(Action::FocusNext), &mut __w) };
 
     let mut key_ctx = EventCtx::default();
-    root.on_event(
+    { let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut key_ctx); root.on_event(
         &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
             KeyCode::Down,
             KeyModifiers::NONE,
         ))),
-        &mut key_ctx,
-    );
+        &mut __w) };
 
     let events = sink.lock().unwrap_or_else(|e| e.into_inner()).clone();
     assert!(

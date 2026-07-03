@@ -1777,7 +1777,10 @@ mod tests {
 
         let key = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
         let mut ctx = EventCtx::default();
-        tree.on_event(&Event::Key(key), &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            tree.on_event(&Event::Key(key), &mut __w);
+        }
 
         let messages = ctx.take_messages();
         assert_eq!(messages.len(), 1);
@@ -1814,7 +1817,9 @@ mod tests {
         let id = NodeId::default();
 
         let mut ctx = EventCtx::default();
-        tree.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            tree.on_event(
             &Event::MouseDown(MouseDownEvent {
                 target: id,
                 screen_x: 0,
@@ -1822,8 +1827,8 @@ mod tests {
                 x: 0,
                 y: 0,
             }),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         let messages = ctx.take_messages();
         // emit_toggled now posts TreeNodeToggled + TreeNodeCollapsed (2 messages)
         assert_eq!(messages.len(), 2);
@@ -1855,7 +1860,9 @@ mod tests {
         let id = NodeId::default();
 
         let mut down_ctx = EventCtx::default();
-        tree.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut down_ctx);
+            tree.on_event(
             &Event::MouseDown(MouseDownEvent {
                 target: id,
                 screen_x: 1,
@@ -1863,14 +1870,16 @@ mod tests {
                 x: 1,
                 y: 1,
             }),
-            &mut down_ctx,
-        );
+            &mut __w);
+        }
         assert!(down_ctx.handled());
         // select_index emits TreeNodeSelected + TreeNodeHighlighted (2 messages)
         assert_eq!(down_ctx.take_messages().len(), 2);
 
         let mut up_ctx = EventCtx::default();
-        tree.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut up_ctx);
+            tree.on_event(
             &Event::MouseUp(MouseUpEvent {
                 target: Some(id),
                 screen_x: 1,
@@ -1878,8 +1887,8 @@ mod tests {
                 x: 1,
                 y: 1,
             }),
-            &mut up_ctx,
-        );
+            &mut __w);
+        }
         let messages = up_ctx.take_messages();
         assert_eq!(messages.len(), 1);
         assert!(messages[0].is::<TreeNodeActivated>());
@@ -1906,7 +1915,10 @@ mod tests {
         assert_eq!(tree.hovered_index, Some(0));
 
         let mut ctx = EventCtx::default();
-        tree.on_event(&Event::AppFocus(false), &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            tree.on_event(&Event::AppFocus(false), &mut __w);
+        }
 
         assert_eq!(tree.hovered_index, None);
         assert!(ctx.repaint_requested());
@@ -1962,7 +1974,7 @@ mod tests {
             name: "cursor_down".to_string(),
             arguments: vec![],
         };
-        assert!(tree.execute_action(&action, &mut ctx));
+        assert!({ let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx); tree.execute_action(&action, &mut __w) });
     }
 
     #[test]

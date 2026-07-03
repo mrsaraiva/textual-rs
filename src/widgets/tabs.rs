@@ -1420,6 +1420,7 @@ impl From<String> for Tab {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::event::EventCtx;
     use crate::event::MouseDownEvent;
     use crate::keys::KeyEventData;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -1437,13 +1438,15 @@ mod tests {
         tabs.on_layout(40, 6);
 
         let mut ctx = EventCtx::default();
-        tabs.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            tabs.on_event(
             &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
                 KeyCode::Right,
                 KeyModifiers::NONE,
             ))),
-            &mut ctx,
-        );
+            &mut __w);
+        }
 
         assert!(ctx.handled());
         assert!(ctx.repaint_requested());
@@ -1457,7 +1460,9 @@ mod tests {
         tabs.on_layout(40, 6);
 
         let mut ctx = EventCtx::default();
-        tabs.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            tabs.on_event(
             &Event::MouseDown(MouseDownEvent {
                 target: crate::node_id::NodeId::default(),
                 screen_x: 1,
@@ -1465,8 +1470,8 @@ mod tests {
                 x: 1,
                 y: 0,
             }),
-            &mut ctx,
-        );
+            &mut __w);
+        }
 
         assert!(ctx.handled());
         let messages = ctx.take_messages();

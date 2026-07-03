@@ -1,5 +1,6 @@
 use rich_rs::Console;
 use textual::action::ParsedAction;
+use textual::event::EventCtx;
 use textual::css::{
     AppRuntimePseudos, default_widget_stylesheet, set_app_runtime_pseudos, set_style_context,
 };
@@ -22,7 +23,11 @@ fn tabbed_content_honors_initial_pane_id() {
         .initial("jessica")
         .with_pane(TabPane::new("Leto", Label::new("first")).id("leto"))
         .with_pane(TabPane::new("Jessica", Label::new("second")).id("jessica"));
-    tabs.on_mount();
+    {
+        let mut __e = textual::event::EventCtx::default();
+        let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut __e);
+        tabs.on_mount(&mut __w);
+    }
     assert_eq!(tabs.active_id(), Some("jessica"));
 }
 
@@ -43,7 +48,7 @@ fn tabbed_content_keyboard_changes_active_pane() {
         crossterm::event::KeyModifiers::NONE,
     ));
     let mut ctx = EventCtx::default();
-    tabs.on_event(&Event::Key(key), &mut ctx);
+    { let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx); tabs.on_event(&Event::Key(key), &mut __w) };
     assert!(ctx.handled());
     assert_eq!(tabs.active_id(), Some("two"));
 }
@@ -56,7 +61,7 @@ fn tabbed_content_mouse_click_header_changes_active_pane() {
     tabs.on_layout(40, 5);
     let id = NodeId::default();
     let mut ctx = EventCtx::default();
-    tabs.on_event(
+    { let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx); tabs.on_event(
         &Event::MouseDown(MouseDownEvent {
             target: id,
             screen_x: 5,
@@ -64,8 +69,7 @@ fn tabbed_content_mouse_click_header_changes_active_pane() {
             x: 5,
             y: 0,
         }),
-        &mut ctx,
-    );
+        &mut __w) };
     assert!(ctx.handled());
     assert_eq!(tabs.active_id(), Some("two"));
 }
@@ -250,12 +254,12 @@ fn tabbed_content_keyboard_navigation_skips_disabled_and_hidden_panes() {
         crossterm::event::KeyModifiers::NONE,
     ));
     let mut ctx = EventCtx::default();
-    tabs.on_event(&Event::Key(right.clone()), &mut ctx);
+    { let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx); tabs.on_event(&Event::Key(right.clone()), &mut __w) };
     assert!(ctx.handled());
     assert_eq!(tabs.active_id(), Some("four"));
 
     let mut wrap_ctx = EventCtx::default();
-    tabs.on_event(&Event::Key(right), &mut wrap_ctx);
+    { let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut wrap_ctx); tabs.on_event(&Event::Key(right), &mut __w) };
     assert!(wrap_ctx.handled());
     assert_eq!(tabs.active_id(), Some("one"));
 }
@@ -298,7 +302,7 @@ fn tabbed_content_mouse_click_disabled_pane_tab_does_not_activate() {
     tabs.on_layout(40, 5);
     let id = NodeId::default();
     let mut ctx = EventCtx::default();
-    tabs.on_event(
+    { let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx); tabs.on_event(
         &Event::MouseDown(MouseDownEvent {
             target: id,
             screen_x: 6,
@@ -306,8 +310,7 @@ fn tabbed_content_mouse_click_disabled_pane_tab_does_not_activate() {
             x: 6,
             y: 0,
         }),
-        &mut ctx,
-    );
+        &mut __w) };
     assert!(!ctx.handled());
     assert_eq!(tabs.active_id(), Some("one"));
 }
@@ -323,7 +326,7 @@ fn tabbed_content_show_tab_action_switches_active_pane() {
         arguments: vec!["two".to_string()],
     };
     let mut ctx = EventCtx::default();
-    assert!(tabs.execute_action(&action, &mut ctx));
+    assert!({ let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx); tabs.execute_action(&action, &mut __w) });
     assert!(ctx.handled());
     assert!(ctx.repaint_requested());
     assert_eq!(tabs.active_id(), Some("two"));

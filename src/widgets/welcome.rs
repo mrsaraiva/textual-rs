@@ -166,6 +166,7 @@ impl Renderable for Welcome {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::event::EventCtx;
     use crate::message::MessageEvent;
     use crate::node_id::NodeId;
 
@@ -207,7 +208,9 @@ mod tests {
 
         let mut ctx = EventCtx::default();
         // Send ButtonPressed from *any* sender (simulates arena child button).
-        welcome.on_message(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            welcome.on_message(
             &MessageEvent::new(
                 NodeId::default(),
                 ButtonPressed {
@@ -215,8 +218,8 @@ mod tests {
                     button_id: None,
                 },
             ),
-            &mut ctx,
-        );
+            &mut __w);
+        }
 
         assert!(ctx.handled());
         let emitted = ctx.take_messages();
@@ -239,10 +242,12 @@ mod tests {
         let mut welcome = Welcome::new();
         let mut ctx = EventCtx::default();
         // A non-ButtonPressed message should not be handled.
-        welcome.on_message(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            welcome.on_message(
             &MessageEvent::new(NodeId::default(), InputChanged { value: "x".to_string(), validation: crate::validation::ValidationResult::success() }),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         assert!(!ctx.handled());
     }
 }

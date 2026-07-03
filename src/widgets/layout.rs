@@ -2416,7 +2416,10 @@ mod tests {
         let _ = r.compose();
 
         let mut ctx = EventCtx::default();
-        r.on_event(&Event::Action(Action::FocusNext), &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            r.on_event(&Event::Action(Action::FocusNext), &mut __w);
+        }
         assert!(!ctx.handled());
     }
 
@@ -2483,7 +2486,10 @@ mod tests {
         let _ = d.compose();
 
         let mut ctx = EventCtx::default();
-        d.on_event(&Event::Action(Action::FocusNext), &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            d.on_event(&Event::Action(Action::FocusNext), &mut __w);
+        }
         assert!(!ctx.handled());
     }
 
@@ -2531,7 +2537,10 @@ mod tests {
         let _ = g.compose();
 
         let mut ctx = EventCtx::default();
-        g.on_event(&Event::Action(Action::FocusNext), &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            g.on_event(&Event::Action(Action::FocusNext), &mut __w);
+        }
         assert!(!ctx.handled());
     }
 

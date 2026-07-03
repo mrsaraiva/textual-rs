@@ -248,6 +248,7 @@ impl Renderable for Link {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::event::EventCtx;
     use crate::keys::KeyEventData;
 
     #[test]
@@ -362,7 +363,7 @@ mod tests {
     fn activate_posts_link_clicked() {
         let mut link = Link::new("text").with_url("https://example.com");
         let mut ctx = EventCtx::default();
-        link.activate(&mut ctx);
+        { let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx); link.activate(&mut __w) };
         assert!(ctx.handled());
         let messages = ctx.take_messages();
         assert_eq!(messages.len(), 1);
@@ -378,7 +379,7 @@ mod tests {
         let mut link = Link::new("text");
         link.set_url("");
         let mut ctx = EventCtx::default();
-        link.activate(&mut ctx);
+        { let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx); link.activate(&mut __w) };
         let messages = ctx.take_messages();
         assert!(messages.is_empty());
     }
@@ -396,7 +397,10 @@ mod tests {
         let mut link = Link::new("text").with_url("https://example.com");
         let mut ctx = EventCtx::default();
         let event = make_key_event(KeyCode::Enter);
-        link.on_event(&event, &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            link.on_event(&event, &mut __w);
+        }
         // Outside dispatch context, node_state().focused == false, so key is not handled.
         assert!(!ctx.handled());
     }
@@ -406,7 +410,10 @@ mod tests {
         let mut link = Link::new("text").with_url("https://example.com");
         let mut ctx = EventCtx::default();
         let event = make_key_event(KeyCode::Enter);
-        link.on_event(&event, &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            link.on_event(&event, &mut __w);
+        }
         assert!(!ctx.handled());
     }
 }

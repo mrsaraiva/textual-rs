@@ -902,6 +902,7 @@ delegate_renderable!(MarkdownViewer);
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::event::EventCtx;
 
     #[test]
     fn markdown_viewer_default_shows_toc() {
@@ -1125,7 +1126,7 @@ mod tests {
         let action =
             crate::action::parse_action("link('./example.md')").expect("link action should parse");
         let mut ctx = EventCtx::default();
-        assert!(viewer.execute_action(&action, &mut ctx));
+        assert!({ let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx); viewer.execute_action(&action, &mut __w) });
         assert_eq!(viewer.content, "# Example");
         assert!(
             ctx.take_messages()
@@ -1240,7 +1241,10 @@ mod tests {
             },
         );
         let mut ctx = crate::event::EventCtx::default();
-        toc.on_message(&msg, &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            toc.on_message(&msg, &mut __w);
+        }
         assert!(ctx.handled());
         let messages = ctx.take_messages();
         assert!(
@@ -1265,7 +1269,10 @@ mod tests {
             },
         );
         let mut ctx = crate::event::EventCtx::default();
-        toc.on_message(&msg, &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            toc.on_message(&msg, &mut __w);
+        }
         assert!(
             ctx.invalidation().layout,
             "TOC updates should invalidate layout so dock:auto width can grow"
@@ -1285,7 +1292,10 @@ mod tests {
             },
         );
         let mut ctx = crate::event::EventCtx::default();
-        toc.on_message(&msg, &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            toc.on_message(&msg, &mut __w);
+        }
         assert!(!ctx.handled());
         assert!(ctx.take_messages().is_empty());
     }
@@ -1325,7 +1335,10 @@ mod tests {
             },
         );
         let mut ctx = crate::event::EventCtx::default();
-        viewer.on_message(&msg, &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            viewer.on_message(&msg, &mut __w);
+        }
         assert!(
             ctx.invalidation().layout,
             "MarkdownViewer must invalidate layout when TOC headings change"
@@ -1345,7 +1358,10 @@ mod tests {
             },
         );
         let mut ctx = crate::event::EventCtx::default();
-        viewer.on_message(&msg, &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            viewer.on_message(&msg, &mut __w);
+        }
         assert!(ctx.handled());
         let messages = ctx.take_messages();
         assert!(

@@ -2479,6 +2479,7 @@ fn emit_row_per_cell(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::event::EventCtx;
     use crate::event::MouseDownEvent;
     use crate::keys::KeyEventData;
     use crate::node_id::NodeId;
@@ -2520,7 +2521,9 @@ mod tests {
         let id = NodeId::default();
         let mut ctx = EventCtx::default();
 
-        table.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            table.on_event(
             &Event::MouseDown(MouseDownEvent {
                 target: id,
                 screen_x: 0,
@@ -2528,8 +2531,8 @@ mod tests {
                 x: 0,
                 y: 0,
             }),
-            &mut ctx,
-        );
+            &mut __w);
+        }
 
         assert!(ctx.handled());
         assert_eq!(table.selected, 1);
@@ -2687,7 +2690,9 @@ mod tests {
         table.set_cursor(0, 3, &mut rctx);
         let mut ctx = EventCtx::default();
 
-        table.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            table.on_event(
             &Event::MouseDown(MouseDownEvent {
                 target: NodeId::default(),
                 screen_x: 4,
@@ -2695,8 +2700,8 @@ mod tests {
                 x: 4,
                 y: 0,
             }),
-            &mut ctx,
-        );
+            &mut __w);
+        }
 
         let messages = ctx.take_messages();
         assert_eq!(messages.len(), 1);
@@ -2730,7 +2735,9 @@ mod tests {
         assert!(table.horizontal_offset > 0);
 
         let mut ctx = EventCtx::default();
-        table.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            table.on_event(
             &Event::MouseDown(MouseDownEvent {
                 target: NodeId::default(),
                 screen_x: 0,
@@ -2738,8 +2745,8 @@ mod tests {
                 x: 0,
                 y: 0,
             }),
-            &mut ctx,
-        );
+            &mut __w);
+        }
 
         assert_eq!(table.cursor_column, 0);
         assert_eq!(table.horizontal_offset, 0);
@@ -2773,40 +2780,48 @@ mod tests {
         table.set_cursor(3, 2, &mut rctx);
         let mut ctx = EventCtx::default();
 
-        table.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            table.on_event(
             &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
                 KeyCode::Home,
                 KeyModifiers::NONE,
             ))),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         assert_eq!(table.cursor(), (3, 0));
 
-        table.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            table.on_event(
             &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
                 KeyCode::End,
                 KeyModifiers::NONE,
             ))),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         assert_eq!(table.cursor(), (3, 2));
 
-        table.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            table.on_event(
             &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
                 KeyCode::Home,
                 KeyModifiers::CONTROL,
             ))),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         assert_eq!(table.cursor(), (0, 2));
 
-        table.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            table.on_event(
             &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
                 KeyCode::End,
                 KeyModifiers::CONTROL,
             ))),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         assert_eq!(table.cursor(), (4, 2));
     }
 
@@ -2825,13 +2840,19 @@ mod tests {
         assert!(offset_at_end > 0);
 
         let mut ctx = EventCtx::default();
-        table.on_event(&Event::Action(Action::ScrollHome), &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            table.on_event(&Event::Action(Action::ScrollHome), &mut __w);
+        }
         assert!(ctx.handled());
         assert_eq!(table.cursor_column, 0);
         assert_eq!(table.horizontal_offset, 0);
 
         let mut ctx = EventCtx::default();
-        table.on_event(&Event::Action(Action::ScrollEnd), &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            table.on_event(&Event::Action(Action::ScrollEnd), &mut __w);
+        }
         assert!(ctx.handled());
         assert_eq!(table.cursor_column, 3);
         assert_eq!(table.horizontal_offset, offset_at_end);
@@ -2846,7 +2867,9 @@ mod tests {
         let id = NodeId::default();
         let mut ctx = EventCtx::default();
 
-        table.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            table.on_event(
             &Event::MouseDown(MouseDownEvent {
                 target: id,
                 screen_x: 4,
@@ -2854,8 +2877,8 @@ mod tests {
                 x: 4,
                 y: 0,
             }),
-            &mut ctx,
-        );
+            &mut __w);
+        }
 
         assert!(ctx.handled());
         let messages = ctx.take_messages();
@@ -2882,13 +2905,15 @@ mod tests {
         let _guard = set_dispatch_recipient(make_node_id(), focused_state());
         let mut ctx = EventCtx::default();
 
-        table.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            table.on_event(
             &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
                 KeyCode::Down,
                 KeyModifiers::NONE,
             ))),
-            &mut ctx,
-        );
+            &mut __w);
+        }
 
         assert!(ctx.handled());
         let messages = ctx.take_messages();
@@ -2912,13 +2937,15 @@ mod tests {
         table.set_cursor(1, 1, &mut rctx);
         let mut ctx = EventCtx::default();
 
-        table.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            table.on_event(
             &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
                 KeyCode::Enter,
                 KeyModifiers::NONE,
             ))),
-            &mut ctx,
-        );
+            &mut __w);
+        }
 
         assert!(ctx.handled());
         let messages = ctx.take_messages();
@@ -2969,7 +2996,9 @@ mod tests {
         assert_eq!(table.horizontal_offset, 0);
 
         let mut ctx = EventCtx::default();
-        table.on_message(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            table.on_message(
             &MessageEvent::new(
                 NodeId::default(),
                 ScrollbarScrollTo {
@@ -2979,8 +3008,8 @@ mod tests {
                     scroll_duration: None,
                 },
             ),
-            &mut ctx,
-        );
+            &mut __w);
+        }
 
         assert!(ctx.handled());
         assert!(table.horizontal_offset > 0);
@@ -3004,7 +3033,10 @@ mod tests {
         assert_eq!(table.horizontal_offset, 0);
 
         let mut ctx = EventCtx::default();
-        table.on_event(&Event::Action(Action::ScrollRight), &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            table.on_event(&Event::Action(Action::ScrollRight), &mut __w);
+        }
         assert!(ctx.handled());
         assert!(table.horizontal_offset > 0);
     }
@@ -3024,7 +3056,9 @@ mod tests {
         let _ = table.compose();
 
         let mut ctx = EventCtx::default();
-        table.on_message(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            table.on_message(
             &MessageEvent::new(
                 NodeId::default(),
                 ScrollbarScrollTo {
@@ -3034,13 +3068,15 @@ mod tests {
                     scroll_duration: None,
                 },
             ),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         assert!(ctx.handled());
         let after_first = table.horizontal_offset;
 
         let mut ctx2 = EventCtx::default();
-        table.on_message(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx2);
+            table.on_message(
             &MessageEvent::new(
                 NodeId::default(),
                 ScrollbarScrollTo {
@@ -3050,8 +3086,8 @@ mod tests {
                     scroll_duration: None,
                 },
             ),
-            &mut ctx2,
-        );
+            &mut __w);
+        }
         assert!(ctx2.handled());
         assert!(ctx2.repaint_requested());
         assert!(table.horizontal_offset >= after_first);
@@ -3088,7 +3124,7 @@ mod tests {
             name: "cursor_down".to_string(),
             arguments: vec![],
         };
-        assert!(table.execute_action(&action, &mut ctx));
+        assert!({ let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx); table.execute_action(&action, &mut __w) });
     }
 
     #[test]
@@ -3125,7 +3161,9 @@ mod tests {
         let _ = table.compose();
 
         let mut ctx = EventCtx::default();
-        table.on_message(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            table.on_message(
             &MessageEvent::new(
                 NodeId::default(),
                 ScrollbarScrollTo {
@@ -3135,8 +3173,8 @@ mod tests {
                     scroll_duration: None,
                 },
             ),
-            &mut ctx,
-        );
+            &mut __w);
+        }
 
         assert!(ctx.handled());
         assert!(table.horizontal_offset > 0);

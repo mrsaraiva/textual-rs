@@ -346,6 +346,7 @@ impl Renderable for Checkbox {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::event::EventCtx;
     use crate::keys::KeyEventData;
     use crate::runtime::dispatch_ctx::set_dispatch_recipient;
     use crate::widgets::NodeState;
@@ -372,7 +373,10 @@ mod tests {
         let key =
             KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
         let mut ctx = EventCtx::default();
-        checkbox.on_event(&Event::Key(key), &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            checkbox.on_event(&Event::Key(key), &mut __w);
+        }
         let messages = ctx.take_messages();
         assert!(messages.iter().any(|m| {
             m.downcast_ref::<CheckboxChanged>()
@@ -398,7 +402,7 @@ mod tests {
             arguments: vec![],
         };
         assert!(!checkbox.checked());
-        assert!(checkbox.execute_action(&action, &mut ctx));
+        assert!({ let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx); checkbox.execute_action(&action, &mut __w) });
         assert!(checkbox.checked());
         let messages = ctx.take_messages();
         assert!(messages.iter().any(|m| {

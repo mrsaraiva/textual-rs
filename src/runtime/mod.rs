@@ -1124,7 +1124,7 @@ impl App {
     ///
     /// # Example
     /// ```ignore
-    /// fn on_mount_with_app(&mut self, app: &mut App, _ctx: &mut EventCtx) {
+    /// fn on_mount_with_app(&mut self, app: &mut App, _ctx: &mut crate::event::WidgetCtx) {
     ///     app.set_title("Code Browser");
     /// }
     /// ```
@@ -4508,7 +4508,7 @@ impl Widget for TreeStubWidget {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::event::{BindingHint, EventCtx};
+    use crate::event::BindingHint;
     use crate::widget_tree::QueryError;
     use crate::widgets::{AppRoot, BindingDecl, Button, Label, Node};
     use rich_rs::Segments;
@@ -6230,7 +6230,7 @@ mod tests {
                 Segments::new()
             }
 
-            fn on_event(&mut self, event: &Event, _ctx: &mut EventCtx) {
+            fn on_event(&mut self, event: &Event, _ctx: &mut crate::event::WidgetCtx) {
                 let mut log = self.log.lock().expect("log lock");
                 match event {
                     Event::ScreenSuspend => log.push("suspend"),

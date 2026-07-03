@@ -534,6 +534,7 @@ impl Renderable for Container {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::event::EventCtx;
     use crate::prelude::Label;
 
     #[test]
@@ -606,7 +607,10 @@ mod tests {
 
         let mut ctx = EventCtx::default();
         // Key event should not panic even though children are gone.
-        c.on_event(&Event::Action(crate::event::Action::FocusNext), &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            c.on_event(&Event::Action(crate::event::Action::FocusNext), &mut __w);
+        }
         assert!(!ctx.handled());
     }
 

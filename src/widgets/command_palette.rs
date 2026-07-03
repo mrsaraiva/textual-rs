@@ -2356,7 +2356,10 @@ mod tests {
         let mut palette = CommandPalette::new(Label::new("body"));
         let mut ctx = EventCtx::default();
 
-        palette.on_event(&Event::Action(Action::CommandPalette), &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            palette.on_event(&Event::Action(Action::CommandPalette), &mut __w);
+        }
         assert!(palette.is_open());
         assert!(ctx.handled());
     }
@@ -2365,21 +2368,30 @@ mod tests {
     fn command_palette_emits_selection_message_on_enter() {
         let mut palette = CommandPalette::new(Label::new("body"));
         let mut ctx = EventCtx::default();
-        palette.on_event(&Event::Action(Action::CommandPalette), &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            palette.on_event(&Event::Action(Action::CommandPalette), &mut __w);
+        }
 
         let down = crate::keys::KeyEventData::from_crossterm(KeyEvent::new(
             KeyCode::Down,
             KeyModifiers::NONE,
         ));
         let mut nav_ctx = EventCtx::default();
-        palette.on_event(&Event::Key(down), &mut nav_ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut nav_ctx);
+            palette.on_event(&Event::Key(down), &mut __w);
+        }
 
         let key = crate::keys::KeyEventData::from_crossterm(KeyEvent::new(
             KeyCode::Enter,
             KeyModifiers::NONE,
         ));
         let mut execute_ctx = EventCtx::default();
-        palette.on_event(&Event::Key(key), &mut execute_ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut execute_ctx);
+            palette.on_event(&Event::Key(key), &mut __w);
+        }
 
         let messages = execute_ctx.take_messages();
         assert!(
@@ -2394,7 +2406,10 @@ mod tests {
     fn command_palette_down_key_moves_selection_while_input_has_focus() {
         let mut palette = CommandPalette::new(Label::new("body"));
         let mut ctx = EventCtx::default();
-        palette.on_event(&Event::Action(Action::CommandPalette), &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            palette.on_event(&Event::Action(Action::CommandPalette), &mut __w);
+        }
         assert!(palette.is_open());
         assert_eq!(palette.list.selected(), 0);
 
@@ -2403,7 +2418,10 @@ mod tests {
             KeyModifiers::NONE,
         ));
         let mut nav_ctx = EventCtx::default();
-        palette.on_event(&Event::Key(down), &mut nav_ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut nav_ctx);
+            palette.on_event(&Event::Key(down), &mut __w);
+        }
         assert!(nav_ctx.handled());
         assert_eq!(palette.list.selected(), 1);
     }
@@ -2412,13 +2430,18 @@ mod tests {
     fn command_palette_input_changed_rebuilds_results_even_with_non_query_sender() {
         let mut palette = CommandPalette::new(Label::new("body"));
         let mut open_ctx = EventCtx::default();
-        palette.on_event(&Event::Action(Action::CommandPalette), &mut open_ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut open_ctx);
+            palette.on_event(&Event::Action(Action::CommandPalette), &mut __w);
+        }
         assert!(palette.is_open());
         assert!(!palette.provider_results.is_empty());
 
         palette.query.set_text("zzzzzzzz");
         let mut msg_ctx = EventCtx::default();
-        palette.on_message(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut msg_ctx);
+            palette.on_message(
             &MessageEvent::new(
                 crate::node_id::node_id_from_ffi(77),
                 InputChanged {
@@ -2426,8 +2449,8 @@ mod tests {
                     validation: crate::validation::ValidationResult::success(),
                 },
             ),
-            &mut msg_ctx,
-        );
+            &mut __w);
+        }
         assert!(msg_ctx.handled());
         assert!(palette.provider_results.is_empty());
     }
@@ -2436,14 +2459,20 @@ mod tests {
     fn command_palette_emits_selection_message_for_keys_builtin() {
         let mut palette = CommandPalette::new(Label::new("body"));
         let mut ctx = EventCtx::default();
-        palette.on_event(&Event::Action(Action::CommandPalette), &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            palette.on_event(&Event::Action(Action::CommandPalette), &mut __w);
+        }
 
         let enter = crate::keys::KeyEventData::from_crossterm(KeyEvent::new(
             KeyCode::Enter,
             KeyModifiers::NONE,
         ));
         let mut execute_ctx = EventCtx::default();
-        palette.on_event(&Event::Key(enter), &mut execute_ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut execute_ctx);
+            palette.on_event(&Event::Key(enter), &mut __w);
+        }
 
         let messages = execute_ctx.take_messages();
         assert!(
@@ -2470,7 +2499,10 @@ mod tests {
         palette.set_commands(vec![PaletteCommand::new("quit", "Quit", "Quit app")]);
 
         let mut open_ctx = EventCtx::default();
-        palette.on_event(&Event::Action(Action::CommandPalette), &mut open_ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut open_ctx);
+            palette.on_event(&Event::Action(Action::CommandPalette), &mut __w);
+        }
         assert!(palette.is_open());
 
         let enter = crate::keys::KeyEventData::from_crossterm(KeyEvent::new(
@@ -2478,7 +2510,10 @@ mod tests {
             KeyModifiers::NONE,
         ));
         let mut execute_ctx = EventCtx::default();
-        palette.on_event(&Event::Key(enter), &mut execute_ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut execute_ctx);
+            palette.on_event(&Event::Key(enter), &mut __w);
+        }
 
         assert!(execute_ctx.stop_requested());
         let messages = execute_ctx.take_messages();
@@ -2500,7 +2535,10 @@ mod tests {
     fn command_palette_keys_command_toggles_key_panel() {
         let mut palette = CommandPalette::new(Label::new("body"));
         let mut ctx = EventCtx::default();
-        palette.on_event(&Event::Action(Action::CommandPalette), &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            palette.on_event(&Event::Action(Action::CommandPalette), &mut __w);
+        }
         assert!(palette.is_open());
 
         let enter = crate::keys::KeyEventData::from_crossterm(KeyEvent::new(
@@ -2508,7 +2546,10 @@ mod tests {
             KeyModifiers::NONE,
         ));
         let mut execute_ctx = EventCtx::default();
-        palette.on_event(&Event::Key(enter), &mut execute_ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut execute_ctx);
+            palette.on_event(&Event::Key(enter), &mut __w);
+        }
 
         assert!(!palette.is_open());
         assert!(palette.show_key_panel);
@@ -2518,7 +2559,9 @@ mod tests {
     fn command_palette_set_commands_message_replaces_command_list() {
         let mut palette = CommandPalette::new(Label::new("body"));
         let mut ctx = EventCtx::default();
-        palette.on_message(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            palette.on_message(
             &MessageEvent::new(
                 NodeId::default(),
                 CommandPaletteSetCommands {
@@ -2529,8 +2572,8 @@ mod tests {
                     }],
                 },
             ),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         assert!(ctx.handled());
         assert!(ctx.repaint_requested());
         assert_eq!(palette.system_provider.commands().len(), 1);
@@ -2545,7 +2588,10 @@ mod tests {
         let mut palette = CommandPalette::new(Label::new("body"));
         palette.on_layout(80, 20);
         let mut ctx = EventCtx::default();
-        palette.on_event(&Event::Action(Action::CommandPalette), &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            palette.on_event(&Event::Action(Action::CommandPalette), &mut __w);
+        }
         assert!(palette.is_open());
 
         let enter = crate::keys::KeyEventData::from_crossterm(KeyEvent::new(
@@ -2553,7 +2599,10 @@ mod tests {
             KeyModifiers::NONE,
         ));
         let mut execute_ctx = EventCtx::default();
-        palette.on_event(&Event::Key(enter), &mut execute_ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut execute_ctx);
+            palette.on_event(&Event::Key(enter), &mut __w);
+        }
 
         let requests = execute_ctx.take_animation_requests();
         assert_eq!(requests.len(), 1);
@@ -2569,7 +2618,10 @@ mod tests {
         let mut palette = CommandPalette::new(Label::new("body"));
         palette.on_layout(80, 20);
         let mut ctx = EventCtx::default();
-        palette.on_event(&Event::Action(Action::CommandPalette), &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            palette.on_event(&Event::Action(Action::CommandPalette), &mut __w);
+        }
         assert!(palette.is_open());
 
         let enter = crate::keys::KeyEventData::from_crossterm(KeyEvent::new(
@@ -2578,29 +2630,40 @@ mod tests {
         ));
 
         let mut first_ctx = EventCtx::default();
-        palette.on_event(&Event::Key(enter.clone()), &mut first_ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut first_ctx);
+            palette.on_event(&Event::Key(enter.clone()), &mut __w);
+        }
         assert!(!palette.is_open());
         assert!(palette.show_key_panel);
         let first = first_ctx.take_animation_requests();
         assert_eq!(first.len(), 1);
         assert!(first[0].end > 0.0);
         let mut settle_ctx = EventCtx::default();
-        palette.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut settle_ctx);
+            palette.on_event(
             &Event::AnimationValue(AnimationValueEvent {
                 target: NodeId::default(),
                 attribute: CommandPalette::KEY_PANEL_WIDTH_ATTR.to_string(),
                 value: first[0].end,
                 done: true,
             }),
-            &mut settle_ctx,
-        );
+            &mut __w);
+        }
 
         let mut reopen_ctx = EventCtx::default();
-        palette.on_event(&Event::Action(Action::CommandPalette), &mut reopen_ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut reopen_ctx);
+            palette.on_event(&Event::Action(Action::CommandPalette), &mut __w);
+        }
         assert!(palette.is_open());
 
         let mut second_ctx = EventCtx::default();
-        palette.on_event(&Event::Key(enter), &mut second_ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut second_ctx);
+            palette.on_event(&Event::Key(enter), &mut __w);
+        }
         assert!(!palette.is_open());
         assert!(!palette.show_key_panel);
         let second_messages = second_ctx.take_messages();
@@ -2625,25 +2688,33 @@ mod tests {
         palette.on_layout(80, 20);
 
         let mut open_ctx = EventCtx::default();
-        palette.on_event(&Event::Action(Action::CommandPalette), &mut open_ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut open_ctx);
+            palette.on_event(&Event::Action(Action::CommandPalette), &mut __w);
+        }
         assert!(palette.is_open());
         let open_requests = open_ctx.take_animation_requests();
         assert_eq!(open_requests.len(), 1);
         assert_eq!(open_requests[0].attribute, CommandPalette::PANEL_Y_ATTR);
         assert!(open_requests[0].end > open_requests[0].start);
         let mut settle_ctx = EventCtx::default();
-        palette.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut settle_ctx);
+            palette.on_event(
             &Event::AnimationValue(AnimationValueEvent {
                 target: NodeId::default(),
                 attribute: CommandPalette::PANEL_Y_ATTR.to_string(),
                 value: open_requests[0].end,
                 done: true,
             }),
-            &mut settle_ctx,
-        );
+            &mut __w);
+        }
 
         let mut close_ctx = EventCtx::default();
-        palette.on_event(&Event::Action(Action::CommandPalette), &mut close_ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut close_ctx);
+            palette.on_event(&Event::Action(Action::CommandPalette), &mut __w);
+        }
         assert!(!palette.is_open());
         let close_requests = close_ctx.take_animation_requests();
         assert_eq!(close_requests.len(), 1);
@@ -2658,7 +2729,10 @@ mod tests {
         palette.on_layout(80, 20);
 
         let mut open_ctx = EventCtx::default();
-        palette.on_event(&Event::Action(Action::CommandPalette), &mut open_ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut open_ctx);
+            palette.on_event(&Event::Action(Action::CommandPalette), &mut __w);
+        }
         assert!(palette.is_open());
         assert_eq!(palette.panel_render_y, 3.0);
 
@@ -2678,7 +2752,10 @@ mod tests {
         let mut palette = CommandPalette::new(child);
 
         let mut open_ctx = EventCtx::default();
-        palette.on_event(&Event::Action(Action::CommandPalette), &mut open_ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut open_ctx);
+            palette.on_event(&Event::Action(Action::CommandPalette), &mut __w);
+        }
         assert!(palette.is_open());
         // In non-tree mode, previously_focused_child is None (no arena node id),
         // but child_defocused_inline tracks that we called on_node_state_changed.
@@ -2687,7 +2764,10 @@ mod tests {
         assert!(!child_focus.load(Ordering::Relaxed));
 
         let mut close_ctx = EventCtx::default();
-        palette.on_event(&Event::Action(Action::CommandPalette), &mut close_ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut close_ctx);
+            palette.on_event(&Event::Action(Action::CommandPalette), &mut __w);
+        }
         assert!(!palette.is_open());
         // Focus restored: child_defocused_inline is cleared, child focus is back.
         assert!(!palette.child_defocused_inline);
@@ -2698,11 +2778,16 @@ mod tests {
     fn command_palette_closes_on_overlay_visibility_change_message() {
         let mut palette = CommandPalette::new(Label::new("body"));
         let mut open_ctx = EventCtx::default();
-        palette.on_event(&Event::Action(Action::CommandPalette), &mut open_ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut open_ctx);
+            palette.on_event(&Event::Action(Action::CommandPalette), &mut __w);
+        }
         assert!(palette.is_open());
 
         let mut transition_ctx = EventCtx::default();
-        palette.on_message(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut transition_ctx);
+            palette.on_message(
             &MessageEvent::new(
                 NodeId::default(),
                 OverlayVisibilityChanged {
@@ -2710,8 +2795,8 @@ mod tests {
                     visible: true,
                 },
             ),
-            &mut transition_ctx,
-        );
+            &mut __w);
+        }
         assert!(!palette.is_open());
         let messages = transition_ctx.take_messages();
         assert!(
@@ -2725,11 +2810,17 @@ mod tests {
     fn command_palette_closes_on_app_focus_loss() {
         let mut palette = CommandPalette::new(Label::new("body"));
         let mut open_ctx = EventCtx::default();
-        palette.on_event(&Event::Action(Action::CommandPalette), &mut open_ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut open_ctx);
+            palette.on_event(&Event::Action(Action::CommandPalette), &mut __w);
+        }
         assert!(palette.is_open());
 
         let mut focus_ctx = EventCtx::default();
-        palette.on_event(&Event::AppFocus(false), &mut focus_ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut focus_ctx);
+            palette.on_event(&Event::AppFocus(false), &mut __w);
+        }
         assert!(!palette.is_open());
         let messages = focus_ctx.take_messages();
         assert!(
@@ -2743,7 +2834,10 @@ mod tests {
     fn command_palette_selection_message_emits_before_close_message() {
         let mut palette = CommandPalette::new(Label::new("body"));
         let mut open_ctx = EventCtx::default();
-        palette.on_event(&Event::Action(Action::CommandPalette), &mut open_ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut open_ctx);
+            palette.on_event(&Event::Action(Action::CommandPalette), &mut __w);
+        }
         assert!(palette.is_open());
 
         let down = crate::keys::KeyEventData::from_crossterm(KeyEvent::new(
@@ -2751,14 +2845,20 @@ mod tests {
             KeyModifiers::NONE,
         ));
         let mut nav_ctx = EventCtx::default();
-        palette.on_event(&Event::Key(down), &mut nav_ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut nav_ctx);
+            palette.on_event(&Event::Key(down), &mut __w);
+        }
 
         let enter = crate::keys::KeyEventData::from_crossterm(KeyEvent::new(
             KeyCode::Enter,
             KeyModifiers::NONE,
         ));
         let mut execute_ctx = EventCtx::default();
-        palette.on_event(&Event::Key(enter), &mut execute_ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut execute_ctx);
+            palette.on_event(&Event::Key(enter), &mut __w);
+        }
         let messages = execute_ctx.take_messages();
         let selected_idx = messages
             .iter()
@@ -2778,11 +2878,16 @@ mod tests {
         palette.on_layout(80, 20);
 
         let mut open_ctx = EventCtx::default();
-        palette.on_event(&Event::Action(Action::CommandPalette), &mut open_ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut open_ctx);
+            palette.on_event(&Event::Action(Action::CommandPalette), &mut __w);
+        }
         assert!(palette.is_open());
 
         let mut click_ctx = EventCtx::default();
-        palette.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut click_ctx);
+            palette.on_event(
             &Event::MouseDown(crate::event::MouseDownEvent {
                 target: NodeId::default(), // matches self.node_id() in tests (no dispatch context)
                 screen_x: 5,
@@ -2790,8 +2895,8 @@ mod tests {
                 x: 0,
                 y: 0,
             }),
-            &mut click_ctx,
-        );
+            &mut __w);
+        }
 
         assert!(palette.is_open());
         assert!(click_ctx.handled());
@@ -2803,11 +2908,16 @@ mod tests {
         palette.on_layout(80, 20);
 
         let mut open_ctx = EventCtx::default();
-        palette.on_event(&Event::Action(Action::CommandPalette), &mut open_ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut open_ctx);
+            palette.on_event(&Event::Action(Action::CommandPalette), &mut __w);
+        }
         assert!(palette.is_open());
 
         let mut click_ctx = EventCtx::default();
-        palette.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut click_ctx);
+            palette.on_event(
             &Event::MouseDown(crate::event::MouseDownEvent {
                 target: NodeId::default(), // matches self.node_id() in tests (no dispatch context)
                 screen_x: 0,
@@ -2815,8 +2925,8 @@ mod tests {
                 x: 2,
                 y: 0,
             }),
-            &mut click_ctx,
-        );
+            &mut __w);
+        }
 
         assert!(palette.is_open());
         assert!(click_ctx.handled());
@@ -2827,13 +2937,18 @@ mod tests {
         let mut palette = CommandPalette::new(Label::new("body"));
         palette.on_layout(80, 20);
         let mut open_ctx = EventCtx::default();
-        palette.on_event(&Event::Action(Action::CommandPalette), &mut open_ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut open_ctx);
+            palette.on_event(&Event::Action(Action::CommandPalette), &mut __w);
+        }
         assert!(palette.is_open());
 
         // row 0 in results block with default panel geometry:
         // panel_y=3, results_y=6, each entry consumes two rows.
         let mut click_ctx = EventCtx::default();
-        palette.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut click_ctx);
+            palette.on_event(
             &Event::MouseDown(crate::event::MouseDownEvent {
                 target: NodeId::default(),
                 screen_x: 4,
@@ -2841,8 +2956,8 @@ mod tests {
                 x: 4,
                 y: 6,
             }),
-            &mut click_ctx,
-        );
+            &mut __w);
+        }
         assert!(click_ctx.handled());
         assert!(!palette.is_open());
         let messages = click_ctx.take_messages();
@@ -2872,7 +2987,9 @@ mod tests {
         list.set_selected(0);
 
         let mut ctx = EventCtx::default();
-        list.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            list.on_event(
             &Event::MouseDown(crate::event::MouseDownEvent {
                 target: list.node_id(),
                 screen_x: 2,
@@ -2881,8 +2998,8 @@ mod tests {
                 // Help row for the first command in two-row rendering.
                 y: 1,
             }),
-            &mut ctx,
-        );
+            &mut __w);
+        }
 
         assert!(ctx.handled());
         assert_eq!(list.selected(), 0);
@@ -3000,7 +3117,10 @@ mod tests {
         let mut palette = CommandPalette::new(Label::new("body"));
         palette.on_layout(80, 20);
         let mut open_ctx = EventCtx::default();
-        palette.on_event(&Event::Action(Action::CommandPalette), &mut open_ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut open_ctx);
+            palette.on_event(&Event::Action(Action::CommandPalette), &mut __w);
+        }
         assert!(palette.is_open());
 
         let (_, panel_y, panel_w, panel_h) =
@@ -3025,7 +3145,10 @@ mod tests {
         let mut palette = CommandPalette::new(Label::new("body"));
         palette.on_layout(80, 20);
         let mut open_ctx = EventCtx::default();
-        palette.on_event(&Event::Action(Action::CommandPalette), &mut open_ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut open_ctx);
+            palette.on_event(&Event::Action(Action::CommandPalette), &mut __w);
+        }
         assert!(palette.is_open());
 
         let (_, panel_y, panel_w, panel_h) =
@@ -3052,7 +3175,10 @@ mod tests {
         let mut palette = CommandPalette::new(Label::new("body"));
         palette.on_layout(95, 16);
         let mut open_ctx = EventCtx::default();
-        palette.on_event(&Event::Action(Action::CommandPalette), &mut open_ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut open_ctx);
+            palette.on_event(&Event::Action(Action::CommandPalette), &mut __w);
+        }
         assert!(palette.is_open());
 
         // Simulate tree-mode render where CommandPalette receives full viewport
@@ -3081,13 +3207,19 @@ mod tests {
         palette.on_layout(95, 35);
 
         let mut open_ctx = EventCtx::default();
-        palette.on_event(&Event::Action(Action::CommandPalette), &mut open_ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut open_ctx);
+            palette.on_event(&Event::Action(Action::CommandPalette), &mut __w);
+        }
         assert!(palette.is_open());
 
         let mut blur_ctx = EventCtx::default();
-        palette
-            .query
-            .on_event(&Event::AppFocus(false), &mut blur_ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut blur_ctx);
+            palette
+                .query
+                .on_event(&Event::AppFocus(false), &mut __w);
+        }
 
         let console = Console::new();
         let mut options = console.options().clone();
@@ -3135,16 +3267,24 @@ mod tests {
         palette.on_layout(80, 20);
 
         let mut open_ctx = EventCtx::default();
-        palette.on_event(&Event::Action(Action::CommandPalette), &mut open_ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut open_ctx);
+            palette.on_event(&Event::Action(Action::CommandPalette), &mut __w);
+        }
         assert!(palette.is_open());
 
         let mut close_ctx = EventCtx::default();
-        palette.on_event(&Event::Action(Action::CommandPalette), &mut close_ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut close_ctx);
+            palette.on_event(&Event::Action(Action::CommandPalette), &mut __w);
+        }
         assert!(!palette.is_open());
         assert!(palette.panel_visible);
 
         let mut click_ctx = EventCtx::default();
-        palette.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut click_ctx);
+            palette.on_event(
             &Event::MouseDown(crate::event::MouseDownEvent {
                 target: NodeId::default(),
                 screen_x: 1,
@@ -3152,25 +3292,29 @@ mod tests {
                 x: 1,
                 y: 1,
             }),
-            &mut click_ctx,
-        );
+            &mut __w);
+        }
         assert!(click_ctx.handled());
         assert_eq!(mouse_downs.load(Ordering::Relaxed), 0);
 
         let mut settle_ctx = EventCtx::default();
-        palette.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut settle_ctx);
+            palette.on_event(
             &Event::AnimationValue(AnimationValueEvent {
                 target: NodeId::default(),
                 attribute: CommandPalette::PANEL_Y_ATTR.to_string(),
                 value: CommandPalette::CLOSED_PANEL_Y,
                 done: true,
             }),
-            &mut settle_ctx,
-        );
+            &mut __w);
+        }
         assert!(!palette.panel_visible);
 
         let mut click_ctx = EventCtx::default();
-        palette.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut click_ctx);
+            palette.on_event(
             &Event::MouseDown(crate::event::MouseDownEvent {
                 target: NodeId::default(),
                 screen_x: 1,
@@ -3178,8 +3322,8 @@ mod tests {
                 x: 1,
                 y: 1,
             }),
-            &mut click_ctx,
-        );
+            &mut __w);
+        }
         assert_eq!(mouse_downs.load(Ordering::Relaxed), 1);
     }
 
@@ -3188,7 +3332,10 @@ mod tests {
         let mut palette = CommandPalette::new(Label::new("body"));
         palette.on_layout(80, 20);
         let mut open_ctx = EventCtx::default();
-        palette.on_event(&Event::Action(Action::CommandPalette), &mut open_ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut open_ctx);
+            palette.on_event(&Event::Action(Action::CommandPalette), &mut __w);
+        }
         assert!(palette.is_open());
         assert!(palette.panel_visible);
 
@@ -3232,7 +3379,11 @@ mod tests {
         let mut palette = CommandPalette::new(Label::new("body"));
         assert!(palette.bindings().is_empty());
 
-        palette.set_open(true, &mut crate::event::WidgetCtx::default());
+        {
+            let mut __e = crate::event::EventCtx::default();
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut __e);
+            palette.set_open(true, &mut __w);
+        }
         let bindings = palette.bindings();
         assert!(!bindings.is_empty());
         assert!(bindings.iter().any(|b| b.action == "dismiss"));
@@ -3242,7 +3393,11 @@ mod tests {
     fn execute_action_handles_dismiss() {
         use crate::action::ParsedAction;
         let mut palette = CommandPalette::new(Label::new("body"));
-        palette.set_open(true, &mut crate::event::WidgetCtx::default());
+        {
+            let mut __e = crate::event::EventCtx::default();
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut __e);
+            palette.set_open(true, &mut __w);
+        }
         assert!(palette.is_open());
         let mut ctx = EventCtx::default();
         let action = ParsedAction {
@@ -3250,7 +3405,7 @@ mod tests {
             name: "dismiss".to_string(),
             arguments: vec![],
         };
-        assert!(palette.execute_action(&action, &mut ctx));
+        assert!({ let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx); palette.execute_action(&action, &mut __w) });
         assert!(!palette.is_open());
     }
 
@@ -3409,7 +3564,7 @@ mod tests {
             ));
 
         let mut ctx = EventCtx::default();
-        palette.set_open(true, &mut ctx);
+        { let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx); palette.set_open(true, &mut __w) };
 
         palette.query.set_text("a");
         palette.rebuild_results(true);
@@ -3419,7 +3574,7 @@ mod tests {
         assert!(!palette.provider_results.is_empty());
         assert_eq!(palette.provider_results[0].id, "aa");
 
-        palette.set_open(false, &mut ctx);
+        { let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx); palette.set_open(false, &mut __w) };
         assert_eq!(d1.load(Ordering::Relaxed), 1);
         assert_eq!(d2.load(Ordering::Relaxed), 1);
     }
@@ -3437,17 +3592,17 @@ mod tests {
         ));
 
         let mut ctx = EventCtx::default();
-        palette.set_open(true, &mut ctx);
+        { let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx); palette.set_open(true, &mut __w) };
         assert_eq!(startup.load(Ordering::Relaxed), 1);
         assert_eq!(shutdown.load(Ordering::Relaxed), 0);
 
-        palette.set_open(false, &mut ctx);
+        { let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx); palette.set_open(false, &mut __w) };
         assert_eq!(startup.load(Ordering::Relaxed), 1);
         assert_eq!(shutdown.load(Ordering::Relaxed), 1);
 
-        palette.set_open(true, &mut ctx);
+        { let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx); palette.set_open(true, &mut __w) };
         assert_eq!(startup.load(Ordering::Relaxed), 2);
-        palette.set_open(false, &mut ctx);
+        { let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx); palette.set_open(false, &mut __w) };
         assert_eq!(shutdown.load(Ordering::Relaxed), 2);
     }
 
@@ -3464,7 +3619,7 @@ mod tests {
         ));
 
         let mut ctx = EventCtx::default();
-        palette.set_open(true, &mut ctx);
+        { let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx); palette.set_open(true, &mut __w) };
 
         // 4 built-in + 1 provider = 5 results on empty query.
         assert_eq!(palette.provider_results.len(), 5);
@@ -3490,7 +3645,7 @@ mod tests {
         ));
 
         let mut ctx = EventCtx::default();
-        palette.set_open(true, &mut ctx);
+        { let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx); palette.set_open(true, &mut __w) };
         assert_eq!(startup.load(Ordering::Relaxed), 1);
 
         palette.on_unmount();
@@ -3513,7 +3668,10 @@ mod tests {
         let _guard = set_style_context(crate::css::default_widget_stylesheet());
         let mut palette = CommandPalette::new(Label::new("body"));
         let mut open_ctx = EventCtx::default();
-        palette.on_event(&Event::Action(Action::CommandPalette), &mut open_ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut open_ctx);
+            palette.on_event(&Event::Action(Action::CommandPalette), &mut __w);
+        }
         assert!(open_ctx.handled());
 
         for ch in ['e', 'y'] {
@@ -3522,10 +3680,16 @@ mod tests {
                 KeyModifiers::NONE,
             ));
             let mut key_ctx = EventCtx::default();
-            palette.on_event(&Event::Key(key), &mut key_ctx);
+            {
+                let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut key_ctx);
+                palette.on_event(&Event::Key(key), &mut __w);
+            }
             for message in key_ctx.take_messages() {
                 let mut msg_ctx = EventCtx::default();
-                palette.on_message(&message, &mut msg_ctx);
+                {
+                    let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut msg_ctx);
+                    palette.on_message(&message, &mut __w);
+                }
             }
         }
 

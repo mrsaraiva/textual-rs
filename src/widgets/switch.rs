@@ -335,6 +335,7 @@ impl Renderable for Switch {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::event::EventCtx;
     use crate::event::MouseDownEvent;
     use crate::keys::KeyEventData;
     use crate::node_id::NodeId;
@@ -363,7 +364,10 @@ mod tests {
         let mut ctx = EventCtx::default();
         let key =
             KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
-        widget.on_event(&Event::Key(key), &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            widget.on_event(&Event::Key(key), &mut __w);
+        }
         assert!(widget.value());
         assert!(ctx.handled());
         let messages = ctx.take_messages();
@@ -378,7 +382,9 @@ mod tests {
     fn switch_disabled_ignores_input() {
         let mut widget = Switch::new(false).disabled(true);
         let mut ctx = EventCtx::default();
-        widget.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            widget.on_event(
             &Event::MouseDown(MouseDownEvent {
                 target: NodeId::default(),
                 screen_x: 0,
@@ -386,8 +392,8 @@ mod tests {
                 x: 0,
                 y: 0,
             }),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         assert!(!widget.value());
         assert!(!ctx.handled());
     }
@@ -400,7 +406,10 @@ mod tests {
         let mut ctx = EventCtx::default();
         let key =
             KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
-        widget.on_event(&Event::Key(key), &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            widget.on_event(&Event::Key(key), &mut __w);
+        }
         assert!(widget.value());
         // Animation should be pending.
         assert!(widget.is_animating());

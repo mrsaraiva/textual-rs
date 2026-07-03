@@ -852,7 +852,10 @@ mod tests {
         );
         let mut ctx = EventCtx::default();
         let key = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()));
-        title.on_event(&Event::Key(key), &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            title.on_event(&Event::Key(key), &mut __w);
+        }
         let messages = ctx.take_messages();
         assert_eq!(messages.len(), 1, "focused title must post one toggle message");
         assert!(messages[0].is::<CollapsibleTitleToggle>());
@@ -867,7 +870,10 @@ mod tests {
         let mut title = CollapsibleTitle::new("Section", "\u{25b6}", "\u{25bc}", true);
         let mut ctx = EventCtx::default();
         let key = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()));
-        title.on_event(&Event::Key(key), &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            title.on_event(&Event::Key(key), &mut __w);
+        }
         assert!(
             ctx.take_messages().is_empty(),
             "an unfocused title must not post a toggle message"
@@ -884,7 +890,10 @@ mod tests {
         let mut ctx = EventCtx::default();
         let sender = crate::node_id::node_id_from_ffi(1);
         let msg = MessageEvent::new(sender, CollapsibleTitleToggle);
-        c.on_message(&msg, &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            c.on_message(&msg, &mut __w);
+        }
         assert!(!c.is_collapsed(), "toggle message must flip collapsed state");
         assert!(ctx.handled(), "handling the toggle must stop propagation");
     }

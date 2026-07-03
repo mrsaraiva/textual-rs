@@ -231,6 +231,7 @@ impl Renderable for RadioButton {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::event::EventCtx;
     use crate::keys::KeyEventData;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
@@ -248,7 +249,10 @@ mod tests {
         let mut ctx = EventCtx::default();
         let key =
             KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
-        button.on_event(&Event::Key(key), &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            button.on_event(&Event::Key(key), &mut __w);
+        }
         assert!(button.value());
         let messages = ctx.take_messages();
         assert!(messages.iter().any(|m| {

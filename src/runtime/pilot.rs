@@ -286,7 +286,7 @@ fn single_char_with_mods(key: &str, modifiers: KeyModifiers) -> Option<KeyEvent>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::event::EventCtx;
+    
     use crate::message::ButtonPressed;
     use crate::style::{Color, parse_color_like};
     use crate::widgets::{AppRoot, BindingDecl, Button, Horizontal};
@@ -323,7 +323,7 @@ Horizontal { width: auto; height: auto; }
             Ok(())
         }
 
-        fn on_app_action_str(&mut self, app: &mut App, action: &str, ctx: &mut EventCtx) {
+        fn on_app_action_str(&mut self, app: &mut App, action: &str, ctx: &mut crate::event::WidgetCtx) {
             if let Some(parsed) = crate::action::parse_action(action) {
                 if parsed.name == "switch_color" {
                     if let Some(name) = parsed.arguments.first() {
@@ -343,7 +343,7 @@ Horizontal { width: auto; height: auto; }
             &mut self,
             app: &mut App,
             message: &crate::message::MessageEvent,
-            ctx: &mut EventCtx,
+            ctx: &mut crate::event::WidgetCtx,
         ) {
             if let Some(bp) = message.downcast_ref::<ButtonPressed>() {
                 if let Some(name) = &bp.button_id {

@@ -1,6 +1,7 @@
 use rich_rs::Console;
 use slotmap::SlotMap;
 use textual::event::MouseDownEvent;
+use textual::event::EventCtx;
 use textual::prelude::*;
 use textual::runtime::dispatch_ctx::set_dispatch_recipient;
 
@@ -101,7 +102,9 @@ fn list_view_mouse_click_selects_row_headless() {
     list.on_layout(20, 3);
     let id = NodeId::default();
     let mut ctx = EventCtx::default();
-    list.on_event(
+    {
+        let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx);
+        list.on_event(
         &Event::MouseDown(MouseDownEvent {
             target: id,
             screen_x: 0,
@@ -109,8 +112,8 @@ fn list_view_mouse_click_selects_row_headless() {
             x: 0,
             y: 1,
         }),
-        &mut ctx,
-    );
+        &mut __w);
+    }
     assert!(ctx.handled());
     assert_eq!(list.selected(), 1);
 }
@@ -122,7 +125,10 @@ fn list_view_scroll_actions_keep_selection_in_state() {
     list.on_layout(20, 4);
     let mut ctx = EventCtx::default();
     for _ in 0..7 {
-        list.on_event(&Event::Action(Action::ScrollDown), &mut ctx);
+        {
+            let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx);
+            list.on_event(&Event::Action(Action::ScrollDown), &mut __w);
+        }
     }
     assert_eq!(list.selected(), 7);
     assert_eq!(list.selected_item(), Some("item-7"));
@@ -134,12 +140,18 @@ fn list_view_mouse_scroll_clamps_to_bounds() {
     list.on_layout(20, 3);
 
     let mut ctx = EventCtx::default();
-    list.on_mouse_scroll(0, 100, &mut ctx);
+    {
+        let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx);
+        list.on_mouse_scroll(0, 100, &mut __w);
+    }
     assert!(ctx.handled());
     assert_eq!(list.offset(), 7);
 
     let mut ctx = EventCtx::default();
-    list.on_mouse_scroll(0, -100, &mut ctx);
+    {
+        let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx);
+        list.on_mouse_scroll(0, -100, &mut __w);
+    }
     assert!(ctx.handled());
     assert_eq!(list.offset(), 0);
 }
@@ -156,7 +168,10 @@ fn list_view_navigation_skips_disabled_items() {
     list.on_layout(20, 3);
 
     let mut ctx = EventCtx::default();
-    list.on_event(&Event::Action(Action::ScrollDown), &mut ctx);
+    {
+        let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx);
+        list.on_event(&Event::Action(Action::ScrollDown), &mut __w);
+    }
     assert_eq!(list.selected(), 2);
 }
 
@@ -172,7 +187,9 @@ fn list_view_mouse_click_ignores_disabled_items() {
 
     let id = NodeId::default();
     let mut ctx = EventCtx::default();
-    list.on_event(
+    {
+        let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx);
+        list.on_event(
         &Event::MouseDown(MouseDownEvent {
             target: id,
             screen_x: 0,
@@ -180,8 +197,8 @@ fn list_view_mouse_click_ignores_disabled_items() {
             x: 0,
             y: 1,
         }),
-        &mut ctx,
-    );
+        &mut __w);
+    }
 
     assert!(!ctx.handled());
     assert_eq!(list.selected(), 0);

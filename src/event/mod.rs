@@ -1319,6 +1319,61 @@ impl<'a> WidgetCtx<'a> {
     pub fn dismiss_overlay(&mut self, overlay: Option<NodeId>) {
         self.event_ctx.dismiss_overlay(overlay);
     }
+
+    /// Request a background worker.
+    #[inline]
+    pub fn request_worker(&mut self, name: Option<&str>) {
+        self.event_ctx.request_worker(name);
+    }
+
+    /// Request a background worker with an explicit payload.
+    #[inline]
+    pub fn request_worker_with_payload(
+        &mut self,
+        name: Option<&str>,
+        payload: WorkerRequestPayload,
+    ) {
+        self.event_ctx.request_worker_with_payload(name, payload);
+    }
+
+    /// Request an exclusive background worker keyed by `key`.
+    #[inline]
+    pub fn request_exclusive_worker(&mut self, key: &str, name: Option<&str>) {
+        self.event_ctx.request_exclusive_worker(key, name);
+    }
+
+    /// Request an exclusive background worker with an explicit payload.
+    #[inline]
+    pub fn request_exclusive_worker_with_payload(
+        &mut self,
+        key: &str,
+        name: Option<&str>,
+        payload: WorkerRequestPayload,
+    ) {
+        self.event_ctx
+            .request_exclusive_worker_with_payload(key, name, payload);
+    }
+
+    /// Request a background worker that runs the given task closure.
+    #[inline]
+    pub fn request_worker_task(
+        &mut self,
+        name: Option<&str>,
+        task: impl FnOnce(CancellationToken) -> Result<(), String> + Send + 'static,
+    ) {
+        self.event_ctx.request_worker_task(name, task);
+    }
+
+    /// Request an exclusive background worker that runs the given task closure.
+    #[inline]
+    pub fn request_exclusive_worker_task(
+        &mut self,
+        key: &str,
+        name: Option<&str>,
+        task: impl FnOnce(CancellationToken) -> Result<(), String> + Send + 'static,
+    ) {
+        self.event_ctx.request_exclusive_worker_task(key, name, task);
+    }
 }
 
 // `WidgetCtx` derefs to its `ReactiveCtx` so the generated reactive setters

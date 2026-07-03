@@ -707,6 +707,7 @@ fn is_same_or_descendant(path: &Path, maybe_parent: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::event::EventCtx;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     struct TempTreeDir {
@@ -741,7 +742,9 @@ mod tests {
         tree.on_layout(40, 4);
 
         let mut ctx = EventCtx::default();
-        tree.on_message(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            tree.on_message(
             &MessageEvent::new(
                 tree.tree_id(),
                 TreeNodeSelected {
@@ -750,8 +753,8 @@ mod tests {
                     data: None,
                 },
             ),
-            &mut ctx,
-        );
+            &mut __w);
+        }
 
         assert!(ctx.handled());
         let emitted = ctx.take_messages();
@@ -771,7 +774,9 @@ mod tests {
         tree.on_layout(40, 4);
 
         let mut ctx = EventCtx::default();
-        tree.on_message(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            tree.on_message(
             &MessageEvent::new(
                 tree.tree_id(),
                 TreeNodeSelected {
@@ -780,8 +785,8 @@ mod tests {
                     data: None,
                 },
             ),
-            &mut ctx,
-        );
+            &mut __w);
+        }
 
         assert!(ctx.handled());
         let emitted = ctx.take_messages();
@@ -801,7 +806,9 @@ mod tests {
         tree.on_layout(40, 4);
 
         let mut ctx = EventCtx::default();
-        tree.on_message(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            tree.on_message(
             &MessageEvent::new(
                 tree.tree_id(),
                 TreeNodeToggled {
@@ -810,8 +817,8 @@ mod tests {
                     expanded: true,
                 },
             ),
-            &mut ctx,
-        );
+            &mut __w);
+        }
 
         let emitted = ctx.take_messages();
         assert!(emitted.iter().any(|event| {
@@ -840,7 +847,9 @@ mod tests {
 
         // Simulate expanding "nested" — first collapse it (the sync build expanded it) then expand.
         let mut ctx = EventCtx::default();
-        tree.on_message(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            tree.on_message(
             &MessageEvent::new(
                 tree.tree_id(),
                 TreeNodeToggled {
@@ -849,12 +858,14 @@ mod tests {
                     expanded: false,
                 },
             ),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         let _ = ctx.take_messages();
 
         let mut ctx = EventCtx::default();
-        tree.on_message(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            tree.on_message(
             &MessageEvent::new(
                 tree.tree_id(),
                 TreeNodeToggled {
@@ -863,8 +874,8 @@ mod tests {
                     expanded: true,
                 },
             ),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         let spawn_msgs = ctx.take_messages();
         let task_id = spawn_msgs
             .iter()
@@ -874,7 +885,9 @@ mod tests {
         // Simulate async result with both files arriving.
         let nested_path = temp.path.join("nested");
         let mut ctx = EventCtx::default();
-        tree.apply_directory_load_result(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            tree.apply_directory_load_result(
             task_id.unwrap(),
             &AsyncTaskResult::DirectoryEntries {
                 path: nested_path.display().to_string(),
@@ -891,8 +904,9 @@ mod tests {
                     },
                 ],
             },
-            &mut ctx,
+            &mut __w,
         );
+        }
 
         // The filter should have excluded skip.txt.
         let nested_node = find_node_mut(&mut tree.root, &nested_path).expect("nested node");
@@ -913,7 +927,9 @@ mod tests {
         tree.on_layout(40, 4);
 
         let mut expand_ctx = EventCtx::default();
-        tree.on_message(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut expand_ctx);
+            tree.on_message(
             &MessageEvent::new(
                 tree.tree_id(),
                 TreeNodeToggled {
@@ -922,12 +938,14 @@ mod tests {
                     expanded: true,
                 },
             ),
-            &mut expand_ctx,
-        );
+            &mut __w);
+        }
         let _ = expand_ctx.take_messages();
 
         let mut collapse_ctx = EventCtx::default();
-        tree.on_message(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut collapse_ctx);
+            tree.on_message(
             &MessageEvent::new(
                 tree.tree_id(),
                 TreeNodeToggled {
@@ -936,8 +954,8 @@ mod tests {
                     expanded: false,
                 },
             ),
-            &mut collapse_ctx,
-        );
+            &mut __w);
+        }
 
         let emitted = collapse_ctx.take_messages();
         assert!(emitted.iter().any(|event| {

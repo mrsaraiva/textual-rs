@@ -292,7 +292,7 @@ fn p2g30_scroll_view_drag_thumb_uses_active_color() {
     let _ = Widget::render(&sv, &console, &opts);
 
     let mut ctx = EventCtx::default();
-    sv.on_event(
+    { let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx); sv.on_event(
         &Event::MouseDown(MouseDownEvent {
             target: NodeId::default(),
             screen_x: 9,
@@ -300,8 +300,7 @@ fn p2g30_scroll_view_drag_thumb_uses_active_color() {
             x: 9,
             y: 0,
         }),
-        &mut ctx,
-    );
+        &mut __w) };
     assert!(
         ctx.handled(),
         "scrollbar thumb mouse-down should be handled"

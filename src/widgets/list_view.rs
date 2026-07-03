@@ -917,7 +917,10 @@ mod tests {
 
         let key = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
         let mut ctx = EventCtx::default();
-        list.on_event(&Event::Key(key), &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            list.on_event(&Event::Key(key), &mut __w);
+        }
 
         let messages = ctx.take_messages();
         assert_eq!(messages.len(), 1);
@@ -933,7 +936,9 @@ mod tests {
         let mut list = ListView::new(vec!["one".to_string(), "two".to_string()]);
         let _guard = set_dispatch_recipient(make_node_id(), NodeState::default());
         let mut ctx = EventCtx::default();
-        list.on_message(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            list.on_message(
             &MessageEvent::new(
                 NodeId::default(),
                 ListItemChildClicked {
@@ -941,8 +946,8 @@ mod tests {
                     item: "two".to_string(),
                 },
             ),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         assert_eq!(list.selected(), 1);
         let messages = ctx.take_messages();
         // Highlighted (selection changed) + Selected.
@@ -966,7 +971,9 @@ mod tests {
         let id = NodeId::default();
 
         let mut ctx = EventCtx::default();
-        list.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            list.on_event(
             &Event::MouseDown(MouseDownEvent {
                 target: id,
                 screen_x: 0,
@@ -974,13 +981,15 @@ mod tests {
                 x: 0,
                 y: 1,
             }),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         assert!(ctx.handled());
         assert_eq!(list.selected(), 1);
 
         let mut up_ctx = EventCtx::default();
-        list.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut up_ctx);
+            list.on_event(
             &Event::MouseUp(MouseUpEvent {
                 target: Some(id),
                 screen_x: 0,
@@ -988,8 +997,8 @@ mod tests {
                 x: 0,
                 y: 1,
             }),
-            &mut up_ctx,
-        );
+            &mut __w);
+        }
         let messages = up_ctx.take_messages();
         assert_eq!(messages.len(), 1);
         assert!(messages[0].is::<ListViewItemActivated>());
@@ -1002,7 +1011,10 @@ mod tests {
         assert_eq!(list.hovered_index(), Some(0));
 
         let mut ctx = EventCtx::default();
-        list.on_event(&Event::AppFocus(false), &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            list.on_event(&Event::AppFocus(false), &mut __w);
+        }
 
         assert_eq!(list.hovered_index(), None);
         assert!(ctx.repaint_requested());
@@ -1028,7 +1040,7 @@ mod tests {
             name: "cursor_down".to_string(),
             arguments: vec![],
         };
-        assert!(list.execute_action(&action, &mut ctx));
+        assert!({ let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx); list.execute_action(&action, &mut __w) });
         assert_eq!(list.selected(), 1);
     }
 
@@ -1097,7 +1109,10 @@ mod tests {
         let _guard = set_dispatch_recipient(make_node_id(), focused_state());
         list.on_layout(20, 3);
         let mut ctx = EventCtx::default();
-        list.on_event(&Event::Action(crate::event::Action::ScrollDown), &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            list.on_event(&Event::Action(crate::event::Action::ScrollDown), &mut __w);
+        }
         assert_eq!(list.selected(), 2);
     }
 
@@ -1106,7 +1121,10 @@ mod tests {
         let mut list = ListView::new((0..10).map(|i| format!("item-{i}")).collect());
         list.on_layout(20, 3);
         let mut ctx = EventCtx::default();
-        list.on_mouse_scroll(0, 100, &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            list.on_mouse_scroll(0, 100, &mut __w);
+        }
         assert!(ctx.handled());
         assert_eq!(list.offset(), 7);
     }

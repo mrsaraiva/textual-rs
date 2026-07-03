@@ -1,5 +1,6 @@
 use rich_rs::Console;
 use textual::css::{default_widget_stylesheet, set_style_context};
+use textual::event::EventCtx;
 use textual::message::MessageEvent;
 use textual::node_id_from_ffi;
 use textual::prelude::*;
@@ -48,10 +49,9 @@ fn help_panel_updates_bindings_from_binding_hints_event() {
     let options = options_for(&console, 40, 7);
     let mut panel = HelpPanel::new();
 
-    panel.on_event(
+    { let mut __e = textual::event::EventCtx::default(); let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut __e); panel.on_event(
         &Event::BindingsChanged(vec![BindingHint::new("f1", "Toggle help")]),
-        &mut EventCtx::default(),
-    );
+        &mut __w) };
 
     let buf = FrameBuffer::from_renderable(&console, &options, &panel, None);
     let lines = buf.as_plain_lines();
@@ -91,7 +91,7 @@ fn help_panel_hides_help_section_when_app_is_inactive() {
         .with_help("## Widget help\nUse arrows to move.")
         .with_bindings(vec![FooterBinding::new("^q", "Quit")]);
 
-    panel.on_event(&Event::AppFocus(false), &mut EventCtx::default());
+    { let mut __e = textual::event::EventCtx::default(); let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut __e); panel.on_event(&Event::AppFocus(false), &mut __w) };
     let inactive = FrameBuffer::from_renderable(&console, &options, &panel, None);
     let inactive_lines = inactive.as_plain_lines();
     assert!(
@@ -101,7 +101,7 @@ fn help_panel_hides_help_section_when_app_is_inactive() {
     );
     assert!(inactive_lines.iter().any(|line| line.contains("^q")));
 
-    panel.on_event(&Event::AppFocus(true), &mut EventCtx::default());
+    { let mut __e = textual::event::EventCtx::default(); let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut __e); panel.on_event(&Event::AppFocus(true), &mut __w) };
     let active = FrameBuffer::from_renderable(&console, &options, &panel, None);
     let active_lines = active.as_plain_lines();
     assert!(active_lines.iter().any(|line| line.contains("Widget help")));
@@ -115,7 +115,7 @@ fn help_panel_show_help_class_tracks_app_focus_state() {
 
     // AppFocus(false) should request a repaint (runtime applies class op).
     let mut ctx = EventCtx::default();
-    panel.on_event(&Event::AppFocus(false), &mut ctx);
+    { let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx); panel.on_event(&Event::AppFocus(false), &mut __w) };
     assert!(
         ctx.repaint_requested(),
         "focus change should request repaint"
@@ -125,7 +125,7 @@ fn help_panel_show_help_class_tracks_app_focus_state() {
 
     // AppFocus(true) should request a repaint too.
     let mut ctx2 = EventCtx::default();
-    panel.on_event(&Event::AppFocus(true), &mut ctx2);
+    { let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx2); panel.on_event(&Event::AppFocus(true), &mut __w) };
     assert!(
         ctx2.repaint_requested(),
         "focus restore should request repaint"
@@ -136,7 +136,7 @@ fn help_panel_show_help_class_tracks_app_focus_state() {
 fn help_panel_help_can_be_driven_via_messages() {
     let mut panel = HelpPanel::new();
     let mut ctx = EventCtx::default();
-    panel.on_message(
+    { let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx); panel.on_message(
         &MessageEvent::new(
             NodeId::default(),
             HelpPanelSetHelp {
@@ -144,23 +144,21 @@ fn help_panel_help_can_be_driven_via_messages() {
                 markup: "## Runtime help".to_string(),
             },
         ),
-        &mut ctx,
-    );
+        &mut __w) };
 
     assert!(ctx.handled());
     assert!(panel.showing_help());
     assert_eq!(panel.help(), "## Runtime help");
 
     let mut clear_ctx = EventCtx::default();
-    panel.on_message(
+    { let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut clear_ctx); panel.on_message(
         &MessageEvent::new(
             NodeId::default(),
             HelpPanelClearHelp {
                 panel: NodeId::default(),
             },
         ),
-        &mut clear_ctx,
-    );
+        &mut __w) };
     assert!(clear_ctx.handled());
     assert!(!panel.showing_help());
 }
@@ -169,7 +167,7 @@ fn help_panel_help_can_be_driven_via_messages() {
 fn help_panel_handles_focused_help_pipeline_messages() {
     let mut panel = HelpPanel::new();
     let mut set_ctx = EventCtx::default();
-    panel.on_message(
+    { let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut set_ctx); panel.on_message(
         &MessageEvent::new(
             node_id_from_ffi(100),
             HelpPanelFocusedHelpChanged {
@@ -177,16 +175,14 @@ fn help_panel_handles_focused_help_pipeline_messages() {
                 markup: "## Focused widget help".to_string(),
             },
         ),
-        &mut set_ctx,
-    );
+        &mut __w) };
     assert!(panel.showing_help());
     assert_eq!(panel.help(), "## Focused widget help");
 
     let mut clear_ctx = EventCtx::default();
-    panel.on_message(
+    { let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut clear_ctx); panel.on_message(
         &MessageEvent::new(NodeId::default(), HelpPanelFocusedHelpCleared),
-        &mut clear_ctx,
-    );
+        &mut __w) };
     assert!(!panel.showing_help());
     assert_eq!(panel.help(), "");
 }
@@ -196,7 +192,7 @@ fn help_panel_unmount_resets_app_focus_gate() {
     let mut panel = HelpPanel::new().with_help("## Widget help");
 
     // Simulate app losing focus (internal app_active flag flips).
-    panel.on_event(&Event::AppFocus(false), &mut EventCtx::default());
+    { let mut __e = textual::event::EventCtx::default(); let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut __e); panel.on_event(&Event::AppFocus(false), &mut __w) };
 
     // After unmount, app_active is reset to true so help re-shows on remount.
     // We verify this by checking that the panel shows help again after unmount

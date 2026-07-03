@@ -1261,6 +1261,7 @@ impl Renderable for Input {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::event::EventCtx;
     use crate::event::MouseDownEvent;
     use crate::keys::KeyEventData;
     use crate::node_id::NodeId;
@@ -1361,7 +1362,9 @@ mod tests {
         let _guard = set_dispatch_recipient(id, NodeState::default());
         let mut ctx = EventCtx::default();
 
-        input.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            input.on_event(
             &Event::MouseDown(MouseDownEvent {
                 target: id,
                 screen_x: 0,
@@ -1369,13 +1372,15 @@ mod tests {
                 x: 0,
                 y: 0,
             }),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         assert!(ctx.handled());
         assert_eq!(input.cursor, 0);
 
         let mut ctx = EventCtx::default();
-        input.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            input.on_event(
             &Event::MouseDown(MouseDownEvent {
                 target: id,
                 screen_x: 0,
@@ -1383,8 +1388,8 @@ mod tests {
                 x: 5,
                 y: 0,
             }),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         assert_eq!(input.cursor, input.text.len());
     }
 
@@ -1395,7 +1400,9 @@ mod tests {
         let id = make_node_id();
         let _guard = set_dispatch_recipient(id, NodeState::default());
         let mut ctx = EventCtx::default();
-        input.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            input.on_event(
             &Event::MouseDown(MouseDownEvent {
                 target: id,
                 screen_x: 0,
@@ -1403,8 +1410,8 @@ mod tests {
                 x: 1,
                 y: 0,
             }),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         assert!(input.is_active());
         let changed = input.on_mouse_move(4, 0);
         assert!(changed);
@@ -1417,13 +1424,15 @@ mod tests {
         let mut input = Input::new();
         let _guard = set_dispatch_recipient(make_node_id(), focused_state());
         let mut ctx = EventCtx::default();
-        input.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            input.on_event(
             &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
                 KeyCode::Char('a'),
                 KeyModifiers::NONE,
             ))),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         let messages = ctx.take_messages();
         assert_eq!(messages.len(), 1);
         assert!(
@@ -1439,13 +1448,15 @@ mod tests {
         let _guard = set_dispatch_recipient(make_node_id(), focused_state());
         input.set_text("done");
         let mut ctx = EventCtx::default();
-        input.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            input.on_event(
             &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
                 KeyCode::Enter,
                 KeyModifiers::NONE,
             ))),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         let messages = ctx.take_messages();
         assert_eq!(messages.len(), 1);
         assert!(
@@ -1464,24 +1475,28 @@ mod tests {
         input.selection = Selection::cursor(input.cursor);
 
         let mut ctx = EventCtx::default();
-        input.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            input.on_event(
             &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
                 KeyCode::Left,
                 KeyModifiers::NONE,
             ))),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         let cursor_after_left = input.cursor;
         assert_eq!(&input.text[cursor_after_left..], "z");
 
         let mut ctx = EventCtx::default();
-        input.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            input.on_event(
             &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
                 KeyCode::Backspace,
                 KeyModifiers::NONE,
             ))),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         assert_eq!(input.text, "a\u{0301}z");
     }
 
@@ -1494,23 +1509,27 @@ mod tests {
         input.selection = Selection::cursor(5);
 
         let mut ctx = EventCtx::default();
-        input.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            input.on_event(
             &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
                 KeyCode::Right,
                 KeyModifiers::SHIFT,
             ))),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         assert_eq!(input.selection.normalized(), (5, 6));
 
         let mut ctx = EventCtx::default();
-        input.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            input.on_event(
             &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
                 KeyCode::Backspace,
                 KeyModifiers::NONE,
             ))),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         assert_eq!(input.text, "helloworld");
         assert_eq!(input.cursor, 5);
     }
@@ -1524,13 +1543,15 @@ mod tests {
         input.selection = Selection::cursor(input.cursor);
 
         let mut ctx = EventCtx::default();
-        input.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            input.on_event(
             &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
                 KeyCode::Backspace,
                 KeyModifiers::CONTROL,
             ))),
-            &mut ctx,
-        );
+            &mut __w);
+        }
 
         assert_eq!(input.text, "alpha ");
     }
@@ -1544,13 +1565,15 @@ mod tests {
         input.selection = Selection { start: 0, end: 5 };
 
         let mut ctx = EventCtx::default();
-        input.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            input.on_event(
             &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
                 KeyCode::Char('c'),
                 KeyModifiers::CONTROL,
             ))),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         let copy_messages = ctx.take_messages();
         assert!(
             copy_messages
@@ -1560,13 +1583,15 @@ mod tests {
         );
 
         let mut ctx = EventCtx::default();
-        input.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            input.on_event(
             &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
                 KeyCode::Char('x'),
                 KeyModifiers::CONTROL,
             ))),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         let cut_messages = ctx.take_messages();
         assert!(cut_messages.iter().any(|m| {
             m.downcast_ref::<TextEditClipboardCopyRequested>()
@@ -1585,13 +1610,15 @@ mod tests {
         input.selection = Selection::cursor(1);
 
         let mut ctx = EventCtx::default();
-        input.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            input.on_event(
             &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
                 KeyCode::Char('v'),
                 KeyModifiers::CONTROL,
             ))),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         let messages = ctx.take_messages();
         assert!(
             messages
@@ -1601,7 +1628,9 @@ mod tests {
         );
 
         let mut ctx = EventCtx::default();
-        input.on_message(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            input.on_message(
             &MessageEvent::new(
                 NodeId::default(),
                 TextEditClipboardPaste {
@@ -1609,8 +1638,8 @@ mod tests {
                     text: "XYZ".to_string(),
                 },
             ),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         assert_eq!(input.text(), "aXYZbc");
         assert!(ctx.handled());
     }
@@ -1625,7 +1654,9 @@ mod tests {
         input.selection = Selection::cursor(1);
 
         let mut ctx = EventCtx::default();
-        input.on_message(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            input.on_message(
             &MessageEvent::new(
                 NodeId::default(),
                 TextEditClipboardPaste {
@@ -1633,8 +1664,8 @@ mod tests {
                     text: "XYZ\r\n123".to_string(),
                 },
             ),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         assert_eq!(input.text(), "aXYZbc");
         assert!(ctx.handled());
     }
@@ -1659,7 +1690,7 @@ mod tests {
             name: "submit".to_string(),
             arguments: vec![],
         };
-        assert!(input.execute_action(&action, &mut ctx));
+        assert!({ let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx); input.execute_action(&action, &mut __w) });
         let messages = ctx.take_messages();
         assert!(messages.iter().any(|m| {
             m.downcast_ref::<InputSubmitted>()
@@ -1704,13 +1735,15 @@ mod tests {
 
         // Type 'p' => should suggest "Portugal"
         let mut ctx = EventCtx::default();
-        input.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            input.on_event(
             &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
                 KeyCode::Char('p'),
                 KeyModifiers::NONE,
             ))),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         assert_eq!(input.text(), "p");
         assert_eq!(input.suggestion, "Portugal");
     }
@@ -1722,24 +1755,28 @@ mod tests {
 
         // Type 'p' => "Portugal"
         let mut ctx = EventCtx::default();
-        input.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            input.on_event(
             &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
                 KeyCode::Char('p'),
                 KeyModifiers::NONE,
             ))),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         assert_eq!(input.suggestion, "Portugal");
 
         // Type 'x' => no match, suggestion cleared
         let mut ctx = EventCtx::default();
-        input.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            input.on_event(
             &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
                 KeyCode::Char('x'),
                 KeyModifiers::NONE,
             ))),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         assert_eq!(input.text(), "px");
         assert!(input.suggestion.is_empty());
     }
@@ -1751,24 +1788,28 @@ mod tests {
 
         // Type 'p'
         let mut ctx = EventCtx::default();
-        input.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            input.on_event(
             &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
                 KeyCode::Char('p'),
                 KeyModifiers::NONE,
             ))),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         assert_eq!(input.suggestion, "Portugal");
 
         // Tab accepts suggestion
         let mut ctx = EventCtx::default();
-        input.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            input.on_event(
             &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
                 KeyCode::Tab,
                 KeyModifiers::NONE,
             ))),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         assert_eq!(input.text(), "Portugal");
         assert!(input.suggestion.is_empty());
         assert!(ctx.handled());
@@ -1783,13 +1824,15 @@ mod tests {
         input.selection = Selection::cursor(input.cursor);
 
         let mut ctx = EventCtx::default();
-        input.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            input.on_event(
             &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
                 KeyCode::Tab,
                 KeyModifiers::NONE,
             ))),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         // Tab with no suggestion should not be handled (allows focus navigation).
         assert!(!ctx.handled());
         assert_eq!(input.text(), "hello");
@@ -1802,25 +1845,29 @@ mod tests {
 
         // Type 's'
         let mut ctx = EventCtx::default();
-        input.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            input.on_event(
             &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
                 KeyCode::Char('s'),
                 KeyModifiers::NONE,
             ))),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         assert_eq!(input.suggestion, "Spain");
         assert!(input.cursor_at_end());
 
         // Right arrow at end accepts
         let mut ctx = EventCtx::default();
-        input.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            input.on_event(
             &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
                 KeyCode::Right,
                 KeyModifiers::NONE,
             ))),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         assert_eq!(input.text(), "Spain");
         assert!(input.suggestion.is_empty());
     }
@@ -1835,13 +1882,15 @@ mod tests {
         input.suggestion = "Portugal".to_string();
 
         let mut ctx = EventCtx::default();
-        input.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            input.on_event(
             &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
                 KeyCode::Right,
                 KeyModifiers::NONE,
             ))),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         // Should just move cursor, not accept suggestion
         assert_eq!(input.text(), "po");
         assert_eq!(input.cursor, 1);
@@ -1894,13 +1943,15 @@ mod tests {
         // Type the full value "abc"
         for ch in ['a', 'b', 'c'] {
             let mut ctx = EventCtx::default();
-            input.on_event(
+            {
+                let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+                input.on_event(
                 &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
                     KeyCode::Char(ch),
                     KeyModifiers::NONE,
                 ))),
-                &mut ctx,
-            );
+                &mut __w);
+            }
         }
         // Suggestion should be empty because "abc" matches exactly (no ghost text to show).
         assert!(input.suggestion.is_empty());
@@ -1913,24 +1964,28 @@ mod tests {
 
         // Type 'p'
         let mut ctx = EventCtx::default();
-        input.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            input.on_event(
             &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
                 KeyCode::Char('p'),
                 KeyModifiers::NONE,
             ))),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         let _ = ctx.take_messages(); // discard the first InputChanged
 
         // Tab accepts
         let mut ctx = EventCtx::default();
-        input.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            input.on_event(
             &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
                 KeyCode::Tab,
                 KeyModifiers::NONE,
             ))),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         let messages = ctx.take_messages();
         assert_eq!(messages.len(), 1);
         assert!(
@@ -2018,7 +2073,9 @@ mod tests {
         let _guard = set_dispatch_recipient(id, NodeState::default());
 
         let mut ctx = EventCtx::default();
-        input.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            input.on_event(
             &Event::MouseDown(MouseDownEvent {
                 target: id,
                 screen_x: 0,
@@ -2026,8 +2083,8 @@ mod tests {
                 x: 2,
                 y: 0,
             }),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         assert!(ctx.handled());
         assert_eq!(input.cursor, 2);
     }
@@ -2045,7 +2102,9 @@ mod tests {
         let _guard = set_dispatch_recipient(my_id, NodeState::default());
 
         let mut ctx = EventCtx::default();
-        input.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            input.on_event(
             &Event::MouseDown(MouseDownEvent {
                 target: other_id,
                 screen_x: 0,
@@ -2053,8 +2112,8 @@ mod tests {
                 x: 2,
                 y: 0,
             }),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         assert!(!ctx.handled());
     }
 
@@ -2071,7 +2130,9 @@ mod tests {
         let _guard = set_dispatch_recipient(my_id, NodeState::default());
 
         let mut ctx = EventCtx::default();
-        input.on_message(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            input.on_message(
             &MessageEvent::new(
                 NodeId::default(),
                 TextEditClipboardPaste {
@@ -2079,8 +2140,8 @@ mod tests {
                     text: "XYZ".to_string(),
                 },
             ),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         assert!(!ctx.handled());
         assert_eq!(input.text(), "abc");
     }

@@ -364,6 +364,7 @@ impl ReactiveWidget for Placeholder {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::event::EventCtx;
     use crate::node_id::NodeId;
 
     fn make_console_options(width: usize, height: usize) -> ConsoleOptions {
@@ -504,7 +505,10 @@ mod tests {
             target: NodeId::default(),
         });
         let mut ctx = EventCtx::default();
-        ph.on_event(&event, &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            ph.on_event(&event, &mut __w);
+        }
         assert_eq!(ph.variant(), PlaceholderVariant::Size);
         assert!(ctx.handled());
         let messages = ctx.take_messages();
@@ -571,7 +575,10 @@ mod tests {
             target: NodeId::default(),
         });
         let mut ctx = EventCtx::default();
-        ph.on_event(&event, &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            ph.on_event(&event, &mut __w);
+        }
         assert_eq!(ph.variant(), PlaceholderVariant::Size);
         // Class ops should reflect the variant change.
         let ops = ctx.take_class_ops();

@@ -85,7 +85,7 @@ impl Widget for Recorder {
         rich_rs::Segments::new()
     }
 
-    fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
+    fn on_message(&mut self, message: &MessageEvent, ctx: &mut textual::event::WidgetCtx) {
         if message.is::<Ping>() || message.is::<CursorEcho>() || message.is::<AltEcho>() {
             self.log.lock().unwrap().push(Received {
                 is_ping: message.is::<Ping>(),
@@ -293,7 +293,7 @@ fn t5_5_builtin_and_custom_coexist_in_same_queue() {
         fn render(&self, _console: &Console, _options: &ConsoleOptions) -> rich_rs::Segments {
             rich_rs::Segments::new()
         }
-        fn on_message(&mut self, message: &MessageEvent, _ctx: &mut EventCtx) {
+        fn on_message(&mut self, message: &MessageEvent, _ctx: &mut textual::event::WidgetCtx) {
             if message.is::<Ping>() {
                 self.ping_log.lock().unwrap().push(Received {
                     is_ping: true,

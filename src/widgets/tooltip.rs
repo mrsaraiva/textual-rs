@@ -750,13 +750,16 @@ impl Renderable for Tooltip {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::event::EventCtx;
     use crate::node_id::NodeId;
 
     #[test]
     fn tooltip_overlay_messages_toggle_visibility() {
         let mut tooltip = Tooltip::new(super::super::Label::new("base"), "tip");
         let mut ctx = EventCtx::default();
-        tooltip.on_message(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            tooltip.on_message(
             &MessageEvent::new(
                 NodeId::default(),
                 OverlaySetVisible {
@@ -764,8 +767,8 @@ mod tests {
                     visible: true,
                 },
             ),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         assert!(tooltip.is_visible());
 
         let messages = ctx.take_messages();

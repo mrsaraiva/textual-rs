@@ -1747,7 +1747,7 @@ mod tests {
             name: "scroll_down".to_string(),
             arguments: vec![],
         };
-        assert!(sv.execute_action(&action, &mut ctx));
+        assert!({ let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx); sv.execute_action(&action, &mut __w) });
         assert!(ctx.handled());
     }
 
@@ -1766,7 +1766,10 @@ mod tests {
             value: 2.0,
             done: false,
         });
-        sv.on_event(&event, &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            sv.on_event(&event, &mut __w);
+        }
         assert!(
             ctx.handled(),
             "AnimationValueEvent targeting real NodeId must be handled"
@@ -1791,7 +1794,10 @@ mod tests {
             value: 2.0,
             done: false,
         });
-        sv.on_event(&event, &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            sv.on_event(&event, &mut __w);
+        }
         assert!(
             !ctx.handled(),
             "AnimationValueEvent targeting a foreign NodeId must not be handled"
@@ -1814,7 +1820,10 @@ mod tests {
             value: 3.5,
             done: false,
         });
-        sv.on_event(&event, &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            sv.on_event(&event, &mut __w);
+        }
 
         assert!(ctx.handled());
         assert!(ctx.repaint_requested());
@@ -1832,7 +1841,10 @@ mod tests {
         let before = sv.offset_y;
         let mut ctx = EventCtx::default();
 
-        sv.on_mouse_scroll(0, 1, &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            sv.on_mouse_scroll(0, 1, &mut __w);
+        }
 
         assert!(ctx.handled());
         assert!(ctx.repaint_requested());
@@ -1866,7 +1878,10 @@ mod tests {
             x: 0,
             y: 0,
         });
-        sv.on_event(&event, &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            sv.on_event(&event, &mut __w);
+        }
         // The scrollbar branch sets handled+returns on any scrollbar hit.
         // Since the target doesn't match, the branch is skipped entirely
         // and the event falls through to child dispatch (Label, which
@@ -1935,7 +1950,10 @@ mod tests {
 
         let mut ctx = EventCtx::default();
         let event = Event::Action(Action::ScrollDown);
-        sv.on_event(&event, &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            sv.on_event(&event, &mut __w);
+        }
         assert!(
             ctx.handled(),
             "ScrollDown action should be handled in tree mode"
@@ -1944,7 +1962,10 @@ mod tests {
 
         let mut ctx2 = EventCtx::default();
         let event2 = Event::Action(Action::ScrollHome);
-        sv.on_event(&event2, &mut ctx2);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx2);
+            sv.on_event(&event2, &mut __w);
+        }
         assert!(ctx2.handled(), "ScrollHome should be handled in tree mode");
         assert_eq!(sv.offset_y, 0, "offset_y should be 0 after ScrollHome");
     }

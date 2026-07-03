@@ -1,5 +1,6 @@
 use rich_rs::Console;
 use textual::css::{default_widget_stylesheet, set_style_context};
+use textual::event::EventCtx;
 use textual::prelude::*;
 use textual::render::FrameBuffer;
 
@@ -28,7 +29,10 @@ fn command_palette_closed_snapshot() {
 fn command_palette_open_snapshot() {
     let mut palette = CommandPalette::new(Label::new("Body content"));
     let mut ctx = EventCtx::default();
-    palette.on_event(&Event::Action(Action::CommandPalette), &mut ctx);
+    {
+        let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx);
+        palette.on_event(&Event::Action(Action::CommandPalette), &mut __w);
+    }
     assert!(ctx.handled());
 
     let buf = render_buffer(&palette);
@@ -39,7 +43,10 @@ fn command_palette_open_snapshot() {
 fn command_palette_help_rows_keep_panel_surface_and_dim_style() {
     let mut palette = CommandPalette::new(Label::new("Body content"));
     let mut ctx = EventCtx::default();
-    palette.on_event(&Event::Action(Action::CommandPalette), &mut ctx);
+    {
+        let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx);
+        palette.on_event(&Event::Action(Action::CommandPalette), &mut __w);
+    }
     assert!(ctx.handled());
 
     let buf = render_buffer(&palette);
@@ -80,7 +87,10 @@ fn command_palette_help_rows_keep_panel_surface_and_dim_style() {
 fn command_palette_placeholder_uses_dim_style() {
     let mut palette = CommandPalette::new(Label::new("Body content"));
     let mut ctx = EventCtx::default();
-    palette.on_event(&Event::Action(Action::CommandPalette), &mut ctx);
+    {
+        let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx);
+        palette.on_event(&Event::Action(Action::CommandPalette), &mut __w);
+    }
     assert!(ctx.handled());
 
     let buf = render_buffer(&palette);
@@ -110,7 +120,10 @@ fn command_palette_search_row_uses_panel_surface_background() {
         PaletteCommand::new("beta", "Beta", "Second command"),
     ]);
     let mut ctx = EventCtx::default();
-    palette.on_event(&Event::Action(Action::CommandPalette), &mut ctx);
+    {
+        let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx);
+        palette.on_event(&Event::Action(Action::CommandPalette), &mut __w);
+    }
     assert!(ctx.handled());
 
     let buf = render_buffer(&palette);
@@ -148,7 +161,10 @@ fn command_palette_unselected_rows_use_panel_surface_background() {
         PaletteCommand::new("beta", "Beta", "Second command"),
     ]);
     let mut ctx = EventCtx::default();
-    palette.on_event(&Event::Action(Action::CommandPalette), &mut ctx);
+    {
+        let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx);
+        palette.on_event(&Event::Action(Action::CommandPalette), &mut __w);
+    }
     assert!(ctx.handled());
 
     let buf = render_buffer(&palette);
@@ -200,7 +216,10 @@ fn command_palette_renders_markup_commands_without_literal_tags() {
         "[green]Ship[/] current build",
     )]);
     let mut ctx = EventCtx::default();
-    palette.on_event(&Event::Action(Action::CommandPalette), &mut ctx);
+    {
+        let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx);
+        palette.on_event(&Event::Action(Action::CommandPalette), &mut __w);
+    }
     assert!(ctx.handled());
 
     let buf = render_buffer(&palette);
@@ -216,7 +235,10 @@ fn command_palette_open_render_handles_small_viewport() {
     let mut palette = CommandPalette::new(Label::new("Body content"));
     palette.on_layout(40, 4);
     let mut ctx = EventCtx::default();
-    palette.on_event(&Event::Action(Action::CommandPalette), &mut ctx);
+    {
+        let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx);
+        palette.on_event(&Event::Action(Action::CommandPalette), &mut __w);
+    }
     assert!(ctx.handled());
 
     let buf = render_buffer_with_size(&palette, 40, 4);

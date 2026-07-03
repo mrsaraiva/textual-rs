@@ -58,7 +58,7 @@ impl Widget for Hello {
         self.inner.content_width()
     }
 
-    fn on_mount(&mut self) {
+    fn on_mount(&mut self, _ctx: &mut textual::event::WidgetCtx) {
         self.mounted = true;
         self.inner.update("Hello, World!");
     }

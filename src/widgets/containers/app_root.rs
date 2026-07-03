@@ -615,6 +615,7 @@ impl Renderable for AppRoot {
 #[cfg(test)]
 mod focus_tests {
     use super::*;
+    use crate::event::EventCtx;
     use crate::css::{StyleSheet, set_style_context};
     use crate::widgets::containers::{Container, Panel, ScrollView};
     use crate::widgets::{Button, Horizontal, Input, ListView, VerticalScroll};
@@ -681,7 +682,10 @@ mod focus_tests {
         let _ = Widget::render(&scroll, &console, &options);
 
         let mut ctx = EventCtx::default();
-        scroll.on_mouse_scroll(0, 1, &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            scroll.on_mouse_scroll(0, 1, &mut __w);
+        }
         assert!(ctx.handled());
         assert_eq!(scroll.offset_y, 1);
     }
@@ -708,7 +712,10 @@ mod focus_tests {
         let _ = Widget::render(&scroll, &console, &options);
 
         let mut ctx = EventCtx::default();
-        scroll.on_event(&Event::Action(Action::ScrollDown), &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            scroll.on_event(&Event::Action(Action::ScrollDown), &mut __w);
+        }
         let requests = ctx.take_animation_requests();
         assert_eq!(requests.len(), 1);
         assert_eq!(requests[0].attribute, ScrollView::OFFSET_Y_ATTR);
@@ -735,7 +742,10 @@ mod focus_tests {
         let _ = Widget::render(&panel, &console, &options);
 
         let mut ctx = EventCtx::default();
-        panel.on_event(&Event::Action(Action::ScrollDown), &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            panel.on_event(&Event::Action(Action::ScrollDown), &mut __w);
+        }
         assert!(ctx.handled());
     }
 
@@ -758,7 +768,10 @@ mod focus_tests {
         let _ = Widget::render(&panel, &console, &options);
 
         let mut ctx = EventCtx::default();
-        panel.on_mouse_scroll(0, 1, &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            panel.on_mouse_scroll(0, 1, &mut __w);
+        }
         assert!(ctx.handled());
     }
 
@@ -803,7 +816,10 @@ mod focus_tests {
         let _ = root.compose();
 
         let mut ctx = EventCtx::default();
-        root.on_event(&Event::Action(Action::FocusNext), &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            root.on_event(&Event::Action(Action::FocusNext), &mut __w);
+        }
         // In tree mode, events are a no-op — not handled.
         assert!(!ctx.handled());
     }
@@ -837,7 +853,10 @@ mod focus_tests {
         root.set_virtual_content_size(40, 60);
 
         let mut ctx = EventCtx::default();
-        root.on_mouse_scroll(0, 1, &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            root.on_mouse_scroll(0, 1, &mut __w);
+        }
 
         assert!(ctx.handled());
         assert_eq!(root.scroll_offset(), (0, 1));
@@ -850,7 +869,9 @@ mod focus_tests {
         root.set_virtual_content_size(20, 200);
 
         let mut ctx = EventCtx::default();
-        root.on_message(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            root.on_message(
             &MessageEvent::new(
                 NodeId::default(),
                 ScrollbarScrollTo {
@@ -861,8 +882,8 @@ mod focus_tests {
                 },
             )
             .with_control(NodeId::default()),
-            &mut ctx,
-        );
+            &mut __w);
+        }
 
         assert!(
             ctx.handled(),
@@ -886,7 +907,9 @@ mod focus_tests {
         root.set_virtual_content_size(20, 200);
 
         let mut ctx = EventCtx::default();
-        root.on_message(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            root.on_message(
             &MessageEvent::new(
                 NodeId::default(),
                 ScrollbarScrollTo {
@@ -897,8 +920,8 @@ mod focus_tests {
                 },
             )
             .with_control(NodeId::default()),
-            &mut ctx,
-        );
+            &mut __w);
+        }
 
         assert!(ctx.handled());
         assert_eq!(
@@ -921,7 +944,9 @@ mod focus_tests {
         root.set_virtual_content_size(20, 35);
 
         let mut ctx = EventCtx::default();
-        root.on_message(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            root.on_message(
             &MessageEvent::new(
                 NodeId::default(),
                 ScrollbarScrollTo {
@@ -932,8 +957,8 @@ mod focus_tests {
                 },
             )
             .with_control(NodeId::default()),
-            &mut ctx,
-        );
+            &mut __w);
+        }
 
         assert!(ctx.handled());
         assert_eq!(
@@ -950,7 +975,9 @@ mod focus_tests {
         root.set_virtual_content_size(20, 200);
 
         let mut ctx = EventCtx::default();
-        root.on_message(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            root.on_message(
             &MessageEvent::new(
                 NodeId::default(),
                 ScrollbarScrollTo {
@@ -961,8 +988,8 @@ mod focus_tests {
                 },
             )
             .with_control(NodeId::default()),
-            &mut ctx,
-        );
+            &mut __w);
+        }
 
         assert!(ctx.handled());
         assert_eq!(root.scroll_offset_f32().1, 24.5);

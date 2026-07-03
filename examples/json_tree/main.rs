@@ -48,11 +48,11 @@ impl TextualApp for JsonTreeApp {
             .with_child(Footer::new())
     }
 
-    fn on_mount_with_app(&mut self, _app: &mut App, _ctx: &mut EventCtx) {
+    fn on_mount_with_app(&mut self, _app: &mut App, _ctx: &mut textual::event::WidgetCtx) {
         self.json_data = serde_json::from_str(FOOD_JSON).ok();
     }
 
-    fn on_app_action_str(&mut self, app: &mut App, action: &str, ctx: &mut EventCtx) {
+    fn on_app_action_str(&mut self, app: &mut App, action: &str, ctx: &mut textual::event::WidgetCtx) {
         match action {
             "add" => {
                 // Python: json_node = tree.root.add("JSON")

@@ -1,6 +1,7 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use slotmap::SlotMap;
 use textual::node_id::NodeId;
+use textual::event::EventCtx;
 use textual::prelude::*;
 use textual::runtime::dispatch_ctx::set_dispatch_recipient;
 
@@ -33,9 +34,18 @@ fn text_area_backspace_deletes_full_emoji_cluster() {
     let _guard = set_dispatch_recipient(make_node_id(), focused_state());
     let mut ctx = EventCtx::default();
 
-    text_area.on_event(&key(KeyCode::End), &mut ctx);
-    text_area.on_event(&key(KeyCode::Left), &mut ctx);
-    text_area.on_event(&key(KeyCode::Backspace), &mut ctx);
+    {
+        let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx);
+        text_area.on_event(&key(KeyCode::End), &mut __w);
+    }
+    {
+        let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx);
+        text_area.on_event(&key(KeyCode::Left), &mut __w);
+    }
+    {
+        let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx);
+        text_area.on_event(&key(KeyCode::Backspace), &mut __w);
+    }
 
     assert_eq!(text_area.text(), "a\u{0301}z");
 }
@@ -46,9 +56,18 @@ fn text_area_backspace_deletes_combining_cluster_as_unit() {
     let _guard = set_dispatch_recipient(make_node_id(), focused_state());
     let mut ctx = EventCtx::default();
 
-    text_area.on_event(&key(KeyCode::End), &mut ctx);
-    text_area.on_event(&key(KeyCode::Left), &mut ctx);
-    text_area.on_event(&key(KeyCode::Backspace), &mut ctx);
+    {
+        let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx);
+        text_area.on_event(&key(KeyCode::End), &mut __w);
+    }
+    {
+        let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx);
+        text_area.on_event(&key(KeyCode::Left), &mut __w);
+    }
+    {
+        let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx);
+        text_area.on_event(&key(KeyCode::Backspace), &mut __w);
+    }
 
     assert_eq!(text_area.text(), "b");
 }
@@ -59,12 +78,20 @@ fn text_area_shift_selection_then_backspace_deletes_selected_text() {
     let _guard = set_dispatch_recipient(make_node_id(), focused_state());
     let mut ctx = EventCtx::default();
 
-    text_area.on_event(&key(KeyCode::End), &mut ctx);
-    text_area.on_event(
+    {
+        let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx);
+        text_area.on_event(&key(KeyCode::End), &mut __w);
+    }
+    {
+        let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx);
+        text_area.on_event(
         &key_with_modifiers(KeyCode::Left, KeyModifiers::SHIFT),
-        &mut ctx,
-    );
-    text_area.on_event(&key(KeyCode::Backspace), &mut ctx);
+        &mut __w);
+    }
+    {
+        let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx);
+        text_area.on_event(&key(KeyCode::Backspace), &mut __w);
+    }
 
     assert_eq!(text_area.text(), "hello worl");
 }
@@ -75,11 +102,16 @@ fn text_area_ctrl_backspace_deletes_previous_word() {
     let _guard = set_dispatch_recipient(make_node_id(), focused_state());
     let mut ctx = EventCtx::default();
 
-    text_area.on_event(&key(KeyCode::End), &mut ctx);
-    text_area.on_event(
+    {
+        let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx);
+        text_area.on_event(&key(KeyCode::End), &mut __w);
+    }
+    {
+        let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx);
+        text_area.on_event(
         &key_with_modifiers(KeyCode::Backspace, KeyModifiers::CONTROL),
-        &mut ctx,
-    );
+        &mut __w);
+    }
 
     assert_eq!(text_area.text(), "alpha ");
 }
@@ -90,17 +122,27 @@ fn text_area_super_left_and_alt_backspace_shortcuts_work() {
     let _guard = set_dispatch_recipient(make_node_id(), focused_state());
     let mut ctx = EventCtx::default();
 
-    text_area.on_event(&key(KeyCode::End), &mut ctx);
-    text_area.on_event(
+    {
+        let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx);
+        text_area.on_event(&key(KeyCode::End), &mut __w);
+    }
+    {
+        let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx);
+        text_area.on_event(
         &key_with_modifiers(KeyCode::Left, KeyModifiers::SUPER),
-        &mut ctx,
-    );
+        &mut __w);
+    }
     assert_eq!(text_area.text(), "alpha beta");
 
-    text_area.on_event(&key(KeyCode::End), &mut ctx);
-    text_area.on_event(
+    {
+        let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx);
+        text_area.on_event(&key(KeyCode::End), &mut __w);
+    }
+    {
+        let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx);
+        text_area.on_event(
         &key_with_modifiers(KeyCode::Backspace, KeyModifiers::ALT),
-        &mut ctx,
-    );
+        &mut __w);
+    }
     assert_eq!(text_area.text(), "alpha ");
 }

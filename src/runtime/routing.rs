@@ -990,7 +990,7 @@ mod message_tests {
             true
         }
 
-        fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
             if let Event::Key(key) = event {
                 if matches!(key.code, KeyCode::Char('x')) {
                     ctx.post_message(crate::message::InputChanged {
@@ -1022,15 +1022,15 @@ mod message_tests {
             rich_rs::Segments::new()
         }
 
-        fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+        fn on_event_capture(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
             self.child.on_event_capture(event, ctx);
         }
 
-        fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
             self.child.on_event(event, ctx);
         }
 
-        fn on_message(&mut self, message: &crate::message::MessageEvent, ctx: &mut EventCtx) {
+        fn on_message(&mut self, message: &crate::message::MessageEvent, ctx: &mut crate::event::WidgetCtx) {
             if message.is::<crate::message::InputChanged>() {
                 self.seen += 1;
                 ctx.set_handled();
@@ -1050,7 +1050,10 @@ mod message_tests {
 
         // Deliver message directly to root for this unit test.
         let mut ctx = EventCtx::default();
-        root.on_message(&outcome.messages[0], &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            root.on_message(&outcome.messages[0], &mut __w);
+        }
         assert!(ctx.handled());
         assert_eq!(root.seen, 1);
     }
@@ -1073,13 +1076,13 @@ mod message_tests {
         fn render(&self, _console: &Console, _options: &ConsoleOptions) -> rich_rs::Segments {
             rich_rs::Segments::new()
         }
-        fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+        fn on_event_capture(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
             self.child.on_event_capture(event, ctx);
         }
-        fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
             self.child.on_event(event, ctx);
         }
-        fn on_message(&mut self, message: &crate::message::MessageEvent, ctx: &mut EventCtx) {
+        fn on_message(&mut self, message: &crate::message::MessageEvent, ctx: &mut crate::event::WidgetCtx) {
             if message.is::<crate::message::ButtonPressed>() {
                 self.seen += 1;
                 ctx.set_handled();
@@ -1174,7 +1177,7 @@ mod message_tests {
         fn render(&self, _console: &Console, _options: &ConsoleOptions) -> rich_rs::Segments {
             rich_rs::Segments::new()
         }
-        fn on_mouse_scroll(&mut self, _delta_x: i32, _delta_y: i32, ctx: &mut EventCtx) {
+        fn on_mouse_scroll(&mut self, _delta_x: i32, _delta_y: i32, ctx: &mut crate::event::WidgetCtx) {
             self.seen += 1;
             ctx.set_handled();
         }
@@ -1262,7 +1265,7 @@ mod message_tests {
             true
         }
 
-        fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
             if matches!(event, Event::Action(Action::ScrollDown)) {
                 self.hits.fetch_add(1, Ordering::Relaxed);
                 ctx.set_handled();
@@ -1575,7 +1578,7 @@ mod message_tests {
             Segments::new()
         }
 
-        fn on_event(&mut self, event: &Event, _ctx: &mut EventCtx) {
+        fn on_event(&mut self, event: &Event, _ctx: &mut crate::event::WidgetCtx) {
             if matches!(event, Event::BindingsChanged(..)) {
                 self.hits.fetch_add(1, Ordering::Relaxed);
             }
@@ -1671,7 +1674,7 @@ mod envelope_tests {
             Segments::new()
         }
 
-        fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
+        fn on_message(&mut self, message: &MessageEvent, ctx: &mut crate::event::WidgetCtx) {
             if message.is::<crate::message::ButtonPressed>() {
                 self.count.fetch_add(1, Ordering::Relaxed);
                 if self.stop_on_match {
@@ -2245,7 +2248,7 @@ mod envelope_tests {
             Segments::new()
         }
 
-        fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
+        fn on_message(&mut self, message: &MessageEvent, ctx: &mut crate::event::WidgetCtx) {
             if message.is::<crate::message::ButtonPressed>() {
                 self.captured.lock().unwrap().push(message.control);
                 ctx.set_handled();

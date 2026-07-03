@@ -200,7 +200,7 @@ impl TextualApp for CardApp {
         AppRoot::new().with_child(StatCard::new())
     }
 
-    fn on_message_with_app(&mut self, _app: &mut App, message: &MessageEvent, ctx: &mut EventCtx) {
+    fn on_message_with_app(&mut self, _app: &mut App, message: &MessageEvent, ctx: &mut textual::event::WidgetCtx) {
         if let Some(bp) = message.downcast_ref::<ButtonPressed>() {
             if bp.button_id.as_deref() == Some("go") {
                 self.presses.fetch_add(1, Ordering::SeqCst);

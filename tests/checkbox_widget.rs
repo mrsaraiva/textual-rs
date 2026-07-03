@@ -1,6 +1,7 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use rich_rs::Console;
 use textual::event::{MouseDownEvent, MouseUpEvent};
+use textual::event::EventCtx;
 use textual::prelude::*;
 use textual::render::FrameBuffer;
 use textual::runtime::dispatch_ctx::set_dispatch_recipient;
@@ -28,7 +29,7 @@ fn checkbox_toggles_from_keyboard_and_emits_message() {
     let key =
         KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()));
     let mut ctx = EventCtx::default();
-    checkbox.on_event(&Event::Key(key), &mut ctx);
+    { let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx); checkbox.on_event(&Event::Key(key), &mut __w) };
     assert!(ctx.handled());
     assert!(checkbox.checked());
 
@@ -49,7 +50,7 @@ fn checkbox_click_activates_only_on_mouse_up_over_target() {
     );
 
     let mut ctx = EventCtx::default();
-    checkbox.on_event(
+    { let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx); checkbox.on_event(
         &Event::MouseDown(MouseDownEvent {
             target: id,
             screen_x: 0,
@@ -57,13 +58,12 @@ fn checkbox_click_activates_only_on_mouse_up_over_target() {
             x: 0,
             y: 0,
         }),
-        &mut ctx,
-    );
+        &mut __w) };
     assert!(ctx.handled());
     assert!(!checkbox.checked());
 
     let mut ctx = EventCtx::default();
-    checkbox.on_event(
+    { let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx); checkbox.on_event(
         &Event::MouseUp(MouseUpEvent {
             target: Some(id),
             screen_x: 0,
@@ -71,8 +71,7 @@ fn checkbox_click_activates_only_on_mouse_up_over_target() {
             x: 0,
             y: 0,
         }),
-        &mut ctx,
-    );
+        &mut __w) };
     assert!(ctx.handled());
     assert!(checkbox.checked());
 }
@@ -84,7 +83,7 @@ fn checkbox_disabled_ignores_input() {
     let _guard = set_dispatch_recipient(id, focused_state());
     let key = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
     let mut ctx = EventCtx::default();
-    checkbox.on_event(&Event::Key(key), &mut ctx);
+    { let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx); checkbox.on_event(&Event::Key(key), &mut __w) };
     assert!(!checkbox.checked());
     assert!(!ctx.handled());
 }

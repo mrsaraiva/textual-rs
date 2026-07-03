@@ -938,7 +938,10 @@ mod tests {
         let _ = log.render(&console, &options);
 
         let mut ctx = EventCtx::default();
-        log.on_event(&Event::Action(Action::ScrollDown), &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            log.on_event(&Event::Action(Action::ScrollDown), &mut __w);
+        }
         let messages = ctx.take_messages();
         assert!(messages.iter().any(|m| m.is::<RichLogScrolled>()));
     }
@@ -967,7 +970,9 @@ mod tests {
         let _ = log.render(&console, &options);
 
         let mut ctx = EventCtx::default();
-        log.on_message(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            log.on_message(
             &MessageEvent::new(
                 crate::node_id::NodeId::default(),
                 ScrollbarScrollTo {
@@ -977,8 +982,8 @@ mod tests {
                     scroll_duration: None,
                 },
             ),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         assert!(ctx.handled());
         assert_eq!(log.offset_y, 1);
     }

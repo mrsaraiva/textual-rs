@@ -1,5 +1,6 @@
 use rich_rs::Console;
 use textual::css::{default_widget_stylesheet, set_style_context};
+use textual::event::EventCtx;
 use textual::event::MouseDownEvent;
 use textual::prelude::*;
 use textual::reactive::ReactiveCtx;
@@ -61,7 +62,7 @@ fn tabs_keyboard_changes_active_tab() {
         crossterm::event::KeyModifiers::NONE,
     ));
     let mut ctx = EventCtx::default();
-    tabs.on_event(&Event::Key(key), &mut ctx);
+    { let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx); tabs.on_event(&Event::Key(key), &mut __w) };
     assert!(ctx.handled());
     assert!(tabs.is_active("two"));
 }
@@ -72,7 +73,7 @@ fn tabs_mouse_click_on_header_changes_active_tab() {
     tabs.on_layout(40, 5);
     let id = NodeId::default();
     let mut ctx = EventCtx::default();
-    tabs.on_event(
+    { let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx); tabs.on_event(
         &Event::MouseDown(MouseDownEvent {
             target: id,
             screen_x: 5,
@@ -80,8 +81,7 @@ fn tabs_mouse_click_on_header_changes_active_tab() {
             x: 5,
             y: 0,
         }),
-        &mut ctx,
-    );
+        &mut __w) };
     assert!(ctx.handled());
     assert!(tabs.is_active("two"));
 }
@@ -95,7 +95,7 @@ fn tabs_mouse_hit_testing_handles_wide_grapheme_titles() {
     let id = NodeId::default();
     let first_label_cells = rich_rs::cell_len(" 👩‍🚀 ");
     let mut ctx = EventCtx::default();
-    tabs.on_event(
+    { let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx); tabs.on_event(
         &Event::MouseDown(MouseDownEvent {
             target: id,
             screen_x: first_label_cells as u16 + 1,
@@ -103,8 +103,7 @@ fn tabs_mouse_hit_testing_handles_wide_grapheme_titles() {
             x: first_label_cells as u16 + 1,
             y: 0,
         }),
-        &mut ctx,
-    );
+        &mut __w) };
     assert!(ctx.handled());
     assert!(tabs.is_active("deux"));
 }
@@ -224,12 +223,12 @@ fn tabs_keyboard_navigation_skips_disabled_and_hidden_tabs() {
         crossterm::event::KeyModifiers::NONE,
     ));
     let mut ctx = EventCtx::default();
-    tabs.on_event(&Event::Key(right.clone()), &mut ctx);
+    { let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx); tabs.on_event(&Event::Key(right.clone()), &mut __w) };
     assert!(ctx.handled());
     assert!(tabs.is_active("four"));
 
     let mut wrap_ctx = EventCtx::default();
-    tabs.on_event(&Event::Key(right), &mut wrap_ctx);
+    { let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut wrap_ctx); tabs.on_event(&Event::Key(right), &mut __w) };
     assert!(wrap_ctx.handled());
     assert!(tabs.is_active("one"));
 }
@@ -242,7 +241,7 @@ fn tabs_mouse_click_disabled_tab_does_not_activate() {
     tabs.on_layout(40, 5);
     let id = NodeId::default();
     let mut ctx = EventCtx::default();
-    tabs.on_event(
+    { let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx); tabs.on_event(
         &Event::MouseDown(MouseDownEvent {
             target: id,
             screen_x: 6,
@@ -250,8 +249,7 @@ fn tabs_mouse_click_disabled_tab_does_not_activate() {
             x: 6,
             y: 0,
         }),
-        &mut ctx,
-    );
+        &mut __w) };
     assert!(!ctx.handled());
     assert!(tabs.is_active("one"));
 }

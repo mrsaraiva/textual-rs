@@ -584,10 +584,12 @@ mod tests {
     fn bindings_changed_posts_bindings_updated_message() {
         let mut panel = KeyPanel::new();
         let mut ctx = EventCtx::default();
-        panel.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            panel.on_event(
             &Event::BindingsChanged(vec![BindingHint::new("ctrl+p", "Palette")]),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         let messages = ctx.take_messages();
         assert!(messages.iter().any(|m| {
             m.downcast_ref::<KeyPanelBindingsUpdated>()
@@ -635,7 +637,10 @@ mod tests {
         let _ = panel.render(&console, &options);
 
         let mut ctx = EventCtx::default();
-        panel.on_event(&Event::Action(Action::ScrollDown), &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            panel.on_event(&Event::Action(Action::ScrollDown), &mut __w);
+        }
         let messages = ctx.take_messages();
         assert!(messages.iter().any(|m| m.is::<KeyPanelScrolled>()));
     }
@@ -653,7 +658,9 @@ mod tests {
         assert_eq!(panel.offset_y, 0);
 
         let mut ctx = EventCtx::default();
-        panel.on_message(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            panel.on_message(
             &MessageEvent::new(
                 NodeId::default(),
                 ScrollbarScrollTo {
@@ -663,8 +670,8 @@ mod tests {
                     scroll_duration: None,
                 },
             ),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         assert!(ctx.handled());
         assert!(ctx.repaint_requested());
         assert!(panel.offset_y > 0);
@@ -692,7 +699,9 @@ mod tests {
         let _ = panel.render(&console, &options);
 
         let mut ctx = EventCtx::default();
-        panel.on_message(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            panel.on_message(
             &MessageEvent::new(
                 NodeId::default(),
                 ScrollbarScrollTo {
@@ -702,8 +711,8 @@ mod tests {
                     scroll_duration: None,
                 },
             ),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         assert!(ctx.handled());
         assert_eq!(panel.offset_y, 2);
     }

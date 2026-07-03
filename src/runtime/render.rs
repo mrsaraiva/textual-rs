@@ -4202,8 +4202,11 @@ mod tests {
         {
             let node = tree.get_mut(palette_id).expect("palette node should exist");
             let mut ctx = EventCtx::default();
-            node.widget
-                .on_event(&Event::Action(Action::CommandPalette), &mut ctx);
+            {
+                let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+                node.widget
+                    .on_event(&Event::Action(Action::CommandPalette), &mut __w);
+            }
         }
 
         let frame = render_tree_to_frame(&mut tree, &mut root_widget, &console, 60, 14);
