@@ -63,12 +63,14 @@ impl ComputedApp {
         Color::rgb(self.red, self.green, self.blue)
     }
 
-    /// Python `watch_color`: paint the swatch's background.
+    /// Python `watch_color`: paint the swatch's background. Writes straight to the
+    /// arena node via `query_mut().set_styles(..)` (Python `styles.background = c`);
+    /// a post-mount `Static::set_inline_style` would only touch the drained seed.
     fn watch_color(&mut self, app: &mut App, _old: &Color, new: &Color, _ctx: &mut ReactiveCtx) {
         let new = *new;
-        let _ = app.with_query_one_mut_as::<Static, _>("#color", |s| {
-            s.set_inline_style(Style::new().bg(new));
-        });
+        let _ = app
+            .query_mut("#color")
+            .map(|q| q.set_styles(|s| s.style = s.style.clone().bg(new)));
     }
 }
 
@@ -157,26 +159,15 @@ mod tests {
         assert_eq!(*app.color(), Color::rgb(100, 0, 0));
     }
 
-    /// LIVENESS PROBE (currently DEAD — see root cause below).
+    /// LIVENESS PROBE: typing a channel value into the `#red` Input must drive
+    /// the computed `color` and its `watch_color`, repainting the `#color` swatch
+    /// background. We assert the *swatch's own background* changed (not merely the
+    /// frame — the Input echoing the typed digits dirties the frame on its own, a
+    /// false positive we deliberately avoid).
     ///
-    /// Typing a channel value into the `#red` Input must drive the computed
-    /// `color` and its `watch_color`, repainting the `#color` swatch background.
-    /// We assert the *swatch's own background* changed (not merely the frame —
-    /// the Input echoing the typed digits dirties the frame on its own, a false
-    /// positive we deliberately avoid).
-    ///
-    /// ROOT CAUSE (DEAD): `watch_color` repaints via `Static::set_inline_style`,
-    /// which writes to the widget's `seed.styles.style`. After mount that seed
-    /// was moved into the arena node (emptied), so a post-mount `set_inline_style`
-    /// on an in-tree widget never reaches the node's rendered style — the swatch
-    /// stays unpainted (`#color` node bg remains `None`). The compute+watch chain
-    /// itself fires (the reactive value is correct); only the inline-style write
-    /// is dropped. This is a styling-pipeline gap (sync widget inline style to the
-    /// node in `with_widget_mut`, or route `set_inline_style` to the node),
-    /// distinct from this reactive-dispatch sweep. The same gap kills `watch01`.
-    /// Flip this `#[ignore]` once post-mount `set_inline_style` reaches render, or
-    /// switch the watcher to the node-level `query_mut(sel).set_styles(...)` path
-    /// (which already works, per the testing/rgb demo).
+    /// The watcher writes the swatch background straight to its arena node via
+    /// `query_mut("#color").set_styles(..)`, so the post-mount colour reaches
+    /// render (RA2.3: `Static::set_inline_style` no longer stages a write-through).
     #[test]
     fn liveness_typing_red_repaints_swatch() {
         textual::run_test(ComputedApp::new(), |pilot| {
