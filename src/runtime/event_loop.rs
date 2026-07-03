@@ -1011,9 +1011,22 @@ fn split_runtime_control_messages(
         } else if let Some(m) = event.downcast_ref::<crate::message::AppFocus>() {
             let widget_id = m.widget_id.clone();
             match app.action_focus(&widget_id) {
-                Ok(changed) => {
-                    if changed {
-                        pass.repaint_requested = true;
+                Ok(true) => {
+                    // A focus landed — that is the newest intent, so drop any
+                    // earlier deferred request (last-writer wins).
+                    app.pending_focus = None;
+                    pass.repaint_requested = true;
+                }
+                Ok(false) => {
+                    // Not focused. If the target EXISTS (it just isn't displayed
+                    // yet — a sibling handler flipped its `display` via a deferred
+                    // class op the post-dispatch flush + layout applies AFTER this
+                    // message routes), defer the request so it lands once the
+                    // same-frame display resolution runs (`retry_pending_focus`).
+                    // A genuine no-match is dropped (never displays → never
+                    // deferred), so a target that can never show cannot spin.
+                    if app.query_one(&format!("#{widget_id}")).is_ok() {
+                        app.pending_focus = Some(widget_id);
                     }
                 }
                 Err(err) => {
@@ -1023,10 +1036,13 @@ fn split_runtime_control_messages(
                 }
             }
         } else if event.is::<crate::message::AppFocusNext>() {
+            // An explicit tab is a newer focus intent — drop any deferred request.
+            app.pending_focus = None;
             if app.action_focus_next() {
                 pass.repaint_requested = true;
             }
         } else if event.is::<crate::message::AppFocusPrevious>() {
+            app.pending_focus = None;
             if app.action_focus_previous() {
                 pass.repaint_requested = true;
             }
@@ -5871,6 +5887,54 @@ impl App {
                 dropped_commands,
                 if dropped_commands == 1 { "" } else { "s" },
             ));
+        }
+
+        // Land any focus request deferred because its target was not yet
+        // displayed when the `AppFocus` message routed (the class op that
+        // reveals it was flushed above, in this same call). See
+        // `retry_pending_focus`.
+        self.retry_pending_focus(pending);
+    }
+
+    /// Retry a focus request deferred by the `AppFocus` handler because its
+    /// target existed but was not yet displayed when the message routed.
+    ///
+    /// A widget handler can, in one pass, reveal a `display: none` child (by
+    /// adding a class that flips its CSS `display`) AND request focus of that
+    /// child. The class op is deferred to the post-dispatch command flush (run
+    /// by `run_event_loop_reactive_phase`, whose end calls this), but the
+    /// generated `AppFocus` message routes DURING dispatch — before the flush —
+    /// so `set_focus_node` sees a stale (`false`) cached `display` and rejects
+    /// it. Here, after the flush has applied the reveal, we re-resolve CSS
+    /// display so the target's cached `display` is fresh, then retry focus ONCE.
+    ///
+    /// Bounded + self-clearing: the request is `take`n (retried exactly once,
+    /// never spins) and dropped whether it lands or not, so a target that never
+    /// becomes displayed cannot leak into a later frame and steal focus. A
+    /// successful focus flags a repaint so the new `:focus` styling paints.
+    fn retry_pending_focus(&mut self, pending: &mut PendingInvalidation) {
+        let Some(widget_id) = self.pending_focus.take() else {
+            return;
+        };
+        // Refresh cached `display` from the now-applied classes so a just-
+        // revealed target passes `set_focus_node`'s displayed gate. The next
+        // render's `run_layout_pass` re-resolves anyway; doing it here only
+        // when a focus is pending keeps the cost off the common path.
+        if let Some(tree) = self.active_widget_tree_mut() {
+            crate::css::apply_display_visibility_to_tree(tree);
+        }
+        match self.action_focus(&widget_id) {
+            Ok(true) => {
+                pending.request_flags(crate::event::InvalidationFlags::layout());
+                pending.request_full_content();
+            }
+            _ => {
+                // Give up silently: the target still isn't focusable/displayed
+                // (e.g. an open raced a dismiss). Not an error.
+                debug_input(&format!(
+                    "[runtime] deferred app.focus gave up widget_id={widget_id:?} (target never displayed)"
+                ));
+            }
         }
     }
 

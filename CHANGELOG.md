@@ -9,6 +9,20 @@ until the API stabilizes.
 
 ### Framework fundamentals
 
+- **Focus now lands on a node revealed in the same frame** (RA2.5b prerequisite)
+  — a widget handler can, in one pass, reveal a `display: none` composed child
+  (by adding a class that flips its CSS `display`) AND request focus of it
+  (`AppFocus { widget_id }`). The reveal is applied by the deferred command flush
+  + layout that runs AFTER the handler's dispatch, but the generated `AppFocus`
+  message routes DURING dispatch — so `set_focus_node` used to see the target's
+  stale (`false`) cached `display` and reject the focus, leaving it unfocused
+  until a second interaction. The runtime now defers such a focus request whose
+  target exists but is not yet displayed, re-resolves CSS `display` after the
+  same-frame flush, and retries the focus once (bounded + self-clearing:
+  last-writer wins, an explicit tab/other focus in the same frame drops it, and a
+  target that never displays is given up on silently — it can never leak into a
+  later frame and steal focus). Unblocks the arena `Select`'s overlay, which must
+  be focused the instant `-expanded` is added.
 - **`RadioSet` is now a composed-children arena widget** (RA2.5a) — it no longer
   stores `Vec<RadioButton>` and renders them inline with per-glyph style
   compensation. Its buttons are emitted as real arena child nodes via

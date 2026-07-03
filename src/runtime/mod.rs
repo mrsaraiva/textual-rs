@@ -5,6 +5,8 @@ pub use commands::{drain_class_commands_for_test, drain_mount_posts_for_test};
 mod devtools;
 pub mod dispatch_ctx;
 mod event_loop;
+#[cfg(test)]
+mod overlay_focus_regression;
 mod widget_ctx;
 mod helpers;
 pub mod pilot;
@@ -495,6 +497,12 @@ pub struct App {
     /// fired, even though the rendered frame is otherwise unchanged. Read via
     /// [`App::headless_stop_requested`].
     headless_stop_requested: bool,
+    /// A focus request (`AppFocus { widget_id }`) whose target exists but was
+    /// not yet displayed when the message routed — deferred so it lands after
+    /// the same-frame display/layout resolution. See [`App::retry_pending_focus`].
+    /// Holds the LAST such request (last-writer wins) and is cleared on
+    /// resolution (success or give-up) so it can never leak into a later frame.
+    pending_focus: Option<String>,
     hit_test: HitTestMap,
     debug_layout: DebugLayout,
     action_map: ActionMap,
@@ -715,6 +723,7 @@ impl App {
             headless: false,
             headless_size: (80, 24),
             headless_stop_requested: false,
+            pending_focus: None,
             hit_test: HitTestMap::default(),
             debug_layout: DebugLayout::default(),
             action_map: default_action_map(),
