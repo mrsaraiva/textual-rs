@@ -1195,7 +1195,7 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
         // Typed handler registry (Block between A and B).
         // Dispatches all registered handlers for the message's concrete payload type.
         // Runs AFTER adapter state management (Block A) but BEFORE built-in typed hooks
-        // (Block B), so `command_palette_visible` / `help_panel_visible` are already set.
+        // (Block B), so `palette_screen_open` / `help_panel_visible` are already set.
         {
             let mut app = self.app.lock().unwrap_or_else(|e| e.into_inner());
             self.message_handlers.dispatch(&mut *app, message, ctx.event_ctx_mut());
