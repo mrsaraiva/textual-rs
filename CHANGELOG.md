@@ -7,6 +7,22 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### BREAKING — the RA-2 batch (one pre-1.0 breaking wave; migration index)
+
+This release lands the RA-2 breaking batch in full. After it, the `Widget`
+trait and the prelude are at their 1.0 freeze shape. The detailed entries live
+in the sections below; this is the migration index:
+
+| Change | What you do |
+|---|---|
+| `compose(&mut self) -> ComposeResult` is the SOLE child path (RA2.1) | Widgets stop pushing children through drain hooks; store children and emit `ChildDecl`s from `compose()`. Builder APIs (`with_child`/`with_compose`) are unchanged. |
+| All `Widget` handler signatures take `&mut WidgetCtx` (RA2.2) | `on_event`/`on_event_capture`/`on_message`/`on_mouse_scroll`/`execute_action`/`on_app_*` now receive `&mut WidgetCtx`. `on_mount` and `on_mount_ctx` are merged into `on_mount(&mut self, &mut WidgetCtx)`. `EventCtx` left the prelude (internal). Timer callbacks receive `TimerTick { elapsed, fire_count }`. |
+| The post-mount drain hooks are DELETED (RA2.3) | `drain_pending_class_ops`, `take_pending_self_recompose`, `take_inline_style_writethrough`, `take_pending_mount_messages` (and the RA2.1-retired compose drains) are gone. Use `WidgetCtx`: `add_class`/`update_styles`/`request_recompose`/`post_message`, `query_one::<W>().update_via`, `Handle::update`. Only `take_node_seed` survives (by design). |
+| `overlay: screen` is a real placement escape (RA2.4) | The screen-COLOR-BLEND misport is deleted. A node resolving `overlay: screen` is deferred-painted top-z, unclipped, over the screen surface. If you relied on the old blend as a color effect, that behavior no longer exists (it was a misport of Python semantics). |
+| `RadioSet` and `Select` are composed-children arena widgets (RA2.5) | Public APIs preserved. `RadioButtonChanged` gains an `ordinal: usize` field (breaking if you construct/match it exhaustively). New messages: `SelectCurrentToggle`, `SelectOverlayDismiss { lost_focus }`. |
+| `Node` is deprecated (RA2.6a) | Attach id/classes on the child widget (`.id()`/`.class()`) where supported; `Node` remains fully functional for this release. Removal lands with the 1.x container seed-builder unification. |
+| Prelude pruned to the curated user surface (RA2.6b) | Runtime tree-plumbing fns, `DispatchOutcome`, `HandleSink`, legacy delegate macros, routing internals, and the dead `CommandPaletteScreen` left the prelude. Import from their canonical modules (`textual::runtime::`, `textual::handle::`, `textual::widgets::`, `textual::routing::`) if you drive trees directly. |
+
 ### Deprecated
 
 - **`Node` is deprecated (`#[deprecated]` since 1.0.0) and scheduled for
