@@ -95,6 +95,15 @@ pub(crate) enum WidgetCommand {
         target: CommandTarget,
         apply: Box<dyn FnOnce(&mut dyn Widget, &mut WidgetCtx) + Send>,
     },
+    /// Apply a closure to the target node's inline styles (Python
+    /// `widget.styles.<prop> = v`). Homes the post-mount inline-style write path
+    /// that `take_inline_style_writethrough` used to stage on the widget struct:
+    /// the seed is drained at mount, so a post-mount style write must reach the
+    /// arena node record directly. Applied via `WidgetTree::update_styles`.
+    UpdateStyles {
+        target: CommandTarget,
+        apply: Box<dyn FnOnce(&mut crate::widgets::WidgetStyles) + Send>,
+    },
     /// Register a widget-owned interval timer on the SAME `TimerRuntime` as
     /// app-level timers (so `enable_manual_timer_clock` / `Pilot::advance_clock`
     /// drive it deterministically). `timer_id` is pre-allocated by
@@ -256,6 +265,17 @@ impl App {
                     return;
                 };
                 self.run_on_node_widget(node, |w, ctx| apply(w, ctx), pending);
+            }
+            WidgetCommand::UpdateStyles { target, apply } => {
+                let Some(node) = self.resolve_command_target(&target) else {
+                    return;
+                };
+                if let Some(tree) = self.active_widget_tree_mut() {
+                    tree.update_styles(node, apply);
+                }
+                // A post-mount inline-style write can change size/spacing/visibility
+                // (Python `widget.styles.x = v` -> `refresh(layout=True)`).
+                pending.request_flags(InvalidationFlags::layout());
             }
             WidgetCommand::RegisterTimer {
                 node,

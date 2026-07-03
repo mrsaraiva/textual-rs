@@ -139,6 +139,23 @@ impl<'a> WidgetCtx<'a> {
         self.event_ctx_mut().remove_class_from(node, class);
     }
 
+    /// Apply a closure to this widget's own inline styles (Python
+    /// `widget.styles.<prop> = v`). Deferred: enqueues a
+    /// [`WidgetCommand::UpdateStyles`] applied by the shared flush against the
+    /// arena node record. This is the post-mount inline-style write path — the
+    /// widget's node seed is drained at mount, so mutating the seed after mount is
+    /// invisible; route style writes here so they reach layout/render (retires the
+    /// `take_inline_style_writethrough` staging hook).
+    pub fn update_styles<F>(&mut self, f: F)
+    where
+        F: FnOnce(&mut crate::widgets::WidgetStyles) + Send + 'static,
+    {
+        enqueue_widget_command(WidgetCommand::UpdateStyles {
+            target: CommandTarget::Node(self.node_id()),
+            apply: Box::new(f),
+        });
+    }
+
     /// Register a **widget-owned** repeating interval timer on this widget's node
     /// (Python `self.set_interval`). The callback receives the concrete widget
     /// `&mut W` (downcast at fire) and a fresh `WidgetCtx`, so a reactive `set_*`

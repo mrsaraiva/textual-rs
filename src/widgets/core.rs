@@ -763,25 +763,6 @@ pub trait Widget: Send + Sync + Any {
     fn take_pending_self_recompose(&mut self) -> bool {
         false
     }
-    /// Drain a pending inline-style write-through staged by a post-mount
-    /// `set_inline_style` call.
-    ///
-    /// `take_node_seed()` moves a widget's seed (including its inline style) into
-    /// the arena node at mount, emptying the widget-held seed. A subsequent
-    /// post-mount `set_inline_style` (e.g. a reactive `watch_color` doing
-    /// `widget.set_inline_style(Style::new().bg(c))` via `App::with_widget_mut`)
-    /// only updates the now-detached widget seed and never reaches the node's
-    /// rendered style. Widgets that support post-mount inline styling override
-    /// this to return the style that the runtime must cascade onto the arena
-    /// node (`node.styles.style.combine(&returned)`). Mirrors Python's
-    /// `widget.styles.background = color` writing directly to the node styles.
-    ///
-    /// The returned style is *combined over* the node's existing inline style, so
-    /// only the explicitly-set fields override (matching Python's per-property
-    /// `styles.<prop> = value` assignment). Returns `None` when nothing is staged.
-    fn take_inline_style_writethrough(&mut self) -> Option<Style> {
-        None
-    }
     /// Optional intrinsic content width hint (in cells), used by layout when `width: auto`.
     ///
     /// This should return the width of the widget's *content* (excluding margins and borders).

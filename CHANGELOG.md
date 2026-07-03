@@ -9,6 +9,15 @@ until the API stabilizes.
 
 ### Framework fundamentals
 
+- **`WidgetCtx::update_styles(|s| ...)` post-mount inline-style writes** (RA2.3) —
+  a widget/handler can now write its own inline styles after mount via
+  `ctx.update_styles(|styles| { styles.style = styles.style.bg(color); })`, mirroring
+  Python `widget.styles.<prop> = value`. It enqueues a deferred `UpdateStyles`
+  command applied by the shared flush against the arena node record (the node seed is
+  drained at mount, so a post-mount seed write would be invisible). This retires the
+  internal `Widget::take_inline_style_writethrough` staging hook — `set_inline_style`
+  now only seeds the pre-mount style.
+
 - **BREAKING — Widget-trait handler signatures migrate to `WidgetCtx`** (RA2.2) —
   every behavior handler on the `Widget` trait now receives `&mut WidgetCtx`
   instead of `&mut EventCtx`: `on_event`, `on_event_capture`, `on_message`,

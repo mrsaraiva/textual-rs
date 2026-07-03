@@ -56,9 +56,6 @@ pub struct Static {
     css_id_cache: Option<String>,
     /// CSS classes cache preserved across `take_node_seed()` (same rationale).
     classes_cache: Vec<String>,
-    /// Inline style staged by a post-mount `set_inline_style` call, pending
-    /// write-through to the arena node (see `take_inline_style_writethrough`).
-    pending_inline_writethrough: Option<crate::style::Style>,
 }
 
 impl Static {
@@ -77,7 +74,6 @@ impl Static {
             seed: NodeSeed::default(),
             css_id_cache: None,
             classes_cache: Vec::new(),
-            pending_inline_writethrough: None,
         }
     }
 
@@ -492,17 +488,11 @@ impl Widget for Static {
     }
 
     fn set_inline_style(&mut self, style: crate::style::Style) {
-        // Update the seed (consumed at mount for the pre-mount path) AND stage a
-        // write-through so a POST-mount call (the seed is already drained) still
-        // reaches the arena node via `take_inline_style_writethrough`. This makes
-        // reactive watchers that do `widget.set_inline_style(Style::new().bg(c))`
-        // repaint in-tree, mirroring Python `widget.styles.background = color`.
-        self.seed.styles.style = style.clone();
-        self.pending_inline_writethrough = Some(style);
-    }
-
-    fn take_inline_style_writethrough(&mut self) -> Option<crate::style::Style> {
-        self.pending_inline_writethrough.take()
+        // Update the seed, consumed at mount for the pre-mount path. A POST-mount
+        // inline-style write (the seed is already drained) must instead go through
+        // `WidgetCtx::update_styles` so it reaches the arena node record — mirroring
+        // Python `widget.styles.background = color`.
+        self.seed.styles.style = style;
     }
 
     fn take_node_seed(&mut self) -> NodeSeed {
@@ -512,9 +502,6 @@ impl Widget for Static {
         // in `layout_height()` runs post-mount when `seed.css_id` would be gone).
         self.css_id_cache = seed.css_id.clone();
         self.classes_cache = seed.classes.clone();
-        // The seed's inline style is now owned by the node; drop any pre-mount
-        // write-through so the first post-mount sync doesn't re-apply a stale value.
-        self.pending_inline_writethrough = None;
         seed
     }
 
