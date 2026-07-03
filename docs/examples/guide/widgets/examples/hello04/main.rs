@@ -121,7 +121,7 @@ impl Widget for Hello {
     }
 
     /// Python `on_mount` — show the first greeting immediately after mount.
-    fn on_mount(&mut self) {
+    fn on_mount(&mut self, _ctx: &mut textual::event::WidgetCtx) {
         self.next_word();
     }
 
@@ -129,7 +129,7 @@ impl Widget for Hello {
     ///
     /// Python Textual fires `on_click` on `MouseUp` for the target widget,
     /// so we mirror that here.
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut textual::event::WidgetCtx) {
         if let Event::MouseUp(mouse) = event {
             if mouse.target == Some(self.node_id()) {
                 self.next_word();

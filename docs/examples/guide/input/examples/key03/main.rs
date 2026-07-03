@@ -73,7 +73,7 @@ impl Widget for KeyLogger {
         self.log.on_node_state_changed(old, new);
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut textual::event::WidgetCtx) {
         if let Event::Key(key) = event {
             let display = format!(
                 "Key(key={:?}, character={:?}, is_printable={})",
@@ -89,15 +89,15 @@ impl Widget for KeyLogger {
         self.log.on_event(event, ctx);
     }
 
-    fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event_capture(&mut self, event: &Event, ctx: &mut textual::event::WidgetCtx) {
         self.log.on_event_capture(event, ctx);
     }
 
-    fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
+    fn on_message(&mut self, message: &MessageEvent, ctx: &mut textual::event::WidgetCtx) {
         self.log.on_message(message, ctx);
     }
 
-    fn on_mouse_scroll(&mut self, dx: i32, dy: i32, ctx: &mut EventCtx) {
+    fn on_mouse_scroll(&mut self, dx: i32, dy: i32, ctx: &mut textual::event::WidgetCtx) {
         self.log.on_mouse_scroll(dx, dy, ctx);
     }
 

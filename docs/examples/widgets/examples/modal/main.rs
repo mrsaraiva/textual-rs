@@ -8,7 +8,7 @@ struct ModalApp {
 }
 
 impl ModalApp {
-    fn set_overlay_visible(&self, app: &mut App, visible: bool, ctx: &mut EventCtx) {
+    fn set_overlay_visible(&self, app: &mut App, visible: bool, ctx: &mut textual::event::WidgetCtx) {
         let Ok(overlay) = app.query_one("Overlay") else {
             return;
         };
@@ -59,7 +59,7 @@ impl TextualApp for ModalApp {
         ))
     }
 
-    fn on_tick_with_app(&mut self, app: &mut App, _tick: u64, ctx: &mut EventCtx) {
+    fn on_tick_with_app(&mut self, app: &mut App, _tick: u64, ctx: &mut textual::event::WidgetCtx) {
         if self.initialized {
             return;
         }
@@ -69,7 +69,7 @@ impl TextualApp for ModalApp {
         self.overlay_open = false;
     }
 
-    fn on_message_with_app(&mut self, app: &mut App, message: &MessageEvent, ctx: &mut EventCtx) {
+    fn on_message_with_app(&mut self, app: &mut App, message: &MessageEvent, ctx: &mut textual::event::WidgetCtx) {
         if let Some(ButtonPressed { description, .. }) = message.downcast_ref::<ButtonPressed>() {
             if description.contains("variant='primary'") {
                 self.overlay_open = true;

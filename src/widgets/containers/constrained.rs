@@ -1,7 +1,7 @@
 use rich_rs::{Console, ConsoleOptions, Renderable, Segments};
 
 use crate::debug::DebugLayout;
-use crate::event::{Event, EventCtx};
+use crate::event::Event;
 use crate::message::MessageEvent;
 
 use crate::widgets::{
@@ -107,9 +107,9 @@ impl Widget for Constrained {
         Widget::render(self, console, options)
     }
 
-    fn on_mount(&mut self) {
+    fn on_mount(&mut self, ctx: &mut crate::event::WidgetCtx) {
         if !self.child_extracted {
-            self.child.on_mount();
+            self.child.on_mount(ctx);
         }
     }
 
@@ -151,19 +151,19 @@ impl Widget for Constrained {
         self.child.on_layout(width, height);
     }
 
-    fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event_capture(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         if !self.child_extracted {
             self.child.on_event_capture(event, ctx);
         }
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         if !self.child_extracted {
             self.child.on_event(event, ctx);
         }
     }
 
-    fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
+    fn on_message(&mut self, message: &MessageEvent, ctx: &mut crate::event::WidgetCtx) {
         if !self.child_extracted {
             self.child.on_message(message, ctx);
         }

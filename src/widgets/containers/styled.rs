@@ -1,7 +1,7 @@
 use rich_rs::{Console, ConsoleOptions, Renderable, Segments};
 
 use crate::debug::DebugLayout;
-use crate::event::{Event, EventCtx};
+use crate::event::Event;
 use crate::message::MessageEvent;
 use crate::style::Style;
 
@@ -61,7 +61,7 @@ impl Widget for Styled {
         Segments::new()
     }
 
-    fn on_mount(&mut self) {}
+    fn on_mount(&mut self, _ctx: &mut crate::event::WidgetCtx) {}
 
     fn on_unmount(&mut self) {}
 
@@ -71,13 +71,13 @@ impl Widget for Styled {
 
     fn on_layout(&mut self, _width: u16, _height: u16) {}
 
-    fn on_event_capture(&mut self, _event: &Event, _ctx: &mut EventCtx) {}
+    fn on_event_capture(&mut self, _event: &Event, _ctx: &mut crate::event::WidgetCtx) {}
 
-    fn on_event(&mut self, _event: &Event, _ctx: &mut EventCtx) {}
+    fn on_event(&mut self, _event: &Event, _ctx: &mut crate::event::WidgetCtx) {}
 
-    fn on_message(&mut self, _message: &MessageEvent, _ctx: &mut EventCtx) {}
+    fn on_message(&mut self, _message: &MessageEvent, _ctx: &mut crate::event::WidgetCtx) {}
 
-    fn on_mouse_scroll(&mut self, _delta_x: i32, _delta_y: i32, _ctx: &mut EventCtx) {}
+    fn on_mouse_scroll(&mut self, _delta_x: i32, _delta_y: i32, _ctx: &mut crate::event::WidgetCtx) {}
 
     fn focusable(&self) -> bool {
         false

@@ -58,7 +58,7 @@ impl Widget for TreeFocusProbe {
         true
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut textual::event::WidgetCtx) {
         match event {
             Event::Focus(_) => {
                 self.set_focus(true);
@@ -124,7 +124,7 @@ impl Widget for TreeHoverProbe {
         true
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut textual::event::WidgetCtx) {
         match event {
             Event::Enter(_) => {
                 self.set_hovered(true);
@@ -763,7 +763,7 @@ fn p1g13_key_event_dispatched_to_focused_node_via_tree() {
         fn focusable(&self) -> bool {
             true
         }
-        fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        fn on_event(&mut self, event: &Event, ctx: &mut textual::event::WidgetCtx) {
             match event {
                 Event::Focus(_) => {
                     self.set_focus(true);

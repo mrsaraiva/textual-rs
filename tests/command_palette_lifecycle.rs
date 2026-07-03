@@ -3,6 +3,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use rich_rs::{Console, ConsoleOptions, Segments};
 use textual::message::MessageEvent;
+use textual::event::EventCtx;
 use textual::prelude::*;
 
 struct FocusProbe {
@@ -36,12 +37,18 @@ fn command_palette_restores_wrapped_focus_after_close() {
     let mut palette = CommandPalette::new(child);
 
     let mut open_ctx = EventCtx::default();
-    palette.on_event(&Event::Action(Action::CommandPalette), &mut open_ctx);
+    {
+        let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut open_ctx);
+        palette.on_event(&Event::Action(Action::CommandPalette), &mut __w);
+    }
     assert!(palette.is_open());
     assert!(!child_focus.load(Ordering::Relaxed));
 
     let mut close_ctx = EventCtx::default();
-    palette.on_event(&Event::Action(Action::CommandPalette), &mut close_ctx);
+    {
+        let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut close_ctx);
+        palette.on_event(&Event::Action(Action::CommandPalette), &mut __w);
+    }
     assert!(!palette.is_open());
     assert!(child_focus.load(Ordering::Relaxed));
 }
@@ -50,11 +57,16 @@ fn command_palette_restores_wrapped_focus_after_close() {
 fn command_palette_closes_when_overlay_visibility_changes() {
     let mut palette = CommandPalette::new(Label::new("body"));
     let mut open_ctx = EventCtx::default();
-    palette.on_event(&Event::Action(Action::CommandPalette), &mut open_ctx);
+    {
+        let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut open_ctx);
+        palette.on_event(&Event::Action(Action::CommandPalette), &mut __w);
+    }
     assert!(palette.is_open());
 
     let mut transition_ctx = EventCtx::default();
-    palette.on_message(
+    {
+        let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut transition_ctx);
+        palette.on_message(
         &MessageEvent::new(
             NodeId::default(),
             OverlayVisibilityChanged {
@@ -62,8 +74,8 @@ fn command_palette_closes_when_overlay_visibility_changes() {
                 visible: true,
             },
         ),
-        &mut transition_ctx,
-    );
+        &mut __w);
+    }
     assert!(!palette.is_open());
 
     assert!(transition_ctx.repaint_requested());

@@ -709,7 +709,9 @@ mod tests {
             app_root.on_layout(114, 34);
             app_root.set_virtual_content_size(114, 50);
             let mut ctx = EventCtx::default();
-            app_root.on_message(
+            {
+                let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+                app_root.on_message(
                 &MessageEvent::new(
                     node_id_from_ffi(0),
                     ScrollbarScrollTo {
@@ -719,8 +721,8 @@ mod tests {
                         scroll_duration: None,
                     },
                 ),
-                &mut ctx,
-            );
+                &mut __w);
+            }
         }
 
         if let Some(vbar) = tree.get_mut(vbar_id) {

@@ -19,7 +19,7 @@ impl TextualApp for WelcomeApp {
         AppRoot::new()
     }
 
-    fn on_key_with_app(&mut self, app: &mut App, _key: &KeyEventData, ctx: &mut EventCtx) {
+    fn on_key_with_app(&mut self, app: &mut App, _key: &KeyEventData, ctx: &mut textual::event::WidgetCtx) {
         let _ = app.mount(Welcome::new());
         // Python: `self.query_one(Button).label = "YES!"`
         // In Rust, Welcome's internal Button is not exposed in the arena tree,

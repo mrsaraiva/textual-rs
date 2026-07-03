@@ -22,7 +22,7 @@ impl TextualApp for SuspendingApp {
         AppRoot::new().with_child(Button::new("Open the editor").id("edit"))
     }
 
-    fn on_button_pressed(&mut self, _description: &str, ctx: &mut EventCtx) {
+    fn on_button_pressed(&mut self, _description: &str, ctx: &mut textual::event::WidgetCtx) {
         ctx.post_message(AppSuspendProcess);
         ctx.set_handled();
     }

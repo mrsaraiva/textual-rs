@@ -1,7 +1,7 @@
 use crossterm::event::KeyCode;
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
-use crate::event::{Action, Event, EventCtx};
+use crate::event::{Action, Event};
 use crate::message::*;
 
 use super::option_list::{OptionItem, OptionList};
@@ -157,7 +157,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> SelectionList<T> {
     // ── Public API ──────────────────────────────────────────────────
 
     /// Toggle the selection state of the item at `index`.
-    pub fn toggle(&mut self, index: usize, ctx: &mut EventCtx) {
+    pub fn toggle(&mut self, index: usize, ctx: &mut crate::event::WidgetCtx) {
         if index >= self.selected_set.len() || !self.item_is_selectable(index) {
             return;
         }
@@ -169,7 +169,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> SelectionList<T> {
     }
 
     /// Mark the item at `index` as selected (no-op if already selected).
-    pub fn select(&mut self, index: usize, ctx: &mut EventCtx) {
+    pub fn select(&mut self, index: usize, ctx: &mut crate::event::WidgetCtx) {
         if index >= self.selected_set.len()
             || self.selected_set[index]
             || !self.item_is_selectable(index)
@@ -182,7 +182,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> SelectionList<T> {
     }
 
     /// Mark the item at `index` as deselected (no-op if already deselected).
-    pub fn deselect(&mut self, index: usize, ctx: &mut EventCtx) {
+    pub fn deselect(&mut self, index: usize, ctx: &mut crate::event::WidgetCtx) {
         if index >= self.selected_set.len()
             || !self.selected_set[index]
             || !self.item_is_selectable(index)
@@ -195,7 +195,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> SelectionList<T> {
     }
 
     /// Select all items.
-    pub fn select_all(&mut self, ctx: &mut EventCtx) {
+    pub fn select_all(&mut self, ctx: &mut crate::event::WidgetCtx) {
         let selectable: Vec<bool> = (0..self.selected_set.len())
             .map(|index| self.item_is_selectable(index))
             .collect();
@@ -213,7 +213,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> SelectionList<T> {
     }
 
     /// Toggle all items (selected become deselected and vice versa).
-    pub fn toggle_all(&mut self, ctx: &mut EventCtx) {
+    pub fn toggle_all(&mut self, ctx: &mut crate::event::WidgetCtx) {
         let selectable: Vec<bool> = (0..self.selected_set.len())
             .map(|index| self.item_is_selectable(index))
             .collect();
@@ -231,7 +231,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> SelectionList<T> {
     }
 
     /// Deselect all items.
-    pub fn deselect_all(&mut self, ctx: &mut EventCtx) {
+    pub fn deselect_all(&mut self, ctx: &mut crate::event::WidgetCtx) {
         let selectable: Vec<bool> = (0..self.selected_set.len())
             .map(|index| self.item_is_selectable(index))
             .collect();
@@ -323,7 +323,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for SelectionList<T> {
         self.inner.on_layout(width, height);
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         if self.disabled {
             return;
         }
@@ -400,7 +400,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for SelectionList<T> {
         changed || inner_changed
     }
 
-    fn on_mouse_scroll(&mut self, delta_x: i32, delta_y: i32, ctx: &mut EventCtx) {
+    fn on_mouse_scroll(&mut self, delta_x: i32, delta_y: i32, ctx: &mut crate::event::WidgetCtx) {
         if self.disabled {
             return;
         }
@@ -563,6 +563,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Renderable for SelectionList<
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::event::EventCtx;
     use crate::node_id::NodeId;
 
     #[test]
@@ -589,10 +590,10 @@ mod tests {
         let mut list = SelectionList::with_selections(selections);
         let mut ctx = EventCtx::default();
 
-        list.toggle(0, &mut ctx);
+        { let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx); list.toggle(0, &mut __w) };
         assert!(list.is_selected(0));
 
-        list.toggle(0, &mut ctx);
+        { let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx); list.toggle(0, &mut __w) };
         assert!(!list.is_selected(0));
     }
 
@@ -602,7 +603,7 @@ mod tests {
         let mut list = SelectionList::with_selections(selections);
         let mut ctx = EventCtx::default();
 
-        list.toggle(0, &mut ctx);
+        { let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx); list.toggle(0, &mut __w) };
         let messages = ctx.take_messages();
         let toggled_pos = messages
             .iter()
@@ -623,10 +624,10 @@ mod tests {
         let mut list = SelectionList::with_selections(selections);
         let mut ctx = EventCtx::default();
 
-        list.select_all(&mut ctx);
+        { let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx); list.select_all(&mut __w) };
         assert_eq!(list.selected(), vec![0, 1, 2]);
 
-        list.deselect_all(&mut ctx);
+        { let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx); list.deselect_all(&mut __w) };
         assert!(list.selected().is_empty());
     }
 
@@ -639,14 +640,14 @@ mod tests {
         let mut list = SelectionList::with_selections(selections);
         let mut ctx = EventCtx::default();
 
-        list.select(1, &mut ctx);
+        { let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx); list.select(1, &mut __w) };
         assert!(list.is_selected(1));
 
         // Selecting again is a no-op.
-        list.select(1, &mut ctx);
+        { let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx); list.select(1, &mut __w) };
         assert!(list.is_selected(1));
 
-        list.deselect(1, &mut ctx);
+        { let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx); list.deselect(1, &mut __w) };
         assert!(!list.is_selected(1));
     }
 
@@ -657,9 +658,9 @@ mod tests {
         let mut ctx = EventCtx::default();
 
         // Should not panic.
-        list.toggle(99, &mut ctx);
-        list.select(99, &mut ctx);
-        list.deselect(99, &mut ctx);
+        { let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx); list.toggle(99, &mut __w) };
+        { let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx); list.select(99, &mut __w) };
+        { let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx); list.deselect(99, &mut __w) };
         assert!(!list.is_selected(99));
     }
 
@@ -673,12 +674,12 @@ mod tests {
         let mut list = SelectionList::with_selections(selections);
         let mut ctx = EventCtx::default();
 
-        list.toggle(0, &mut ctx);
-        list.select(0, &mut ctx);
-        list.deselect(0, &mut ctx);
+        { let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx); list.toggle(0, &mut __w) };
+        { let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx); list.select(0, &mut __w) };
+        { let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx); list.deselect(0, &mut __w) };
         assert!(!list.is_selected(0));
 
-        list.select_all(&mut ctx);
+        { let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx); list.select_all(&mut __w) };
         assert!(!list.is_selected(0));
         assert!(list.is_selected(1));
         assert!(list.is_selected(2));
@@ -697,7 +698,10 @@ mod tests {
             crossterm::event::KeyModifiers::NONE,
         ));
         let mut ctx = EventCtx::default();
-        list.on_event(&Event::Key(key), &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            list.on_event(&Event::Key(key), &mut __w);
+        }
 
         assert_eq!(list.selected(), Vec::<usize>::new());
         assert!(!ctx.handled());
@@ -716,14 +720,14 @@ mod tests {
         let mut ctx = EventCtx::default();
 
         // A=false, B=true, C=disabled(false), D=false
-        list.toggle_all(&mut ctx);
+        { let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx); list.toggle_all(&mut __w) };
         // A=true, B=false, C=still false (disabled), D=true
         assert!(list.is_selected(0));
         assert!(!list.is_selected(1));
         assert!(!list.is_selected(2)); // disabled stays unchanged
         assert!(list.is_selected(3));
 
-        list.toggle_all(&mut ctx);
+        { let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx); list.toggle_all(&mut __w) };
         // Back to: A=false, B=true, C=false, D=false
         assert!(!list.is_selected(0));
         assert!(list.is_selected(1));
@@ -740,7 +744,9 @@ mod tests {
         list.on_layout(40, 5);
 
         let mut ctx = EventCtx::default();
-        list.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            list.on_event(
             &Event::MouseDown(crate::event::MouseDownEvent {
                 target: NodeId::default(),
                 screen_x: 0,
@@ -748,8 +754,8 @@ mod tests {
                 x: 0,
                 y: 0,
             }),
-            &mut ctx,
-        );
+            &mut __w);
+        }
 
         assert!(!ctx.handled());
         assert!(!list.is_selected(0));
@@ -793,7 +799,9 @@ mod tests {
         let _guard = set_dispatch_recipient(id, crate::widgets::NodeState::default());
 
         let mut ctx = EventCtx::default();
-        list.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            list.on_event(
             &Event::MouseDown(crate::event::MouseDownEvent {
                 target: id,
                 screen_x: 0,
@@ -801,8 +809,8 @@ mod tests {
                 x: 0,
                 y: 0,
             }),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         assert!(ctx.handled());
         assert!(list.is_selected(0));
     }
@@ -824,7 +832,9 @@ mod tests {
         let _guard = set_dispatch_recipient(my_id, crate::widgets::NodeState::default());
 
         let mut ctx = EventCtx::default();
-        list.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            list.on_event(
             &Event::MouseDown(crate::event::MouseDownEvent {
                 target: other_id,
                 screen_x: 0,
@@ -832,8 +842,8 @@ mod tests {
                 x: 0,
                 y: 0,
             }),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         assert!(!ctx.handled());
         assert!(!list.is_selected(0));
     }

@@ -3,7 +3,7 @@ use rich_rs::{Console, ConsoleOptions, MetaValue, Renderable, Segment, Segments}
 
 use crate::compose::ComposeResult;
 use crate::content::{Content, ContentPart};
-use crate::event::{Action, Event, EventCtx};
+use crate::event::{Action, Event};
 use crate::message::*;
 #[cfg(test)]
 use crate::node_id::NodeId;
@@ -112,7 +112,7 @@ impl Checkbox {
 
     // ── Internal helpers ─────────────────────────────────────────────────
 
-    fn emit_changed(&self, ctx: &mut EventCtx) {
+    fn emit_changed(&self, ctx: &mut crate::event::WidgetCtx) {
         ctx.post_message(CheckboxChanged {
             checked: self.checked,
         });
@@ -129,7 +129,7 @@ impl Checkbox {
         self.seed.classes = classes;
     }
 
-    fn toggle_reactive(&mut self, ctx: &mut EventCtx) {
+    fn toggle_reactive(&mut self, ctx: &mut crate::event::WidgetCtx) {
         let node_id = self.node_id();
         let mut reactive = ReactiveCtx::new(node_id);
         self.set_checked(!self.checked, &mut reactive);
@@ -185,7 +185,7 @@ impl Widget for Checkbox {
         vec![BindingDecl::new("enter,space", "toggle", "Toggle checkbox")]
     }
 
-    fn execute_action(&mut self, action: &ParsedAction, ctx: &mut EventCtx) -> bool {
+    fn execute_action(&mut self, action: &ParsedAction, ctx: &mut crate::event::WidgetCtx) -> bool {
         match action.name.as_str() {
             "toggle" => {
                 if self.disabled {
@@ -203,7 +203,7 @@ impl Widget for Checkbox {
         Some(self)
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         if self.disabled {
             return;
         }
@@ -346,6 +346,7 @@ impl Renderable for Checkbox {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::event::EventCtx;
     use crate::keys::KeyEventData;
     use crate::runtime::dispatch_ctx::set_dispatch_recipient;
     use crate::widgets::NodeState;
@@ -372,7 +373,10 @@ mod tests {
         let key =
             KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
         let mut ctx = EventCtx::default();
-        checkbox.on_event(&Event::Key(key), &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            checkbox.on_event(&Event::Key(key), &mut __w);
+        }
         let messages = ctx.take_messages();
         assert!(messages.iter().any(|m| {
             m.downcast_ref::<CheckboxChanged>()
@@ -398,7 +402,7 @@ mod tests {
             arguments: vec![],
         };
         assert!(!checkbox.checked());
-        assert!(checkbox.execute_action(&action, &mut ctx));
+        assert!({ let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx); checkbox.execute_action(&action, &mut __w) });
         assert!(checkbox.checked());
         let messages = ctx.take_messages();
         assert!(messages.iter().any(|m| {

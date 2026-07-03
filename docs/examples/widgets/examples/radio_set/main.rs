@@ -73,7 +73,7 @@ impl TextualApp for RadioChoicesApp {
         AppRoot::new().with_child(horizontal)
     }
 
-    fn on_mount_with_app(&mut self, app: &mut App, _ctx: &mut EventCtx) {
+    fn on_mount_with_app(&mut self, app: &mut App, _ctx: &mut textual::event::WidgetCtx) {
         // Mirror Python `on_mount`: focus the first RadioSet (id="focus_me").
         // Since we can't set an id on RadioSet without modifying the framework,
         // we focus the first RadioSet by type selector.

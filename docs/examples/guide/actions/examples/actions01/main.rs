@@ -8,7 +8,7 @@ use textual::prelude::*;
 struct ActionsApp;
 
 impl ActionsApp {
-    fn action_set_background(&self, color: &str, app: &mut App, ctx: &mut EventCtx) {
+    fn action_set_background(&self, color: &str, app: &mut App, ctx: &mut textual::event::WidgetCtx) {
         if let Some(c) = textual::style::parse_color_like(color) {
             if let Ok(q) = app.query_mut("Screen") {
                 q.set_styles(|styles| styles.set_bg(c));
@@ -23,7 +23,7 @@ impl TextualApp for ActionsApp {
         AppRoot::new()
     }
 
-    fn on_key_with_app(&mut self, app: &mut App, key: &KeyEventData, ctx: &mut EventCtx) {
+    fn on_key_with_app(&mut self, app: &mut App, key: &KeyEventData, ctx: &mut textual::event::WidgetCtx) {
         if key.name() == "r" {
             self.action_set_background("red", app, ctx);
             ctx.set_handled();

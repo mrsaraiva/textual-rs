@@ -66,7 +66,7 @@ impl TextualApp for ButtonsAdvancedApp {
         ))
     }
 
-    fn on_message_with_app(&mut self, app: &mut App, message: &MessageEvent, ctx: &mut EventCtx) {
+    fn on_message_with_app(&mut self, app: &mut App, message: &MessageEvent, ctx: &mut textual::event::WidgetCtx) {
         if let Some(ButtonPressed { description, .. }) = message.downcast_ref::<ButtonPressed>() {
             let _ = app.with_query_one_mut_as::<StatusLine, _>("StatusLine", |status| {
                 status.set_text(description.clone());

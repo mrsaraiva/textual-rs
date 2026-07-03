@@ -2,7 +2,7 @@ use crossterm::event::KeyCode;
 use rich_rs::{Console, ConsoleOptions, MetaValue, Renderable, Segment, Segments, Text};
 
 use crate::debug::{debug_input, debug_message};
-use crate::event::{Action, Event, EventCtx};
+use crate::event::{Action, Event};
 use crate::message::*;
 #[cfg(test)]
 use crate::node_id::NodeId;
@@ -337,7 +337,7 @@ impl Button {
     /// When `self.action` is `Some`, an `ActionDispatchRequested` message is
     /// posted and `ButtonPressed` is suppressed, matching Python Textual's
     /// behavior where `action` takes precedence over `Pressed`.
-    fn dispatch_press(&mut self, ctx: &mut EventCtx) {
+    fn dispatch_press(&mut self, ctx: &mut crate::event::WidgetCtx) {
         if let Some(ref action_str) = self.action {
             debug_message(&format!(
                 "[button] dispatch action=\"{}\" label=\"{}\"",
@@ -490,7 +490,7 @@ impl Widget for Button {
         Some(self.label_cell_len().saturating_add(2).max(1))
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         if self.disabled {
             return;
         }
@@ -570,7 +570,7 @@ impl Widget for Button {
         vec![BindingDecl::new("enter,space", "press", "Press button")]
     }
 
-    fn execute_action(&mut self, action: &ParsedAction, ctx: &mut EventCtx) -> bool {
+    fn execute_action(&mut self, action: &ParsedAction, ctx: &mut crate::event::WidgetCtx) -> bool {
         if self.disabled {
             return false;
         }
@@ -776,6 +776,7 @@ impl Renderable for Button {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::event::EventCtx;
     use crate::keys::KeyEventData;
     use crate::runtime::dispatch_ctx::set_dispatch_recipient;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -799,13 +800,15 @@ mod tests {
         let _guard = set_dispatch_recipient(make_node_id(), focused_state());
         let mut ctx = EventCtx::default();
 
-        button.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            button.on_event(
             &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
                 KeyCode::Enter,
                 KeyModifiers::NONE,
             ))),
-            &mut ctx,
-        );
+            &mut __w);
+        }
 
         let messages = ctx.take_messages();
         assert!(messages.iter().any(|m| m.is::<ButtonPressed>()));
@@ -829,7 +832,7 @@ mod tests {
             name: "press".to_string(),
             arguments: vec![],
         };
-        assert!(button.execute_action(&action, &mut ctx));
+        assert!({ let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx); button.execute_action(&action, &mut __w) });
         let messages = ctx.take_messages();
         assert!(messages.iter().any(|m| m.is::<ButtonPressed>()));
     }
@@ -848,13 +851,15 @@ mod tests {
         let _guard = set_dispatch_recipient(make_node_id(), focused_state());
         let mut ctx = EventCtx::default();
 
-        button.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            button.on_event(
             &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
                 KeyCode::Enter,
                 KeyModifiers::NONE,
             ))),
-            &mut ctx,
-        );
+            &mut __w);
+        }
 
         let messages = ctx.take_messages();
         // ButtonPressed should NOT be posted when action is set.
@@ -880,7 +885,7 @@ mod tests {
             name: "press".to_string(),
             arguments: vec![],
         };
-        assert!(button.execute_action(&action, &mut ctx));
+        assert!({ let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx); button.execute_action(&action, &mut __w) });
 
         let messages = ctx.take_messages();
         assert!(
@@ -901,13 +906,15 @@ mod tests {
         let _guard = set_dispatch_recipient(make_node_id(), focused_state());
         let mut ctx = EventCtx::default();
 
-        button.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            button.on_event(
             &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
                 KeyCode::Char(' '),
                 KeyModifiers::NONE,
             ))),
-            &mut ctx,
-        );
+            &mut __w);
+        }
 
         let messages = ctx.take_messages();
         assert!(
@@ -933,7 +940,9 @@ mod tests {
         let _guard = set_dispatch_recipient(id, NodeState::default());
         let mut ctx = EventCtx::default();
 
-        button.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            button.on_event(
             &Event::MouseDown(crate::event::MouseDownEvent {
                 target: id,
                 screen_x: 1,
@@ -941,8 +950,8 @@ mod tests {
                 x: 0,
                 y: 0,
             }),
-            &mut ctx,
-        );
+            &mut __w);
+        }
 
         assert!(button.pressed(), "mouse down should set pressed state");
         // After RA-2, active state is signalled via ctx.add_class rather than a widget field.
@@ -959,7 +968,9 @@ mod tests {
         let mut button = Button::new("Run");
         let mut ctx = EventCtx::default();
 
-        button.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            button.on_event(
             &Event::MouseDown(crate::event::MouseDownEvent {
                 target: NodeId::default(),
                 screen_x: 1,
@@ -967,9 +978,11 @@ mod tests {
                 x: 0,
                 y: 0,
             }),
-            &mut ctx,
-        );
-        button.on_event(
+            &mut __w);
+        }
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            button.on_event(
             &Event::MouseUp(crate::event::MouseUpEvent {
                 target: Some(NodeId::default()),
                 screen_x: 1,
@@ -977,8 +990,8 @@ mod tests {
                 x: 0,
                 y: 0,
             }),
-            &mut ctx,
-        );
+            &mut __w);
+        }
 
         let description = ctx
             .take_messages()

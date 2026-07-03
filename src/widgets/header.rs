@@ -5,7 +5,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
 use crate::compose::ComposeResult;
-use crate::event::{BindingHint, Event, EventCtx};
+use crate::event::{BindingHint, Event};
 use crate::message::*;
 
 use super::{NodeSeed, Widget};
@@ -82,7 +82,7 @@ impl Widget for HeaderIcon {
         true
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         match event {
             Event::BindingsChanged(bindings)
                 if self.apply_bindings(bindings) => {
@@ -202,7 +202,7 @@ impl Widget for HeaderTitle {
         "HeaderTitle"
     }
 
-    fn on_message(&mut self, message: &crate::message::MessageEvent, ctx: &mut EventCtx) {
+    fn on_message(&mut self, message: &crate::message::MessageEvent, ctx: &mut crate::event::WidgetCtx) {
         if let Some(m) = message.downcast_ref::<ScreenTitleChanged>() {
             self.title = m
                 .title
@@ -589,7 +589,7 @@ impl Widget for Header {
         true
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         match event {
             Event::MouseDown(mouse) => {
                 self.pressed = true;
@@ -632,7 +632,7 @@ impl Widget for Header {
         self.press_in_toggle_zone = false;
     }
 
-    fn on_message(&mut self, message: &crate::message::MessageEvent, ctx: &mut EventCtx) {
+    fn on_message(&mut self, message: &crate::message::MessageEvent, ctx: &mut crate::event::WidgetCtx) {
         if let Some(m) = message.downcast_ref::<ScreenTitleChanged>() {
             // Direct field assignment (internal call site — not reactive setter).
             self.title = m
@@ -691,6 +691,7 @@ impl ReactiveWidget for Header {}
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::event::EventCtx;
     use crate::event::{BindingHint, MouseDownEvent, MouseUpEvent};
     use crate::node_id::NodeId;
     use crate::reactive::ReactiveCtx;
@@ -706,7 +707,9 @@ mod tests {
         let mut header = Header::new();
         let id = NodeId::default();
         let mut down_ctx = EventCtx::default();
-        header.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut down_ctx);
+            header.on_event(
             &Event::MouseDown(MouseDownEvent {
                 x: 9,
                 y: 0,
@@ -714,12 +717,14 @@ mod tests {
                 screen_y: 0,
                 target: id,
             }),
-            &mut down_ctx,
-        );
+            &mut __w);
+        }
         assert!(down_ctx.handled());
 
         let mut ctx = EventCtx::default();
-        header.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            header.on_event(
             &Event::MouseUp(MouseUpEvent {
                 x: 9,
                 y: 0,
@@ -727,8 +732,8 @@ mod tests {
                 screen_y: 0,
                 target: Some(id),
             }),
-            &mut ctx,
-        );
+            &mut __w);
+        }
 
         assert!(ctx.handled());
         assert!(ctx.repaint_requested());
@@ -748,7 +753,9 @@ mod tests {
         let mut icon = HeaderIcon::new("⭘");
         let id = NodeId::default();
         let mut down_ctx = EventCtx::default();
-        icon.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut down_ctx);
+            icon.on_event(
             &Event::MouseDown(MouseDownEvent {
                 x: 0,
                 y: 0,
@@ -756,12 +763,14 @@ mod tests {
                 screen_y: 0,
                 target: id,
             }),
-            &mut down_ctx,
-        );
+            &mut __w);
+        }
         assert!(down_ctx.handled());
 
         let mut up_ctx = EventCtx::default();
-        icon.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut up_ctx);
+            icon.on_event(
             &Event::MouseUp(MouseUpEvent {
                 x: 0,
                 y: 0,
@@ -769,8 +778,8 @@ mod tests {
                 screen_y: 0,
                 target: Some(id),
             }),
-            &mut up_ctx,
-        );
+            &mut __w);
+        }
 
         let messages = up_ctx.take_messages();
         assert_eq!(messages.len(), 2);
@@ -803,7 +812,9 @@ mod tests {
         let child_id = NodeId::default();
 
         let mut down_ctx = EventCtx::default();
-        header.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut down_ctx);
+            header.on_event(
             &Event::MouseDown(MouseDownEvent {
                 x: 4,
                 y: 0,
@@ -811,12 +822,14 @@ mod tests {
                 screen_y: 0,
                 target: child_id,
             }),
-            &mut down_ctx,
-        );
+            &mut __w);
+        }
         assert!(down_ctx.handled());
 
         let mut up_ctx = EventCtx::default();
-        header.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut up_ctx);
+            header.on_event(
             &Event::MouseUp(MouseUpEvent {
                 x: 4,
                 y: 0,
@@ -824,8 +837,8 @@ mod tests {
                 screen_y: 0,
                 target: Some(child_id),
             }),
-            &mut up_ctx,
-        );
+            &mut __w);
+        }
         assert!(up_ctx.handled());
         assert!(up_ctx.invalidation().layout);
         let messages = up_ctx.take_messages();
@@ -840,7 +853,9 @@ mod tests {
         let _ = header.compose();
         let child_id = NodeId::default();
         let mut up_ctx = EventCtx::default();
-        header.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut up_ctx);
+            header.on_event(
             &Event::MouseUp(MouseUpEvent {
                 x: 4,
                 y: 0,
@@ -848,8 +863,8 @@ mod tests {
                 screen_y: 0,
                 target: Some(child_id),
             }),
-            &mut up_ctx,
-        );
+            &mut __w);
+        }
         assert!(!up_ctx.handled());
         assert!(up_ctx.take_messages().is_empty());
         assert!(!header.tall);
@@ -859,15 +874,17 @@ mod tests {
     fn header_icon_bindings_update_palette_tooltip_and_action_key() {
         let mut icon = HeaderIcon::new("⭘");
         let mut ctx = EventCtx::default();
-        icon.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            icon.on_event(
             &Event::BindingsChanged(vec![
                 BindingHint::new("f1", "Help"),
                 BindingHint::new("ctrl+k", "palette")
                     .with_group("command_palette")
                     .with_tooltip("Open command palette"),
             ]),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         assert!(ctx.repaint_requested());
         assert_eq!(icon.command_palette_action_key.as_deref(), Some("ctrl+k"));
         assert_eq!(
@@ -918,14 +935,18 @@ mod tests {
     fn header_icon_click_without_palette_binding_emits_no_palette_action() {
         let mut icon = HeaderIcon::new("⭘");
         let mut bindings_ctx = EventCtx::default();
-        icon.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut bindings_ctx);
+            icon.on_event(
             &Event::BindingsChanged(vec![BindingHint::new("f1", "Help")]),
-            &mut bindings_ctx,
-        );
+            &mut __w);
+        }
 
         let id = NodeId::default();
         let mut down_ctx = EventCtx::default();
-        icon.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut down_ctx);
+            icon.on_event(
             &Event::MouseDown(MouseDownEvent {
                 x: 0,
                 y: 0,
@@ -933,12 +954,14 @@ mod tests {
                 screen_y: 0,
                 target: id,
             }),
-            &mut down_ctx,
-        );
+            &mut __w);
+        }
         assert!(down_ctx.handled());
 
         let mut up_ctx = EventCtx::default();
-        icon.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut up_ctx);
+            icon.on_event(
             &Event::MouseUp(MouseUpEvent {
                 x: 0,
                 y: 0,
@@ -946,8 +969,8 @@ mod tests {
                 screen_y: 0,
                 target: Some(id),
             }),
-            &mut up_ctx,
-        );
+            &mut __w);
+        }
         let messages = up_ctx.take_messages();
         assert_eq!(messages.len(), 1);
         assert!(messages[0].is::<HeaderIconPressed>());
@@ -978,7 +1001,9 @@ mod tests {
         let mut header = Header::new();
         let id = NodeId::default();
         let mut down_ctx = EventCtx::default();
-        header.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut down_ctx);
+            header.on_event(
             &Event::MouseDown(MouseDownEvent {
                 target: id,
                 screen_x: 0,
@@ -986,12 +1011,14 @@ mod tests {
                 x: 0,
                 y: 0,
             }),
-            &mut down_ctx,
-        );
+            &mut __w);
+        }
         assert!(down_ctx.handled());
 
         let mut up_ctx = EventCtx::default();
-        header.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut up_ctx);
+            header.on_event(
             &Event::MouseUp(MouseUpEvent {
                 x: 12,
                 y: 0,
@@ -999,8 +1026,8 @@ mod tests {
                 screen_y: 0,
                 target: None,
             }),
-            &mut up_ctx,
-        );
+            &mut __w);
+        }
         assert!(!up_ctx.handled());
         assert!(up_ctx.take_messages().is_empty());
     }
@@ -1086,7 +1113,10 @@ mod tests {
             },
         );
         let mut ctx = EventCtx::default();
-        header.on_message(&msg, &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            header.on_message(&msg, &mut __w);
+        }
 
         assert_eq!(header.title, "Screen Title");
         assert_eq!(header.subtitle, Some("Screen Sub".to_string()));
@@ -1109,7 +1139,10 @@ mod tests {
             },
         );
         let mut ctx = EventCtx::default();
-        header.on_message(&msg, &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            header.on_message(&msg, &mut __w);
+        }
         assert_eq!(header.title, "Screen");
         assert_eq!(header.subtitle, Some("Sub".to_string())); // reverted to default
 
@@ -1122,7 +1155,10 @@ mod tests {
             },
         );
         let mut ctx2 = EventCtx::default();
-        header.on_message(&msg2, &mut ctx2);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx2);
+            header.on_message(&msg2, &mut __w);
+        }
         assert_eq!(header.title, "App"); // back to default
     }
 

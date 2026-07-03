@@ -180,7 +180,7 @@ impl PlaygroundApp {
     /// Mirrors Python `MarkupPlayground.update_markup`:
     /// `content = Content.from_markup(editor.text, **self.variables)` then
     /// `results.update(content)` and `spans.update(content.spans)`.
-    fn update_results(app: &mut App, ctx: &mut EventCtx, variables: &HashMap<String, String>) {
+    fn update_results(app: &mut App, ctx: &mut textual::event::WidgetCtx, variables: &HashMap<String, String>) {
         let text = app
             .with_query_one_mut_as::<TextArea, _>("#editor", |ta| ta.text())
             .ok()
@@ -258,7 +258,7 @@ impl TextualApp for PlaygroundApp {
             .with_child(Footer::new())
     }
 
-    fn on_mount_with_app(&mut self, app: &mut App, ctx: &mut EventCtx) {
+    fn on_mount_with_app(&mut self, app: &mut App, ctx: &mut textual::event::WidgetCtx) {
         // Store NodeIds so we can distinguish editor vs variables messages later.
         self.editor_id = app.query_one("#editor").ok();
         self.variables_id = app.query_one("#variables").ok();
@@ -281,7 +281,7 @@ impl TextualApp for PlaygroundApp {
         Self::update_results(app, ctx, &vars);
     }
 
-    fn on_message_with_app(&mut self, app: &mut App, message: &MessageEvent, ctx: &mut EventCtx) {
+    fn on_message_with_app(&mut self, app: &mut App, message: &MessageEvent, ctx: &mut textual::event::WidgetCtx) {
         if message.downcast_ref::<TextAreaChanged>().is_some() {
             let sender = message.sender;
 
@@ -319,7 +319,7 @@ impl TextualApp for PlaygroundApp {
         }
     }
 
-    fn on_app_action_str(&mut self, app: &mut App, action: &str, ctx: &mut EventCtx) {
+    fn on_app_action_str(&mut self, app: &mut App, action: &str, ctx: &mut textual::event::WidgetCtx) {
         match action {
             "toggle_variables" => {
                 self.show_variables = !self.show_variables;

@@ -19,7 +19,7 @@
 
 use std::any::{Any, TypeId};
 use std::cell::{Cell, RefCell};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use super::App;
 use super::event_loop::InvalidationScope;
@@ -28,9 +28,41 @@ use crate::event::{EventCtx, InvalidationFlags, WidgetCtx};
 use crate::node_id::NodeId;
 use crate::widgets::Widget;
 
+/// Per-fire timing handed to a widget-owned interval callback
+/// ([`WidgetCtx::set_interval`](crate::event::WidgetCtx::set_interval)).
+///
+/// `elapsed` is the real clock time since this timer's previous fire (since its
+/// registration for the first fire), read from the same clock the timer runtime
+/// schedules against — so it is deterministic under `Pilot::advance_clock` and
+/// drift-free against wall-clock time live. This mirrors Python's
+/// `monotonic() - start` derivation: a time-accumulating callback adds
+/// `tick.elapsed` per fire rather than a fixed nominal interval, so a coalesced
+/// (skipped) backlog fire still advances by the true elapsed time.
+#[derive(Debug, Clone, Copy)]
+pub struct TimerTick {
+    /// Real clock time elapsed since the previous fire (or registration).
+    pub elapsed: Duration,
+    /// 1-based count of how many times this timer has fired, including this one.
+    pub fire_count: u64,
+}
+
 /// A widget-owned timer callback: runs against the concrete widget (downcast at
-/// enqueue, same pattern as `UpdateWidget`) with a fresh `WidgetCtx` on each fire.
-pub(crate) type WidgetTimerCallback = Box<dyn FnMut(&mut dyn Widget, &mut WidgetCtx) + Send>;
+/// enqueue, same pattern as `UpdateWidget`) with a fresh `WidgetCtx` and the
+/// per-fire [`TimerTick`] on each fire.
+pub(crate) type WidgetTimerCallback =
+    Box<dyn FnMut(&mut dyn Widget, &mut WidgetCtx, TimerTick) + Send>;
+
+/// Registry entry for a widget-owned interval timer: its owning node, the
+/// downcast-wrapped callback, and the timing state used to derive each fire's
+/// [`TimerTick::elapsed`] / [`TimerTick::fire_count`].
+pub(crate) struct WidgetTimerEntry {
+    pub node: NodeId,
+    pub callback: WidgetTimerCallback,
+    /// Clock time of the previous fire (or registration), for `elapsed`.
+    pub last_fire: Instant,
+    /// Number of fires so far (0 until the first fire).
+    pub fire_count: u64,
+}
 
 /// Target of a deferred command. **Resolved at drain time**, never at enqueue
 /// time: the tree is borrowed during the enqueuing handler, and an earlier
@@ -233,10 +265,18 @@ impl App {
                 callback,
             } => {
                 // Same TimerRuntime as app timers (TRAP h: manual-clock coverage).
+                let last_fire = self.timers.now();
                 self.timers
                     .schedule_interval(timer_id, node, interval, None, paused);
-                self.widget_timer_callbacks
-                    .insert(timer_id, (node, callback));
+                self.widget_timer_callbacks.insert(
+                    timer_id,
+                    WidgetTimerEntry {
+                        node,
+                        callback,
+                        last_fire,
+                        fire_count: 0,
+                    },
+                );
             }
             WidgetCommand::PauseTimer(id) => {
                 self.timers.pause(id);

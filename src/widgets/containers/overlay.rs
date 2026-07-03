@@ -1,7 +1,7 @@
 use crossterm::event::KeyCode;
 use rich_rs::{Console, ConsoleOptions, Renderable, Segments};
 
-use crate::event::{Event, EventCtx};
+use crate::event::Event;
 use crate::message::*;
 use crate::render::{Cell, FrameBuffer};
 
@@ -113,7 +113,7 @@ impl Overlay {
         }
     }
 
-    fn set_visible(&mut self, visible: bool, ctx: &mut EventCtx) {
+    fn set_visible(&mut self, visible: bool, ctx: &mut crate::event::WidgetCtx) {
         if self.visible == visible {
             return;
         }
@@ -192,10 +192,10 @@ impl Widget for Overlay {
         Self::compose_overlay(&base, &top).to_segments()
     }
 
-    fn on_mount(&mut self) {
+    fn on_mount(&mut self, ctx: &mut crate::event::WidgetCtx) {
         if !self.children_extracted {
-            self.base.on_mount();
-            self.modal.on_mount();
+            self.base.on_mount(ctx);
+            self.modal.on_mount(ctx);
         }
     }
 
@@ -227,7 +227,7 @@ impl Widget for Overlay {
         }
     }
 
-    fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event_capture(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         if self.children_extracted {
             // Tree mode: tree handles capture routing to children.
             return;
@@ -244,7 +244,7 @@ impl Widget for Overlay {
         }
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         if self.children_extracted {
             // Tree mode: handle overlay-specific behavior only.
             if self.dismiss_on_escape
@@ -285,7 +285,7 @@ impl Widget for Overlay {
         }
     }
 
-    fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
+    fn on_message(&mut self, message: &MessageEvent, ctx: &mut crate::event::WidgetCtx) {
         // Overlay-specific message handling (works in both modes).
         if let Some(m) = message.downcast_ref::<OverlaySetVisible>() {
             if m.overlay == self.node_id() {
@@ -353,6 +353,7 @@ impl Renderable for Overlay {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::event::EventCtx;
     use crate::node_id::NodeId;
     use crate::runtime::dispatch_ctx::set_dispatch_recipient;
     use rich_rs::Segment;
@@ -404,7 +405,10 @@ mod tests {
                 visible: false,
             },
         );
-        overlay.on_message(&msg_event, &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            overlay.on_message(&msg_event, &mut __w);
+        }
         assert!(
             ctx.handled(),
             "OverlaySetVisible with matching NodeId must be handled"
@@ -433,7 +437,10 @@ mod tests {
                 visible: false,
             },
         );
-        overlay.on_message(&msg_event, &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            overlay.on_message(&msg_event, &mut __w);
+        }
         assert!(
             !ctx.handled(),
             "OverlaySetVisible with foreign NodeId must not be handled"
@@ -452,7 +459,10 @@ mod tests {
         let mut ctx = EventCtx::default();
 
         let msg_event = MessageEvent::new(NodeId::default(), OverlayToggle { overlay: id });
-        overlay.on_message(&msg_event, &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            overlay.on_message(&msg_event, &mut __w);
+        }
         assert!(ctx.handled());
         assert!(
             !overlay.is_visible(),
@@ -474,7 +484,10 @@ mod tests {
             NodeId::default(),
             OverlayDismissRequested { overlay: Some(id) },
         );
-        overlay.on_message(&msg_event, &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            overlay.on_message(&msg_event, &mut __w);
+        }
         assert!(ctx.handled());
         assert!(!overlay.is_visible());
     }
@@ -498,7 +511,10 @@ mod tests {
                 overlay: Some(other),
             },
         );
-        overlay.on_message(&msg_event, &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            overlay.on_message(&msg_event, &mut __w);
+        }
         assert!(!ctx.handled());
         assert!(overlay.is_visible());
     }
@@ -557,7 +573,10 @@ mod tests {
                 visible: false,
             },
         );
-        overlay.on_message(&msg_event, &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            overlay.on_message(&msg_event, &mut __w);
+        }
         assert!(ctx.handled());
         assert!(!overlay.is_visible());
     }
@@ -573,7 +592,10 @@ mod tests {
         let mut ctx = EventCtx::default();
 
         let msg_event = MessageEvent::new(NodeId::default(), OverlayToggle { overlay: id });
-        overlay.on_message(&msg_event, &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            overlay.on_message(&msg_event, &mut __w);
+        }
         assert!(ctx.handled());
         assert!(!overlay.is_visible());
     }

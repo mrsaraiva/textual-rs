@@ -83,7 +83,7 @@ impl TextualApp for TableApp {
         AppRoot::new().with_child(table).with_child(Footer::new())
     }
 
-    fn on_key_with_app(&mut self, app: &mut App, key: &KeyEventData, ctx: &mut EventCtx) {
+    fn on_key_with_app(&mut self, app: &mut App, key: &KeyEventData, ctx: &mut textual::event::WidgetCtx) {
         match key.name() {
             "a" => {
                 // Sort by average of time1/time2, then last name. The key receives

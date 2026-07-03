@@ -83,7 +83,7 @@ impl TextualApp for Clock {
         AppRoot::new().with_child(Digits::new(format_hms(*self.time())))
     }
 
-    fn on_mount_with_app(&mut self, app: &mut App, _ctx: &mut EventCtx) {
+    fn on_mount_with_app(&mut self, app: &mut App, _ctx: &mut textual::event::WidgetCtx) {
         // Python: self.set_interval(1, self.update_time). The timer callback
         // re-enters the app struct and bumps the `time` reactive, which fires
         // `watch_time` through the app reactive bridge.
@@ -155,7 +155,7 @@ mod tests {
                 |clock, app, _ctx| {
                     clock.set_time(0, app.reactive_ctx());
                 },
-                &mut EventCtx::default(),
+                &mut textual::event::WidgetCtx::default(),
             );
             // Flush the seed through the app-reactive bridge (a key press routes
             // via on_app_key -> dispatch_app_reactive), firing watch_time so the

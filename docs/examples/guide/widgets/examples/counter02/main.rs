@@ -72,7 +72,7 @@ impl Widget for Counter {
         ]
     }
 
-    fn execute_action(&mut self, action: &ParsedAction, ctx: &mut EventCtx) -> bool {
+    fn execute_action(&mut self, action: &ParsedAction, ctx: &mut textual::event::WidgetCtx) -> bool {
         if action.name != "change_count" {
             return false;
         }

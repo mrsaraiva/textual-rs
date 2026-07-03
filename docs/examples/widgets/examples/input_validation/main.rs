@@ -60,7 +60,7 @@ impl TextualApp for InputValidationApp {
         &mut self,
         _value: &str,
         validation: &ValidationResult,
-        ctx: &mut EventCtx,
+        ctx: &mut textual::event::WidgetCtx,
     ) {
         let next = if validation.is_valid {
             Vec::new()

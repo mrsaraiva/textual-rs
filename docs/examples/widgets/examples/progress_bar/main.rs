@@ -73,7 +73,7 @@ impl TextualApp for FundingProgressApp {
             .with_compose(vec![history])
     }
 
-    fn on_mount_with_app(&mut self, app: &mut App, ctx: &mut EventCtx) {
+    fn on_mount_with_app(&mut self, app: &mut App, ctx: &mut textual::event::WidgetCtx) {
         // Mirror Python: ProgressBar(total=100, show_eta=False)
         // Use a dummy ReactiveCtx; show_eta field is set directly, ctx just records watchers.
         if let Ok(node_id) = app.query_one("ProgressBar") {
@@ -89,7 +89,7 @@ impl TextualApp for FundingProgressApp {
         &mut self,
         app: &mut App,
         message: &MessageEvent,
-        ctx: &mut EventCtx,
+        ctx: &mut textual::event::WidgetCtx,
     ) {
         // Handle both Button press and Input submit as donation triggers.
         let triggered = message.downcast_ref::<ButtonPressed>().is_some()
@@ -102,7 +102,7 @@ impl TextualApp for FundingProgressApp {
 }
 
 impl FundingProgressApp {
-    fn add_donation(&mut self, app: &mut App, ctx: &mut EventCtx) {
+    fn add_donation(&mut self, app: &mut App, ctx: &mut textual::event::WidgetCtx) {
         // Read the current input value.
         let text_value = app
             .with_query_one_mut_as::<Input, _>("#amount", |input| input.value().to_string())

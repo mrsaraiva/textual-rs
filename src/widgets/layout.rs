@@ -171,8 +171,12 @@ impl Row {
             let blur = Event::Blur(BlurEvent {
                 node: NodeId::default(),
             });
-            let mut ctx = EventCtx::default();
+            let mut ectx = EventCtx::default();
             if let Some(child) = self.children.get_mut(prev_idx) {
+                let mut ctx = crate::event::WidgetCtx::__from_dispatch(
+                    crate::node_id::NodeId::default(),
+                    &mut ectx,
+                );
                 child.on_event(&blur, &mut ctx);
             }
         }
@@ -181,8 +185,12 @@ impl Row {
         let focus = Event::Focus(FocusEvent {
             node: NodeId::default(),
         });
-        let mut ctx = EventCtx::default();
+        let mut ectx = EventCtx::default();
         if let Some(child) = self.children.get_mut(next_idx) {
+            let mut ctx = crate::event::WidgetCtx::__from_dispatch(
+                crate::node_id::NodeId::default(),
+                &mut ectx,
+            );
             child.on_event(&focus, &mut ctx);
         }
         true
@@ -635,10 +643,10 @@ impl Widget for Row {
         out
     }
 
-    fn on_mount(&mut self) {
+    fn on_mount(&mut self, ctx: &mut crate::event::WidgetCtx) {
         if !self.is_tree_mode() {
             for child in &mut self.children {
-                child.on_mount();
+                child.on_mount(ctx);
             }
         }
     }
@@ -677,7 +685,7 @@ impl Widget for Row {
         }
     }
 
-    fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event_capture(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         if self.is_tree_mode() {
             return;
         }
@@ -689,7 +697,7 @@ impl Widget for Row {
         }
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         if self.is_tree_mode() {
             return;
         }
@@ -784,8 +792,12 @@ impl Widget for Row {
                     x,
                     y,
                 });
-                let mut ctx = EventCtx::default();
+                let mut ectx = EventCtx::default();
                 if let Some(child) = self.children.get_mut(prev_idx) {
+                    let mut ctx = crate::event::WidgetCtx::__from_dispatch(
+                        crate::node_id::NodeId::default(),
+                        &mut ectx,
+                    );
                     child.on_event(&leave, &mut ctx);
                 }
                 changed = true;
@@ -798,8 +810,12 @@ impl Widget for Row {
                     x,
                     y,
                 });
-                let mut ctx = EventCtx::default();
+                let mut ectx = EventCtx::default();
                 if let Some(child) = self.children.get_mut(new_idx) {
+                    let mut ctx = crate::event::WidgetCtx::__from_dispatch(
+                        crate::node_id::NodeId::default(),
+                        &mut ectx,
+                    );
                     child.on_event(&enter, &mut ctx);
                 }
                 changed = true;
@@ -1329,7 +1345,7 @@ impl Widget for Dock {
         out
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         if self.is_tree_mode() {
             return;
         }
@@ -1748,10 +1764,10 @@ impl Widget for Dock {
         out
     }
 
-    fn on_mount(&mut self) {
+    fn on_mount(&mut self, ctx: &mut crate::event::WidgetCtx) {
         if !self.is_tree_mode() {
             for item in &mut self.items {
-                item.child.on_mount();
+                item.child.on_mount(ctx);
             }
         }
     }
@@ -1780,7 +1796,7 @@ impl Widget for Dock {
         }
     }
 
-    fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event_capture(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         if self.is_tree_mode() {
             return;
         }
@@ -2240,10 +2256,10 @@ impl Widget for Grid {
         out
     }
 
-    fn on_mount(&mut self) {
+    fn on_mount(&mut self, ctx: &mut crate::event::WidgetCtx) {
         if !self.is_tree_mode() {
             for child in self.cells.iter_mut().flatten() {
-                child.on_mount();
+                child.on_mount(ctx);
             }
         }
     }
@@ -2272,7 +2288,7 @@ impl Widget for Grid {
         }
     }
 
-    fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event_capture(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         if self.is_tree_mode() {
             return;
         }
@@ -2284,7 +2300,7 @@ impl Widget for Grid {
         }
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         if self.is_tree_mode() {
             return;
         }
@@ -2400,7 +2416,10 @@ mod tests {
         let _ = r.compose();
 
         let mut ctx = EventCtx::default();
-        r.on_event(&Event::Action(Action::FocusNext), &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            r.on_event(&Event::Action(Action::FocusNext), &mut __w);
+        }
         assert!(!ctx.handled());
     }
 
@@ -2467,7 +2486,10 @@ mod tests {
         let _ = d.compose();
 
         let mut ctx = EventCtx::default();
-        d.on_event(&Event::Action(Action::FocusNext), &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            d.on_event(&Event::Action(Action::FocusNext), &mut __w);
+        }
         assert!(!ctx.handled());
     }
 
@@ -2515,7 +2537,10 @@ mod tests {
         let _ = g.compose();
 
         let mut ctx = EventCtx::default();
-        g.on_event(&Event::Action(Action::FocusNext), &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            g.on_event(&Event::Action(Action::FocusNext), &mut __w);
+        }
         assert!(!ctx.handled());
     }
 

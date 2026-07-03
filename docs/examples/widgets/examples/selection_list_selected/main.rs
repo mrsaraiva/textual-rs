@@ -82,12 +82,12 @@ impl TextualApp for SelectionListApp {
             .with_child(Footer::new())
     }
 
-    fn on_mount_with_app(&mut self, app: &mut App, _ctx: &mut EventCtx) {
+    fn on_mount_with_app(&mut self, app: &mut App, _ctx: &mut textual::event::WidgetCtx) {
         // Mirror Python's @on(Mount): show the initial selection.
         refresh_pretty(app);
     }
 
-    fn on_message_with_app(&mut self, app: &mut App, message: &MessageEvent, _ctx: &mut EventCtx) {
+    fn on_message_with_app(&mut self, app: &mut App, message: &MessageEvent, _ctx: &mut textual::event::WidgetCtx) {
         if message
             .downcast_ref::<SelectionListSelectedChanged>()
             .is_some()

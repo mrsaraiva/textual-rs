@@ -1193,6 +1193,194 @@ impl<'a> WidgetCtx<'a> {
     pub fn request_recompose(&mut self) {
         self.event_ctx.request_recompose_node(self.node_id);
     }
+
+    // ── EventCtx surface delegates ─────────────────────────────────────
+    //
+    // `WidgetCtx` `DerefMut`s to `ReactiveCtx`, so only the methods explicitly
+    // forwarded here (or shadowed above) reach the underlying `EventCtx`. These
+    // delegates expose the EventCtx surface migrated handler bodies rely on so
+    // the trait migration stays signature-only for most widgets. Names that also
+    // exist on `ReactiveCtx` (e.g. `add_class`) get their EventCtx/command-routing
+    // shadow in `runtime::widget_ctx`; the ones here are EventCtx-only.
+
+    /// Whether the event has been marked handled.
+    #[inline]
+    pub fn handled(&self) -> bool {
+        self.event_ctx.handled()
+    }
+
+    /// Whether a repaint has been requested during dispatch.
+    #[inline]
+    pub fn repaint_requested(&self) -> bool {
+        self.event_ctx.repaint_requested()
+    }
+
+    /// Whether a runtime stop has been requested.
+    #[inline]
+    pub fn stop_requested(&self) -> bool {
+        self.event_ctx.stop_requested()
+    }
+
+    /// The accumulated invalidation flags for this dispatch.
+    #[inline]
+    pub fn invalidation(&self) -> InvalidationFlags {
+        self.event_ctx.invalidation()
+    }
+
+    /// Request a layout invalidation (canonical EventCtx path).
+    #[inline]
+    pub fn request_layout_invalidation(&mut self) {
+        self.event_ctx.request_layout_invalidation();
+    }
+
+    /// Request a style invalidation (canonical EventCtx path).
+    #[inline]
+    pub fn request_style_invalidation(&mut self) {
+        self.event_ctx.request_style_invalidation();
+    }
+
+    /// Request subtree recomposition of an arbitrary node.
+    #[inline]
+    pub fn request_recompose_node(&mut self, node_id: NodeId) {
+        self.event_ctx.request_recompose_node(node_id);
+    }
+
+    /// Post a boxed message (sender = this widget's node).
+    #[inline]
+    pub fn post_message_boxed(&mut self, message: Box<dyn Message>) {
+        self.event_ctx.post_message_boxed_from(self.node_id, message);
+    }
+
+    /// Post a message on behalf of an explicit sender node.
+    #[inline]
+    pub fn post_message_from<M: Message>(&mut self, node: NodeId, message: M) {
+        self.event_ctx.post_message_from(node, message);
+    }
+
+    /// Dispatch an action string (Python `run_action`).
+    #[inline]
+    pub fn run_action(&mut self, action: impl Into<String>) {
+        self.event_ctx.run_action(action);
+    }
+
+    /// Enqueue a widget animation request.
+    #[inline]
+    pub fn request_animation(&mut self, request: AnimationRequest) {
+        self.event_ctx.request_animation(request);
+    }
+
+    /// Animate a CSS property on a specific node.
+    #[inline]
+    pub fn animate_style(
+        &mut self,
+        target: NodeId,
+        property: impl Into<String>,
+        from: StyleValue,
+        to: StyleValue,
+        duration: std::time::Duration,
+        ease: AnimationEase,
+    ) {
+        self.event_ctx
+            .animate_style(target, property, from, to, duration, ease);
+    }
+
+    /// Enqueue a fully-formed style animation request.
+    #[inline]
+    pub fn request_style_animation(&mut self, request: StyleAnimationRequest) {
+        self.event_ctx.request_style_animation(request);
+    }
+
+    /// Set an overlay node's visibility.
+    #[inline]
+    pub fn set_overlay_visible(&mut self, overlay: NodeId, visible: bool) {
+        self.event_ctx.set_overlay_visible(overlay, visible);
+    }
+
+    /// Show an overlay node.
+    #[inline]
+    pub fn show_overlay(&mut self, overlay: NodeId) {
+        self.event_ctx.show_overlay(overlay);
+    }
+
+    /// Hide an overlay node.
+    #[inline]
+    pub fn hide_overlay(&mut self, overlay: NodeId) {
+        self.event_ctx.hide_overlay(overlay);
+    }
+
+    /// Toggle an overlay node's visibility.
+    #[inline]
+    pub fn toggle_overlay(&mut self, overlay: NodeId) {
+        self.event_ctx.toggle_overlay(overlay);
+    }
+
+    /// Dismiss an overlay (or the topmost when `None`).
+    #[inline]
+    pub fn dismiss_overlay(&mut self, overlay: Option<NodeId>) {
+        self.event_ctx.dismiss_overlay(overlay);
+    }
+
+    /// Request a background worker.
+    #[inline]
+    pub fn request_worker(&mut self, name: Option<&str>) {
+        self.event_ctx.request_worker(name);
+    }
+
+    /// Request a background worker with an explicit payload.
+    #[inline]
+    pub fn request_worker_with_payload(
+        &mut self,
+        name: Option<&str>,
+        payload: WorkerRequestPayload,
+    ) {
+        self.event_ctx.request_worker_with_payload(name, payload);
+    }
+
+    /// Request an exclusive background worker keyed by `key`.
+    #[inline]
+    pub fn request_exclusive_worker(&mut self, key: &str, name: Option<&str>) {
+        self.event_ctx.request_exclusive_worker(key, name);
+    }
+
+    /// Request an exclusive background worker with an explicit payload.
+    #[inline]
+    pub fn request_exclusive_worker_with_payload(
+        &mut self,
+        key: &str,
+        name: Option<&str>,
+        payload: WorkerRequestPayload,
+    ) {
+        self.event_ctx
+            .request_exclusive_worker_with_payload(key, name, payload);
+    }
+
+    /// Request a background worker that runs the given task closure.
+    #[inline]
+    pub fn request_worker_task(
+        &mut self,
+        name: Option<&str>,
+        task: impl FnOnce(CancellationToken) -> Result<(), String> + Send + 'static,
+    ) {
+        self.event_ctx.request_worker_task(name, task);
+    }
+
+    /// Request an exclusive background worker that runs the given task closure.
+    #[inline]
+    pub fn request_exclusive_worker_task(
+        &mut self,
+        key: &str,
+        name: Option<&str>,
+        task: impl FnOnce(CancellationToken) -> Result<(), String> + Send + 'static,
+    ) {
+        self.event_ctx.request_exclusive_worker_task(key, name, task);
+    }
+
+    /// Run `f` with message type `M` prevented from being emitted (Python
+    /// `with self.prevent(M):`). The closure receives the underlying `EventCtx`.
+    #[inline]
+    pub fn prevent<M: Message, R>(&mut self, f: impl FnOnce(&mut EventCtx) -> R) -> R {
+        self.event_ctx.prevent::<M, R>(f)
+    }
 }
 
 // `WidgetCtx` derefs to its `ReactiveCtx` so the generated reactive setters

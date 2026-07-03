@@ -68,7 +68,7 @@ impl TextualApp for MarkdownApp {
             .with_child_handle(viewer, &self.viewer)
     }
 
-    fn on_mount_with_app(&mut self, app: &mut App, ctx: &mut EventCtx) {
+    fn on_mount_with_app(&mut self, app: &mut App, ctx: &mut textual::event::WidgetCtx) {
         // Load initial content: CLI arg path or demo.md.
         if let Some(ref path) = self.initial_path {
             if let Ok(content) = std::fs::read_to_string(path) {
@@ -90,7 +90,7 @@ impl TextualApp for MarkdownApp {
         }
     }
 
-    fn on_key_with_app(&mut self, app: &mut App, key: &KeyEventData, ctx: &mut EventCtx) {
+    fn on_key_with_app(&mut self, app: &mut App, key: &KeyEventData, ctx: &mut textual::event::WidgetCtx) {
         match key.name() {
             "t" | "T" => {
                 // Python: self.markdown_viewer.show_table_of_contents = not ...
@@ -133,7 +133,7 @@ impl TextualApp for MarkdownApp {
         }
     }
 
-    fn on_message_with_app(&mut self, app: &mut App, message: &MessageEvent, _ctx: &mut EventCtx) {
+    fn on_message_with_app(&mut self, app: &mut App, message: &MessageEvent, _ctx: &mut textual::event::WidgetCtx) {
         if message.is::<NavigatorUpdated>() {
             if let Some(state) = self
                 .viewer

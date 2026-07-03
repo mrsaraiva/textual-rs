@@ -69,7 +69,7 @@ impl TextualApp for RadioSetChangedApp {
         AppRoot::new().with_child(vs)
     }
 
-    fn on_mount_with_app(&mut self, app: &mut App, _ctx: &mut EventCtx) {
+    fn on_mount_with_app(&mut self, app: &mut App, _ctx: &mut textual::event::WidgetCtx) {
         let _ = app.query_mut("#focus_me").map(|q| q.focus());
     }
 
@@ -77,7 +77,7 @@ impl TextualApp for RadioSetChangedApp {
         &mut self,
         app: &mut App,
         message: &MessageEvent,
-        ctx: &mut EventCtx,
+        ctx: &mut textual::event::WidgetCtx,
     ) {
         if let Some(ev) = message.downcast_ref::<RadioSetChanged>() {
             let index = ev.index;

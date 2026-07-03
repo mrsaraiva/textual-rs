@@ -1,7 +1,7 @@
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
 use crate::debug::DebugLayout;
-use crate::event::{Event, EventCtx};
+use crate::event::Event;
 use crate::message::MessageEvent;
 
 use crate::widgets::{NodeSeed, Spacer, Widget, helpers::apply_debug_box};
@@ -229,9 +229,9 @@ impl Widget for Frame {
         out
     }
 
-    fn on_mount(&mut self) {
+    fn on_mount(&mut self, ctx: &mut crate::event::WidgetCtx) {
         if !self.child_extracted {
-            self.child.on_mount();
+            self.child.on_mount(ctx);
         }
     }
 
@@ -269,25 +269,25 @@ impl Widget for Frame {
             .on_layout(inner_width as u16, inner_height as u16);
     }
 
-    fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event_capture(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         if !self.child_extracted {
             self.child.on_event_capture(event, ctx);
         }
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         if !self.child_extracted {
             self.child.on_event(event, ctx);
         }
     }
 
-    fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
+    fn on_message(&mut self, message: &MessageEvent, ctx: &mut crate::event::WidgetCtx) {
         if !self.child_extracted {
             self.child.on_message(message, ctx);
         }
     }
 
-    fn on_mouse_scroll(&mut self, delta_x: i32, delta_y: i32, ctx: &mut EventCtx) {
+    fn on_mouse_scroll(&mut self, delta_x: i32, delta_y: i32, ctx: &mut crate::event::WidgetCtx) {
         if !self.child_extracted {
             self.child.on_mouse_scroll(delta_x, delta_y, ctx);
         }

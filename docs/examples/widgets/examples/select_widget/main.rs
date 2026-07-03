@@ -56,7 +56,7 @@ impl TextualApp for SelectApp {
         &mut self,
         app: &mut App,
         message: &MessageEvent,
-        _ctx: &mut EventCtx,
+        _ctx: &mut textual::event::WidgetCtx,
     ) {
         if let Some(ev) = message.downcast_ref::<SelectChanged>() {
             app.set_title(ev.label.clone());

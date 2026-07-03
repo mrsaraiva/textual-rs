@@ -27,7 +27,7 @@ fn format_time(secs: f64) -> String {
 
 /// A `Digits` showing elapsed time, advanced by its own paused 1/60s interval.
 /// The timer's paused state IS the running state (start/stop resume/pause it).
-#[textual::widget(base = Digits, reactive, override(on_mount_ctx))]
+#[textual::widget(base = Digits, reactive, override(on_mount))]
 #[derive(textual::Reactive)]
 struct TimeDisplay {
     base: Digits,
@@ -41,13 +41,16 @@ impl TimeDisplay {
         Self { base: Digits::new("00:00:00.00"), time: 0.0, timer: None }
     }
     /// Python `on_mount`: `set_interval(1/60, update_time, pause=True)`.
-    fn on_mount_ctx(&mut self, ctx: &mut WidgetCtx) {
+    fn on_mount(&mut self, ctx: &mut WidgetCtx) {
         let sixtieth = Duration::from_secs_f64(1.0 / 60.0);
-        self.timer = Some(ctx.set_interval(sixtieth, true, |w: &mut Self, c| w.tick(c)));
+        self.timer = Some(ctx.set_interval(sixtieth, true, |w: &mut Self, c, tick| w.tick(c, tick)));
     }
-    /// `time` is the accumulator; each tick adds 1/60s (deterministic).
-    fn tick(&mut self, ctx: &mut WidgetCtx) {
-        self.set_time(self.time + 1.0 / 60.0, ctx);
+    /// `time` accumulates the REAL clock time elapsed since the previous fire
+    /// (`tick.elapsed`) — drift-free vs Python's `monotonic() - start`, and
+    /// deterministic under `Pilot::advance_clock` (one coalesced fire still
+    /// advances by the true elapsed time, not a fixed nominal 1/60s).
+    fn tick(&mut self, ctx: &mut WidgetCtx, tick: TimerTick) {
+        self.set_time(self.time + tick.elapsed.as_secs_f64(), ctx);
     }
     fn watch_time(&mut self, _old: &f64, new: &f64, _ctx: &mut ReactiveCtx) {
         self.base.update(format_time(*new));
@@ -125,7 +128,7 @@ mod tests {
 
     /// Deterministic drive via the widget-owned timer: Start advances the clock
     /// under `advance_clock`; Stop freezes it; Reset zeroes it. Exercises the full
-    /// WidgetCtx path (on_mount_ctx set_interval + #[on] query_one/update_via +
+    /// WidgetCtx path (on_mount set_interval + #[on] query_one/update_via +
     /// TimerHandle pause/resume + reactive watch → Digits).
     #[test]
     fn advance_clock_runs_and_pauses_the_stopwatch() {

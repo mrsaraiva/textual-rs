@@ -3,7 +3,7 @@ use std::ops::Range;
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments, Text};
 
 use crate::debug::debug_message;
-use crate::event::{Event, EventCtx};
+use crate::event::Event;
 use crate::message::*;
 use crate::renderables::Styled;
 
@@ -583,7 +583,7 @@ impl Footer {
             .collect()
     }
 
-    fn apply_bindings(&mut self, next: Vec<FooterBinding>, ctx: &mut EventCtx) {
+    fn apply_bindings(&mut self, next: Vec<FooterBinding>, ctx: &mut crate::event::WidgetCtx) {
         if next == self.bindings {
             return;
         }
@@ -853,7 +853,7 @@ impl Widget for Footer {
         Some(1)
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         match event {
             Event::AppFocus(active) => {
                 self.app_focused = *active;
@@ -988,10 +988,12 @@ mod tests {
     fn bindings_changed_posts_footer_bindings_updated_message() {
         let mut footer = Footer::new();
         let mut ctx = EventCtx::default();
-        footer.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            footer.on_event(
             &Event::BindingsChanged(vec![BindingHint::new("ctrl+p", "Palette")]),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         let messages = ctx.take_messages();
         assert!(messages.iter().any(|m| {
             m.downcast_ref::<FooterBindingsUpdated>()
@@ -1004,11 +1006,17 @@ mod tests {
         let mut footer = Footer::new();
         let mut first_ctx = EventCtx::default();
         let hints = vec![BindingHint::new("ctrl+p", "Palette")];
-        footer.on_event(&Event::BindingsChanged(hints.clone()), &mut first_ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut first_ctx);
+            footer.on_event(&Event::BindingsChanged(hints.clone()), &mut __w);
+        }
         assert!(!first_ctx.take_messages().is_empty());
 
         let mut second_ctx = EventCtx::default();
-        footer.on_event(&Event::BindingsChanged(hints), &mut second_ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut second_ctx);
+            footer.on_event(&Event::BindingsChanged(hints), &mut __w);
+        }
         assert!(second_ctx.take_messages().is_empty());
     }
 
@@ -1016,15 +1024,20 @@ mod tests {
     fn bindings_changed_defers_while_app_unfocused() {
         let mut footer = Footer::new();
         let mut unfocus_ctx = EventCtx::default();
-        footer.on_event(&Event::AppFocus(false), &mut unfocus_ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut unfocus_ctx);
+            footer.on_event(&Event::AppFocus(false), &mut __w);
+        }
         assert!(unfocus_ctx.take_messages().is_empty());
         assert!(!unfocus_ctx.repaint_requested());
 
         let mut bindings_ctx = EventCtx::default();
-        footer.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut bindings_ctx);
+            footer.on_event(
             &Event::BindingsChanged(vec![BindingHint::new("ctrl+p", "Palette")]),
-            &mut bindings_ctx,
-        );
+            &mut __w);
+        }
         assert!(bindings_ctx.take_messages().is_empty());
         assert!(!bindings_ctx.repaint_requested());
     }
@@ -1033,27 +1046,37 @@ mod tests {
     fn focus_gain_applies_latest_deferred_bindings_once() {
         let mut footer = Footer::new();
         let mut unfocus_ctx = EventCtx::default();
-        footer.on_event(&Event::AppFocus(false), &mut unfocus_ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut unfocus_ctx);
+            footer.on_event(&Event::AppFocus(false), &mut __w);
+        }
 
         let mut first_ctx = EventCtx::default();
-        footer.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut first_ctx);
+            footer.on_event(
             &Event::BindingsChanged(vec![BindingHint::new("a", "alpha")]),
-            &mut first_ctx,
-        );
+            &mut __w);
+        }
         assert!(first_ctx.take_messages().is_empty());
 
         let mut second_ctx = EventCtx::default();
-        footer.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut second_ctx);
+            footer.on_event(
             &Event::BindingsChanged(vec![
                 BindingHint::new("a", "alpha"),
                 BindingHint::new("b", "bravo"),
             ]),
-            &mut second_ctx,
-        );
+            &mut __w);
+        }
         assert!(second_ctx.take_messages().is_empty());
 
         let mut focus_ctx = EventCtx::default();
-        footer.on_event(&Event::AppFocus(true), &mut focus_ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut focus_ctx);
+            footer.on_event(&Event::AppFocus(true), &mut __w);
+        }
         let messages = focus_ctx.take_messages();
         assert_eq!(messages.len(), 1);
         assert!(messages[0].is::<FooterBindingsUpdated>());
@@ -1071,15 +1094,26 @@ mod tests {
     fn repeated_focus_loss_does_not_drop_deferred_bindings() {
         let mut footer = Footer::new();
         let mut ctx = EventCtx::default();
-        footer.on_event(&Event::AppFocus(false), &mut ctx);
-        footer.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            footer.on_event(&Event::AppFocus(false), &mut __w);
+        }
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            footer.on_event(
             &Event::BindingsChanged(vec![BindingHint::new("ctrl+p", "Palette")]),
-            &mut ctx,
-        );
-        footer.on_event(&Event::AppFocus(false), &mut ctx);
+            &mut __w);
+        }
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            footer.on_event(&Event::AppFocus(false), &mut __w);
+        }
 
         let mut focus_ctx = EventCtx::default();
-        footer.on_event(&Event::AppFocus(true), &mut focus_ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut focus_ctx);
+            footer.on_event(&Event::AppFocus(true), &mut __w);
+        }
         let messages = focus_ctx.take_messages();
         assert_eq!(messages.len(), 1);
         assert!(messages[0].is::<FooterBindingsUpdated>());
@@ -1096,14 +1130,19 @@ mod tests {
     fn unmount_resets_focus_tracking_state() {
         let mut footer = Footer::new();
         let mut unfocus_ctx = EventCtx::default();
-        footer.on_event(&Event::AppFocus(false), &mut unfocus_ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut unfocus_ctx);
+            footer.on_event(&Event::AppFocus(false), &mut __w);
+        }
         footer.on_unmount();
 
         let mut ctx = EventCtx::default();
-        footer.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            footer.on_event(
             &Event::BindingsChanged(vec![BindingHint::new("ctrl+p", "Palette")]),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         let messages = ctx.take_messages();
         assert_eq!(messages.len(), 1);
         assert!(messages[0].is::<FooterBindingsUpdated>());
@@ -1123,7 +1162,10 @@ mod tests {
         let mut footer = Footer::new();
         let mut ctx = EventCtx::default();
         let hints = vec![BindingHint::new("ctrl+s", "Save").with_key_display("^s")];
-        footer.on_event(&Event::BindingsChanged(hints), &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            footer.on_event(&Event::BindingsChanged(hints), &mut __w);
+        }
 
         // The displayed key should be the key_display ("^s"), not the raw key.
         assert_eq!(footer.bindings[0].key, "^s");
@@ -1168,7 +1210,9 @@ mod tests {
         let mut ctx = EventCtx::default();
 
         // Click at x=0 should hit the first binding.
-        footer.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            footer.on_event(
             &Event::MouseDown(MouseDownEvent {
                 target: NodeId::default(),
                 screen_x: 0,
@@ -1176,8 +1220,8 @@ mod tests {
                 x: 0,
                 y: 0,
             }),
-            &mut ctx,
-        );
+            &mut __w);
+        }
 
         assert!(ctx.handled());
         assert!(ctx.repaint_requested());
@@ -1211,7 +1255,9 @@ mod tests {
                 _ => panic!("unexpected binding index {idx}"),
             };
             let mut ctx = EventCtx::default();
-            footer.on_event(
+            {
+                let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+                footer.on_event(
                 &Event::MouseDown(MouseDownEvent {
                     target: NodeId::default(),
                     screen_x: x as u16,
@@ -1219,8 +1265,8 @@ mod tests {
                     x: x as u16,
                     y: 0,
                 }),
-                &mut ctx,
-            );
+                &mut __w);
+            }
             let messages = ctx.take_messages();
             assert!(
                 messages.iter().any(|event| {
@@ -1237,13 +1283,15 @@ mod tests {
     fn click_grouped_binding_targets_specific_key() {
         let mut footer = Footer::new();
         let mut setup_ctx = EventCtx::default();
-        footer.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut setup_ctx);
+            footer.on_event(
             &Event::BindingsChanged(vec![
                 BindingHint::new("a", "left").with_group("Move"),
                 BindingHint::new("b", "right").with_group("Move"),
             ]),
-            &mut setup_ctx,
-        );
+            &mut __w);
+        }
 
         let second_region = footer
             .left_binding_regions()
@@ -1253,7 +1301,9 @@ mod tests {
         let x = ((second_region.0.start + second_region.0.end) / 2) as u16;
 
         let mut ctx = EventCtx::default();
-        footer.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            footer.on_event(
             &Event::MouseDown(MouseDownEvent {
                 target: NodeId::default(),
                 screen_x: x,
@@ -1261,8 +1311,8 @@ mod tests {
                 x,
                 y: 0,
             }),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         let messages = ctx.take_messages();
         assert!(
             messages.iter().any(|event| {
@@ -1278,15 +1328,17 @@ mod tests {
     fn click_command_palette_binding_is_handled() {
         let mut footer = Footer::new();
         let mut setup_ctx = EventCtx::default();
-        footer.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut setup_ctx);
+            footer.on_event(
             &Event::BindingsChanged(vec![
                 BindingHint::new("j", "Jessica"),
                 BindingHint::new("ctrl+p", "palette")
                     .with_key_display("^p")
                     .with_group("command_palette"),
             ]),
-            &mut setup_ctx,
-        );
+            &mut __w);
+        }
         footer.on_layout(64, 1);
         let palette_range = footer
             .command_palette_region(64)
@@ -1294,7 +1346,9 @@ mod tests {
         let x = ((palette_range.start + palette_range.end) / 2) as u16;
 
         let mut ctx = EventCtx::default();
-        footer.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            footer.on_event(
             &Event::MouseDown(MouseDownEvent {
                 target: NodeId::default(),
                 screen_x: x,
@@ -1302,8 +1356,8 @@ mod tests {
                 x,
                 y: 0,
             }),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         let messages = ctx.take_messages();
         assert!(
             messages.iter().any(|event| {
@@ -1319,14 +1373,18 @@ mod tests {
     fn click_binding_uses_raw_action_key_when_display_differs() {
         let mut footer = Footer::new();
         let mut setup_ctx = EventCtx::default();
-        footer.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut setup_ctx);
+            footer.on_event(
             &Event::BindingsChanged(vec![
                 BindingHint::new("ctrl+p", "Palette").with_key_display("^p"),
             ]),
-            &mut setup_ctx,
-        );
+            &mut __w);
+        }
         let mut ctx = EventCtx::default();
-        footer.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            footer.on_event(
             &Event::MouseDown(MouseDownEvent {
                 target: NodeId::default(),
                 screen_x: 0,
@@ -1334,8 +1392,8 @@ mod tests {
                 x: 0,
                 y: 0,
             }),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         let messages = ctx.take_messages();
         assert_eq!(messages.len(), 1);
         assert!(
@@ -1351,7 +1409,9 @@ mod tests {
         let mut ctx = EventCtx::default();
 
         // Click way past the binding region.
-        footer.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            footer.on_event(
             &Event::MouseDown(MouseDownEvent {
                 target: NodeId::default(),
                 screen_x: 50,
@@ -1359,8 +1419,8 @@ mod tests {
                 x: 50,
                 y: 0,
             }),
-            &mut ctx,
-        );
+            &mut __w);
+        }
 
         assert!(!ctx.handled());
     }
@@ -1402,15 +1462,17 @@ mod tests {
         let _guard = set_style_context(default_widget_stylesheet());
         let mut footer = Footer::new();
         let mut setup_ctx = EventCtx::default();
-        footer.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut setup_ctx);
+            footer.on_event(
             &Event::BindingsChanged(vec![
                 BindingHint::new("j", "Jessica"),
                 BindingHint::new("ctrl+p", "palette")
                     .with_key_display("^p")
                     .with_group("command_palette"),
             ]),
-            &mut setup_ctx,
-        );
+            &mut __w);
+        }
 
         let console = Console::new();
         let mut options = console.options().clone();
@@ -1441,14 +1503,16 @@ mod tests {
         let _guard = set_style_context(default_widget_stylesheet());
         let mut footer = Footer::new();
         let mut setup_ctx = EventCtx::default();
-        footer.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut setup_ctx);
+            footer.on_event(
             &Event::BindingsChanged(vec![
                 BindingHint::new("l", "Leto"),
                 BindingHint::new("j", "Jessica"),
                 BindingHint::new("p", "Paul"),
             ]),
-            &mut setup_ctx,
-        );
+            &mut __w);
+        }
         let console = Console::new();
         let mut options = console.options().clone();
         options.size = (64, 1);
@@ -1468,15 +1532,17 @@ mod tests {
         let _guard = set_style_context(default_widget_stylesheet());
         let mut footer = Footer::new();
         let mut setup_ctx = EventCtx::default();
-        footer.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut setup_ctx);
+            footer.on_event(
             &Event::BindingsChanged(vec![
                 BindingHint::new("j", "Jessica"),
                 BindingHint::new("ctrl+p", "palette")
                     .with_key_display("^p")
                     .with_group("command_palette"),
             ]),
-            &mut setup_ctx,
-        );
+            &mut __w);
+        }
         footer.on_layout(64, 1);
         let range = footer
             .command_palette_region(64)
@@ -1510,13 +1576,15 @@ mod tests {
     fn tooltip_anchor_uses_hovered_left_binding_region_center() {
         let mut footer = Footer::new();
         let mut setup_ctx = EventCtx::default();
-        footer.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut setup_ctx);
+            footer.on_event(
             &Event::BindingsChanged(vec![
                 BindingHint::new("q", "Quit").with_tooltip("Quit the app"),
                 BindingHint::new("h", "Help"),
             ]),
-            &mut setup_ctx,
-        );
+            &mut __w);
+        }
         footer.on_layout(80, 1);
         let first_region = footer
             .left_binding_regions()
@@ -1537,7 +1605,9 @@ mod tests {
     fn tooltip_anchor_uses_hovered_command_palette_region_center() {
         let mut footer = Footer::new();
         let mut setup_ctx = EventCtx::default();
-        footer.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut setup_ctx);
+            footer.on_event(
             &Event::BindingsChanged(vec![
                 BindingHint::new("j", "Jessica"),
                 BindingHint::new("ctrl+p", "palette")
@@ -1545,8 +1615,8 @@ mod tests {
                     .with_group("command_palette")
                     .with_tooltip("Open command palette"),
             ]),
-            &mut setup_ctx,
-        );
+            &mut __w);
+        }
         footer.on_layout(80, 1);
         let range = footer
             .command_palette_region(80)
@@ -1569,7 +1639,10 @@ mod tests {
         let mut ctx = EventCtx::default();
         let mut hint = BindingHint::new("b", "Back");
         hint.enabled = None; // disabled but visible (dimmed)
-        footer.on_event(&Event::BindingsChanged(vec![hint]), &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            footer.on_event(&Event::BindingsChanged(vec![hint]), &mut __w);
+        }
 
         // Binding should still be present (not filtered out).
         assert_eq!(footer.bindings.len(), 1);
@@ -1583,7 +1656,10 @@ mod tests {
         let mut ctx = EventCtx::default();
         let mut hint = BindingHint::new("x", "Hidden");
         hint.enabled = Some(false); // hidden entirely
-        footer.on_event(&Event::BindingsChanged(vec![hint]), &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            footer.on_event(&Event::BindingsChanged(vec![hint]), &mut __w);
+        }
 
         // Binding should be filtered out.
         assert!(
@@ -1597,7 +1673,10 @@ mod tests {
         let mut footer = Footer::new();
         let mut ctx = EventCtx::default();
         let hint = BindingHint::new("q", "Quit"); // enabled=Some(true) by default
-        footer.on_event(&Event::BindingsChanged(vec![hint]), &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            footer.on_event(&Event::BindingsChanged(vec![hint]), &mut __w);
+        }
 
         assert_eq!(footer.bindings.len(), 1);
         assert_eq!(footer.bindings[0].enabled, Some(true));

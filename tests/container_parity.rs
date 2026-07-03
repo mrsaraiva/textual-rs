@@ -1,5 +1,6 @@
 use rich_rs::Console;
 use textual::prelude::*;
+use textual::event::EventCtx;
 use textual::render::FrameBuffer;
 use textual::widget_tree::WidgetTree;
 
@@ -109,12 +110,18 @@ fn scrollview_is_focusable_and_supports_home_end_actions() {
     let _ = render_with_tree(&mut tree, &mut scroll, &console, 8, 2);
 
     let mut ctx = EventCtx::default();
-    scroll.on_event(&Event::Action(Action::ScrollEnd), &mut ctx);
+    {
+        let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx);
+        scroll.on_event(&Event::Action(Action::ScrollEnd), &mut __w);
+    }
     assert!(ctx.handled());
     assert!(scroll.offset_y() > 0);
 
     let mut ctx = EventCtx::default();
-    scroll.on_event(&Event::Action(Action::ScrollHome), &mut ctx);
+    {
+        let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx);
+        scroll.on_event(&Event::Action(Action::ScrollHome), &mut __w);
+    }
     assert!(ctx.handled());
     assert_eq!(scroll.offset_y(), 0);
 }
@@ -135,13 +142,19 @@ fn vertical_scroll_supports_home_end_actions() {
     let _ = render_with_tree(&mut tree, &mut scroll, &console, 8, 2);
 
     let mut ctx = EventCtx::default();
-    scroll.on_event(&Event::Action(Action::ScrollEnd), &mut ctx);
+    {
+        let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx);
+        scroll.on_event(&Event::Action(Action::ScrollEnd), &mut __w);
+    }
     assert!(ctx.handled());
     let _ = render_with_tree(&mut tree, &mut scroll, &console, 8, 2);
     assert!(scroll.scroll_offset().1 > 0);
 
     let mut ctx = EventCtx::default();
-    scroll.on_event(&Event::Action(Action::ScrollHome), &mut ctx);
+    {
+        let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx);
+        scroll.on_event(&Event::Action(Action::ScrollHome), &mut __w);
+    }
     assert!(ctx.handled());
     let _ = render_with_tree(&mut tree, &mut scroll, &console, 8, 2);
     assert_eq!(scroll.scroll_offset().1, 0);
@@ -163,13 +176,19 @@ fn scrollable_container_supports_home_end_actions() {
     let _ = render_with_tree(&mut tree, &mut scrollable, &console, 8, 2);
 
     let mut ctx = EventCtx::default();
-    scrollable.on_event(&Event::Action(Action::ScrollEnd), &mut ctx);
+    {
+        let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx);
+        scrollable.on_event(&Event::Action(Action::ScrollEnd), &mut __w);
+    }
     assert!(ctx.handled());
     let _ = render_with_tree(&mut tree, &mut scrollable, &console, 8, 2);
     assert!(scrollable.scroll_offset().1 > 0);
 
     let mut ctx = EventCtx::default();
-    scrollable.on_event(&Event::Action(Action::ScrollHome), &mut ctx);
+    {
+        let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx);
+        scrollable.on_event(&Event::Action(Action::ScrollHome), &mut __w);
+    }
     assert!(ctx.handled());
     let _ = render_with_tree(&mut tree, &mut scrollable, &console, 8, 2);
     assert_eq!(scrollable.scroll_offset().1, 0);
@@ -188,13 +207,19 @@ fn horizontal_scroll_is_focusable_and_supports_home_end_actions() {
     let _ = render_with_tree(&mut tree, &mut scroll, &console, 6, 1);
 
     let mut ctx = EventCtx::default();
-    scroll.on_event(&Event::Action(Action::ScrollEnd), &mut ctx);
+    {
+        let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx);
+        scroll.on_event(&Event::Action(Action::ScrollEnd), &mut __w);
+    }
     assert!(ctx.handled());
     let _ = render_with_tree(&mut tree, &mut scroll, &console, 6, 1);
     assert!(scroll.scroll_offset().0 > 0);
 
     let mut ctx = EventCtx::default();
-    scroll.on_event(&Event::Action(Action::ScrollHome), &mut ctx);
+    {
+        let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx);
+        scroll.on_event(&Event::Action(Action::ScrollHome), &mut __w);
+    }
     assert!(ctx.handled());
     let _ = render_with_tree(&mut tree, &mut scroll, &console, 6, 1);
     assert_eq!(scroll.scroll_offset().0, 0);

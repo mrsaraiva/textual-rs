@@ -38,7 +38,7 @@ impl TextualApp for IndeterminateProgressBar {
             .with_child(Footer::new())
     }
 
-    fn on_tick_with_app(&mut self, app: &mut App, _tick: u64, ctx: &mut EventCtx) {
+    fn on_tick_with_app(&mut self, app: &mut App, _tick: u64, ctx: &mut textual::event::WidgetCtx) {
         if self.started {
             let _ = app.with_query_one_mut_as::<ProgressBar, _>("#progress_bar", |bar| {
                 bar.advance(1.0);
@@ -47,7 +47,7 @@ impl TextualApp for IndeterminateProgressBar {
         }
     }
 
-    fn on_app_action_str(&mut self, app: &mut App, action: &str, ctx: &mut EventCtx) {
+    fn on_app_action_str(&mut self, app: &mut App, action: &str, ctx: &mut textual::event::WidgetCtx) {
         if action == "start" {
             let _ = app.with_query_one_mut_as::<ProgressBar, _>("#progress_bar", |bar| {
                 bar.update(Some(Some(100.0)), Some(0.0), None);
@@ -58,7 +58,7 @@ impl TextualApp for IndeterminateProgressBar {
         }
     }
 
-    fn on_key_with_app(&mut self, app: &mut App, key: &KeyEventData, ctx: &mut EventCtx) {
+    fn on_key_with_app(&mut self, app: &mut App, key: &KeyEventData, ctx: &mut textual::event::WidgetCtx) {
         match key.key.as_str() {
             "f" => {
                 // Freeze time for indeterminate progress bar (Python: clock.set_time(5))

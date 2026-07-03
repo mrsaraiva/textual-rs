@@ -69,7 +69,7 @@ impl WeatherApp {
     /// result back through shared state, posts the widget update straight onto the UI
     /// thread with `App::call_from_thread` — exactly mirroring Python's
     /// `self.call_from_thread(weather_widget.update, weather)`.
-    fn spawn_weather_worker(city: String, ctx: &mut EventCtx) {
+    fn spawn_weather_worker(city: String, ctx: &mut textual::event::WidgetCtx) {
         ctx.request_exclusive_worker_task("update_weather", Some("weather"), move |token| {
             if city.is_empty() {
                 // No city — blank out the weather display.
@@ -123,7 +123,7 @@ impl TextualApp for WeatherApp {
         &mut self,
         value: &str,
         _validation: &ValidationResult,
-        ctx: &mut EventCtx,
+        ctx: &mut textual::event::WidgetCtx,
     ) {
         Self::spawn_weather_worker(value.to_string(), ctx);
         ctx.request_repaint();
@@ -141,7 +141,7 @@ impl TextualApp for WeatherApp {
     /// the alternate-screen buffer, so that raw text corrupted the rendered frame
     /// (Python's `self.log` never does this). Dropping the screen write restores
     /// parity with Python.
-    fn on_message_with_app(&mut self, _app: &mut App, _message: &MessageEvent, _ctx: &mut EventCtx) {
+    fn on_message_with_app(&mut self, _app: &mut App, _message: &MessageEvent, _ctx: &mut textual::event::WidgetCtx) {
     }
 }
 

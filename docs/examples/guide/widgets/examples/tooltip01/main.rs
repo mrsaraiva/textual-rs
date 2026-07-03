@@ -128,8 +128,8 @@ impl Widget for TooltipButton {
 
     // --- Lifecycle ---
 
-    fn on_mount(&mut self) {
-        self.inner.on_mount();
+    fn on_mount(&mut self, ctx: &mut textual::event::WidgetCtx) {
+        self.inner.on_mount(ctx);
     }
 
     fn on_unmount(&mut self) {
@@ -154,15 +154,15 @@ impl Widget for TooltipButton {
 
     // --- Events ---
 
-    fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event_capture(&mut self, event: &Event, ctx: &mut textual::event::WidgetCtx) {
         self.inner.on_event_capture(event, ctx);
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut textual::event::WidgetCtx) {
         self.inner.on_event(event, ctx);
     }
 
-    fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
+    fn on_message(&mut self, message: &MessageEvent, ctx: &mut textual::event::WidgetCtx) {
         self.inner.on_message(message, ctx);
     }
 
@@ -170,7 +170,7 @@ impl Widget for TooltipButton {
         self.inner.on_mouse_move(x, y)
     }
 
-    fn on_mouse_scroll(&mut self, delta_x: i32, delta_y: i32, ctx: &mut EventCtx) {
+    fn on_mouse_scroll(&mut self, delta_x: i32, delta_y: i32, ctx: &mut textual::event::WidgetCtx) {
         self.inner.on_mouse_scroll(delta_x, delta_y, ctx);
     }
 
@@ -184,7 +184,7 @@ impl Widget for TooltipButton {
         self.inner.binding_hints()
     }
 
-    fn execute_action(&mut self, action: &ParsedAction, ctx: &mut EventCtx) -> bool {
+    fn execute_action(&mut self, action: &ParsedAction, ctx: &mut textual::event::WidgetCtx) -> bool {
         self.inner.execute_action(action, ctx)
     }
 

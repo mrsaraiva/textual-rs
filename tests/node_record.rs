@@ -5,7 +5,7 @@
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use rich_rs::{Console, ConsoleOptions, Segments};
-use textual::event::{ClassOp, Event, EventCtx};
+use textual::event::{ClassOp, Event};
 use textual::keys::KeyEventData;
 use textual::prelude::*;
 use textual::runtime::{build_widget_tree_from_root, dispatch_event_tree};
@@ -40,7 +40,7 @@ impl Widget for ClassOpProbe {
         }
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut textual::event::WidgetCtx) {
         if matches!(event, Event::Key(_)) {
             ctx.add_class("-active");
             ctx.set_handled();
@@ -130,7 +130,7 @@ impl Widget for SetClassProbe {
         }
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut textual::event::WidgetCtx) {
         if matches!(event, Event::Key(_)) {
             ctx.set_class(self.toggle, "-toggle");
             ctx.set_handled();

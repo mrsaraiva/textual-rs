@@ -33,7 +33,7 @@ impl TextualApp for LogApp {
         AppRoot::new().with_child(Log::new())
     }
 
-    fn on_mount_with_app(&mut self, app: &mut App, ctx: &mut EventCtx) {
+    fn on_mount_with_app(&mut self, app: &mut App, ctx: &mut textual::event::WidgetCtx) {
         let _ = app.with_query_one_mut_as::<Log, _>("Log", |log| {
             log.write_line("Hello, World!");
             for _ in 0..10 {

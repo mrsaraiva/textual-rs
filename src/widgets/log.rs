@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use crossterm::event::{KeyCode, KeyModifiers};
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments, Style as RichStyle};
 
-use crate::event::{Action, Event, EventCtx};
+use crate::event::{Action, Event};
 use crate::message::*;
 
 use super::helpers::adjust_line_length_no_bg;
@@ -326,7 +326,7 @@ impl Log {
         );
     }
 
-    fn emit_scroll_changed_message(&self, ctx: &mut EventCtx) {
+    fn emit_scroll_changed_message(&self, ctx: &mut crate::event::WidgetCtx) {
         ctx.post_message(RichLogScrolled {
             offset: self.offset_y,
             max_offset: self.max_offset(),
@@ -655,7 +655,7 @@ impl Widget for Log {
         true
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         // WP-24: handle key events for copy
         if let Event::Key(key) = event {
             if self.node_state().focused {
@@ -728,7 +728,7 @@ impl Widget for Log {
         }
     }
 
-    fn on_mouse_scroll(&mut self, _delta_x: i32, delta_y: i32, ctx: &mut EventCtx) {
+    fn on_mouse_scroll(&mut self, _delta_x: i32, delta_y: i32, ctx: &mut crate::event::WidgetCtx) {
         if delta_y == 0 {
             return;
         }
@@ -777,7 +777,7 @@ impl Widget for Log {
         self.selected_text()
     }
 
-    fn on_message(&mut self, event: &MessageEvent, ctx: &mut EventCtx) {
+    fn on_message(&mut self, event: &MessageEvent, ctx: &mut crate::event::WidgetCtx) {
         let Some(payload) = event.downcast_ref::<ScrollbarScrollTo>() else {
             return;
         };
@@ -844,7 +844,10 @@ mod tests {
         let _ = log.render(&console, &options);
 
         let mut ctx = EventCtx::default();
-        log.on_event(&Event::Action(Action::ScrollDown), &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            log.on_event(&Event::Action(Action::ScrollDown), &mut __w);
+        }
         let messages = ctx.take_messages();
         assert!(messages.iter().any(|m| m.is::<RichLogScrolled>()));
     }
@@ -860,7 +863,9 @@ mod tests {
         assert_eq!(log.offset_y, 0);
 
         let mut ctx = EventCtx::default();
-        log.on_message(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            log.on_message(
             &MessageEvent::new(
                 NodeId::default(),
                 ScrollbarScrollTo {
@@ -870,8 +875,8 @@ mod tests {
                     scroll_duration: None,
                 },
             ),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         assert!(ctx.handled());
         assert!(ctx.repaint_requested());
         assert!(log.offset_y > 0);
@@ -959,7 +964,9 @@ mod tests {
         let id = NodeId::default();
         // Mouse down starts selection
         let mut ctx = EventCtx::default();
-        log.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            log.on_event(
             &Event::MouseDown(crate::event::MouseDownEvent {
                 target: id,
                 screen_x: 2,
@@ -967,13 +974,15 @@ mod tests {
                 x: 2,
                 y: 0,
             }),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         assert!(log.selecting);
 
         // Mouse up at same position clears selection
         let mut ctx = EventCtx::default();
-        log.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            log.on_event(
             &Event::MouseUp(crate::event::MouseUpEvent {
                 target: Some(id),
                 screen_x: 2,
@@ -981,8 +990,8 @@ mod tests {
                 x: 2,
                 y: 0,
             }),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         assert!(!log.selecting);
         assert!(log.selection_range().is_none());
     }
@@ -1008,7 +1017,9 @@ mod tests {
         let _ = log.render(&console, &options);
 
         let mut ctx = EventCtx::default();
-        log.on_message(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            log.on_message(
             &MessageEvent::new(
                 NodeId::default(),
                 ScrollbarScrollTo {
@@ -1018,8 +1029,8 @@ mod tests {
                     scroll_duration: None,
                 },
             ),
-            &mut ctx,
-        );
+            &mut __w);
+        }
 
         assert!(ctx.handled());
         assert_eq!(log.offset_y, 2);

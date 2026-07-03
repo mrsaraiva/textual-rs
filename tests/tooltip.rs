@@ -5,6 +5,7 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 use textual::css::set_style_context;
+use textual::event::EventCtx;
 use textual::event::MouseScrollEvent;
 use textual::message::MessageEvent;
 use textual::node_id_from_ffi;
@@ -44,7 +45,7 @@ impl Widget for SpyWidget {
         vec![Segment::styled("spy", Style::new())].into()
     }
 
-    fn on_message(&mut self, message: &MessageEvent, _ctx: &mut EventCtx) {
+    fn on_message(&mut self, message: &MessageEvent, _ctx: &mut textual::event::WidgetCtx) {
         if message.is::<OverlayDismissRequested>() {
             self.dismiss_messages.fetch_add(1, Ordering::Relaxed);
         }
@@ -55,7 +56,7 @@ impl Widget for SpyWidget {
         true
     }
 
-    fn on_mouse_scroll(&mut self, _delta_x: i32, _delta_y: i32, _ctx: &mut EventCtx) {
+    fn on_mouse_scroll(&mut self, _delta_x: i32, _delta_y: i32, _ctx: &mut textual::event::WidgetCtx) {
         self.mouse_scrolls.fetch_add(1, Ordering::Relaxed);
     }
 }
@@ -80,7 +81,7 @@ fn tooltip_hides_on_escape_key() {
     let mut tooltip = Tooltip::new(Label::new("base"), "tip").visible(true);
 
     let key = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
-    tooltip.on_event(&Event::Key(key), &mut EventCtx::default());
+    { let mut __e = textual::event::EventCtx::default(); let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut __e); tooltip.on_event(&Event::Key(key), &mut __w) };
 
     let buf = FrameBuffer::from_renderable(&console, &options, &tooltip, None);
     let lines = buf.as_plain_lines();
@@ -94,7 +95,7 @@ fn tooltip_visibility_can_be_driven_via_overlay_messages() {
     let options = options_for(&console, 30, 6);
     let mut tooltip = Tooltip::new(Label::new("base"), "tip").visible(true);
 
-    tooltip.on_message(
+    { let mut __e = textual::event::EventCtx::default(); let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut __e); tooltip.on_message(
         &MessageEvent::new(
             NodeId::default(),
             OverlaySetVisible {
@@ -102,8 +103,7 @@ fn tooltip_visibility_can_be_driven_via_overlay_messages() {
                 visible: false,
             },
         ),
-        &mut EventCtx::default(),
-    );
+        &mut __w) };
 
     let buf = FrameBuffer::from_renderable(&console, &options, &tooltip, None);
     let lines = buf.as_plain_lines();
@@ -164,7 +164,7 @@ fn tooltip_updates_anchor_from_runtime_mouse_events() {
     let before_x = before_line.find("tip").expect("tip x before");
 
     let target = tooltip.anchor_target_id();
-    tooltip.on_event(
+    { let mut __e = textual::event::EventCtx::default(); let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut __e); tooltip.on_event(
         &Event::MouseScroll(MouseScrollEvent {
             target: Some(target),
             screen_x: 22,
@@ -175,8 +175,7 @@ fn tooltip_updates_anchor_from_runtime_mouse_events() {
             delta_y: 1,
             modifiers: KeyModifiers::empty(),
         }),
-        &mut EventCtx::default(),
-    );
+        &mut __w) };
 
     let after = FrameBuffer::from_renderable(&console, &options, &tooltip, None);
     let after_lines = after.as_plain_lines();
@@ -197,7 +196,7 @@ fn tooltip_anchor_can_be_driven_by_overlay_anchor_messages() {
         .visible(true)
         .with_anchor(2, 0);
 
-    tooltip.on_message(
+    { let mut __e = textual::event::EventCtx::default(); let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut __e); tooltip.on_message(
         &MessageEvent::new(
             NodeId::default(),
             OverlaySetAnchor {
@@ -206,8 +205,7 @@ fn tooltip_anchor_can_be_driven_by_overlay_anchor_messages() {
                 y: 1,
             },
         ),
-        &mut EventCtx::default(),
-    );
+        &mut __w) };
 
     let after_set = FrameBuffer::from_renderable(&console, &options, &tooltip, None);
     let set_lines = after_set.as_plain_lines();
@@ -217,15 +215,14 @@ fn tooltip_anchor_can_be_driven_by_overlay_anchor_messages() {
         .expect("tip line after set-anchor");
     let set_x = set_line.find("tip").expect("tip x after set-anchor");
 
-    tooltip.on_message(
+    { let mut __e = textual::event::EventCtx::default(); let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut __e); tooltip.on_message(
         &MessageEvent::new(
             NodeId::default(),
             OverlayClearAnchor {
                 overlay: NodeId::default(),
             },
         ),
-        &mut EventCtx::default(),
-    );
+        &mut __w) };
 
     let after_clear = FrameBuffer::from_renderable(&console, &options, &tooltip, None);
     let clear_lines = after_clear.as_plain_lines();
@@ -246,15 +243,14 @@ fn tooltip_forwards_non_matching_overlay_dismiss_to_child() {
     let spy = SpyWidget::new(Arc::clone(&dismiss_messages), mouse_moves, mouse_scrolls);
     let mut tooltip = Tooltip::new(spy, "tip").visible(true);
 
-    tooltip.on_message(
+    { let mut __e = textual::event::EventCtx::default(); let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut __e); tooltip.on_message(
         &MessageEvent::new(
             NodeId::default(),
             OverlayDismissRequested {
                 overlay: Some(node_id_from_ffi(999)),
             },
         ),
-        &mut EventCtx::default(),
-    );
+        &mut __w) };
 
     assert_eq!(dismiss_messages.load(Ordering::Relaxed), 1);
 }
@@ -273,7 +269,7 @@ fn tooltip_delegates_mouse_hooks_to_child() {
 
     assert!(tooltip.on_mouse_move(3, 2));
     let mut ctx = EventCtx::default();
-    tooltip.on_mouse_scroll(0, 1, &mut ctx);
+    { let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx); tooltip.on_mouse_scroll(0, 1, &mut __w) };
 
     assert_eq!(mouse_moves.load(Ordering::Relaxed), 1);
     assert_eq!(mouse_scrolls.load(Ordering::Relaxed), 1);
@@ -296,7 +292,7 @@ fn tooltip_unmount_resets_visibility_and_anchor_state() {
     let anchored_x = before_line.find("tip").expect("anchored x");
 
     tooltip.on_unmount();
-    tooltip.on_message(
+    { let mut __e = textual::event::EventCtx::default(); let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut __e); tooltip.on_message(
         &MessageEvent::new(
             NodeId::default(),
             OverlaySetVisible {
@@ -304,8 +300,7 @@ fn tooltip_unmount_resets_visibility_and_anchor_state() {
                 visible: true,
             },
         ),
-        &mut EventCtx::default(),
-    );
+        &mut __w) };
 
     let after = FrameBuffer::from_renderable(&console, &options, &tooltip, None);
     let after_lines = after.as_plain_lines();

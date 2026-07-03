@@ -1,7 +1,7 @@
 use crossterm::event::KeyCode;
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
-use crate::event::{Event, EventCtx};
+use crate::event::Event;
 use crate::message::*;
 use crate::render::FrameBuffer;
 use crate::style::{Constrain, Display, Offset, OffsetValue, Position, Scalar, parse_color_like};
@@ -284,7 +284,7 @@ impl Tooltip {
         changed
     }
 
-    fn set_visible(&mut self, visible: bool, ctx: &mut EventCtx) {
+    fn set_visible(&mut self, visible: bool, ctx: &mut crate::event::WidgetCtx) {
         if self.visible == visible {
             return;
         }
@@ -600,8 +600,8 @@ impl Widget for Tooltip {
         Some(child_width.saturating_add(chrome_lr).max(1))
     }
 
-    fn on_mount(&mut self) {
-        self.child.on_mount();
+    fn on_mount(&mut self, ctx: &mut crate::event::WidgetCtx) {
+        self.child.on_mount(ctx);
     }
 
     fn on_unmount(&mut self) {
@@ -622,11 +622,11 @@ impl Widget for Tooltip {
         self.child.on_layout(width, height);
     }
 
-    fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event_capture(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         self.child.on_event_capture(event, ctx);
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         match event {
             Event::AppFocus(active)
                 if !*active && self.visible => {
@@ -661,7 +661,7 @@ impl Widget for Tooltip {
         }
     }
 
-    fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
+    fn on_message(&mut self, message: &MessageEvent, ctx: &mut crate::event::WidgetCtx) {
         if let Some(m) = message.downcast_ref::<OverlaySetVisible>() {
             if m.overlay == self.node_id() {
                 self.set_visible(m.visible, ctx);
@@ -708,7 +708,7 @@ impl Widget for Tooltip {
         self.child.on_mouse_move(x, y)
     }
 
-    fn on_mouse_scroll(&mut self, delta_x: i32, delta_y: i32, ctx: &mut EventCtx) {
+    fn on_mouse_scroll(&mut self, delta_x: i32, delta_y: i32, ctx: &mut crate::event::WidgetCtx) {
         self.child.on_mouse_scroll(delta_x, delta_y, ctx);
     }
 
@@ -750,13 +750,16 @@ impl Renderable for Tooltip {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::event::EventCtx;
     use crate::node_id::NodeId;
 
     #[test]
     fn tooltip_overlay_messages_toggle_visibility() {
         let mut tooltip = Tooltip::new(super::super::Label::new("base"), "tip");
         let mut ctx = EventCtx::default();
-        tooltip.on_message(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            tooltip.on_message(
             &MessageEvent::new(
                 NodeId::default(),
                 OverlaySetVisible {
@@ -764,8 +767,8 @@ mod tests {
                     visible: true,
                 },
             ),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         assert!(tooltip.is_visible());
 
         let messages = ctx.take_messages();

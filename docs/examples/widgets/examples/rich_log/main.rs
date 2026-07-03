@@ -97,7 +97,7 @@ impl TextualApp for RichLogApp {
         AppRoot::new().with_child(build_rich_log())
     }
 
-    fn on_key_with_app(&mut self, app: &mut App, key: &KeyEventData, ctx: &mut EventCtx) {
+    fn on_key_with_app(&mut self, app: &mut App, key: &KeyEventData, ctx: &mut textual::event::WidgetCtx) {
         let key_name = key.name().to_string();
         let _ = app.with_query_one_mut_as::<RichLog, _>("RichLog", |log| {
             write_key_line(log, &key_name, key.character, key.is_printable);

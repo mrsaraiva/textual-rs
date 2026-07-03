@@ -37,7 +37,7 @@ impl TextualApp for PreventApp {
         &mut self,
         _value: &str,
         _validation: &ValidationResult,
-        _ctx: &mut EventCtx,
+        _ctx: &mut textual::event::WidgetCtx,
     ) {
         // bell() — no-op in Rust; count for test assertions.
         self.bell_count += 1;
@@ -50,7 +50,7 @@ impl TextualApp for PreventApp {
         &mut self,
         app: &mut App,
         message: &MessageEvent,
-        ctx: &mut EventCtx,
+        ctx: &mut textual::event::WidgetCtx,
     ) {
         if let Some(bp) = message.downcast_ref::<ButtonPressed>() {
             if bp.button_id.as_deref() == Some("clear") {

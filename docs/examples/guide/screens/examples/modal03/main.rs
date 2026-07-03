@@ -91,7 +91,7 @@ impl TextualApp for ModalApp {
 
     /// `action_request_quit`: push the modal QuitScreen with a callback that
     /// records the dismiss result, exactly like Python's `check_quit`.
-    fn on_app_action_str(&mut self, app: &mut App, action: &str, ctx: &mut EventCtx) {
+    fn on_app_action_str(&mut self, app: &mut App, action: &str, ctx: &mut textual::event::WidgetCtx) {
         if action != "request_quit" {
             return;
         }
@@ -114,7 +114,7 @@ impl TextualApp for ModalApp {
         ctx.set_handled();
     }
 
-    fn on_tick_with_app(&mut self, _app: &mut App, _tick: u64, ctx: &mut EventCtx) {
+    fn on_tick_with_app(&mut self, _app: &mut App, _tick: u64, ctx: &mut textual::event::WidgetCtx) {
         if self.should_quit.load(Ordering::SeqCst) {
             ctx.request_stop();
         }

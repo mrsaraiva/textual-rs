@@ -56,7 +56,7 @@ impl TextualApp for ButtonsApp {
         ))
     }
 
-    fn on_button_pressed(&mut self, description: &str, ctx: &mut EventCtx) {
+    fn on_button_pressed(&mut self, description: &str, ctx: &mut textual::event::WidgetCtx) {
         self.selected = Some(description.to_string());
         ctx.request_stop();
         ctx.set_handled();

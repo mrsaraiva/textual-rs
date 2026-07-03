@@ -54,7 +54,7 @@ impl TextualApp for RGBApp {
     /// Handle the `switch_color` action dispatched by the r/g/b key bindings.
     ///
     /// Python: `def action_switch_color(self, color: str) -> None: self.screen.styles.background = color`
-    fn on_app_action_str(&mut self, app: &mut App, action: &str, ctx: &mut EventCtx) {
+    fn on_app_action_str(&mut self, app: &mut App, action: &str, ctx: &mut textual::event::WidgetCtx) {
         if let Some(parsed) = parse_action(action) {
             if parsed.name == "switch_color" {
                 if let Some(color_name) = parsed.arguments.first() {
@@ -75,7 +75,7 @@ impl TextualApp for RGBApp {
     ///
     /// `ButtonPressed.button_id` carries the CSS id set via `.id("red")` etc.,
     /// which we use as the color name to set the screen background.
-    fn on_message_with_app(&mut self, app: &mut App, message: &MessageEvent, ctx: &mut EventCtx) {
+    fn on_message_with_app(&mut self, app: &mut App, message: &MessageEvent, ctx: &mut textual::event::WidgetCtx) {
         if let Some(bp) = message.downcast_ref::<ButtonPressed>() {
             if let Some(color_name) = &bp.button_id {
                 if let Some(color) = textual::style::parse_color_like(color_name) {

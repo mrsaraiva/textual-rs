@@ -86,7 +86,7 @@ impl TextualApp for HelloApp {
         )
     }
 
-    fn on_mount_with_app(&mut self, app: &mut App, ctx: &mut EventCtx) {
+    fn on_mount_with_app(&mut self, app: &mut App, ctx: &mut textual::event::WidgetCtx) {
         // Python: self.border_subtitle = "Click for next hello"
         //         self.action_next_word()
         let markup = self.current_markup();
@@ -97,7 +97,7 @@ impl TextualApp for HelloApp {
         ctx.request_repaint();
     }
 
-    fn on_app_action_str(&mut self, app: &mut App, action: &str, ctx: &mut EventCtx) {
+    fn on_app_action_str(&mut self, app: &mut App, action: &str, ctx: &mut textual::event::WidgetCtx) {
         if action == "next_word" {
             self.hello_idx = (self.hello_idx + 1) % HELLOS.len();
             let markup = self.current_markup();

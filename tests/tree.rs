@@ -2,6 +2,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use rich_rs::Console;
 use slotmap::SlotMap;
 use textual::event::MouseDownEvent;
+use textual::event::EventCtx;
 use textual::prelude::*;
 use textual::reactive::ReactiveCtx;
 use textual::render::FrameBuffer;
@@ -58,7 +59,7 @@ fn tree_right_key_expands_selected_node() {
     tree.on_layout(24, 5);
     let key = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
     let mut ctx = EventCtx::default();
-    tree.on_event(&Event::Key(key), &mut ctx);
+    { let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx); tree.on_event(&Event::Key(key), &mut __w) };
     assert!(ctx.handled());
 
     let console = Console::new();
@@ -81,7 +82,7 @@ fn tree_click_on_branch_toggles() {
     tree.on_layout(24, 5);
     let id = NodeId::default();
     let mut ctx = EventCtx::default();
-    tree.on_event(
+    { let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx); tree.on_event(
         &Event::MouseDown(MouseDownEvent {
             target: id,
             screen_x: 0,
@@ -89,8 +90,7 @@ fn tree_click_on_branch_toggles() {
             x: 0,
             y: 0,
         }),
-        &mut ctx,
-    );
+        &mut __w) };
     assert!(ctx.handled());
 
     let console = Console::new();
@@ -120,7 +120,7 @@ fn tree_mouse_scroll_clamps_to_bounds() {
     tree.on_layout(24, 3);
 
     let mut ctx = EventCtx::default();
-    tree.on_mouse_scroll(0, 100, &mut ctx);
+    { let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx); tree.on_mouse_scroll(0, 100, &mut __w) };
     assert!(ctx.handled());
 
     let console = Console::new();
@@ -132,7 +132,7 @@ fn tree_mouse_scroll_clamps_to_bounds() {
     assert!(after_down.as_plain_lines()[0].contains("Node 7"));
 
     let mut ctx = EventCtx::default();
-    tree.on_mouse_scroll(0, -100, &mut ctx);
+    { let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx); tree.on_mouse_scroll(0, -100, &mut __w) };
     assert!(ctx.handled());
 
     let after_up = FrameBuffer::from_renderable(&console, &options, &tree, None);
@@ -154,7 +154,7 @@ fn tree_navigation_skips_disabled_nodes() {
 
     let key = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
     let mut ctx = EventCtx::default();
-    tree.on_event(&Event::Key(key), &mut ctx);
+    { let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx); tree.on_event(&Event::Key(key), &mut __w) };
     assert!(ctx.handled());
     assert_eq!(tree.selected(), 2);
 }
@@ -170,7 +170,7 @@ fn tree_mouse_click_ignores_disabled_nodes() {
 
     let id = NodeId::default();
     let mut ctx = EventCtx::default();
-    tree.on_event(
+    { let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx); tree.on_event(
         &Event::MouseDown(MouseDownEvent {
             target: id,
             screen_x: 0,
@@ -178,8 +178,7 @@ fn tree_mouse_click_ignores_disabled_nodes() {
             x: 0,
             y: 1,
         }),
-        &mut ctx,
-    );
+        &mut __w) };
     assert!(!ctx.handled());
 }
 
@@ -205,7 +204,7 @@ fn tree_allows_expansion_without_preloaded_children() {
 
     let key = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
     let mut ctx = EventCtx::default();
-    tree.on_event(&Event::Key(key), &mut ctx);
+    { let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx); tree.on_event(&Event::Key(key), &mut __w) };
     assert!(ctx.handled());
 
     let after = FrameBuffer::from_renderable(&console, &options, &tree, None);
@@ -243,7 +242,7 @@ fn tree_enter_posts_activation_message_without_toggling() {
 
     let key = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     let mut ctx = EventCtx::default();
-    tree.on_event(&Event::Key(key), &mut ctx);
+    { let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx); tree.on_event(&Event::Key(key), &mut __w) };
     assert!(ctx.handled());
 
     let console = Console::new();
@@ -267,7 +266,7 @@ fn tree_twisty_click_toggles_without_activation_message() {
     let id = NodeId::default();
 
     let mut ctx = EventCtx::default();
-    tree.on_event(
+    { let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx); tree.on_event(
         &Event::MouseDown(MouseDownEvent {
             target: id,
             screen_x: 0,
@@ -275,8 +274,7 @@ fn tree_twisty_click_toggles_without_activation_message() {
             x: 0,
             y: 0,
         }),
-        &mut ctx,
-    );
+        &mut __w) };
     assert!(ctx.handled());
 
     let console = Console::new();

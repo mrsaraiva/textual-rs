@@ -30,7 +30,7 @@ impl TextualApp for EventApp {
         AppRoot::new()
     }
 
-    fn on_mount_with_app(&mut self, app: &mut App, ctx: &mut EventCtx) {
+    fn on_mount_with_app(&mut self, app: &mut App, ctx: &mut textual::event::WidgetCtx) {
         if let Some(color) = color_for_name("darkblue") {
             if let Ok(q) = app.query_mut("Screen") {
                 q.set_styles(|styles| styles.set_bg(color));
@@ -39,7 +39,7 @@ impl TextualApp for EventApp {
         ctx.request_repaint();
     }
 
-    fn on_key_with_app(&mut self, app: &mut App, key: &KeyEventData, ctx: &mut EventCtx) {
+    fn on_key_with_app(&mut self, app: &mut App, key: &KeyEventData, ctx: &mut textual::event::WidgetCtx) {
         let name = key.name();
         if name.len() == 1 {
             let ch = name.chars().next().unwrap();

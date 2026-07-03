@@ -4,7 +4,7 @@ use rich_rs::{Console, ConsoleOptions, MetaValue, Renderable, Segment, Segments}
 use crate::compose::ComposeResult;
 use crate::content::Content;
 use crate::css;
-use crate::event::{Event, EventCtx};
+use crate::event::Event;
 use crate::message::*;
 
 use super::{NodeSeed, Widget};
@@ -135,7 +135,7 @@ impl Widget for CollapsibleTitle {
     /// The title is the focusable node (Python `CollapsibleTitle`), so it owns
     /// the toggle interaction: `enter` while focused, or a click, posts a
     /// [`CollapsibleTitleToggle`] that bubbles to the parent `Collapsible`.
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         match event {
             Event::MouseDown(mouse) if mouse.target == self.node_id() => {
                 self.pressed = true;
@@ -488,7 +488,7 @@ impl Collapsible {
         self.sync_collapsed_class();
     }
 
-    fn toggle_with_ctx(&mut self, ctx: &mut EventCtx) {
+    fn toggle_with_ctx(&mut self, ctx: &mut crate::event::WidgetCtx) {
         self.collapsed = !self.collapsed;
         if self.collapsed {
             ctx.add_class("-collapsed");
@@ -609,7 +609,7 @@ impl Widget for Collapsible {
     /// (the focusable node) posts a toggle message on `enter`/click, and the
     /// enclosing `Collapsible` flips its `collapsed` state and stops
     /// propagation (so a nested outer `Collapsible` is not also toggled).
-    fn on_message(&mut self, message: &crate::message::MessageEvent, ctx: &mut EventCtx) {
+    fn on_message(&mut self, message: &crate::message::MessageEvent, ctx: &mut crate::event::WidgetCtx) {
         if message.is::<CollapsibleTitleToggle>() {
             self.toggle_with_ctx(ctx);
         }
@@ -852,7 +852,10 @@ mod tests {
         );
         let mut ctx = EventCtx::default();
         let key = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()));
-        title.on_event(&Event::Key(key), &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            title.on_event(&Event::Key(key), &mut __w);
+        }
         let messages = ctx.take_messages();
         assert_eq!(messages.len(), 1, "focused title must post one toggle message");
         assert!(messages[0].is::<CollapsibleTitleToggle>());
@@ -867,7 +870,10 @@ mod tests {
         let mut title = CollapsibleTitle::new("Section", "\u{25b6}", "\u{25bc}", true);
         let mut ctx = EventCtx::default();
         let key = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()));
-        title.on_event(&Event::Key(key), &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            title.on_event(&Event::Key(key), &mut __w);
+        }
         assert!(
             ctx.take_messages().is_empty(),
             "an unfocused title must not post a toggle message"
@@ -884,7 +890,10 @@ mod tests {
         let mut ctx = EventCtx::default();
         let sender = crate::node_id::node_id_from_ffi(1);
         let msg = MessageEvent::new(sender, CollapsibleTitleToggle);
-        c.on_message(&msg, &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            c.on_message(&msg, &mut __w);
+        }
         assert!(!c.is_collapsed(), "toggle message must flip collapsed state");
         assert!(ctx.handled(), "handling the toggle must stop propagation");
     }

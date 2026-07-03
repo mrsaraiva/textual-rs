@@ -66,14 +66,14 @@ impl Widget for OuterWidget {
         false
     }
 
-    fn on_message(&mut self, msg: &MessageEvent, ctx: &mut EventCtx) {
+    fn on_message(&mut self, msg: &MessageEvent, ctx: &mut textual::event::WidgetCtx) {
         if msg.downcast_ref::<ButtonPressed>().is_some() {
             ctx.set_handled();
         }
     }
 
-    fn on_event_capture(&mut self, _event: &Event, _ctx: &mut EventCtx) {}
-    fn on_event(&mut self, _event: &Event, _ctx: &mut EventCtx) {}
+    fn on_event_capture(&mut self, _event: &Event, _ctx: &mut textual::event::WidgetCtx) {}
+    fn on_event(&mut self, _event: &Event, _ctx: &mut textual::event::WidgetCtx) {}
 }
 
 impl Renderable for OuterWidget {

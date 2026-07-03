@@ -1,7 +1,7 @@
 use rich_rs::{Console, ConsoleOptions, Renderable, Segments};
 
 use crate::compose::ComposeResult;
-use crate::event::{Event, EventCtx};
+use crate::event::Event;
 use crate::message::*;
 
 use super::{Button, ButtonVariant, Markdown, NodeSeed, Widget};
@@ -108,7 +108,7 @@ impl Widget for Welcome {
         true
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         // Welcome itself does not handle key/mouse events directly — the arena
         // tree routes events to its composed children (Button, Markdown).
         // The only special handling needed here is forwarding focus-related
@@ -116,7 +116,7 @@ impl Widget for Welcome {
         let _ = (event, ctx);
     }
 
-    fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
+    fn on_message(&mut self, message: &MessageEvent, ctx: &mut crate::event::WidgetCtx) {
         // Respond to ButtonPressed bubbling up from the child Button (#close).
         // We do not restrict by sender so this works both in the arena tree
         // (sender = Button's arena NodeId) and in unit tests (sender = any id).
@@ -166,6 +166,7 @@ impl Renderable for Welcome {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::event::EventCtx;
     use crate::message::MessageEvent;
     use crate::node_id::NodeId;
 
@@ -207,7 +208,9 @@ mod tests {
 
         let mut ctx = EventCtx::default();
         // Send ButtonPressed from *any* sender (simulates arena child button).
-        welcome.on_message(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            welcome.on_message(
             &MessageEvent::new(
                 NodeId::default(),
                 ButtonPressed {
@@ -215,8 +218,8 @@ mod tests {
                     button_id: None,
                 },
             ),
-            &mut ctx,
-        );
+            &mut __w);
+        }
 
         assert!(ctx.handled());
         let emitted = ctx.take_messages();
@@ -239,10 +242,12 @@ mod tests {
         let mut welcome = Welcome::new();
         let mut ctx = EventCtx::default();
         // A non-ButtonPressed message should not be handled.
-        welcome.on_message(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            welcome.on_message(
             &MessageEvent::new(NodeId::default(), InputChanged { value: "x".to_string(), validation: crate::validation::ValidationResult::success() }),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         assert!(!ctx.handled());
     }
 }

@@ -1,6 +1,6 @@
 use rich_rs::{Segment, Segments};
 
-use crate::event::{Event, EventCtx, MouseDownEvent, MouseMoveEvent};
+use crate::event::{Event, MouseDownEvent, MouseMoveEvent};
 use crate::message::ScrollbarScrollTo;
 use crate::style::{Color, Overflow, ScrollbarGutter, ScrollbarVisibility, Style};
 use crate::widgets::{NodeSeed, Widget};
@@ -826,7 +826,7 @@ impl Widget for ScrollBar {
         out
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         match event {
             Event::MouseDown(MouseDownEvent {
                 target,
@@ -1041,6 +1041,7 @@ impl Widget for ScrollBarCorner {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::event::EventCtx;
     use crate::event::{MouseDownEvent, MouseMoveEvent, MouseUpEvent};
 
     fn render_glyphs(
@@ -1312,7 +1313,9 @@ mod tests {
         bar.grabbed_position = 4.0;
 
         let mut ctx = EventCtx::default();
-        bar.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            bar.on_event(
             &Event::MouseUp(MouseUpEvent {
                 target: None,
                 screen_x: 0,
@@ -1320,8 +1323,8 @@ mod tests {
                 x: 0,
                 y: 0,
             }),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         assert!(!bar.grabbed);
         assert_eq!(bar.grab_offset, 0);
         assert_eq!(bar.grab_anchor_screen, 0);
@@ -1350,7 +1353,9 @@ mod tests {
 
         // Start drag on thumb at top.
         let mut down_ctx = EventCtx::default();
-        bar.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut down_ctx);
+            bar.on_event(
             &Event::MouseDown(MouseDownEvent {
                 target: id,
                 screen_x: 0,
@@ -1358,13 +1363,15 @@ mod tests {
                 x: 0,
                 y: 0,
             }),
-            &mut down_ctx,
-        );
+            &mut __w);
+        }
         assert!(down_ctx.handled());
 
         // Move pointer by one terminal row.
         let mut move_ctx = EventCtx::default();
-        bar.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut move_ctx);
+            bar.on_event(
             &Event::MouseMove(MouseMoveEvent {
                 target: id,
                 screen_x: 0,
@@ -1372,8 +1379,8 @@ mod tests {
                 x: 0,
                 y: 1,
             }),
-            &mut move_ctx,
-        );
+            &mut __w);
+        }
         assert!(move_ctx.handled());
 
         let messages = move_ctx.take_messages();

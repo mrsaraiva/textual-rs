@@ -16,7 +16,7 @@ impl TextualApp for QuestionApp {
             .with_child(Button::error("No").id("no"))
     }
 
-    fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
+    fn on_message(&mut self, message: &MessageEvent, ctx: &mut textual::event::WidgetCtx) {
         if let Some(m) = message.downcast_ref::<ButtonPressed>() {
             if let Some(id) = &m.button_id {
                 self.reply = Some(id.clone());

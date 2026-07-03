@@ -9,6 +9,33 @@ until the API stabilizes.
 
 ### Framework fundamentals
 
+- **BREAKING — Widget-trait handler signatures migrate to `WidgetCtx`** (RA2.2) —
+  every behavior handler on the `Widget` trait now receives `&mut WidgetCtx`
+  instead of `&mut EventCtx`: `on_event`, `on_event_capture`, `on_message`,
+  `on_mouse_scroll`, `execute_action`, `selection_updated`, and the `on_app_*`
+  hooks. `on_mount(&mut self)` and the additive `on_mount_ctx(&mut self, ctx)` are
+  MERGED into a single `on_mount(&mut self, &mut WidgetCtx)`. Handlers can now use
+  `ctx.query_one::<W>()`, `ctx.set_interval(..)`, `ctx.post_up(..)`, and the
+  `#[derive(Reactive)]` setters directly (the same surface `#[on]` handlers already
+  had) — no more reaching into runtime internals. The runtime builds the `WidgetCtx`
+  at each dispatch site (via `WidgetCtx::__from_dispatch`, wrapping the live dispatch
+  `EventCtx` + node id) and enqueues any recorded reactive changes on return. The
+  app-level typed `TextualApp` / `CommandPaletteProvider` hooks migrate too.
+  `EventCtx` moves out of the prelude — it is now internal/structural (the runtime
+  synthesizes it; `WidgetCtx` is THE user-facing handler context). `WidgetCtx`
+  exposes the EventCtx surface (repaint/handled/messages/animation/overlay/class ops)
+  as inherent delegates while `DerefMut`-ing to the reactive recording surface.
+  Object safety is preserved (`WidgetCtx<'_>` carries only a lifetime, no type
+  param — `Box<dyn Widget>` is unaffected).
+
+- **Widget-owned timer callbacks receive a `TimerTick`** (RA2.2, freeze-critical) —
+  `WidgetCtx::set_interval`'s callback signature becomes
+  `FnMut(&mut Self, &mut WidgetCtx, TimerTick)`, where `TimerTick { elapsed,
+  fire_count }` reports the real clock time elapsed since the previous fire. This is
+  drift-free against Python's wall-clock (`monotonic() - start`) derivation and
+  deterministic under `Pilot::advance_clock`; time-accumulating widgets (e.g. a
+  stopwatch) add `tick.elapsed` per fire instead of a fixed nominal interval.
+
 - **Headless lifecycle convergence** (RA2.0) — the headless/Pilot pump now drains
   tree `Mount`/`Unmount` lifecycle events and fires the widget-owned `on_mount_ctx`
   hook (which registers `set_interval` timers) via the SAME shared function as the

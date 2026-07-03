@@ -36,7 +36,7 @@ impl TextualApp for CodeApp {
         AppRoot::new().with_child(Static::new("").id("code-view"))
     }
 
-    fn on_mount_with_app(&mut self, app: &mut App, ctx: &mut EventCtx) {
+    fn on_mount_with_app(&mut self, app: &mut App, ctx: &mut textual::event::WidgetCtx) {
         // Build a Rich Syntax renderable (mirrors Python's `Syntax(self.code, "python",
         // line_numbers=True, indent_guides=True)`). Language is "rust" here.
         let syntax = Syntax::new(SOURCE, "rust")

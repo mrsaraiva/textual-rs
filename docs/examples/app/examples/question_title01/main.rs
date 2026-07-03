@@ -45,7 +45,7 @@ impl TextualApp for MyApp {
         Ok(())
     }
 
-    fn on_mount_with_app(&mut self, app: &mut App, ctx: &mut EventCtx) {
+    fn on_mount_with_app(&mut self, app: &mut App, ctx: &mut textual::event::WidgetCtx) {
         app.set_sub_title("The most important question");
         ctx.request_repaint();
     }
@@ -59,7 +59,7 @@ impl TextualApp for MyApp {
         ])
     }
 
-    fn on_message_with_app(&mut self, _app: &mut App, message: &MessageEvent, ctx: &mut EventCtx) {
+    fn on_message_with_app(&mut self, _app: &mut App, message: &MessageEvent, ctx: &mut textual::event::WidgetCtx) {
         if let Some(ev) = message.downcast_ref::<ButtonPressed>() {
             self.reply = ev.button_id.clone();
             ctx.request_stop();

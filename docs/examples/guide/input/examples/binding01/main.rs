@@ -101,7 +101,7 @@ impl TextualApp for BindingApp {
             .with_child(Node::new(VerticalScroll::new()).id("bars"))
     }
 
-    fn on_app_action_str(&mut self, app: &mut App, action: &str, ctx: &mut EventCtx) {
+    fn on_app_action_str(&mut self, app: &mut App, action: &str, ctx: &mut textual::event::WidgetCtx) {
         // Parse "add_bar('red')" → name="add_bar", arguments=["red"]
         let Some(parsed) = parse_action(action) else {
             return;

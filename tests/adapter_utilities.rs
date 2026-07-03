@@ -11,12 +11,12 @@ fn overlay_screen_stack_models_push_pop_navigation_on_message_bus() {
     let mut stack = OverlayScreenStack::new();
     let mut ctx = EventCtx::default();
 
-    assert!(stack.push(sender, first, &mut ctx));
-    assert!(stack.push(sender, second, &mut ctx));
+    assert!({ let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx); stack.push(sender, first, &mut __w) });
+    assert!({ let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx); stack.push(sender, second, &mut __w) });
     assert_eq!(stack.len(), 2);
     assert_eq!(stack.current(), Some(second));
-    assert_eq!(stack.pop(sender, &mut ctx), Some(second));
+    assert_eq!({ let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx); stack.pop(sender, &mut __w) }, Some(second));
     assert_eq!(stack.current(), Some(first));
-    stack.clear(sender, &mut ctx);
+    { let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx); stack.clear(sender, &mut __w) };
     assert!(stack.is_empty());
 }

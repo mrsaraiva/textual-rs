@@ -76,11 +76,11 @@ impl Widget for Hello {
         self.inner.content_width()
     }
 
-    fn on_mount(&mut self) {
+    fn on_mount(&mut self, _ctx: &mut textual::event::WidgetCtx) {
         self.next_word();
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut textual::event::WidgetCtx) {
         if let Event::Click(_) = event {
             self.next_word();
             ctx.request_repaint();

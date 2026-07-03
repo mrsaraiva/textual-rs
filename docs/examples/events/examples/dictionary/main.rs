@@ -72,7 +72,7 @@ impl TextualApp for DictionaryApp {
         &mut self,
         value: &str,
         _validation: &ValidationResult,
-        ctx: &mut EventCtx,
+        ctx: &mut textual::event::WidgetCtx,
     ) {
         let word = value.trim().to_string();
         *self.current_word.lock().unwrap() = word.clone();
@@ -104,7 +104,7 @@ impl TextualApp for DictionaryApp {
         &mut self,
         app: &mut App,
         message: &MessageEvent,
-        ctx: &mut EventCtx,
+        ctx: &mut textual::event::WidgetCtx,
     ) {
         if let Some(w) = message.downcast_ref::<WorkerStateChanged>() {
             if matches!(w.state, WorkerState::Success) {

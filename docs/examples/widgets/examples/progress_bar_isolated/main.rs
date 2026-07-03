@@ -50,7 +50,7 @@ impl TextualApp for IndeterminateProgressBar {
             .with_child(Footer::new())
     }
 
-    fn on_mount_with_app(&mut self, app: &mut App, _ctx: &mut EventCtx) {
+    fn on_mount_with_app(&mut self, app: &mut App, _ctx: &mut textual::event::WidgetCtx) {
         // Python on_mount: set_interval(1 / 10, self.make_progress, pause=True).
         // Each fire advances the bar by 1 (Python `make_progress`).
         self.progress_timer = Some(app.set_interval(
@@ -65,7 +65,7 @@ impl TextualApp for IndeterminateProgressBar {
         ));
     }
 
-    fn on_app_action_str(&mut self, app: &mut App, action: &str, ctx: &mut EventCtx) {
+    fn on_app_action_str(&mut self, app: &mut App, action: &str, ctx: &mut textual::event::WidgetCtx) {
         if action == "start" {
             // Python action_start: query_one(ProgressBar).update(total=100); timer.resume().
             let _ = app.with_query_one_mut_as::<ProgressBar, _>("#progress_bar", |bar| {

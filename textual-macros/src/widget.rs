@@ -261,11 +261,10 @@ fn method_table() -> Vec<MethodSpec> {
             quote! { on_node_state_changed(old, new) }
         ),
         // ── Lifecycle ──────────────────────────────────────────────────
-        m!("on_mount", quote! { fn on_mount(&mut self) }, quote! { on_mount() }),
         m!(
-            "on_mount_ctx",
-            quote! { fn on_mount_ctx(&mut self, ctx: &mut textual::event::WidgetCtx) },
-            quote! { on_mount_ctx(ctx) }
+            "on_mount",
+            quote! { fn on_mount(&mut self, ctx: &mut textual::event::WidgetCtx) },
+            quote! { on_mount(ctx) }
         ),
         m!("on_unmount", quote! { fn on_unmount(&mut self) }, quote! { on_unmount() }),
         m!("on_tick", quote! { fn on_tick(&mut self, tick: u64) }, quote! { on_tick(tick) }),
@@ -287,22 +286,22 @@ fn method_table() -> Vec<MethodSpec> {
         // ── Events ─────────────────────────────────────────────────────
         m!(
             "on_event_capture",
-            quote! { fn on_event_capture(&mut self, event: &textual::event::Event, ctx: &mut textual::event::EventCtx) },
+            quote! { fn on_event_capture(&mut self, event: &textual::event::Event, ctx: &mut textual::event::WidgetCtx) },
             quote! { on_event_capture(event, ctx) }
         ),
         m!(
             "on_event",
-            quote! { fn on_event(&mut self, event: &textual::event::Event, ctx: &mut textual::event::EventCtx) },
+            quote! { fn on_event(&mut self, event: &textual::event::Event, ctx: &mut textual::event::WidgetCtx) },
             quote! { on_event(event, ctx) }
         ),
         m!(
             "on_message",
-            quote! { fn on_message(&mut self, message: &textual::message::MessageEvent, ctx: &mut textual::event::EventCtx) },
+            quote! { fn on_message(&mut self, message: &textual::message::MessageEvent, ctx: &mut textual::event::WidgetCtx) },
             quote! { on_message(message, ctx) }
         ),
         m!(
             "on_mouse_scroll",
-            quote! { fn on_mouse_scroll(&mut self, delta_x: i32, delta_y: i32, ctx: &mut textual::event::EventCtx) },
+            quote! { fn on_mouse_scroll(&mut self, delta_x: i32, delta_y: i32, ctx: &mut textual::event::WidgetCtx) },
             quote! { on_mouse_scroll(delta_x, delta_y, ctx) }
         ),
         m!(
@@ -313,27 +312,27 @@ fn method_table() -> Vec<MethodSpec> {
         // ── App-level hooks ────────────────────────────────────────────
         m!(
             "on_app_key",
-            quote! { fn on_app_key(&mut self, app: &mut textual::App, key: &textual::keys::KeyEventData, ctx: &mut textual::event::EventCtx) },
+            quote! { fn on_app_key(&mut self, app: &mut textual::App, key: &textual::keys::KeyEventData, ctx: &mut textual::event::WidgetCtx) },
             quote! { on_app_key(app, key, ctx) }
         ),
         m!(
             "on_app_action",
-            quote! { fn on_app_action(&mut self, app: &mut textual::App, action: textual::event::Action, ctx: &mut textual::event::EventCtx) },
+            quote! { fn on_app_action(&mut self, app: &mut textual::App, action: textual::event::Action, ctx: &mut textual::event::WidgetCtx) },
             quote! { on_app_action(app, action, ctx) }
         ),
         m!(
             "on_app_message",
-            quote! { fn on_app_message(&mut self, app: &mut textual::App, message: &textual::message::MessageEvent, ctx: &mut textual::event::EventCtx) },
+            quote! { fn on_app_message(&mut self, app: &mut textual::App, message: &textual::message::MessageEvent, ctx: &mut textual::event::WidgetCtx) },
             quote! { on_app_message(app, message, ctx) }
         ),
         m!(
             "on_app_tick",
-            quote! { fn on_app_tick(&mut self, app: &mut textual::App, tick: u64, ctx: &mut textual::event::EventCtx) },
+            quote! { fn on_app_tick(&mut self, app: &mut textual::App, tick: u64, ctx: &mut textual::event::WidgetCtx) },
             quote! { on_app_tick(app, tick, ctx) }
         ),
         m!(
             "on_app_mount",
-            quote! { fn on_app_mount(&mut self, app: &mut textual::App, ctx: &mut textual::event::EventCtx) },
+            quote! { fn on_app_mount(&mut self, app: &mut textual::App, ctx: &mut textual::event::WidgetCtx) },
             quote! { on_app_mount(app, ctx) }
         ),
         // ── Scroll ─────────────────────────────────────────────────────
@@ -401,7 +400,7 @@ fn method_table() -> Vec<MethodSpec> {
         ),
         m!(
             "execute_action",
-            quote! { fn execute_action(&mut self, action: &textual::action::ParsedAction, ctx: &mut textual::event::EventCtx) -> bool },
+            quote! { fn execute_action(&mut self, action: &textual::action::ParsedAction, ctx: &mut textual::event::WidgetCtx) -> bool },
             quote! { execute_action(action, ctx) }
         ),
         m!(
@@ -493,7 +492,7 @@ fn method_table() -> Vec<MethodSpec> {
         ),
         m!(
             "selection_updated",
-            quote! { fn selection_updated(&mut self, ctx: &mut textual::event::EventCtx) },
+            quote! { fn selection_updated(&mut self, ctx: &mut textual::event::WidgetCtx) },
             quote! { selection_updated(ctx) }
         ),
         // ── Reactive ───────────────────────────────────────────────────
@@ -604,9 +603,16 @@ pub fn widget_impl(attr: TokenStream, item: TokenStream) -> TokenStream {
         }
 
         // `on_message` with an `on(..)` handler list: run the widget's own
-        // `#[on(..)]` handlers (with a WidgetCtx materialized over the REAL
-        // dispatch EventCtx so handler-posted messages route normally), enqueue
-        // any reactive changes, THEN forward to the base's own `on_message`.
+        // `#[on(..)]` handlers with the REAL dispatch `WidgetCtx` (so
+        // handler-posted messages / reactive changes flow through the ctx the
+        // routing dispatch site enqueues after `on_message` returns), THEN
+        // forward to the base's own `on_message`.
+        //
+        // Since RA2.2 the trait `on_message` already receives a `&mut WidgetCtx`
+        // (the routing site materializes it via `__from_dispatch` and enqueues
+        // the recorded reactive changes on return), so the glue no longer
+        // materializes its own ctx or enqueues — it hands the incoming ctx to
+        // each handler and to the base.
         //
         // NOTE: the base forward invokes the BASE widget's own on_message
         // behavior — it does NOT re-dispatch to children (children receive the
@@ -619,22 +625,16 @@ pub fn widget_impl(attr: TokenStream, item: TokenStream) -> TokenStream {
                 .iter()
                 .map(|h| {
                     let dispatch = format_ident!("__on_dispatch_{}", h);
-                    quote! { let _ = self.#dispatch(message, &mut __wctx); }
+                    quote! { let _ = self.#dispatch(message, ctx); }
                 })
                 .collect();
             methods.push(quote! {
                 fn on_message(
                     &mut self,
                     message: &textual::message::MessageEvent,
-                    ctx: &mut textual::event::EventCtx,
+                    ctx: &mut textual::event::WidgetCtx,
                 ) {
-                    {
-                        let __node = ctx.node_id();
-                        let mut __wctx =
-                            textual::event::WidgetCtx::__from_dispatch(__node, &mut *ctx);
-                        #(#dispatch_calls)*
-                        __wctx.__enqueue_reactive_if_dirty();
-                    }
+                    #(#dispatch_calls)*
                     // Forward to the base widget's own on_message (its behavior),
                     // exactly as the plain forwarding row would — this is NOT a
                     // re-dispatch to children.
@@ -720,10 +720,9 @@ mod tests {
             quote! { struct W { base: Vertical } },
         )
         .to_string();
-        // Generated on_message calls the dispatch method with a materialized ctx.
+        // Generated on_message calls the dispatch method with the incoming ctx
+        // (RA2.2: the routing site owns __from_dispatch + reactive enqueue).
         assert!(out.contains("__on_dispatch_on_button"));
-        assert!(out.contains("__from_dispatch"));
-        assert!(out.contains("__enqueue_reactive_if_dirty"));
     }
 
     #[test]
@@ -759,16 +758,17 @@ mod tests {
     #[test]
     fn default_forwarded_surface_matches_delegate_widget_to() {
         // The default-forwarded set is the 63-method surface the deprecated
-        // `delegate_widget_to!` forwarded, PLUS `on_mount_ctx` (added in the
-        // WidgetCtx build) = 64 (table minus the two non-forwarded style_type
-        // methods, which keep the trait default).
+        // `delegate_widget_to!` forwarded (table minus the two non-forwarded
+        // style_type methods, which keep the trait default). RA2.2 merged the
+        // former `on_mount` + `on_mount_ctx` into a single `on_mount(ctx)` row,
+        // so the count is back to 63.
         let forwarded = method_table()
             .iter()
             .filter(|m| is_default_forwarded(m.name))
             .count();
         assert_eq!(
-            forwarded, 64,
-            "default-forwarded surface = delegate_widget_to! (63) + on_mount_ctx"
+            forwarded, 63,
+            "default-forwarded surface = delegate_widget_to! (63)"
         );
     }
 }

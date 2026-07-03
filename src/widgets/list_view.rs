@@ -3,7 +3,7 @@ use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
 use crate::compose::ComposeResult;
 use crate::css;
-use crate::event::{Action, Event, EventCtx};
+use crate::event::{Action, Event};
 use crate::message::*;
 
 use crate::action::ParsedAction;
@@ -364,7 +364,7 @@ impl ListView {
     }
 
     /// Post the Python `ListView.Highlighted` message for the current selection.
-    fn emit_highlighted(&self, ctx: &mut EventCtx) {
+    fn emit_highlighted(&self, ctx: &mut crate::event::WidgetCtx) {
         if self.is_selectable(self.selected)
             && let Some(item) = self.item_text.get(self.selected)
         {
@@ -376,7 +376,7 @@ impl ListView {
     }
 
     /// Post the Python `ListView.Selected` message for `index`.
-    fn emit_selected(&self, index: usize, ctx: &mut EventCtx) {
+    fn emit_selected(&self, index: usize, ctx: &mut crate::event::WidgetCtx) {
         if self.is_selectable(index)
             && let Some(item) = self.item_text.get(index)
         {
@@ -387,7 +387,7 @@ impl ListView {
         }
     }
 
-    fn select_index(&mut self, index: usize, ctx: &mut EventCtx) {
+    fn select_index(&mut self, index: usize, ctx: &mut crate::event::WidgetCtx) {
         if self.selectable_count() == 0 {
             return;
         }
@@ -403,7 +403,7 @@ impl ListView {
         }
     }
 
-    fn move_selection(&mut self, delta: isize, ctx: &mut EventCtx) {
+    fn move_selection(&mut self, delta: isize, ctx: &mut crate::event::WidgetCtx) {
         if self.selectable_count() == 0 {
             return;
         }
@@ -435,7 +435,7 @@ impl ListView {
             .map(|w| w.max(1))
     }
 
-    fn scroll_offset(&mut self, delta_rows: isize, ctx: &mut EventCtx) {
+    fn scroll_offset(&mut self, delta_rows: isize, ctx: &mut crate::event::WidgetCtx) {
         let before = self.offset;
         self.offset = ScrollView::line_scroll_by(
             self.offset,
@@ -551,7 +551,7 @@ impl Widget for ListView {
         ]
     }
 
-    fn execute_action(&mut self, action: &ParsedAction, ctx: &mut EventCtx) -> bool {
+    fn execute_action(&mut self, action: &ParsedAction, ctx: &mut crate::event::WidgetCtx) -> bool {
         match action.name.as_str() {
             "cursor_up" => {
                 self.move_selection(-1, ctx);
@@ -596,7 +596,7 @@ impl Widget for ListView {
         }
     }
 
-    fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
+    fn on_message(&mut self, message: &MessageEvent, ctx: &mut crate::event::WidgetCtx) {
         // A child ListItem was clicked (Python: `_on_list_item__child_clicked`):
         // focus the list, highlight the item, and post `Selected`.
         if let Some(clicked) = message.downcast_ref::<ListItemChildClicked>() {
@@ -614,7 +614,7 @@ impl Widget for ListView {
         }
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         match event {
             // Headless mouse path (row-based): used when ListView is embedded as
             // a state model (the command palette) rather than mounted with real
@@ -717,7 +717,7 @@ impl Widget for ListView {
         false
     }
 
-    fn on_mouse_scroll(&mut self, _delta_x: i32, delta_y: i32, ctx: &mut EventCtx) {
+    fn on_mouse_scroll(&mut self, _delta_x: i32, delta_y: i32, ctx: &mut crate::event::WidgetCtx) {
         if delta_y == 0 {
             return;
         }
@@ -917,7 +917,10 @@ mod tests {
 
         let key = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
         let mut ctx = EventCtx::default();
-        list.on_event(&Event::Key(key), &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            list.on_event(&Event::Key(key), &mut __w);
+        }
 
         let messages = ctx.take_messages();
         assert_eq!(messages.len(), 1);
@@ -933,7 +936,9 @@ mod tests {
         let mut list = ListView::new(vec!["one".to_string(), "two".to_string()]);
         let _guard = set_dispatch_recipient(make_node_id(), NodeState::default());
         let mut ctx = EventCtx::default();
-        list.on_message(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            list.on_message(
             &MessageEvent::new(
                 NodeId::default(),
                 ListItemChildClicked {
@@ -941,8 +946,8 @@ mod tests {
                     item: "two".to_string(),
                 },
             ),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         assert_eq!(list.selected(), 1);
         let messages = ctx.take_messages();
         // Highlighted (selection changed) + Selected.
@@ -966,7 +971,9 @@ mod tests {
         let id = NodeId::default();
 
         let mut ctx = EventCtx::default();
-        list.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            list.on_event(
             &Event::MouseDown(MouseDownEvent {
                 target: id,
                 screen_x: 0,
@@ -974,13 +981,15 @@ mod tests {
                 x: 0,
                 y: 1,
             }),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         assert!(ctx.handled());
         assert_eq!(list.selected(), 1);
 
         let mut up_ctx = EventCtx::default();
-        list.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut up_ctx);
+            list.on_event(
             &Event::MouseUp(MouseUpEvent {
                 target: Some(id),
                 screen_x: 0,
@@ -988,8 +997,8 @@ mod tests {
                 x: 0,
                 y: 1,
             }),
-            &mut up_ctx,
-        );
+            &mut __w);
+        }
         let messages = up_ctx.take_messages();
         assert_eq!(messages.len(), 1);
         assert!(messages[0].is::<ListViewItemActivated>());
@@ -1002,7 +1011,10 @@ mod tests {
         assert_eq!(list.hovered_index(), Some(0));
 
         let mut ctx = EventCtx::default();
-        list.on_event(&Event::AppFocus(false), &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            list.on_event(&Event::AppFocus(false), &mut __w);
+        }
 
         assert_eq!(list.hovered_index(), None);
         assert!(ctx.repaint_requested());
@@ -1028,7 +1040,7 @@ mod tests {
             name: "cursor_down".to_string(),
             arguments: vec![],
         };
-        assert!(list.execute_action(&action, &mut ctx));
+        assert!({ let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx); list.execute_action(&action, &mut __w) });
         assert_eq!(list.selected(), 1);
     }
 
@@ -1097,7 +1109,10 @@ mod tests {
         let _guard = set_dispatch_recipient(make_node_id(), focused_state());
         list.on_layout(20, 3);
         let mut ctx = EventCtx::default();
-        list.on_event(&Event::Action(crate::event::Action::ScrollDown), &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            list.on_event(&Event::Action(crate::event::Action::ScrollDown), &mut __w);
+        }
         assert_eq!(list.selected(), 2);
     }
 
@@ -1106,7 +1121,10 @@ mod tests {
         let mut list = ListView::new((0..10).map(|i| format!("item-{i}")).collect());
         list.on_layout(20, 3);
         let mut ctx = EventCtx::default();
-        list.on_mouse_scroll(0, 100, &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            list.on_mouse_scroll(0, 100, &mut __w);
+        }
         assert!(ctx.handled());
         assert_eq!(list.offset(), 7);
     }

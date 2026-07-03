@@ -271,15 +271,15 @@ impl Widget for Stopwatch {
         false
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut textual::event::WidgetCtx) {
         self.inner.on_event(event, ctx);
     }
 
-    fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event_capture(&mut self, event: &Event, ctx: &mut textual::event::WidgetCtx) {
         self.inner.on_event_capture(event, ctx);
     }
 
-    fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
+    fn on_message(&mut self, message: &MessageEvent, ctx: &mut textual::event::WidgetCtx) {
         if let Some(bp) = message.downcast_ref::<ButtonPressed>() {
             let kind = match bp.button_id.as_deref() {
                 Some("start") => {
@@ -356,7 +356,7 @@ impl TextualApp for StopwatchApp {
             )
     }
 
-    fn on_mount_with_app(&mut self, app: &mut App, _ctx: &mut EventCtx) {
+    fn on_mount_with_app(&mut self, app: &mut App, _ctx: &mut textual::event::WidgetCtx) {
         // Python TimeDisplay.on_mount: set_interval(1/60, update_time, pause=True).
         // One app-owned 1/60s interval drives `update_time` on every TimeDisplay
         // (including dynamically added ones, since it re-queries each fire); each
@@ -383,7 +383,7 @@ impl TextualApp for StopwatchApp {
         );
     }
 
-    fn on_message_with_app(&mut self, app: &mut App, message: &MessageEvent, ctx: &mut EventCtx) {
+    fn on_message_with_app(&mut self, app: &mut App, message: &MessageEvent, ctx: &mut textual::event::WidgetCtx) {
         if let Some(cmd) = message.downcast_ref::<TimeDisplayCmd>() {
             let sel = format!("#{}", cmd.display_id);
             let node_id = match app.query(&sel).and_then(|q| q.first()) {
@@ -404,7 +404,7 @@ impl TextualApp for StopwatchApp {
         }
     }
 
-    fn on_key_with_app(&mut self, app: &mut App, key: &KeyEventData, ctx: &mut EventCtx) {
+    fn on_key_with_app(&mut self, app: &mut App, key: &KeyEventData, ctx: &mut textual::event::WidgetCtx) {
         match key.name() {
             "a" => {
                 // Python: self.query_one("#timers").mount(Stopwatch())

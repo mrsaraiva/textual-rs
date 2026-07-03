@@ -1,7 +1,7 @@
 use rich_rs::{Console, ConsoleOptions, MetaValue, Renderable, Segment, Segments, Text};
 
 use crate::content::{Content, ContentPart};
-use crate::event::{Event, EventCtx};
+use crate::event::Event;
 use crate::message::*;
 
 use super::{NodeSeed, Widget};
@@ -105,7 +105,7 @@ impl Toast {
         &self.message
     }
 
-    fn dismiss(&mut self, ctx: &mut EventCtx) {
+    fn dismiss(&mut self, ctx: &mut crate::event::WidgetCtx) {
         if self.dismissed {
             return;
         }
@@ -189,7 +189,7 @@ impl Widget for Toast {
         Some(msg_width.max(title_width).saturating_add(chrome_lr).max(1))
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         match event {
             Event::MouseDown(mouse) if mouse.target == self.node_id() => {
                 self.dismiss(ctx);

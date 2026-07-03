@@ -13,7 +13,6 @@
 use std::sync::{Arc, Mutex};
 
 use rich_rs::{Console, ConsoleOptions};
-use textual::event::EventCtx;
 use textual::message::{Message, MessageEvent, SelectChanged};
 use textual::node_id::NodeId;
 use textual::runtime::dispatch_message_queue_tree;
@@ -55,7 +54,7 @@ impl Widget for Recorder {
         rich_rs::Segments::new()
     }
 
-    fn on_message(&mut self, message: &MessageEvent, _ctx: &mut EventCtx) {
+    fn on_message(&mut self, message: &MessageEvent, _ctx: &mut textual::event::WidgetCtx) {
         let ping_n = message.downcast_ref::<MountedPing>().map(|p| p.n);
         let select_changed = message.downcast_ref::<SelectChanged>().cloned();
         if ping_n.is_some() || select_changed.is_some() {

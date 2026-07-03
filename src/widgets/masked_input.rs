@@ -2,7 +2,7 @@ use rich_rs::{Console, ConsoleOptions, Renderable, Segments};
 use std::collections::HashSet;
 use std::time::Instant;
 
-use crate::event::{Event, EventCtx};
+use crate::event::Event;
 use crate::message::*;
 use crate::style::{Color, parse_color_like};
 use crate::validation::{ValidationResult, ValidatorRef};
@@ -609,7 +609,7 @@ impl MaskedInput {
         self.value.iter().collect()
     }
 
-    fn post_changed(&mut self, ctx: &mut EventCtx) {
+    fn post_changed(&mut self, ctx: &mut crate::event::WidgetCtx) {
         ctx.post_message(InputChanged {
             value: self.value_str(),
             validation: self.validation_result.clone(),
@@ -853,7 +853,7 @@ impl Widget for MaskedInput {
         true
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         match event {
             Event::AppFocus(active) => {
                 self.chrome.handle_app_focus(*active);
@@ -983,7 +983,7 @@ impl Widget for MaskedInput {
         }
     }
 
-    fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
+    fn on_message(&mut self, message: &MessageEvent, ctx: &mut crate::event::WidgetCtx) {
         if let Some(m) = message.downcast_ref::<TextEditClipboardPaste>() {
             if m.target != self.node_id() {
                 return;
@@ -1115,6 +1115,7 @@ impl Renderable for MaskedInput {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::event::EventCtx;
     use crate::keys::KeyEventData;
     use crate::node_id::NodeId;
     use crate::runtime::dispatch_ctx::set_dispatch_recipient;
@@ -1328,13 +1329,15 @@ mod tests {
         let _guard = set_dispatch_recipient(make_node_id(), focused_state());
         let mut ctx = EventCtx::default();
 
-        input.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            input.on_event(
             &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
                 KeyCode::Char('1'),
                 KeyModifiers::NONE,
             ))),
-            &mut ctx,
-        );
+            &mut __w);
+        }
 
         let messages = ctx.take_messages();
         assert!(messages.iter().any(|m| {
@@ -1351,13 +1354,15 @@ mod tests {
         input.cursor = 4;
         let mut ctx = EventCtx::default();
 
-        input.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            input.on_event(
             &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
                 KeyCode::Char('u'),
                 KeyModifiers::CONTROL,
             ))),
-            &mut ctx,
-        );
+            &mut __w);
+        }
 
         assert_eq!(input.text(), "");
         assert!(ctx.handled());
@@ -1371,13 +1376,15 @@ mod tests {
         input.set_text("1234");
 
         let mut ctx = EventCtx::default();
-        input.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            input.on_event(
             &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
                 KeyCode::Char('c'),
                 KeyModifiers::CONTROL,
             ))),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         let copy_messages = ctx.take_messages();
         assert!(copy_messages.iter().any(|m| {
             m.downcast_ref::<TextEditClipboardCopyRequested>()
@@ -1385,13 +1392,15 @@ mod tests {
         }));
 
         let mut ctx = EventCtx::default();
-        input.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            input.on_event(
             &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
                 KeyCode::Char('x'),
                 KeyModifiers::CONTROL,
             ))),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         let cut_messages = ctx.take_messages();
         assert!(cut_messages.iter().any(|m| {
             m.downcast_ref::<TextEditClipboardCopyRequested>()
@@ -1400,7 +1409,9 @@ mod tests {
         assert_eq!(input.text(), "");
 
         let mut ctx = EventCtx::default();
-        input.on_message(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            input.on_message(
             &MessageEvent::new(
                 NodeId::default(),
                 TextEditClipboardPaste {
@@ -1408,8 +1419,8 @@ mod tests {
                     text: "9876".to_string(),
                 },
             ),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         assert_eq!(input.text(), "9876");
         assert!(ctx.handled());
     }
@@ -1421,7 +1432,9 @@ mod tests {
         let _guard = set_dispatch_recipient(id, focused_state());
 
         let mut ctx = EventCtx::default();
-        input.on_message(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            input.on_message(
             &MessageEvent::new(
                 NodeId::default(),
                 TextEditClipboardPaste {
@@ -1429,8 +1442,8 @@ mod tests {
                     text: "9876\n1234".to_string(),
                 },
             ),
-            &mut ctx,
-        );
+            &mut __w);
+        }
 
         assert_eq!(input.text(), "9876");
         assert!(ctx.handled());
@@ -1471,7 +1484,9 @@ mod tests {
         let _guard = set_dispatch_recipient(id, NodeState::default());
 
         let mut ctx = EventCtx::default();
-        input.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            input.on_event(
             &Event::MouseDown(crate::event::MouseDownEvent {
                 target: id,
                 screen_x: 0,
@@ -1479,8 +1494,8 @@ mod tests {
                 x: 0,
                 y: 0,
             }),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         assert!(ctx.handled());
     }
 
@@ -1496,7 +1511,9 @@ mod tests {
         let _guard = set_dispatch_recipient(my_id, NodeState::default());
 
         let mut ctx = EventCtx::default();
-        input.on_event(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            input.on_event(
             &Event::MouseDown(crate::event::MouseDownEvent {
                 target: other_id,
                 screen_x: 0,
@@ -1504,8 +1521,8 @@ mod tests {
                 x: 0,
                 y: 0,
             }),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         assert!(!ctx.handled());
     }
 
@@ -1521,7 +1538,9 @@ mod tests {
         let _guard = set_dispatch_recipient(my_id, NodeState::default());
 
         let mut ctx = EventCtx::default();
-        input.on_message(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            input.on_message(
             &MessageEvent::new(
                 NodeId::default(),
                 TextEditClipboardPaste {
@@ -1529,8 +1548,8 @@ mod tests {
                     text: "1234".to_string(),
                 },
             ),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         assert!(!ctx.handled());
         assert_eq!(input.text(), "");
     }

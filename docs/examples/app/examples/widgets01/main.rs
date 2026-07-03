@@ -11,7 +11,7 @@ impl TextualApp for WelcomeApp {
         AppRoot::new().with_child(Welcome::new())
     }
 
-    fn on_button_pressed(&mut self, _description: &str, ctx: &mut EventCtx) {
+    fn on_button_pressed(&mut self, _description: &str, ctx: &mut textual::event::WidgetCtx) {
         ctx.request_stop();
     }
 }

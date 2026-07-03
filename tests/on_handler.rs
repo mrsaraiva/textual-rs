@@ -73,7 +73,7 @@ fn checkbox_event(checked: bool) -> MessageEvent {
 }
 
 // ---------------------------------------------------------------------------
-// Tests — type-only dispatch (new signature: &MessageEvent, &mut EventCtx)
+// Tests — type-only dispatch (new signature: &MessageEvent, &mut textual::event::WidgetCtx)
 // ---------------------------------------------------------------------------
 
 #[test]

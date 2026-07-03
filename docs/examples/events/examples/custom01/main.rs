@@ -52,7 +52,7 @@ impl Widget for ColorButton {
         "ColorButton"
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut textual::event::WidgetCtx) {
         if matches!(event, Event::Click(_)) {
             ctx.post_message(ColorSelected { color: self.color });
             ctx.set_handled();
@@ -105,7 +105,7 @@ impl TextualApp for ColorApp {
         &mut self,
         app: &mut App,
         message: &MessageEvent,
-        ctx: &mut EventCtx,
+        ctx: &mut textual::event::WidgetCtx,
     ) {
         if let Some(m) = message.downcast_ref::<ColorSelected>() {
             if let Ok(q) = app.query_mut("Screen") {

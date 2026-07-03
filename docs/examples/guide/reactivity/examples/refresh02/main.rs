@@ -90,7 +90,7 @@ impl TextualApp for WatchApp {
             .with_child(Name::new())
     }
 
-    fn on_message_with_app(&mut self, app: &mut App, message: &MessageEvent, ctx: &mut EventCtx) {
+    fn on_message_with_app(&mut self, app: &mut App, message: &MessageEvent, ctx: &mut textual::event::WidgetCtx) {
         if let Some(m) = message.downcast_ref::<InputChanged>() {
             let value = m.value.clone();
             if let Ok(name_id) = app.query_one("Name") {

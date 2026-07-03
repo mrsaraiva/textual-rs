@@ -355,7 +355,7 @@ impl ScrollView {
         from: usize,
         to: usize,
         duration_override: Option<Duration>,
-        ctx: &mut EventCtx,
+        ctx: &mut crate::event::WidgetCtx,
     ) {
         if from == to {
             return;
@@ -397,7 +397,7 @@ impl ScrollView {
         ctx.request_repaint();
     }
 
-    fn request_offset_y_animation(&mut self, from: usize, to: usize, ctx: &mut EventCtx) {
+    fn request_offset_y_animation(&mut self, from: usize, to: usize, ctx: &mut crate::event::WidgetCtx) {
         self.request_offset_y_animation_with_duration(from, to, None, ctx);
     }
 
@@ -406,7 +406,7 @@ impl ScrollView {
         from: usize,
         to: usize,
         duration_override: Option<Duration>,
-        ctx: &mut EventCtx,
+        ctx: &mut crate::event::WidgetCtx,
     ) {
         if from == to {
             return;
@@ -448,7 +448,7 @@ impl ScrollView {
         ctx.request_repaint();
     }
 
-    fn request_offset_x_animation(&mut self, from: usize, to: usize, ctx: &mut EventCtx) {
+    fn request_offset_x_animation(&mut self, from: usize, to: usize, ctx: &mut crate::event::WidgetCtx) {
         self.request_offset_x_animation_with_duration(from, to, None, ctx);
     }
 
@@ -1075,9 +1075,9 @@ impl Widget for ScrollView {
         out
     }
 
-    fn on_mount(&mut self) {
+    fn on_mount(&mut self, ctx: &mut crate::event::WidgetCtx) {
         if !self.child_extracted {
-            self.child.on_mount();
+            self.child.on_mount(ctx);
         }
     }
 
@@ -1103,7 +1103,7 @@ impl Widget for ScrollView {
         ScrollView::set_virtual_content_size(self, width, height);
     }
 
-    fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event_capture(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         if !self.child_extracted {
             self.child.on_event_capture(event, ctx);
         }
@@ -1126,7 +1126,7 @@ impl Widget for ScrollView {
         ]
     }
 
-    fn execute_action(&mut self, action: &ParsedAction, ctx: &mut EventCtx) -> bool {
+    fn execute_action(&mut self, action: &ParsedAction, ctx: &mut crate::event::WidgetCtx) -> bool {
         match action.name.as_str() {
             "scroll_up" => {
                 let before = self.offset_y;
@@ -1193,7 +1193,7 @@ impl Widget for ScrollView {
         }
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         self.sync_child_layout();
         if let Event::AnimationValue(AnimationValueEvent {
             target,
@@ -1349,13 +1349,19 @@ impl Widget for ScrollView {
                 _ => None,
             };
             let mut child_ctx = EventCtx::default();
-            if let Some(child_event) = child_event.as_ref() {
-                self.child.on_event(child_event, &mut child_ctx);
-            } else {
-                self.child.on_event(event, &mut child_ctx);
+            {
+                let mut child_wctx = crate::event::WidgetCtx::__from_dispatch(
+                    crate::node_id::NodeId::default(),
+                    &mut child_ctx,
+                );
+                if let Some(child_event) = child_event.as_ref() {
+                    self.child.on_event(child_event, &mut child_wctx);
+                } else {
+                    self.child.on_event(event, &mut child_wctx);
+                }
             }
             let child_handled = child_ctx.handled();
-            ctx.merge_from(child_ctx);
+            ctx.event_ctx_mut().merge_from(child_ctx);
             if child_handled {
                 return;
             }
@@ -1498,7 +1504,7 @@ impl Widget for ScrollView {
         }
     }
 
-    fn on_message(&mut self, msg: &MessageEvent, ctx: &mut EventCtx) {
+    fn on_message(&mut self, msg: &MessageEvent, ctx: &mut crate::event::WidgetCtx) {
         let Some(ScrollbarScrollTo {
             axis,
             offset,
@@ -1554,7 +1560,7 @@ impl Widget for ScrollView {
         ctx.set_handled();
     }
 
-    fn on_mouse_scroll(&mut self, delta_x: i32, delta_y: i32, ctx: &mut EventCtx) {
+    fn on_mouse_scroll(&mut self, delta_x: i32, delta_y: i32, ctx: &mut crate::event::WidgetCtx) {
         // Horizontal-only scroll containers use wheel Y deltas to scroll X.
         let mut resolved_dx = delta_x;
         let mut resolved_dy = delta_y;
@@ -1741,7 +1747,7 @@ mod tests {
             name: "scroll_down".to_string(),
             arguments: vec![],
         };
-        assert!(sv.execute_action(&action, &mut ctx));
+        assert!({ let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx); sv.execute_action(&action, &mut __w) });
         assert!(ctx.handled());
     }
 
@@ -1760,7 +1766,10 @@ mod tests {
             value: 2.0,
             done: false,
         });
-        sv.on_event(&event, &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            sv.on_event(&event, &mut __w);
+        }
         assert!(
             ctx.handled(),
             "AnimationValueEvent targeting real NodeId must be handled"
@@ -1785,7 +1794,10 @@ mod tests {
             value: 2.0,
             done: false,
         });
-        sv.on_event(&event, &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            sv.on_event(&event, &mut __w);
+        }
         assert!(
             !ctx.handled(),
             "AnimationValueEvent targeting a foreign NodeId must not be handled"
@@ -1808,7 +1820,10 @@ mod tests {
             value: 3.5,
             done: false,
         });
-        sv.on_event(&event, &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            sv.on_event(&event, &mut __w);
+        }
 
         assert!(ctx.handled());
         assert!(ctx.repaint_requested());
@@ -1826,7 +1841,10 @@ mod tests {
         let before = sv.offset_y;
         let mut ctx = EventCtx::default();
 
-        sv.on_mouse_scroll(0, 1, &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            sv.on_mouse_scroll(0, 1, &mut __w);
+        }
 
         assert!(ctx.handled());
         assert!(ctx.repaint_requested());
@@ -1860,7 +1878,10 @@ mod tests {
             x: 0,
             y: 0,
         });
-        sv.on_event(&event, &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            sv.on_event(&event, &mut __w);
+        }
         // The scrollbar branch sets handled+returns on any scrollbar hit.
         // Since the target doesn't match, the branch is skipped entirely
         // and the event falls through to child dispatch (Label, which
@@ -1929,7 +1950,10 @@ mod tests {
 
         let mut ctx = EventCtx::default();
         let event = Event::Action(Action::ScrollDown);
-        sv.on_event(&event, &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            sv.on_event(&event, &mut __w);
+        }
         assert!(
             ctx.handled(),
             "ScrollDown action should be handled in tree mode"
@@ -1938,7 +1962,10 @@ mod tests {
 
         let mut ctx2 = EventCtx::default();
         let event2 = Event::Action(Action::ScrollHome);
-        sv.on_event(&event2, &mut ctx2);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx2);
+            sv.on_event(&event2, &mut __w);
+        }
         assert!(ctx2.handled(), "ScrollHome should be handled in tree mode");
         assert_eq!(sv.offset_y, 0, "offset_y should be 0 after ScrollHome");
     }

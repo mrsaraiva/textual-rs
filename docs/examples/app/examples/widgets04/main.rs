@@ -33,7 +33,7 @@ impl TextualApp for WelcomeApp {
         AppRoot::new()
     }
 
-    fn on_key_with_app(&mut self, app: &mut App, _key: &KeyEventData, ctx: &mut EventCtx) {
+    fn on_key_with_app(&mut self, app: &mut App, _key: &KeyEventData, ctx: &mut textual::event::WidgetCtx) {
         if !self.welcome_mounted {
             self.welcome_mounted = true;
             let _ = app.mount(Welcome::new());

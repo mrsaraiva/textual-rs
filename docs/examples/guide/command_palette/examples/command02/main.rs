@@ -73,7 +73,7 @@ impl PythonFileCommandsProvider {
 }
 
 impl CommandPaletteProvider for PythonFileCommandsProvider {
-    fn startup(&mut self, _ctx: &mut EventCtx) {
+    fn startup(&mut self, _ctx: &mut textual::event::WidgetCtx) {
         // Mirror Python: discover the candidate paths once when the palette opens.
         self.python_paths = self.read_files();
     }
@@ -93,7 +93,7 @@ impl CommandPaletteProvider for PythonFileCommandsProvider {
             .collect()
     }
 
-    fn on_command_selected(&mut self, command_id: &str, ctx: &mut EventCtx) {
+    fn on_command_selected(&mut self, command_id: &str, ctx: &mut textual::event::WidgetCtx) {
         // command_id is the file path; post a message so the app can update the UI.
         ctx.post_message(OpenFile {
             path: command_id.to_string(),
@@ -125,7 +125,7 @@ impl TextualApp for ViewerApp {
         vec![Box::new(provider)]
     }
 
-    fn on_message_with_app(&mut self, app: &mut App, message: &MessageEvent, ctx: &mut EventCtx) {
+    fn on_message_with_app(&mut self, app: &mut App, message: &MessageEvent, ctx: &mut textual::event::WidgetCtx) {
         if let Some(OpenFile { path }) = message.downcast_ref::<OpenFile>() {
             let path = path.clone();
             // Load and syntax-highlight the file, then update the #code Static widget.

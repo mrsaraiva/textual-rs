@@ -106,7 +106,7 @@ impl Widget for ColorSwitcher {
         COLOR_SWITCHER_ACTIONS
     }
 
-    fn execute_action(&mut self, action: &ParsedAction, ctx: &mut EventCtx) -> bool {
+    fn execute_action(&mut self, action: &ParsedAction, ctx: &mut textual::event::WidgetCtx) -> bool {
         if action.name == "set_background" {
             if let Some(color_name) = action.arguments.first() {
                 if let Some(color) = textual::style::parse_color_like(color_name) {
@@ -152,7 +152,7 @@ impl TextualApp for ActionsApp {
     /// App-level `set_background` (key bindings): tints the whole screen.
     ///
     /// Python: `def action_set_background(self, color): self.screen.styles.background = color`
-    fn on_app_action_str(&mut self, app: &mut App, action: &str, ctx: &mut EventCtx) {
+    fn on_app_action_str(&mut self, app: &mut App, action: &str, ctx: &mut textual::event::WidgetCtx) {
         if let Some(parsed) = parse_action(action) {
             if parsed.name == "set_background" {
                 if let Some(color_name) = parsed.arguments.first() {

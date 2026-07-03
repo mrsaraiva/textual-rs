@@ -18,7 +18,7 @@ impl CommandPaletteProvider for BellProvider {
         }]
     }
 
-    fn on_command_selected(&mut self, command_id: &str, ctx: &mut EventCtx) {
+    fn on_command_selected(&mut self, command_id: &str, ctx: &mut textual::event::WidgetCtx) {
         if command_id == "bell" {
             ctx.post_message(textual::message::AppBell);
         }

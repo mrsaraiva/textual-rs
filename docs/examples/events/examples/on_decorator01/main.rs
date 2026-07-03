@@ -42,7 +42,7 @@ impl TextualApp for OnDecoratorApp {
     /// Single handler that branches on `button.id` — the non-`@on` form, exactly
     /// like Python's `on_button_pressed`. (The selector-routed `@on` variant is
     /// `on_decorator02`.)
-    fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
+    fn on_message(&mut self, message: &MessageEvent, ctx: &mut textual::event::WidgetCtx) {
         if let Some(bp) = message.downcast_ref::<ButtonPressed>() {
             match bp.button_id.as_deref() {
                 Some("bell") => {

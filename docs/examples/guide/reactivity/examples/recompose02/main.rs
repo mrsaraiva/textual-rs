@@ -75,7 +75,7 @@ impl TextualApp for Clock {
         AppRoot::new().with_child(Digits::new(format_hms(*self.time())))
     }
 
-    fn on_mount_with_app(&mut self, app: &mut App, _ctx: &mut EventCtx) {
+    fn on_mount_with_app(&mut self, app: &mut App, _ctx: &mut textual::event::WidgetCtx) {
         // Python: self.set_interval(1, self.update_time). The recompose reactive
         // re-invokes compose() to rebuild the Digits each second.
         app.set_interval(
@@ -131,7 +131,7 @@ mod tests {
                 |clock, app, _ctx| {
                     clock.set_time(0, app.reactive_ctx());
                 },
-                &mut EventCtx::default(),
+                &mut textual::event::WidgetCtx::default(),
             );
             // Flush the seed via the app-reactive bridge (key press routes through
             // on_app_key -> dispatch_app_reactive -> recompose).

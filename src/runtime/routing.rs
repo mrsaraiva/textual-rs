@@ -1,5 +1,5 @@
 use crate::debug::debug_message;
-use crate::event::{Action, AnimationRequest, BindingHint, Event, EventCtx};
+use crate::event::{Action, AnimationRequest, BindingHint, Event, EventCtx, WidgetCtx};
 use crate::keys::{KeyEventData, format_key_display};
 use crate::message::{MessageEnvelope, MessageEvent};
 use crate::node_id::NodeId;
@@ -15,9 +15,15 @@ pub(crate) fn dispatch_event(root: &mut dyn Widget, event: Event) -> DispatchOut
     let event_debug = format!("{event:?}");
     let mut ctx = EventCtx::default();
     let always_bubble = matches!(&event, Event::MouseUp(..));
-    root.on_event_capture(&event, &mut ctx);
+    {
+        let mut wctx = WidgetCtx::__from_dispatch(NodeId::default(), &mut ctx);
+        root.on_event_capture(&event, &mut wctx);
+        wctx.__enqueue_reactive_if_dirty();
+    }
     if always_bubble || !ctx.handled() {
-        root.on_event(&event, &mut ctx);
+        let mut wctx = WidgetCtx::__from_dispatch(NodeId::default(), &mut ctx);
+        root.on_event(&event, &mut wctx);
+        wctx.__enqueue_reactive_if_dirty();
     }
     let outcome = DispatchOutcome {
         handled: ctx.handled(),
@@ -66,7 +72,15 @@ pub(crate) fn dispatch_mouse_scroll(
     delta_y: i32,
 ) -> DispatchOutcome {
     let mut ctx = EventCtx::default();
-    root.on_mouse_scroll(delta_x, delta_y, &mut ctx);
+    {
+        // Root-only fallback (no target under cursor): the app root has no single
+        // arena node id here, so synthesize with `NodeId::default()`. The root
+        // adapter's scroll handler records no reactive state; an unresolved
+        // enqueue drops safely at drain.
+        let mut wctx = WidgetCtx::__from_dispatch(NodeId::default(), &mut ctx);
+        root.on_mouse_scroll(delta_x, delta_y, &mut wctx);
+        wctx.__enqueue_reactive_if_dirty();
+    }
     DispatchOutcome {
         handled: ctx.handled(),
         repaint_requested: ctx.repaint_requested(),
@@ -169,7 +183,9 @@ pub fn dispatch_event_tree(
         if let Some(node) = tree.get_mut(node_id) {
             let _dispatch_guard = set_dispatch_recipient(node_id, node.state);
             ctx.set_node_id(node_id);
-            node.widget.on_event_capture(event, &mut ctx);
+            let mut wctx = WidgetCtx::__from_dispatch(node_id, &mut ctx);
+            node.widget.on_event_capture(event, &mut wctx);
+            wctx.__enqueue_reactive_if_dirty();
         }
     }
 
@@ -179,7 +195,9 @@ pub fn dispatch_event_tree(
             if let Some(node) = tree.get_mut(node_id) {
                 let _dispatch_guard = set_dispatch_recipient(node_id, node.state);
                 ctx.set_node_id(node_id);
-                node.widget.on_event(event, &mut ctx);
+                let mut wctx = WidgetCtx::__from_dispatch(node_id, &mut ctx);
+            node.widget.on_event(event, &mut wctx);
+            wctx.__enqueue_reactive_if_dirty();
             }
             if ctx.handled() {
                 break;
@@ -231,7 +249,9 @@ pub fn dispatch_event_to_target_tree(
         if let Some(node) = tree.get_mut(node_id) {
             let _dispatch_guard = set_dispatch_recipient(node_id, node.state);
             ctx.set_node_id(node_id);
-            node.widget.on_event_capture(event, &mut ctx);
+            let mut wctx = WidgetCtx::__from_dispatch(node_id, &mut ctx);
+            node.widget.on_event_capture(event, &mut wctx);
+            wctx.__enqueue_reactive_if_dirty();
         }
     }
 
@@ -241,7 +261,9 @@ pub fn dispatch_event_to_target_tree(
             if let Some(node) = tree.get_mut(node_id) {
                 let _dispatch_guard = set_dispatch_recipient(node_id, node.state);
                 ctx.set_node_id(node_id);
-                node.widget.on_event(event, &mut ctx);
+                let mut wctx = WidgetCtx::__from_dispatch(node_id, &mut ctx);
+            node.widget.on_event(event, &mut wctx);
+            wctx.__enqueue_reactive_if_dirty();
             }
             if ctx.handled() {
                 break;
@@ -286,7 +308,9 @@ pub fn dispatch_event_broadcast_tree(tree: &mut WidgetTree, event: &Event) -> Di
         ctx.set_node_id(node_id);
         if let Some(node) = tree.get_mut(node_id) {
             let _dispatch_guard = set_dispatch_recipient(node_id, node.state);
-            node.widget.on_event(event, &mut ctx);
+            let mut wctx = WidgetCtx::__from_dispatch(node_id, &mut ctx);
+            node.widget.on_event(event, &mut wctx);
+            wctx.__enqueue_reactive_if_dirty();
         }
         aggregate.merge_from(ctx);
     }
@@ -363,7 +387,9 @@ pub(crate) fn dispatch_mouse_scroll_to_target_tree(
         if let Some(node) = tree.get_mut(node_id) {
             let _dispatch_guard = set_dispatch_recipient(node_id, node.state);
             ctx.set_node_id(node_id);
-            node.widget.on_mouse_scroll(delta_x, delta_y, &mut ctx);
+            let mut wctx = WidgetCtx::__from_dispatch(node_id, &mut ctx);
+            node.widget.on_mouse_scroll(delta_x, delta_y, &mut wctx);
+            wctx.__enqueue_reactive_if_dirty();
         }
         if ctx.handled() {
             break;
@@ -562,7 +588,9 @@ fn dispatch_message_bubble(
             if let Some(node) = tree.get_mut(node_id) {
                 let _dispatch_guard = set_dispatch_recipient(node_id, node.state);
                 ctx.set_node_id(node_id);
-                node.widget.on_message(&envelope.event, ctx);
+                let mut wctx = WidgetCtx::__from_dispatch(node_id, &mut *ctx);
+                node.widget.on_message(&envelope.event, &mut wctx);
+                wctx.__enqueue_reactive_if_dirty();
                 if ctx.handled() {
                     envelope.stop();
                 }
@@ -579,7 +607,9 @@ fn dispatch_message_bubble(
         if let Some(node) = tree.get_mut(node_id) {
             let _dispatch_guard = set_dispatch_recipient(node_id, node.state);
             ctx.set_node_id(node_id);
-            node.widget.on_message(&envelope.event, ctx);
+            let mut wctx = WidgetCtx::__from_dispatch(node_id, &mut *ctx);
+                node.widget.on_message(&envelope.event, &mut wctx);
+                wctx.__enqueue_reactive_if_dirty();
             if ctx.handled() {
                 envelope.stop();
             }
@@ -960,7 +990,7 @@ mod message_tests {
             true
         }
 
-        fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
             if let Event::Key(key) = event {
                 if matches!(key.code, KeyCode::Char('x')) {
                     ctx.post_message(crate::message::InputChanged {
@@ -992,15 +1022,15 @@ mod message_tests {
             rich_rs::Segments::new()
         }
 
-        fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+        fn on_event_capture(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
             self.child.on_event_capture(event, ctx);
         }
 
-        fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
             self.child.on_event(event, ctx);
         }
 
-        fn on_message(&mut self, message: &crate::message::MessageEvent, ctx: &mut EventCtx) {
+        fn on_message(&mut self, message: &crate::message::MessageEvent, ctx: &mut crate::event::WidgetCtx) {
             if message.is::<crate::message::InputChanged>() {
                 self.seen += 1;
                 ctx.set_handled();
@@ -1020,7 +1050,10 @@ mod message_tests {
 
         // Deliver message directly to root for this unit test.
         let mut ctx = EventCtx::default();
-        root.on_message(&outcome.messages[0], &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            root.on_message(&outcome.messages[0], &mut __w);
+        }
         assert!(ctx.handled());
         assert_eq!(root.seen, 1);
     }
@@ -1043,13 +1076,13 @@ mod message_tests {
         fn render(&self, _console: &Console, _options: &ConsoleOptions) -> rich_rs::Segments {
             rich_rs::Segments::new()
         }
-        fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+        fn on_event_capture(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
             self.child.on_event_capture(event, ctx);
         }
-        fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
             self.child.on_event(event, ctx);
         }
-        fn on_message(&mut self, message: &crate::message::MessageEvent, ctx: &mut EventCtx) {
+        fn on_message(&mut self, message: &crate::message::MessageEvent, ctx: &mut crate::event::WidgetCtx) {
             if message.is::<crate::message::ButtonPressed>() {
                 self.seen += 1;
                 ctx.set_handled();
@@ -1144,7 +1177,7 @@ mod message_tests {
         fn render(&self, _console: &Console, _options: &ConsoleOptions) -> rich_rs::Segments {
             rich_rs::Segments::new()
         }
-        fn on_mouse_scroll(&mut self, _delta_x: i32, _delta_y: i32, ctx: &mut EventCtx) {
+        fn on_mouse_scroll(&mut self, _delta_x: i32, _delta_y: i32, ctx: &mut crate::event::WidgetCtx) {
             self.seen += 1;
             ctx.set_handled();
         }
@@ -1232,7 +1265,7 @@ mod message_tests {
             true
         }
 
-        fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+        fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
             if matches!(event, Event::Action(Action::ScrollDown)) {
                 self.hits.fetch_add(1, Ordering::Relaxed);
                 ctx.set_handled();
@@ -1545,7 +1578,7 @@ mod message_tests {
             Segments::new()
         }
 
-        fn on_event(&mut self, event: &Event, _ctx: &mut EventCtx) {
+        fn on_event(&mut self, event: &Event, _ctx: &mut crate::event::WidgetCtx) {
             if matches!(event, Event::BindingsChanged(..)) {
                 self.hits.fetch_add(1, Ordering::Relaxed);
             }
@@ -1641,7 +1674,7 @@ mod envelope_tests {
             Segments::new()
         }
 
-        fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
+        fn on_message(&mut self, message: &MessageEvent, ctx: &mut crate::event::WidgetCtx) {
             if message.is::<crate::message::ButtonPressed>() {
                 self.count.fetch_add(1, Ordering::Relaxed);
                 if self.stop_on_match {
@@ -2215,7 +2248,7 @@ mod envelope_tests {
             Segments::new()
         }
 
-        fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
+        fn on_message(&mut self, message: &MessageEvent, ctx: &mut crate::event::WidgetCtx) {
             if message.is::<crate::message::ButtonPressed>() {
                 self.captured.lock().unwrap().push(message.control);
                 ctx.set_handled();

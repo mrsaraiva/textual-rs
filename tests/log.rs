@@ -1,5 +1,6 @@
 use rich_rs::Console;
 use textual::css::{default_widget_stylesheet, set_style_context};
+use textual::event::EventCtx;
 use textual::prelude::*;
 use textual::render::FrameBuffer;
 
@@ -70,7 +71,10 @@ fn log_scrolls_via_actions() {
     assert!(before.as_plain_lines()[0].starts_with("line 1"));
 
     let mut ctx = EventCtx::default();
-    log.on_event(&Event::Action(Action::ScrollDown), &mut ctx);
+    {
+        let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx);
+        log.on_event(&Event::Action(Action::ScrollDown), &mut __w);
+    }
     assert!(ctx.handled());
 
     let after = FrameBuffer::from_renderable(&console, &options, &log, None);
@@ -87,7 +91,10 @@ fn log_preserves_viewport_anchor_when_max_lines_prunes() {
     let _ = FrameBuffer::from_renderable(&console, &options, &log, None);
 
     let mut scroll_ctx = EventCtx::default();
-    log.on_event(&Event::Action(Action::ScrollDown), &mut scroll_ctx);
+    {
+        let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut scroll_ctx);
+        log.on_event(&Event::Action(Action::ScrollDown), &mut __w);
+    }
     assert!(scroll_ctx.handled());
 
     let anchored = FrameBuffer::from_renderable(&console, &options, &log, None);

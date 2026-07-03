@@ -1,6 +1,6 @@
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
-use crate::event::{Event, EventCtx};
+use crate::event::Event;
 use crate::style::{Color, parse_color_like};
 
 use super::{NodeSeed, Widget, helpers::adjust_line_length_no_bg};
@@ -74,7 +74,7 @@ impl Widget for LoadingIndicator {
 
     /// Block input events during capture phase (like Python's `on_input` stopper).
     /// Non-input events (Tick, Resize, AppFocus, BindingsChanged) are allowed through.
-    fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event_capture(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         match event {
             Event::Key(_)
             | Event::Action(_)
@@ -270,6 +270,7 @@ fn gradient_3stop(dim: Color, mid: Color, bright: Color, t: f64) -> Color {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::event::EventCtx;
     use crate::node_id::NodeId;
 
     #[test]
@@ -296,7 +297,10 @@ mod tests {
         let mut li = LoadingIndicator::new();
         let event = Event::Action(Action::FocusNext);
         let mut ctx = EventCtx::default();
-        li.on_event_capture(&event, &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            li.on_event_capture(&event, &mut __w);
+        }
         assert!(ctx.handled());
     }
 
@@ -305,7 +309,10 @@ mod tests {
         let mut li = LoadingIndicator::new();
         let event = Event::Tick(0);
         let mut ctx = EventCtx::default();
-        li.on_event_capture(&event, &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            li.on_event_capture(&event, &mut __w);
+        }
         assert!(!ctx.handled());
     }
 
@@ -356,7 +363,10 @@ mod tests {
         ));
         let event = Event::Key(key_data);
         let mut ctx = EventCtx::default();
-        li.on_event_capture(&event, &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            li.on_event_capture(&event, &mut __w);
+        }
         assert!(ctx.handled());
     }
 
@@ -371,7 +381,10 @@ mod tests {
             target: NodeId::default(),
         });
         let mut ctx = EventCtx::default();
-        li.on_event_capture(&event, &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            li.on_event_capture(&event, &mut __w);
+        }
         assert!(ctx.handled());
     }
 
@@ -380,7 +393,10 @@ mod tests {
         let mut li = LoadingIndicator::new();
         let event = Event::Resize(80, 24);
         let mut ctx = EventCtx::default();
-        li.on_event_capture(&event, &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            li.on_event_capture(&event, &mut __w);
+        }
         assert!(!ctx.handled());
     }
 

@@ -41,7 +41,7 @@ impl TextualApp for MultiGreet {
         root
     }
 
-    fn on_message_with_app(&mut self, app: &mut App, message: &MessageEvent, ctx: &mut EventCtx) {
+    fn on_message_with_app(&mut self, app: &mut App, message: &MessageEvent, ctx: &mut textual::event::WidgetCtx) {
         if let Some(m) = message.downcast_ref::<InputSubmitted>() {
             let name = m.value.clone();
             if !name.is_empty() {

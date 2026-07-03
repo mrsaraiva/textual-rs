@@ -1,5 +1,4 @@
 use crate::compose::ComposeResult;
-use crate::event::EventCtx;
 use crate::widgets::{BindingDecl, Container, Widget};
 
 use super::ScrollView;
@@ -174,7 +173,7 @@ impl Widget for ScrollableContainer {
         bindings
     }
 
-    fn execute_action(&mut self, action: &crate::action::ParsedAction, ctx: &mut EventCtx) -> bool {
+    fn execute_action(&mut self, action: &crate::action::ParsedAction, ctx: &mut crate::event::WidgetCtx) -> bool {
         match action.name.as_str() {
             "page_left" => {
                 let before = self.inner.offset_x();
@@ -266,6 +265,7 @@ delegate_renderable!(ScrollableContainer);
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::event::EventCtx;
     use crate::message::{MessageEvent, ScrollbarAxis, ScrollbarScrollTo};
     use crate::prelude::Label;
 
@@ -290,7 +290,9 @@ mod tests {
         let mut sc = ScrollableContainer::new().with_child(Label::new("line\n".repeat(20)));
         sc.set_virtual_content_size(20, 100);
         let mut ctx = EventCtx::default();
-        sc.on_message(
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            sc.on_message(
             &MessageEvent::new(
                 crate::node_id::NodeId::default(),
                 ScrollbarScrollTo {
@@ -300,8 +302,8 @@ mod tests {
                     scroll_duration: None,
                 },
             ),
-            &mut ctx,
-        );
+            &mut __w);
+        }
         assert_eq!(sc.scroll_offset().1, 6);
         assert!(
             ctx.handled(),

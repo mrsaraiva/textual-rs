@@ -81,7 +81,7 @@ fn format_datetime(secs: u64) -> String {
 }
 
 /// Python `update_time`: set the clock Label to the current datetime.
-fn update_time(app: &mut App, ctx: &mut EventCtx) {
+fn update_time(app: &mut App, ctx: &mut textual::event::EventCtx) {
     let text = format_datetime(epoch_secs());
     let _ = app.with_query_one_mut_as::<Label, _>("#clock", |label| {
         label.set_text(text);
@@ -102,7 +102,7 @@ impl TextualApp for ClockApp {
         AppRoot::new().with_child(Label::new(format_datetime(epoch_secs())).with_id("clock"))
     }
 
-    fn on_mount_with_app(&mut self, app: &mut App, _ctx: &mut EventCtx) {
+    fn on_mount_with_app(&mut self, app: &mut App, _ctx: &mut textual::event::WidgetCtx) {
         // Python: self.set_interval(1, self.update_time).
         app.set_interval(
             Duration::from_secs(1),

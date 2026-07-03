@@ -140,7 +140,7 @@ impl TextualApp for NameApp {
         AppRoot::new().with_child(Greeter::new("Hello", "Textual"))
     }
 
-    fn on_app_action_str(&mut self, app: &mut App, action: &str, ctx: &mut EventCtx) {
+    fn on_app_action_str(&mut self, app: &mut App, action: &str, ctx: &mut textual::event::WidgetCtx) {
         if action != "greeting" {
             return;
         }

@@ -1,6 +1,6 @@
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
-use crate::event::{Event, EventCtx};
+use crate::event::Event;
 use crate::message::*;
 
 use super::{NodeSeed, Widget, option_list::toggle_option::BinaryToggleState};
@@ -74,7 +74,7 @@ impl RadioButton {
     }
 
     /// Toggle the value and emit a `RadioButtonChanged` message.
-    pub fn toggle(&mut self, ctx: &mut EventCtx) {
+    pub fn toggle(&mut self, ctx: &mut crate::event::WidgetCtx) {
         if self.state.disabled() {
             return;
         }
@@ -85,7 +85,7 @@ impl RadioButton {
         ctx.set_handled();
     }
 
-    fn emit_changed(&self, ctx: &mut EventCtx) {
+    fn emit_changed(&self, ctx: &mut crate::event::WidgetCtx) {
         ctx.post_message(RadioButtonChanged {
             value: self.state.value(),
         });
@@ -132,7 +132,7 @@ impl Widget for RadioButton {
         Some(content.saturating_add(chrome_lr).max(1))
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         let outcome = self.state.handle_event(event, self.node_id());
         if outcome.toggled {
             self.on_toggled();
@@ -231,6 +231,7 @@ impl Renderable for RadioButton {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::event::EventCtx;
     use crate::keys::KeyEventData;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
@@ -248,7 +249,10 @@ mod tests {
         let mut ctx = EventCtx::default();
         let key =
             KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
-        button.on_event(&Event::Key(key), &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            button.on_event(&Event::Key(key), &mut __w);
+        }
         assert!(button.value());
         let messages = ctx.take_messages();
         assert!(messages.iter().any(|m| {

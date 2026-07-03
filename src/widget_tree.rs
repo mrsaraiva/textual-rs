@@ -291,9 +291,28 @@ impl WidgetTree {
             })
             .collect();
         for node_id in mount_nodes {
+            // RA2.2: `on_mount` now takes a `&mut WidgetCtx`. Fire it with a
+            // synthesized ctx that faithfully MIRRORS `App::run_on_node_widget`'s
+            // pattern (trap 7): a throwaway `EventCtx` + a dispatch-recipient
+            // guard so `node_id()`/`node_state()` resolve inside the hook, plus a
+            // fresh `WidgetCtx`. Reactive changes + enqueued commands (e.g.
+            // `set_interval`) recorded here flow to the thread-local queues drained
+            // by the next shared flush (`run_event_loop_reactive_phase`). No `App`
+            // exists at this level (this runs during tree build, before the tree is
+            // installed), so the synth `EventCtx`'s message/flag side effects are
+            // not absorbed — matching the pre-merge no-ctx `on_mount()` (which had
+            // no such side effects) and the `on_mount_ctx` set_interval flow.
+            let Some(state) = self.arena.get(node_id).map(|n| n.state) else {
+                continue;
+            };
+            let _guard = crate::runtime::dispatch_ctx::set_dispatch_recipient(node_id, state);
+            let mut synth = crate::event::EventCtx::default();
+            synth.set_node_id(node_id);
+            let mut wctx = crate::event::WidgetCtx::new(node_id, &mut synth);
             if let Some(node) = self.arena.get_mut(node_id) {
-                node.widget.on_mount();
+                node.widget.on_mount(&mut wctx);
             }
+            wctx.__enqueue_reactive_if_dirty();
         }
     }
 

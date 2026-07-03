@@ -1,6 +1,6 @@
 use rich_rs::{Console, ConsoleOptions, Renderable, Segments};
 
-use crate::event::{BindingHint, Event, EventCtx};
+use crate::event::{BindingHint, Event};
 use crate::message::*;
 use crate::render::FrameBuffer;
 
@@ -164,9 +164,9 @@ impl Widget for HelpPanel {
         self.key_panel.on_resize(width, keys_height as u16);
     }
 
-    fn on_mount(&mut self) {
-        self.markdown.on_mount();
-        self.key_panel.on_mount();
+    fn on_mount(&mut self, ctx: &mut crate::event::WidgetCtx) {
+        self.markdown.on_mount(ctx);
+        self.key_panel.on_mount(ctx);
     }
 
     fn on_unmount(&mut self) {
@@ -180,14 +180,14 @@ impl Widget for HelpPanel {
         self.key_panel.on_tick(tick);
     }
 
-    fn on_event_capture(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event_capture(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         self.markdown.on_event_capture(event, ctx);
         if !ctx.handled() {
             self.key_panel.on_event_capture(event, ctx);
         }
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut EventCtx) {
+    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         if let Event::AppFocus(active) = event {
             if self.app_active != *active {
                 self.app_active = *active;
@@ -211,7 +211,7 @@ impl Widget for HelpPanel {
         }
     }
 
-    fn on_message(&mut self, message: &MessageEvent, ctx: &mut EventCtx) {
+    fn on_message(&mut self, message: &MessageEvent, ctx: &mut crate::event::WidgetCtx) {
         if let Some(m) = message.downcast_ref::<HelpPanelSetHelp>() {
             if m.panel == self.node_id() {
                 self.set_help(m.markup.clone());
@@ -272,6 +272,7 @@ impl Renderable for HelpPanel {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::event::EventCtx;
 
     #[test]
     fn help_panel_toggles_show_help_state() {
@@ -330,7 +331,10 @@ mod tests {
                 markup: "## Widget Help\nPress Enter to confirm.".to_string(),
             },
         );
-        panel.on_message(&msg, &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            panel.on_message(&msg, &mut __w);
+        }
         assert!(panel.showing_help());
         assert_eq!(panel.help(), "## Widget Help\nPress Enter to confirm.");
         assert!(ctx.repaint_requested());
@@ -346,7 +350,10 @@ mod tests {
             crate::node_id::NodeId::default(),
             HelpPanelFocusedHelpCleared,
         );
-        panel.on_message(&msg, &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            panel.on_message(&msg, &mut __w);
+        }
         assert!(!panel.showing_help());
         assert!(ctx.repaint_requested());
     }
@@ -359,7 +366,10 @@ mod tests {
             BindingHint::new("ctrl+q", "Quit"),
         ];
         let mut ctx = EventCtx::default();
-        panel.on_event(&Event::BindingsChanged(hints), &mut ctx);
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            panel.on_event(&Event::BindingsChanged(hints), &mut __w);
+        }
         assert!(ctx.repaint_requested());
     }
 }

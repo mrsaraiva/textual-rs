@@ -5,6 +5,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use rich_rs::Console;
 use rich_rs::{ConsoleOptions, Segment, Segments};
 use textual::event::MouseDownEvent;
+use textual::event::EventCtx;
 use textual::message::MessageEvent;
 use textual::prelude::*;
 use textual::render::FrameBuffer;
@@ -26,7 +27,7 @@ impl Widget for EventProbe {
         out
     }
 
-    fn on_event(&mut self, _event: &Event, _ctx: &mut EventCtx) {
+    fn on_event(&mut self, _event: &Event, _ctx: &mut textual::event::WidgetCtx) {
         self.events.fetch_add(1, Ordering::Relaxed);
     }
 }
@@ -56,7 +57,10 @@ fn overlay_traps_base_events_when_visible() {
 
     let key = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
     let mut ctx = EventCtx::default();
-    overlay.on_event(&Event::Key(key), &mut ctx);
+    {
+        let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx);
+        overlay.on_event(&Event::Key(key), &mut __w);
+    }
 
     assert_eq!(base_events.load(Ordering::Relaxed), 0);
 }
@@ -75,7 +79,10 @@ fn overlay_escape_hides_modal() {
 
     let key = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
     let mut ctx = EventCtx::default();
-    overlay.on_event(&Event::Key(key), &mut ctx);
+    {
+        let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx);
+        overlay.on_event(&Event::Key(key), &mut __w);
+    }
 
     let buf = FrameBuffer::from_renderable(&console, &options, &overlay, None);
     assert!(buf.debug_dump().contains("base"));
@@ -94,10 +101,12 @@ fn overlay_dismiss_message_hides_modal() {
     let mut overlay = Overlay::new(base, modal);
 
     let mut ctx = EventCtx::default();
-    overlay.on_message(
+    {
+        let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx);
+        overlay.on_message(
         &MessageEvent::new(NodeId::default(), OverlayDismissRequested { overlay: None }),
-        &mut ctx,
-    );
+        &mut __w);
+    }
 
     let buf = FrameBuffer::from_renderable(&console, &options, &overlay, None);
     assert!(buf.debug_dump().contains("base"));
@@ -107,7 +116,10 @@ fn overlay_dismiss_message_hides_modal() {
 fn toast_with_zero_timeout_dismisses_on_first_tick() {
     let mut toast = Toast::new("hello", ToastSeverity::Information).with_timeout(0);
     let mut ctx = EventCtx::default();
-    toast.on_event(&Event::Tick(1), &mut ctx);
+    {
+        let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx);
+        toast.on_event(&Event::Tick(1), &mut __w);
+    }
 
     assert!(ctx.handled());
     assert!(ctx.repaint_requested());
@@ -117,7 +129,9 @@ fn toast_with_zero_timeout_dismisses_on_first_tick() {
 fn toast_click_dismisses_and_posts_message() {
     let mut toast = Toast::new("click me", ToastSeverity::Warning);
     let mut ctx = EventCtx::default();
-    toast.on_event(
+    {
+        let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx);
+        toast.on_event(
         &Event::MouseDown(MouseDownEvent {
             target: NodeId::default(),
             screen_x: 0,
@@ -125,8 +139,8 @@ fn toast_click_dismisses_and_posts_message() {
             x: 0,
             y: 0,
         }),
-        &mut ctx,
-    );
+        &mut __w);
+    }
 
     assert!(ctx.handled());
     assert!(ctx.repaint_requested());
