@@ -251,6 +251,22 @@ pub struct SelectChanged {
 }
 crate::impl_message!(SelectChanged);
 
+/// Posted by a `SelectCurrent` (the closed-state bar) when clicked, asking its
+/// ancestor `Select` to toggle the overlay. Mirrors Python `SelectCurrent.Toggle`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SelectCurrentToggle;
+crate::impl_message!(SelectCurrentToggle);
+
+/// Posted by a `SelectOverlay` to ask its ancestor `Select` to dismiss the
+/// overlay. Mirrors Python `SelectOverlay.Dismiss`. `lost_focus` is `true` when
+/// the overlay dismissed because it lost focus (a click outside), in which case
+/// the `Select` does NOT re-focus itself.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SelectOverlayDismiss {
+    pub lost_focus: bool,
+}
+crate::impl_message!(SelectOverlayDismiss);
+
 #[derive(Debug, Clone)]
 pub struct SelectionListToggled {
     pub index: usize,

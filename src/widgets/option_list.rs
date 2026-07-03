@@ -87,6 +87,12 @@ pub struct OptionList {
     layout_width: usize,
     scroll_step: usize,
     scrollbar_extracted: bool,
+    /// Per-option horizontal inset (Python's `.option-list--option { padding }`).
+    /// `0` for a bare `OptionList`; the `Select` overlay sets it to `1`. Kept as
+    /// an explicit field (not resolved from the parent-contextual CSS rule) so the
+    /// wrap width used by `item_height` and by `render` agree — a mismatch would
+    /// clip wrapped rows.
+    option_pad_left: usize,
     seed: NodeSeed,
 }
 
@@ -115,8 +121,16 @@ impl OptionList {
             layout_width: 80,
             scroll_step: 1,
             scrollbar_extracted: false,
+            option_pad_left: 0,
             seed,
         }
+    }
+
+    /// Set a per-option left inset (used by the `Select` overlay to mirror
+    /// Python's `.option-list--option { padding: 0 1 }`). Both the render indent
+    /// and the wrap-width measurement use this, so they stay consistent.
+    pub(crate) fn set_option_pad_left(&mut self, pad: usize) {
+        self.option_pad_left = pad;
     }
 
     /// Create an `OptionList` pre-populated with items.
@@ -383,10 +397,32 @@ impl OptionList {
     /// (width-independent). For `Renderable` content, we render at `layout_width`
     /// to count lines (matches Python's per-option height measurement). Plain
     /// options and separators are a single line.
+    /// Number of display lines a plain prompt occupies when word-wrapped to the
+    /// current (inset) option content width. Mirrors the render path's plain
+    /// branch (`render_rich_lines` at the same width) so measured height and
+    /// rendered lines never disagree.
+    fn plain_wrapped_line_count(&self, prompt: &str) -> usize {
+        if prompt.is_empty() {
+            return 1;
+        }
+        let content_w = self.layout_width.saturating_sub(self.option_pad_left).max(1);
+        let console = Console::new();
+        let options = ConsoleOptions {
+            size: (content_w, 100),
+            max_width: content_w,
+            max_height: 100,
+            ..Default::default()
+        };
+        let text = rich_rs::Text::from(prompt);
+        self.render_rich_lines(&text, rich_rs::Style::default(), content_w, &console, &options)
+            .len()
+            .max(1)
+    }
+
     fn item_height(&self, item: &OptionItem) -> usize {
         match item {
             OptionItem::Separator => 1,
-            OptionItem::Option { content, .. } => match content {
+            OptionItem::Option { prompt, content, .. } => match content {
                 Some(OptionContent::Text(text)) => text.plain_text().split('\n').count().max(1),
                 Some(OptionContent::Renderable(r)) => {
                     let console = Console::new();
@@ -400,7 +436,7 @@ impl OptionList {
                     let segs = r.render(&console, &options);
                     Segment::split_lines(segs).len().max(1)
                 }
-                None => 1,
+                None => self.plain_wrapped_line_count(prompt),
             },
         }
     }
@@ -904,12 +940,19 @@ impl Widget for OptionList {
                                     style_crate.bg = Some(bg.flatten_over(surface_flat));
                                 }
                             }
+                            // Per-option left inset (Python `.option-list--option
+                            // { padding }`), inside the option background and on top
+                            // of the container padding. Sourced from the explicit
+                            // `option_pad_left` field so it agrees with the wrap
+                            // width used in `item_height`.
+                            let pad_left = self.option_pad_left;
+                            let content_w = width.saturating_sub(pad_left).max(1);
                             let style = style_crate.to_rich_over(surface_flat).unwrap_or(base_style);
 
                             let lines = rendered_items.entry(index).or_insert_with(|| {
-                                let raw = match content {
+                                let mut raw = match content {
                                     Some(OptionContent::Text(rich)) => {
-                                        self.render_rich_lines(rich, style, width, console, options)
+                                        self.render_rich_lines(rich, style, content_w, console, options)
                                     }
                                     Some(OptionContent::Renderable(r)) => {
                                         // Render at renderable_width (< width when scrollbar
@@ -917,18 +960,28 @@ impl Widget for OptionList {
                                         // into the scrollbar overlay zone. Python uses
                                         // scrollable_content_region.width which already
                                         // subtracts scrollbar_size_vertical (default 2).
-                                        self.render_renderable_lines(r.as_ref(), style, renderable_width, console, options)
+                                        let rw = renderable_width.saturating_sub(pad_left).max(1);
+                                        self.render_renderable_lines(r.as_ref(), style, rw, console, options)
                                     }
                                     None => {
-                                        // Plain text fallback. No hardcoded indent: the
-                                        // `OptionList` default `padding: 0 1` supplies the
-                                        // single-space inset (Python parity).
-                                        vec![adjust_line_length_no_bg(
-                                            &[Segment::styled(prompt.to_string(), style)],
-                                            width,
-                                        )]
+                                        // Plain text, word-wrapped to the (inset)
+                                        // content width (Python OptionList wraps long
+                                        // prompts). Routed through the rich-text line
+                                        // renderer so wrapping matches `item_height`'s
+                                        // measurement exactly.
+                                        let text = rich_rs::Text::from(prompt.as_str());
+                                        self.render_rich_lines(&text, style, content_w, console, options)
                                     }
                                 };
+                                // Prepend the option's left padding as styled blanks so
+                                // the (highlighted) option background covers the inset,
+                                // bringing each line back up to full `width`.
+                                if pad_left > 0 {
+                                    let indent = Segment::styled(" ".repeat(pad_left), style);
+                                    for line in raw.iter_mut() {
+                                        line.insert(0, indent.clone());
+                                    }
+                                }
                                 // The highlighted option paints its opaque
                                 // `$block-cursor` background across the full width
                                 // and must not be re-tinted by the widget style

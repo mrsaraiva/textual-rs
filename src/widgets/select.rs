@@ -1,75 +1,78 @@
-use crossterm::event::KeyCode;
-use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
+use std::sync::atomic::{AtomicU64, Ordering};
 
-use crate::event::{Event, MouseDownEvent};
-use crate::message::*;
-use crate::render::{Cell, FrameBuffer};
-use crate::runtime::dispatch_ctx::set_dispatch_recipient;
-use crate::widgets::NodeState;
+use rich_rs::{Console, ConsoleOptions, Renderable, Segments};
 
-use super::option_list::toggle_option::OptionCursorState;
-use super::option_list::{OptionItem, OptionList};
-use super::select_current::SelectCurrent;
 use crate::action::ParsedAction;
-
-use super::{BindingDecl, NodeSeed, Widget};
-use crate::compose::ComposeResult;
+use crate::compose::{ChildDecl, ComposeResult};
+use crate::event::WidgetCtx;
+use crate::message::*;
 use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
 
-/// Number of ticks before the type-to-search buffer resets (~500ms at 60Hz).
-const SEARCH_RESET_TICKS: u64 = 30;
+use super::option_list::toggle_option::OptionCursorState;
+use super::option_list::OptionItem;
+use super::select_current::SelectCurrent;
+use super::select_overlay::SelectOverlay;
+use super::{BindingDecl, NodeSeed, Widget};
+
+/// Monotonic source of per-`Select` scope ids (mirrors the `Tabs` scope-id
+/// pattern), so each `Select` node and its `SelectOverlay` child get stable,
+/// unique CSS ids for focus routing across recomposes.
+static NEXT_SELECT_ID: AtomicU64 = AtomicU64::new(1);
 
 /// A dropdown select control.
 ///
-/// Shows the current selection (or a placeholder prompt) with a dropdown arrow.
-/// On activation (Enter/Space/click), opens an [`OptionList`] overlay for choosing a value.
-/// When open, typing characters performs type-to-search (case-insensitive prefix matching).
+/// Port of Python Textual's `Select` (`textual/widgets/_select.py`). It is a
+/// composed-children ARENA widget: `compose()` emits a [`SelectCurrent`] bar and
+/// a [`SelectOverlay`] pop-up as real child nodes (state-pure, so a recompose —
+/// used to reflect a value/options change — rebuilds an identical subtree). The
+/// overlay resolves `overlay: screen; display: block` when the Select carries
+/// `-expanded`, so it floats UNCLIPPED at the top z via the Mechanism-A deferred
+/// paint. Selection changes are driven by messages: `SelectCurrent` clicks post
+/// [`SelectCurrentToggle`], option clicks/Enter surface as [`OptionSelected`]
+/// from the overlay, and the overlay posts [`SelectOverlayDismiss`].
 ///
 /// Generic over the value type `T`.
 pub struct Select<T: Clone + PartialEq + Send + Sync + 'static> {
     options: Vec<(String, T)>,
+    /// `cursor.selected()` is the index of the current value into `options`
+    /// (`None` = blank / no selection).
     cursor: OptionCursorState,
     prompt: String,
     disabled: bool,
-    /// When `true`, the selection can be blank (no value). When `false` (default),
-    /// the first option is auto-selected and the user cannot clear the selection.
+    /// When `true` the selection can be blank (a leading dim prompt row is
+    /// added to the overlay). When `false` (default) the first option is
+    /// auto-selected and cannot be cleared.
     allow_blank: bool,
-    open: bool,
-    list: OptionList,
-    viewport_width: usize,
-    viewport_height: usize,
-    /// Current tick counter (updated via on_tick).
-    current_tick: u64,
-    /// Type-to-search buffer (accumulated while dropdown is open).
-    search_buffer: String,
-    /// Tick when last search character was typed (for timeout reset).
-    search_last_tick: u64,
+    /// Whether the overlay is currently shown.
+    expanded: bool,
+    /// This `Select` node's CSS id (auto-generated, or the caller's via `id()`),
+    /// used to re-focus itself after a dismiss/selection.
+    focus_id: String,
+    /// The `SelectOverlay` child's stable CSS id (for `display` targeting +
+    /// focus routing), assigned in `compose()` and reused across recomposes.
+    overlay_id: String,
     seed: NodeSeed,
 }
 
 impl<T: Clone + PartialEq + Send + Sync + 'static> Select<T> {
-    crate::seed_ident_methods!();
-
     /// Create a new `Select` widget.
     ///
-    /// `options` is a list of `(label, value)` pairs.
-    /// `prompt` is shown when nothing is selected.
+    /// `options` is a list of `(label, value)` pairs. `prompt` is shown when
+    /// nothing is selected. Defaults to `allow_blank = false`, which
+    /// auto-selects the first option.
     pub fn new(options: Vec<(String, T)>, prompt: impl Into<String>) -> Self {
-        let list_items: Vec<OptionItem> = options
-            .iter()
-            .map(|(label, _)| OptionItem::new(label.as_str()))
-            .collect();
-        let mut list = OptionList::with_items(list_items);
+        let n = NEXT_SELECT_ID.fetch_add(1, Ordering::Relaxed);
+        let focus_id = format!("select-{n}");
+        let overlay_id = format!("select-overlay-{n}");
 
-        // Default allow_blank=false: auto-select first option.
         let mut cursor = OptionCursorState::default();
+        // Default allow_blank = false: auto-select the first option.
         if !options.is_empty() {
             cursor.set_selected(Some(0));
-            cursor.set_highlighted(Some(0));
-            list.set_highlighted(0);
         }
 
         let seed = NodeSeed {
+            css_id: Some(focus_id.clone()),
             classes: vec!["select".to_string()],
             ..NodeSeed::default()
         };
@@ -79,15 +82,29 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Select<T> {
             prompt: prompt.into(),
             disabled: false,
             allow_blank: false,
-            open: false,
-            list,
-            viewport_width: 20,
-            viewport_height: 10,
-            current_tick: 0,
-            search_buffer: String::new(),
-            search_last_tick: 0,
+            expanded: false,
+            focus_id,
+            overlay_id,
             seed,
         }
+    }
+
+    /// Set this widget's CSS id (Python `id=`). Also becomes the id it re-focuses
+    /// itself by after a dismiss.
+    pub fn id(mut self, value: impl Into<String>) -> Self {
+        let v = value.into();
+        self.focus_id = v.clone();
+        self.seed.css_id = Some(v);
+        self
+    }
+
+    /// Add a CSS class (Python `classes=`). Idempotent.
+    pub fn class(mut self, value: impl Into<String>) -> Self {
+        let v = value.into();
+        if !self.seed.classes.iter().any(|c| c == &v) {
+            self.seed.classes.push(v);
+        }
+        self
     }
 
     // ── Public API ──────────────────────────────────────────────────
@@ -100,33 +117,19 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Select<T> {
     }
 
     /// Reactive setter for the selected value. If the value is not found,
-    /// selection is cleared. Records the change in the provided [`ReactiveCtx`].
+    /// selection is cleared. Records the change (with recompose) in the provided
+    /// [`ReactiveCtx`], so the closed-state label + overlay highlight update.
     pub fn set_value(&mut self, value: &T, ctx: &mut ReactiveCtx) {
         let selected = self.options.iter().position(|(_, v)| v == value);
         let old = self.cursor.selected();
+        self.cursor.set_selected(selected);
         if old != selected {
-            self.cursor.set_selected(selected);
-            self.cursor.set_highlighted(selected);
-            if let Some(index) = selected {
-                self.list.set_highlighted(index);
-            } else {
-                self.list.clear_highlighted();
-            }
             ctx.record_change(
                 "value",
-                ReactiveFlags::reactive(),
+                ReactiveFlags::reactive_recompose(),
                 Box::new(old),
                 Box::new(selected),
             );
-        } else {
-            // Even if index matches, still sync UI state.
-            self.cursor.set_selected(selected);
-            self.cursor.set_highlighted(selected);
-            if let Some(index) = selected {
-                self.list.set_highlighted(index);
-            } else {
-                self.list.clear_highlighted();
-            }
         }
     }
 
@@ -138,12 +141,11 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Select<T> {
             return;
         }
         self.cursor.clear();
-        self.list.clear_highlighted();
     }
 
     /// Whether the dropdown overlay is currently open.
     pub fn is_open(&self) -> bool {
-        self.open
+        self.expanded
     }
 
     /// Whether blank (no selection) is allowed.
@@ -154,21 +156,18 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Select<T> {
     /// Reactive setter for `allow_blank`. Records the change in the provided
     /// [`ReactiveCtx`].
     ///
-    /// When switching from `allow_blank=true` to `false` and no option is
+    /// When switching from `allow_blank = true` to `false` and no option is
     /// currently selected, the first option is auto-selected.
     pub fn set_allow_blank(&mut self, allow: bool, ctx: &mut ReactiveCtx) {
         if self.allow_blank != allow {
             let old = self.allow_blank;
             self.allow_blank = allow;
-            // Auto-select first option when switching to false (also done via watcher).
             if !allow && self.cursor.selected().is_none() && !self.options.is_empty() {
                 self.cursor.set_selected(Some(0));
-                self.cursor.set_highlighted(Some(0));
-                self.list.set_highlighted(0);
             }
             ctx.record_change(
                 "allow_blank",
-                ReactiveFlags::reactive(),
+                ReactiveFlags::reactive_recompose(),
                 Box::new(old),
                 Box::new(allow),
             );
@@ -181,6 +180,9 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Select<T> {
         if self.disabled != value {
             let old = self.disabled;
             self.disabled = value;
+            if value {
+                self.expanded = false;
+            }
             ctx.record_change(
                 "disabled",
                 ReactiveFlags::reactive(),
@@ -192,22 +194,15 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Select<T> {
 
     /// Builder: set whether blank (no selection) is allowed.
     ///
-    /// When `true`, the initial state is no selection (placeholder is shown)
-    /// and the user can deselect. When `false` (default), the first option
-    /// is auto-selected and the user cannot clear the selection.
+    /// When `true`, the initial state is no selection (placeholder shown) and the
+    /// user can deselect. When `false` (default) the first option is
+    /// auto-selected and the user cannot clear the selection.
     pub fn with_allow_blank(mut self, allow: bool) -> Self {
+        self.allow_blank = allow;
         if allow {
-            // Undo the auto-selection from new() — start blank.
-            self.allow_blank = true;
             self.cursor.clear();
-            self.list.clear_highlighted();
-        } else {
-            self.allow_blank = false;
-            if self.cursor.selected().is_none() && !self.options.is_empty() {
-                self.cursor.set_selected(Some(0));
-                self.cursor.set_highlighted(Some(0));
-                self.list.set_highlighted(0);
-            }
+        } else if self.cursor.selected().is_none() && !self.options.is_empty() {
+            self.cursor.set_selected(Some(0));
         }
         self
     }
@@ -216,193 +211,183 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Select<T> {
     pub fn disabled(mut self, disabled: bool) -> Self {
         self.disabled = disabled;
         if disabled {
-            self.open = false;
+            self.expanded = false;
         }
         self
     }
 
-    /// Reactive setter for `options`. Clears the current selection.
-    /// Records the change in the provided [`ReactiveCtx`].
+    /// Reactive setter for `options`. Clears the current selection. Records the
+    /// change (with recompose) in the provided [`ReactiveCtx`] so the overlay
+    /// rows + closed-state label rebuild.
     ///
-    /// When `allow_blank` is `false` and new options are non-empty,
-    /// the first option is auto-selected.
+    /// When `allow_blank` is `false` and new options are non-empty, the first
+    /// option is auto-selected.
     pub fn set_options(&mut self, options: Vec<(String, T)>, ctx: &mut ReactiveCtx) {
-        let list_items: Vec<OptionItem> = options
-            .iter()
-            .map(|(label, _)| OptionItem::new(label.as_str()))
-            .collect();
         let old_len = self.options.len();
         self.cursor.clear();
-        self.list.set_items(list_items);
         self.options = options;
-        let new_len = self.options.len();
         if !self.allow_blank && !self.options.is_empty() {
             self.cursor.set_selected(Some(0));
-            self.cursor.set_highlighted(Some(0));
-            self.list.set_highlighted(0);
         }
         ctx.record_change(
             "options",
-            ReactiveFlags::reactive_layout(),
+            ReactiveFlags::reactive_recompose(),
             Box::new(old_len),
-            Box::new(new_len),
+            Box::new(self.options.len()),
         );
     }
 
     // ── Watchers ─────────────────────────────────────────────────────
 
-    fn watch_allow_blank(&mut self, _old: &bool, new: &bool, _ctx: &mut ReactiveCtx) {
-        // When switching to allow_blank=false, auto-select first option if nothing selected.
+    fn watch_allow_blank(&mut self, _old: &bool, new: &bool) {
         if !new && self.cursor.selected().is_none() && !self.options.is_empty() {
             self.cursor.set_selected(Some(0));
-            self.cursor.set_highlighted(Some(0));
-            self.list.set_highlighted(0);
         }
     }
 
     // ── Internals ───────────────────────────────────────────────────
 
-    fn set_open(&mut self, open: bool, ctx: &mut crate::event::WidgetCtx) {
-        if self.open == open {
-            return;
-        }
-        self.open = open;
-        if self.open {
-            // Sync list highlight with current selection.
-            if let Some(selected) = self.cursor.selected() {
-                self.list.set_highlighted(selected);
-                self.cursor.set_highlighted(Some(selected));
-            } else if let Some(first) = self.list.first_selectable_index() {
-                self.list.set_highlighted(first);
-                self.cursor.set_highlighted(Some(first));
-            } else {
-                self.list.clear_highlighted();
-                self.cursor.set_highlighted(None);
-            }
-            // Reset search state when opening.
-            self.search_buffer.clear();
-        } else {
-            self.search_buffer.clear();
-        }
-        ctx.request_repaint();
-    }
-
-    fn apply_selection(&mut self, index: usize, ctx: &mut crate::event::WidgetCtx) {
-        if index >= self.options.len() {
-            return;
-        }
-        let changed = self.cursor.selected() != Some(index);
-        self.cursor.set_selected(Some(index));
-        self.cursor.set_highlighted(Some(index));
-        self.set_open(false, ctx);
-        if changed {
-            let label = self.options[index].0.clone();
-            ctx.post_message(SelectChanged { index, label });
-        }
-    }
-
-    /// Geometry for the dropdown overlay panel.
-    fn dropdown_geometry(&self) -> (usize, usize, usize, usize) {
-        let panel_x = 0usize;
-        // Directly below the closed-state bar (which is now a 3-row tall-bordered
-        // box owned by SelectCurrent, not a single line).
-        let panel_y = self.make_current().layout_height().unwrap_or(3);
-        let panel_width = self.viewport_width.max(1);
-        let available_height = self.viewport_height.saturating_sub(panel_y).max(1);
-        let desired = self.options.len().max(1);
-        let panel_height = desired.min(available_height).clamp(1, 12);
-        (panel_x, panel_y, panel_width, panel_height)
-    }
-
-    /// The label of the current value, or `None` when nothing is selected
-    /// (the placeholder/prompt is shown instead).
+    /// The label of the current value, or `None` when blank (the prompt shows).
     fn current_label(&self) -> Option<String> {
         self.cursor
             .selected()
             .map(|index| self.options[index].0.clone())
     }
 
-    /// Build the closed-state bar widget ([`SelectCurrent`]) configured from the
-    /// current state. `SelectCurrent` owns the `tall` border + padding chrome via
-    /// CSS (Python parity: the border lives on `SelectCurrent`, not `Select`), so
-    /// the framework's `render_styled` pipeline draws the bordered box around it.
-    fn make_current(&self) -> SelectCurrent {
-        SelectCurrent::new(self.prompt.clone())
-            .with_label(self.current_label())
-            .with_focused(self.node_state().focused)
-            .with_expanded(self.open)
+    /// Whether a real value is selected (drives SelectCurrent's `-has-value`).
+    fn has_value(&self) -> bool {
+        self.cursor.selected().is_some()
     }
 
-    /// Handle a character typed for type-to-search when the dropdown is open.
-    /// Appends to the search buffer and highlights the first matching option.
-    fn handle_search_char(&mut self, ch: char, tick: u64) {
-        // Reset buffer if timeout expired.
-        if tick.saturating_sub(self.search_last_tick) > SEARCH_RESET_TICKS {
-            self.search_buffer.clear();
+    /// The overlay's option rows: a leading dim prompt row when `allow_blank`,
+    /// then one row per option.
+    fn build_overlay_items(&self) -> Vec<OptionItem> {
+        let mut items = Vec::with_capacity(self.options.len() + 1);
+        if self.allow_blank {
+            items.push(SelectOverlay::blank_option(&self.prompt));
         }
-        self.search_buffer.push(ch);
-        self.search_last_tick = tick;
+        for (label, _) in &self.options {
+            items.push(OptionItem::new(label.as_str()));
+        }
+        items
+    }
 
-        // Find first option whose label starts with the search buffer (case-insensitive).
-        let query = self.search_buffer.to_lowercase();
-        if let Some(index) = self
-            .options
-            .iter()
-            .position(|(label, _)| label.to_lowercase().starts_with(&query))
-        {
-            self.list.set_highlighted(index);
-            self.cursor.set_highlighted(Some(index));
+    /// The overlay ROW to highlight for the current value (accounting for the
+    /// leading blank row): the value's row, or the blank row (0) when blank.
+    fn overlay_highlight_row(&self) -> Option<usize> {
+        match self.cursor.selected() {
+            Some(i) => Some(if self.allow_blank { i + 1 } else { i }),
+            None => {
+                if self.allow_blank {
+                    Some(0)
+                } else {
+                    None
+                }
+            }
         }
+    }
+
+    /// Map an overlay ROW index (with the blank offset) back to an option index,
+    /// or `None` for the blank row.
+    fn row_to_option(&self, row: usize) -> Option<usize> {
+        if self.allow_blank {
+            row.checked_sub(1)
+        } else {
+            Some(row)
+        }
+    }
+
+    fn expand(&mut self, ctx: &mut WidgetCtx) {
+        if self.disabled || self.expanded {
+            return;
+        }
+        self.expanded = true;
+        // Revealing the overlay: add the class the CSS `Select.-expanded >
+        // SelectOverlay { display: block }` keys on, then focus the overlay. The
+        // focus request is deferred by the runtime until the same-frame display
+        // resolution lands (see `App::retry_pending_focus`).
+        ctx.add_class("-expanded");
+        ctx.post_message(AppFocus {
+            widget_id: self.overlay_id.clone(),
+        });
+    }
+
+    fn collapse(&mut self, ctx: &mut WidgetCtx, refocus: bool) {
+        if !self.expanded {
+            return;
+        }
+        self.expanded = false;
+        ctx.remove_class("-expanded");
+        if refocus {
+            ctx.post_message(AppFocus {
+                widget_id: self.focus_id.clone(),
+            });
+        }
+    }
+
+    fn toggle_overlay(&mut self, ctx: &mut WidgetCtx) {
+        if self.expanded {
+            self.collapse(ctx, true);
+        } else {
+            self.expand(ctx);
+        }
+    }
+
+    /// Apply an overlay selection (a click/Enter on an option row): update the
+    /// value, collapse, and recompose so the closed-state label + overlay
+    /// highlight reflect the new value.
+    fn apply_overlay_selection(&mut self, row: usize, ctx: &mut WidgetCtx) {
+        let new_selected = self.row_to_option(row);
+        if let Some(i) = new_selected {
+            if i >= self.options.len() {
+                return;
+            }
+        } else if !self.allow_blank {
+            return;
+        }
+        let old = self.cursor.selected();
+        self.cursor.set_selected(new_selected);
+        // Collapse FIRST (expanded = false) so the recompose below is safe: the
+        // overlay is display:none / unfocused when the subtree remounts (Trap 1).
+        self.collapse(ctx, true);
+        if old != new_selected {
+            if let Some(i) = new_selected {
+                ctx.post_message(SelectChanged {
+                    index: i,
+                    label: self.options[i].0.clone(),
+                });
+            }
+        }
+        ctx.request_recompose();
     }
 }
 
 impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for Select<T> {
-    /// Declare children for tree-based mounting.
-    ///
-    /// Select's inner OptionList is managed internally (not a mountable child),
-    /// so compose returns an empty list.
+    /// Emit the closed-state bar + overlay as real arena children (Python
+    /// `Select.compose`). State-pure: rebuilt identically from `options` /
+    /// `cursor` / `prompt` / `allow_blank`, so a recompose (value/options change)
+    /// regenerates rather than clears.
     fn compose(&mut self) -> ComposeResult {
-        // Monolithic widget: renders its own overlay/dropdown, no arena children.
-        Vec::new()
+        let current = SelectCurrent::new(self.prompt.clone(), self.current_label());
+        let overlay = SelectOverlay::new(self.build_overlay_items(), self.overlay_highlight_row());
+        vec![
+            ChildDecl::new(Box::new(current)),
+            ChildDecl::new(Box::new(overlay)).with_id(&self.overlay_id),
+        ]
     }
 
     fn focusable(&self) -> bool {
         !self.disabled
     }
 
-    fn on_node_state_changed(
-        &mut self,
-        _old: crate::widgets::NodeState,
-        new: crate::widgets::NodeState,
-    ) {
-        if !new.focused && self.open {
-            // Close dropdown when focus is lost.
-            self.open = false;
-            self.search_buffer.clear();
-        }
-        if new.disabled && self.open {
-            self.open = false;
-            self.search_buffer.clear();
-        }
-    }
-
-    fn on_layout(&mut self, width: u16, height: u16) {
-        self.viewport_width = usize::from(width).max(1);
-        self.viewport_height = usize::from(height).max(1);
-        if self.open {
-            let (_, _, pw, ph) = self.dropdown_geometry();
-            self.list.on_layout(pw as u16, ph as u16);
-        }
-    }
-
-    fn on_tick(&mut self, tick: u64) {
-        self.current_tick = tick;
-        // Reset search buffer after timeout.
-        if self.open
-            && !self.search_buffer.is_empty()
-            && tick.saturating_sub(self.search_last_tick) > SEARCH_RESET_TICKS
-        {
-            self.search_buffer.clear();
+    /// Drive the `-has-value` class onto the `SelectCurrent` child (index 0),
+    /// which colours the label at full strength (Python
+    /// `SelectCurrent._watch_has_value`).
+    fn child_classes_for_tree(&self, child_index: usize) -> Vec<(&'static str, bool)> {
+        if child_index == 0 {
+            vec![("-has-value", self.has_value())]
+        } else {
+            Vec::new()
         }
     }
 
@@ -411,298 +396,50 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for Select<T> {
     }
 
     fn bindings(&self) -> Vec<BindingDecl> {
-        vec![
-            BindingDecl::new("enter,space,down,up", "show_overlay", "Show select options"),
-            BindingDecl::new("escape", "dismiss_overlay", "Dismiss select options").hidden(),
-        ]
+        vec![BindingDecl::new(
+            "enter,down,space,up",
+            "show_overlay",
+            "Show menu",
+        )
+        .hidden()]
     }
 
-    fn execute_action(&mut self, action: &ParsedAction, ctx: &mut crate::event::WidgetCtx) -> bool {
+    fn execute_action(&mut self, action: &ParsedAction, ctx: &mut WidgetCtx) -> bool {
         if self.disabled {
             return false;
         }
-        match action.name.as_str() {
-            "show_overlay"
-                if !self.open => {
-                    self.set_open(true, ctx);
-                    ctx.set_handled();
-                    true
-                }
-            "dismiss_overlay"
-                if self.open => {
-                    if self.allow_blank {
-                        self.cursor.clear();
-                        self.list.clear_highlighted();
-                    }
-                    self.set_open(false, ctx);
-                    ctx.set_handled();
-                    true
-                }
-            _ => false,
-        }
-    }
-
-    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
-        if self.disabled {
-            return;
-        }
-        if self.open {
-            // When the overlay is open, handle its events first.
-            match event {
-                Event::Key(key) => match key.code {
-                    KeyCode::Esc => {
-                        if self.allow_blank {
-                            // Deselect: revert to blank/placeholder state.
-                            self.cursor.clear();
-                            self.list.clear_highlighted();
-                        }
-                        self.set_open(false, ctx);
-                        ctx.set_handled();
-                        return;
-                    }
-                    KeyCode::Enter => {
-                        if self.list.highlighted().is_none() {
-                            self.set_open(false, ctx);
-                        } else {
-                            // Route selection through OptionList message flow.
-                            let _guard = set_dispatch_recipient(
-                                crate::node_id::NodeId::default(),
-                                NodeState {
-                                    focused: true,
-                                    ..Default::default()
-                                },
-                            );
-                            self.list.on_event(event, ctx);
-                            drop(_guard);
-                            self.cursor.set_highlighted(self.list.highlighted());
-                        }
-                        ctx.set_handled();
-                        return;
-                    }
-                    KeyCode::Char(ch)
-                        // Type-to-search: printable chars that aren't space (space toggles).
-                        if ch != ' ' => {
-                            self.handle_search_char(ch, self.current_tick);
-                            ctx.request_repaint();
-                            ctx.set_handled();
-                            return;
-                        }
-                    _ => {}
-                },
-                Event::MouseDown(mouse) => {
-                    if mouse.target != self.node_id() {
-                        // Click outside the Select widget — close dropdown.
-                        self.set_open(false, ctx);
-                        ctx.set_handled();
-                        return;
-                    }
-                    // Click within Select — check if it's in the dropdown area.
-                    let (_, panel_y, _, panel_h) = self.dropdown_geometry();
-                    let click_y = mouse.y as usize;
-                    if click_y >= panel_y && click_y < panel_y + panel_h {
-                        // Forward click to the inner OptionList, preserving the raw y
-                        // coordinate so the list's offset-based index calculation works.
-                        self.list.on_event(
-                            &Event::MouseDown(MouseDownEvent {
-                                target: self.node_id(),
-                                screen_x: mouse.screen_x,
-                                screen_y: mouse.screen_y,
-                                x: mouse.x,
-                                y: mouse.y,
-                            }),
-                            ctx,
-                        );
-                        self.cursor.set_highlighted(self.list.highlighted());
-                    } else {
-                        // Click on the closed-state bar area — toggle closed.
-                        self.set_open(false, ctx);
-                    }
-                    ctx.set_handled();
-                    return;
-                }
-                _ => {}
-            }
-            // Delegate navigation keys to the inner OptionList.
-            {
-                let _guard = set_dispatch_recipient(
-                    crate::node_id::NodeId::default(),
-                    NodeState {
-                        focused: true,
-                        ..Default::default()
-                    },
-                );
-                self.list.on_event(event, ctx);
-            }
-            self.cursor.set_highlighted(self.list.highlighted());
-            if !ctx.handled() {
-                // Absorb all events when overlay is open.
-                ctx.set_handled();
-            }
-        } else {
-            // Closed state: open on Enter/Space/click.
-            match event {
-                Event::Key(key) if self.node_state().focused => match key.code {
-                    KeyCode::Enter | KeyCode::Char(' ') | KeyCode::Down | KeyCode::Up => {
-                        self.set_open(true, ctx);
-                        ctx.set_handled();
-                    }
-                    _ => {}
-                },
-                Event::MouseDown(mouse) if mouse.target == self.node_id() => {
-                    self.set_open(true, ctx);
-                    ctx.set_handled();
-                }
-                _ => {}
-            }
-        }
-    }
-
-    fn on_message(&mut self, message: &MessageEvent, ctx: &mut crate::event::WidgetCtx) {
-        // Handle OptionSelected from inner list.
-        if message.sender == self.node_id() {
-            if let Some(OptionSelected { index }) = message.downcast_ref::<OptionSelected>() {
-                self.apply_selection(*index, ctx);
-                ctx.set_handled();
-            }
-        }
-    }
-
-    fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {
-        if self.disabled {
-            return false;
-        }
-        if self.open {
-            // Forward to the list if the mouse is within the dropdown area.
-            let (_, panel_y, _, panel_h) = self.dropdown_geometry();
-            let y_usize = y as usize;
-            if y_usize >= panel_y && y_usize < panel_y + panel_h {
-                return self.list.on_mouse_move(x, (y_usize - panel_y) as u16);
-            }
+        if action.name == "show_overlay" && !self.expanded {
+            self.expand(ctx);
+            ctx.set_handled();
+            return true;
         }
         false
     }
 
-    fn on_mouse_scroll(&mut self, delta_x: i32, delta_y: i32, ctx: &mut crate::event::WidgetCtx) {
-        if self.disabled {
-            return;
-        }
-        if self.open {
-            self.list.on_mouse_scroll(delta_x, delta_y, ctx);
-            if !ctx.handled() {
+    fn on_message(&mut self, message: &MessageEvent, ctx: &mut WidgetCtx) {
+        if message.downcast_ref::<SelectCurrentToggle>().is_some() {
+            if !self.disabled {
+                self.toggle_overlay(ctx);
                 ctx.set_handled();
             }
+            return;
+        }
+        if let Some(dismiss) = message.downcast_ref::<SelectOverlayDismiss>() {
+            self.collapse(ctx, !dismiss.lost_focus);
+            ctx.set_handled();
+            return;
+        }
+        if let Some(selected) = message.downcast_ref::<OptionSelected>() {
+            self.apply_overlay_selection(selected.index, ctx);
+            ctx.set_handled();
         }
     }
 
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        // The closed-state bar is a `SelectCurrent` widget that owns the tall
-        // border via CSS. Render it through the styled pipeline (which draws the
-        // border) tagged with THIS Select's node id so the bar remains
-        // hit-testable (click-to-open targets the Select).
-        let current = self.make_current();
-        let bar_height = current.layout_height().unwrap_or(3);
-
-        if !self.open {
-            return current.render_styled_dyn_obj(console, options, None, self.node_id());
-        }
-
-        // Open state: render the bordered bar at the top + dropdown overlay below.
-        let (width, height) = options.size;
-        let width = width.max(1);
-        let height = height.max(1);
-
-        let mut bar_options = options.clone();
-        bar_options.size = (width, bar_height);
-        bar_options.max_width = width;
-        bar_options.max_height = bar_height;
-        let bar_segments =
-            current.render_styled_dyn_obj(console, &bar_options, None, self.node_id());
-        let bar_lines = Segment::split_and_crop_lines(bar_segments, width, None, false, false);
-        let bar_buf = FrameBuffer::from_lines(&bar_lines, width, bar_height, None);
-        let mut merged = FrameBuffer::new(width, height, None);
-        for y in 0..bar_height.min(height).min(bar_buf.height) {
-            for x in 0..width.min(bar_buf.width) {
-                merged.set_cell(x, y, bar_buf.get(x, y).clone());
-            }
-        }
-
-        // Render the dropdown OptionList.
-        let (panel_x, panel_y, panel_width, panel_height) = self.dropdown_geometry();
-        let panel_width = panel_width.min(width);
-        let panel_height = panel_height.min(height.saturating_sub(panel_y));
-        if panel_height == 0 {
-            return merged.to_segments();
-        }
-
-        let panel_style = crate::css::resolve_component_style(self, &["select--dropdown"])
-            .to_rich()
-            .unwrap_or_default();
-
-        // Clear the dropdown area.
-        for y in panel_y..panel_y.saturating_add(panel_height).min(height) {
-            for x in panel_x..panel_x.saturating_add(panel_width).min(width) {
-                merged.set_cell(x, y, Cell::blank(Some(panel_style)));
-            }
-        }
-
-        // Render the OptionList into a sub-buffer.
-        let mut list_options = options.clone();
-        list_options.size = (panel_width, panel_height);
-        list_options.max_width = panel_width;
-        list_options.max_height = panel_height;
-        let list_buffer = FrameBuffer::from_renderable(console, &list_options, &self.list, None);
-
-        for sy in 0..list_buffer.height.min(panel_height) {
-            let ty = panel_y.saturating_add(sy);
-            if ty >= height {
-                break;
-            }
-            for sx in 0..list_buffer.width.min(panel_width) {
-                let tx = panel_x.saturating_add(sx);
-                if tx >= width {
-                    break;
-                }
-                merged.set_cell(tx, ty, list_buffer.get(sx, sy).clone());
-            }
-        }
-
-        merged.to_segments()
-    }
-
-    fn layout_height(&self) -> Option<usize> {
-        // Closed: the SelectCurrent bar's outer height (border + 1 content row).
-        // Open: bar height + dropdown height.
-        let bar_height = self.make_current().layout_height().unwrap_or(3);
-        if self.open {
-            let (_, _, _, ph) = self.dropdown_geometry();
-            Some(bar_height + ph)
-        } else {
-            Some(bar_height)
-        }
-    }
-
-    fn content_width(&self) -> Option<usize> {
-        let label_width = self
-            .options
-            .iter()
-            .map(|(label, _)| rich_rs::cell_len(label))
-            .max()
-            .unwrap_or(0)
-            .max(rich_rs::cell_len(&self.prompt));
-        // label + space padding + arrow
-        let meta = crate::css::selector_meta_generic(self);
-        let resolved = crate::css::resolve_style(self, &meta);
-        let padding = resolved.effective_padding();
-        let (_, _, border_left, border_right) =
-            super::helpers::border_spacing_from_style(&resolved);
-        let chrome_lr =
-            usize::from(padding.left.saturating_add(padding.right)) + border_left + border_right;
-        Some(
-            label_width
-                .saturating_add(3)
-                .saturating_add(chrome_lr)
-                .max(1),
-        )
+    /// Chrome-only: `Select` has no border/background of its own (Python
+    /// `Select { height: auto; color: $foreground }`); the `SelectCurrent` bar
+    /// and floating `SelectOverlay` render as arena children.
+    fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+        Segments::new()
     }
 
     fn style_type(&self) -> &'static str {
@@ -719,28 +456,28 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for Select<T> {
 
     /// Post a `SelectChanged` for the initially-selected value at mount.
     ///
-    /// Python parity: `Select.value` is a reactive set during init, and
-    /// `_watch_value` posts `Select.Changed` whenever it changes — including the
-    /// initial assignment on mount. With `allow_blank=False` the first option is
-    /// auto-selected, so apps observe `Changed(first_value)` at startup (e.g. the
-    /// `select_widget_no_blank` demo sets its title from the first option).
-    ///
-    /// RA2.3: posted via `on_mount` (fired with a `WidgetCtx` in every mount
-    /// path), replacing the former mount-message staging hook.
-    fn on_mount(&mut self, ctx: &mut crate::event::WidgetCtx) {
-        if let Some(index) = self.cursor.selected()
-            && let Some((label, _)) = self.options.get(index)
-        {
-            ctx.post_message(SelectChanged {
-                index,
-                label: label.clone(),
-            });
+    /// Python parity: `Select.value` is reactive-set during init and
+    /// `_watch_value` posts `Select.Changed` — including the initial assignment.
+    /// With `allow_blank = false` the first option is auto-selected, so apps
+    /// observe `Changed(first_value)` at startup.
+    fn on_mount(&mut self, ctx: &mut WidgetCtx) {
+        if let Some(index) = self.cursor.selected() {
+            if let Some((label, _)) = self.options.get(index) {
+                ctx.post_message(SelectChanged {
+                    index,
+                    label: label.clone(),
+                });
+            }
         }
     }
 
-    // NOTE: Select intentionally does NOT implement visit_children_mut.
-    // The inner OptionList is a private implementation detail and should not
-    // appear in the global focus traversal — Select manages it internally.
+    fn reactive_widget(&mut self) -> Option<&mut dyn ReactiveWidget> {
+        Some(self)
+    }
+
+    // NOTE: like Python's `Select` (a `Vertical` whose overlay is focused
+    // programmatically), the arena children are managed by the tree; there is no
+    // `visit_children_mut` side path.
 }
 
 impl<T: Clone + PartialEq + Send + Sync + 'static> Renderable for Select<T> {
@@ -750,14 +487,14 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Renderable for Select<T> {
 }
 
 impl<T: Clone + PartialEq + Send + Sync + 'static> ReactiveWidget for Select<T> {
-    fn reactive_dispatch(&mut self, changes: &[ReactiveChange], ctx: &mut ReactiveCtx) {
+    fn reactive_dispatch(&mut self, changes: &[ReactiveChange], _ctx: &mut ReactiveCtx) {
         for change in changes {
             if change.field_name == "allow_blank" {
                 if let (Some(old), Some(new)) = (
                     change.old_value.downcast_ref::<bool>(),
                     change.new_value.downcast_ref::<bool>(),
                 ) {
-                    self.watch_allow_blank(old, new, ctx);
+                    self.watch_allow_blank(old, new);
                 }
             }
         }
@@ -767,34 +504,15 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> ReactiveWidget for Select<T> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::event::{Event, EventCtx, MouseDownEvent};
-    use crate::keys::KeyEventData;
+    use crate::event::EventCtx;
     use crate::node_id::NodeId;
-    use crate::node_id::node_id_from_ffi;
     use crate::reactive::ReactiveCtx;
-    use crate::runtime::dispatch_ctx::set_dispatch_recipient;
-    use crate::widgets::NodeState;
     use slotmap::SlotMap;
 
     fn make_node_id() -> NodeId {
         let mut sm: SlotMap<NodeId, ()> = SlotMap::new();
         sm.insert(())
     }
-
-    fn focused_state() -> NodeState {
-        NodeState {
-            focused: true,
-            ..Default::default()
-        }
-    }
-
-    /// Derive a test-only NodeId from a widget's pointer address.
-    fn widget_node_id(w: &dyn Widget) -> crate::node_id::NodeId {
-        let ptr = (w as *const dyn Widget).cast::<()>() as u64;
-        node_id_from_ffi(ptr)
-    }
-    use crate::message::MessageEvent;
-    use crossterm::event::{KeyEvent, KeyModifiers};
 
     fn make_select() -> Select<i32> {
         Select::new(
@@ -811,414 +529,12 @@ mod tests {
         make_select().with_allow_blank(true)
     }
 
-    fn dispatch_messages(sel: &mut Select<i32>, ctx: &mut EventCtx) -> Vec<MessageEvent> {
-        let mut delivered = Vec::new();
-        loop {
-            let batch = ctx.take_messages();
-            if batch.is_empty() {
-                break;
-            }
-            delivered.extend(batch.clone());
-            for message in batch {
-                let mut __w = crate::event::WidgetCtx::__from_dispatch(
-                    crate::node_id::NodeId::default(),
-                    ctx,
-                );
-                sel.on_message(&message, &mut __w);
-            }
-        }
-        delivered
-    }
-
     #[test]
     fn select_starts_closed_with_first_selected() {
-        // Default allow_blank=false auto-selects the first option.
         let sel = make_select();
         assert!(!sel.is_open());
-        assert_eq!(sel.value(), Some(&1)); // Alpha
-    }
-
-    #[test]
-    fn select_opens_on_enter() {
-        let mut sel = make_select();
-        let id = make_node_id();
-        let _guard = set_dispatch_recipient(id, focused_state());
-        sel.on_layout(30, 20);
-
-        let key = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-        let mut ctx = EventCtx::default();
-        {
-            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
-            sel.on_event(&Event::Key(key), &mut __w);
-        }
-        assert!(sel.is_open());
-        assert!(ctx.handled());
-    }
-
-    #[test]
-    fn select_closes_on_escape() {
-        let mut sel = make_select();
-        let id = make_node_id();
-        let _guard = set_dispatch_recipient(id, focused_state());
-        sel.on_layout(30, 20);
-
-        // Open
-        let key = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-        let mut ctx = EventCtx::default();
-        {
-            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
-            sel.on_event(&Event::Key(key), &mut __w);
-        }
-        assert!(sel.is_open());
-
-        // Close
-        let esc = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
-        let mut ctx2 = EventCtx::default();
-        {
-            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx2);
-            sel.on_event(&Event::Key(esc), &mut __w);
-        }
-        assert!(!sel.is_open());
-    }
-
-    #[test]
-    fn select_enter_selects_highlighted_option() {
-        let mut sel = make_select();
-        // Use NodeId::default() so self.node_id() == ctx.node_id (message sender) == default.
-        let _guard = set_dispatch_recipient(NodeId::default(), focused_state());
-        sel.on_layout(30, 20);
-
-        // Open
-        let enter = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-        let mut ctx = EventCtx::default();
-        {
-            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
-            sel.on_event(&Event::Key(enter.clone()), &mut __w);
-        }
-        assert!(sel.is_open());
-
-        // Move down once
-        let down = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
-        let mut ctx2 = EventCtx::default();
-        {
-            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx2);
-            sel.on_event(&Event::Key(down), &mut __w);
-        }
-
-        // Confirm with Enter
-        let mut ctx3 = EventCtx::default();
-        {
-            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx3);
-            sel.on_event(&Event::Key(enter), &mut __w);
-        }
-        let delivered = dispatch_messages(&mut sel, &mut ctx3);
-        assert!(!sel.is_open());
-        assert_eq!(sel.value(), Some(&2)); // Beta
-
-        let option_selected_pos = delivered.iter().position(|m| {
-            m.downcast_ref::<OptionSelected>()
-                .is_some_and(|s| s.index == 1)
-        });
-        let select_changed_pos = delivered.iter().position(|m| {
-            m.downcast_ref::<SelectChanged>()
-                .is_some_and(|s| s.index == 1)
-        });
-        assert!(
-            option_selected_pos.is_some()
-                && select_changed_pos.is_some()
-                && option_selected_pos < select_changed_pos
-        );
-    }
-
-    #[test]
-    fn select_mouse_click_inside_dropdown_selects_item() {
-        let mut sel = make_select();
-        // Use NodeId::default() so self.node_id() matches mouse.target (NodeId::default()).
-        let _guard = set_dispatch_recipient(NodeId::default(), focused_state());
-        sel.on_layout(30, 20);
-
-        let open_key =
-            KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-        let mut open_ctx = EventCtx::default();
-        {
-            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut open_ctx);
-            sel.on_event(&Event::Key(open_key), &mut __w);
-        }
-        assert!(sel.is_open());
-
-        let mut click_ctx = EventCtx::default();
-        {
-            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut click_ctx);
-            sel.on_event(
-            &Event::MouseDown(MouseDownEvent {
-                target: NodeId::default(),
-                screen_x: 1,
-                screen_y: 2,
-                x: 1,
-                y: 1,
-            }),
-            &mut __w);
-        }
-        let delivered = dispatch_messages(&mut sel, &mut click_ctx);
-
-        assert!(!sel.is_open());
-        assert_eq!(sel.value(), Some(&2));
-        assert!(click_ctx.handled());
-        let option_selected_pos = delivered.iter().position(|m| {
-            m.downcast_ref::<OptionSelected>()
-                .is_some_and(|s| s.index == 1)
-        });
-        let select_changed_pos = delivered.iter().position(|m| {
-            m.downcast_ref::<SelectChanged>()
-                .is_some_and(|s| s.index == 1)
-        });
-        assert!(
-            option_selected_pos.is_some()
-                && select_changed_pos.is_some()
-                && option_selected_pos < select_changed_pos
-        );
-    }
-
-    #[test]
-    fn select_set_value_programmatic() {
-        let mut sel = make_select();
-        let mut ctx = ReactiveCtx::new(make_node_id());
-        sel.set_value(&3, &mut ctx);
-        assert_eq!(sel.value(), Some(&3));
-    }
-
-    #[test]
-    fn select_clear_resets_when_allow_blank() {
-        let mut sel = make_select_blank();
-        let mut ctx = ReactiveCtx::new(make_node_id());
-        sel.set_value(&2, &mut ctx);
-        sel.clear();
-        assert!(sel.value().is_none());
-    }
-
-    #[test]
-    fn select_clear_then_reopen_highlights_first_selectable() {
-        let mut sel = make_select_blank();
-        let mut ctx = ReactiveCtx::new(make_node_id());
-        sel.set_value(&3, &mut ctx);
-        sel.clear();
-        let id = make_node_id();
-        let _guard = set_dispatch_recipient(id, focused_state());
-        sel.on_layout(30, 20);
-
-        let open = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-        let mut ctx = EventCtx::default();
-        {
-            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
-            sel.on_event(&Event::Key(open), &mut __w);
-        }
-
-        assert!(sel.is_open());
-        assert_eq!(sel.list.highlighted(), Some(0));
-    }
-
-    #[test]
-    fn select_ignores_disabled_option_click() {
-        let mut sel = Select::new(
-            vec![("Alpha".to_string(), 1), ("Beta".to_string(), 2)],
-            "Pick one...",
-        );
-        sel.list
-            .set_items(vec![OptionItem::new("Alpha"), OptionItem::disabled("Beta")]);
-        // Use NodeId::default() so self.node_id() matches mouse.target (NodeId::default()).
-        let _guard = set_dispatch_recipient(NodeId::default(), focused_state());
-        sel.on_layout(30, 20);
-
-        let open = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-        let mut open_ctx = EventCtx::default();
-        {
-            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut open_ctx);
-            sel.on_event(&Event::Key(open), &mut __w);
-        }
-        assert!(sel.is_open());
-
-        let mut click_ctx = EventCtx::default();
-        {
-            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut click_ctx);
-            sel.on_event(
-            &Event::MouseDown(MouseDownEvent {
-                target: NodeId::default(),
-                screen_x: 1,
-                screen_y: 2,
-                x: 1,
-                y: 1,
-            }),
-            &mut __w);
-        }
-
-        // Value unchanged — still Alpha (auto-selected, disabled Beta ignored).
         assert_eq!(sel.value(), Some(&1));
-        assert!(sel.is_open());
     }
-
-    #[test]
-    fn select_disabled_ignores_open_input() {
-        let mut sel = make_select().disabled(true);
-        sel.on_layout(30, 20);
-
-        let key = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-        let mut key_ctx = EventCtx::default();
-        {
-            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut key_ctx);
-            sel.on_event(&Event::Key(key), &mut __w);
-        }
-        assert!(!sel.is_open());
-        assert!(!key_ctx.handled());
-
-        let mut click_ctx = EventCtx::default();
-        {
-            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut click_ctx);
-            sel.on_event(
-            &Event::MouseDown(MouseDownEvent {
-                target: widget_node_id(&sel),
-                screen_x: 0,
-                screen_y: 0,
-                x: 0,
-                y: 0,
-            }),
-            &mut __w);
-        }
-        assert!(!sel.is_open());
-        assert!(!click_ctx.handled());
-        assert!(!sel.focusable());
-    }
-
-    #[test]
-    fn select_type_to_search_highlights_matching_option() {
-        let mut sel = make_select();
-        let id = make_node_id();
-        let _guard = set_dispatch_recipient(id, focused_state());
-        sel.on_layout(30, 20);
-
-        // Open
-        let enter = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-        let mut ctx = EventCtx::default();
-        {
-            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
-            sel.on_event(&Event::Key(enter), &mut __w);
-        }
-        assert!(sel.is_open());
-
-        // Advance tick so type-to-search has a time reference.
-        sel.on_tick(10);
-
-        // Type 'g' — should highlight "Gamma" (index 2).
-        let g_key =
-            KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE));
-        let mut ctx2 = EventCtx::default();
-        {
-            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx2);
-            sel.on_event(&Event::Key(g_key), &mut __w);
-        }
-
-        assert_eq!(sel.list.highlighted(), Some(2));
-        assert!(ctx2.handled());
-    }
-
-    #[test]
-    fn select_type_to_search_accumulates_chars() {
-        let mut sel = Select::new(
-            vec![
-                ("Apple".to_string(), 1),
-                ("Apricot".to_string(), 2),
-                ("Banana".to_string(), 3),
-            ],
-            "Pick one...",
-        );
-        let id = make_node_id();
-        let _guard = set_dispatch_recipient(id, focused_state());
-        sel.on_layout(30, 20);
-
-        // Open
-        let enter = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-        let mut ctx = EventCtx::default();
-        {
-            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
-            sel.on_event(&Event::Key(enter), &mut __w);
-        }
-        assert!(sel.is_open());
-
-        // Type 'a' at tick 10 — should match "Apple" (index 0).
-        sel.on_tick(10);
-        let a_key =
-            KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
-        let mut ctx2 = EventCtx::default();
-        {
-            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx2);
-            sel.on_event(&Event::Key(a_key), &mut __w);
-        }
-        assert_eq!(sel.list.highlighted(), Some(0));
-
-        // Type 'p' at tick 11 — buffer is "ap", matches "Apple" (index 0).
-        sel.on_tick(11);
-        let p_key =
-            KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::NONE));
-        let mut ctx3 = EventCtx::default();
-        {
-            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx3);
-            sel.on_event(&Event::Key(p_key), &mut __w);
-        }
-        assert_eq!(sel.list.highlighted(), Some(0));
-
-        // Type 'r' at tick 12 — buffer is "apr", matches "Apricot" (index 1).
-        sel.on_tick(12);
-        let r_key =
-            KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE));
-        let mut ctx4 = EventCtx::default();
-        {
-            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx4);
-            sel.on_event(&Event::Key(r_key), &mut __w);
-        }
-        assert_eq!(sel.list.highlighted(), Some(1));
-    }
-
-    #[test]
-    fn select_type_to_search_resets_on_timeout() {
-        let mut sel = make_select();
-        let id = make_node_id();
-        let _guard = set_dispatch_recipient(id, focused_state());
-        sel.on_layout(30, 20);
-
-        // Open
-        let enter = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-        let mut ctx = EventCtx::default();
-        {
-            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
-            sel.on_event(&Event::Key(enter), &mut __w);
-        }
-
-        // Type 'b' at tick 10 — highlights "Beta" (index 1).
-        sel.on_tick(10);
-        let b_key =
-            KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Char('b'), KeyModifiers::NONE));
-        let mut ctx2 = EventCtx::default();
-        {
-            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx2);
-            sel.on_event(&Event::Key(b_key), &mut __w);
-        }
-        assert_eq!(sel.list.highlighted(), Some(1));
-
-        // Simulate timeout via on_tick.
-        sel.on_tick(50);
-        assert!(sel.search_buffer.is_empty());
-
-        // Type 'a' after timeout — fresh search, highlights "Alpha" (index 0).
-        let a_key =
-            KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
-        let mut ctx3 = EventCtx::default();
-        {
-            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx3);
-            sel.on_event(&Event::Key(a_key), &mut __w);
-        }
-        assert_eq!(sel.list.highlighted(), Some(0));
-    }
-
-    // ── allow_blank tests ─────────────────────────────────────────────
 
     #[test]
     fn allow_blank_true_starts_with_no_selection() {
@@ -1231,85 +547,32 @@ mod tests {
     fn allow_blank_false_auto_selects_first() {
         let sel = make_select();
         assert!(!sel.allow_blank());
-        assert_eq!(sel.value(), Some(&1)); // Alpha
+        assert_eq!(sel.value(), Some(&1));
     }
 
     #[test]
-    fn allow_blank_true_escape_clears_selection() {
+    fn set_value_programmatic() {
+        let mut sel = make_select();
+        let mut ctx = ReactiveCtx::new(make_node_id());
+        sel.set_value(&3, &mut ctx);
+        assert_eq!(sel.value(), Some(&3));
+    }
+
+    #[test]
+    fn clear_resets_when_allow_blank() {
         let mut sel = make_select_blank();
-        let mut rctx = ReactiveCtx::new(make_node_id());
-        sel.set_value(&2, &mut rctx); // Beta
-        assert_eq!(sel.value(), Some(&2));
-        let id = make_node_id();
-        let _guard = set_dispatch_recipient(id, focused_state());
-        sel.on_layout(30, 20);
-
-        // Open
-        let enter = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-        let mut ctx = EventCtx::default();
-        {
-            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
-            sel.on_event(&Event::Key(enter), &mut __w);
-        }
-        assert!(sel.is_open());
-
-        // Escape — should clear selection (allow_blank=true)
-        let esc = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
-        let mut ctx2 = EventCtx::default();
-        {
-            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx2);
-            sel.on_event(&Event::Key(esc), &mut __w);
-        }
-        assert!(!sel.is_open());
-        assert!(sel.value().is_none());
-    }
-
-    #[test]
-    fn allow_blank_false_escape_keeps_selection() {
-        let mut sel = make_select();
-        let mut rctx = ReactiveCtx::new(make_node_id());
-        sel.set_value(&2, &mut rctx); // Beta
-        let id = make_node_id();
-        let _guard = set_dispatch_recipient(id, focused_state());
-        sel.on_layout(30, 20);
-
-        // Open
-        let enter = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-        let mut ctx = EventCtx::default();
-        {
-            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
-            sel.on_event(&Event::Key(enter), &mut __w);
-        }
-        assert!(sel.is_open());
-
-        // Escape — should NOT clear (allow_blank=false)
-        let esc = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
-        let mut ctx2 = EventCtx::default();
-        {
-            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx2);
-            sel.on_event(&Event::Key(esc), &mut __w);
-        }
-        assert!(!sel.is_open());
-        assert_eq!(sel.value(), Some(&2)); // Still Beta
-    }
-
-    #[test]
-    fn allow_blank_false_clear_is_noop() {
-        let mut sel = make_select();
-        assert_eq!(sel.value(), Some(&1)); // Alpha auto-selected
+        let mut ctx = ReactiveCtx::new(make_node_id());
+        sel.set_value(&2, &mut ctx);
         sel.clear();
-        assert_eq!(sel.value(), Some(&1)); // Still Alpha — clear is a no-op
+        assert!(sel.value().is_none());
     }
 
     #[test]
-    fn with_allow_blank_builder() {
-        let sel = make_select().with_allow_blank(true);
-        assert!(sel.allow_blank());
-        assert!(sel.value().is_none());
-
-        let sel2 = make_select().with_allow_blank(false);
-        assert!(!sel2.allow_blank());
-        assert_eq!(sel2.value(), Some(&1)); // Alpha
+    fn clear_is_noop_when_not_allow_blank() {
+        let mut sel = make_select();
+        assert_eq!(sel.value(), Some(&1));
+        sel.clear();
+        assert_eq!(sel.value(), Some(&1));
     }
 
     #[test]
@@ -1319,7 +582,7 @@ mod tests {
         assert!(sel.value().is_none());
         sel.set_allow_blank(false, &mut ctx);
         assert!(!sel.allow_blank());
-        assert_eq!(sel.value(), Some(&1)); // Alpha auto-selected
+        assert_eq!(sel.value(), Some(&1));
     }
 
     #[test]
@@ -1330,7 +593,7 @@ mod tests {
             vec![("Delta".to_string(), 10), ("Echo".to_string(), 20)],
             &mut ctx,
         );
-        assert_eq!(sel.value(), Some(&10)); // Delta auto-selected
+        assert_eq!(sel.value(), Some(&10));
     }
 
     #[test]
@@ -1347,122 +610,148 @@ mod tests {
     #[test]
     fn bindings_are_declared() {
         let sel = make_select();
-        let bindings = sel.bindings();
-        assert!(!bindings.is_empty());
-        assert!(bindings.iter().any(|b| b.action == "show_overlay"));
-        assert!(bindings.iter().any(|b| b.action == "dismiss_overlay"));
+        assert!(sel.bindings().iter().any(|b| b.action == "show_overlay"));
     }
 
-    // ── compose() tests ────────────────
+    // ── compose (state-pure) ──────────────────────────────────────────
 
     #[test]
-    fn compose_returns_empty() {
+    fn compose_emits_current_and_overlay_state_pure() {
         let mut sel = make_select();
-        let result = sel.compose();
-        assert!(result.is_empty());
+        let first = sel.compose();
+        assert_eq!(first.len(), 2, "SelectCurrent + SelectOverlay");
+        let second = sel.compose();
+        assert_eq!(second.len(), 2, "compose must regenerate, never clear");
+        // Overlay carries the stable scope id.
+        assert_eq!(second[1].id(), Some(sel.overlay_id.as_str()));
     }
 
     #[test]
-    fn compose_stable_across_state_changes() {
-        let mut sel = make_select();
-        let id = make_node_id();
-        let _guard = set_dispatch_recipient(id, focused_state());
-        sel.on_layout(30, 20);
+    fn compose_blank_adds_leading_prompt_row() {
+        let sel = make_select_blank();
+        // 3 options + 1 blank row.
+        assert_eq!(sel.build_overlay_items().len(), 4);
+        // No blank row without allow_blank.
+        assert_eq!(make_select().build_overlay_items().len(), 3);
+    }
 
-        // Open the dropdown
-        let enter = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    #[test]
+    fn overlay_highlight_row_accounts_for_blank_offset() {
+        // allow_blank=false, first selected -> row 0.
+        assert_eq!(make_select().overlay_highlight_row(), Some(0));
+        // allow_blank=true, nothing selected -> blank row 0.
+        assert_eq!(make_select_blank().overlay_highlight_row(), Some(0));
+        // allow_blank=true, value at option index 1 -> row 2.
+        let mut sel = make_select_blank();
+        let mut ctx = ReactiveCtx::new(make_node_id());
+        sel.set_value(&2, &mut ctx);
+        assert_eq!(sel.overlay_highlight_row(), Some(2));
+    }
+
+    // ── message handling ──────────────────────────────────────────────
+
+    #[test]
+    fn toggle_message_expands_and_dismiss_collapses() {
+        let mut sel = make_select();
         let mut ctx = EventCtx::default();
         {
-            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
-            sel.on_event(&Event::Key(enter), &mut __w);
+            let mut w = WidgetCtx::__from_dispatch(NodeId::default(), &mut ctx);
+            sel.on_message(&MessageEvent::new(NodeId::default(), SelectCurrentToggle), &mut w);
         }
         assert!(sel.is_open());
-
-        // compose() should still return empty even when open
-        assert!(sel.compose().is_empty());
-        assert!(sel.compose().is_empty());
+        let mut ctx2 = EventCtx::default();
+        {
+            let mut w = WidgetCtx::__from_dispatch(NodeId::default(), &mut ctx2);
+            sel.on_message(
+                &MessageEvent::new(NodeId::default(), SelectOverlayDismiss { lost_focus: false }),
+                &mut w,
+            );
+        }
+        assert!(!sel.is_open());
     }
 
     #[test]
-    fn execute_action_handles_show_overlay() {
-        use crate::action::ParsedAction;
+    fn option_selected_updates_value_and_collapses() {
+        let mut sel = make_select_blank();
+        // Open first.
+        let mut open = EventCtx::default();
+        {
+            let mut w = WidgetCtx::__from_dispatch(NodeId::default(), &mut open);
+            sel.on_message(&MessageEvent::new(NodeId::default(), SelectCurrentToggle), &mut w);
+        }
+        assert!(sel.is_open());
+        // Overlay row 2 (blank row 0, options 1..) => option index 1 (Beta=2).
+        let mut selctx = EventCtx::default();
+        {
+            let mut w = WidgetCtx::__from_dispatch(NodeId::default(), &mut selctx);
+            sel.on_message(&MessageEvent::new(NodeId::default(), OptionSelected { index: 2 }), &mut w);
+        }
+        assert!(!sel.is_open());
+        assert_eq!(sel.value(), Some(&2));
+        let msgs = selctx.take_messages();
+        assert!(msgs.iter().any(|m| {
+            m.downcast_ref::<SelectChanged>()
+                .is_some_and(|c| c.index == 1)
+        }));
+    }
+
+    #[test]
+    fn blank_row_selection_clears_value() {
+        let mut sel = make_select_blank();
+        let mut rctx = ReactiveCtx::new(make_node_id());
+        sel.set_value(&2, &mut rctx);
+        assert_eq!(sel.value(), Some(&2));
+        let mut ctx = EventCtx::default();
+        {
+            let mut w = WidgetCtx::__from_dispatch(NodeId::default(), &mut ctx);
+            // Row 0 = blank.
+            sel.on_message(&MessageEvent::new(NodeId::default(), OptionSelected { index: 0 }), &mut w);
+        }
+        assert!(sel.value().is_none());
+    }
+
+    #[test]
+    fn execute_action_show_overlay_expands() {
         let mut sel = make_select();
-        sel.on_layout(20, 10);
         let mut ctx = EventCtx::default();
         let action = ParsedAction {
             namespace: None,
             name: "show_overlay".to_string(),
             arguments: vec![],
         };
-        assert!(!sel.is_open());
-        assert!({ let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx); sel.execute_action(&action, &mut __w) });
-        assert!(sel.is_open());
-    }
-
-    // ── P1-14 dispatch-context regression tests ─────────────────────────
-
-    #[test]
-    fn mouse_click_with_dispatch_context_opens_select() {
-        let mut sel = make_select();
-        sel.on_layout(30, 20);
-
-        let id = make_node_id();
-        let _guard = set_dispatch_recipient(id, NodeState::default());
-
-        let mut ctx = EventCtx::default();
-        {
-            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
-            sel.on_event(
-            &Event::MouseDown(MouseDownEvent {
-                target: id,
-                screen_x: 0,
-                screen_y: 0,
-                x: 0,
-                y: 0,
-            }),
-            &mut __w);
-        }
-        assert!(ctx.handled());
+        let handled = {
+            let mut w = WidgetCtx::__from_dispatch(NodeId::default(), &mut ctx);
+            sel.execute_action(&action, &mut w)
+        };
+        assert!(handled);
         assert!(sel.is_open());
     }
 
     #[test]
-    fn mouse_click_with_wrong_target_closes_open_select() {
-        use slotmap::SlotMap;
-
-        let mut sel = make_select();
-        sel.on_layout(30, 20);
-
-        let mut sm: SlotMap<NodeId, ()> = SlotMap::new();
-        let my_id = sm.insert(());
-        let other_id = sm.insert(());
-        let _guard = set_dispatch_recipient(my_id, focused_state());
-
-        // Open via keyboard first.
-        let open_key =
-            KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-        let mut open_ctx = EventCtx::default();
-        {
-            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut open_ctx);
-            sel.on_event(&Event::Key(open_key), &mut __w);
-        }
-        assert!(sel.is_open());
-
-        // Click with a different target (outside) — should close dropdown.
+    fn disabled_ignores_show_overlay() {
+        let mut sel = make_select().disabled(true);
         let mut ctx = EventCtx::default();
-        {
-            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
-            sel.on_event(
-            &Event::MouseDown(MouseDownEvent {
-                target: other_id,
-                screen_x: 0,
-                screen_y: 0,
-                x: 0,
-                y: 0,
-            }),
-            &mut __w);
-        }
-        assert!(ctx.handled());
+        let action = ParsedAction {
+            namespace: None,
+            name: "show_overlay".to_string(),
+            arguments: vec![],
+        };
+        let handled = {
+            let mut w = WidgetCtx::__from_dispatch(NodeId::default(), &mut ctx);
+            sel.execute_action(&action, &mut w)
+        };
+        assert!(!handled);
         assert!(!sel.is_open());
+        assert!(!sel.focusable());
+    }
+
+    #[test]
+    fn child_classes_drive_has_value() {
+        let with = make_select();
+        assert!(with.child_classes_for_tree(0).contains(&("-has-value", true)));
+        let without = make_select_blank();
+        assert!(without.child_classes_for_tree(0).contains(&("-has-value", false)));
+        // Overlay child carries no driven classes.
+        assert!(with.child_classes_for_tree(1).is_empty());
     }
 }

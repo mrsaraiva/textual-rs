@@ -57,6 +57,7 @@ OptionList {
 }
 
 SelectCurrent {
+    layout: horizontal;
     border: tall $border-blurred;
     color: $foreground;
     bg: $surface;

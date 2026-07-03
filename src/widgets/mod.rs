@@ -37,6 +37,7 @@ mod rule;
 mod scrollbar;
 mod select;
 mod select_current;
+mod select_overlay;
 mod selection_list;
 mod spacer;
 mod switch;

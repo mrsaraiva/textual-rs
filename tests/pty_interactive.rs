@@ -646,6 +646,24 @@ fn cols_equiv(a: Col, b: Col) -> bool {
 /// warning line but does not by itself fail the glyph assertion (colour-only
 /// divergences are tracked as their own BUG cases with `#[ignore]`).
 fn assert_glyph_parity(name: &str, py: &Grid, rust: &Grid, skip_rows: &[usize]) {
+    assert_glyph_parity_inner(name, py, rust, skip_rows, true);
+}
+
+/// Assert GLYPH parity only, reporting (but not failing on) colour deltas. Used
+/// where the structural/layout parity is exact but a KNOWN, documented colour
+/// gap remains (tracked as a separate follow-up) — so the structural win stays a
+/// live regression guard without bundling an unrelated colour-engine fix.
+fn assert_glyph_only_parity(name: &str, py: &Grid, rust: &Grid, skip_rows: &[usize]) {
+    assert_glyph_parity_inner(name, py, rust, skip_rows, false);
+}
+
+fn assert_glyph_parity_inner(
+    name: &str,
+    py: &Grid,
+    rust: &Grid,
+    skip_rows: &[usize],
+    assert_colour: bool,
+) {
     dump(&format!("{name} PY final"), py);
     dump(&format!("{name} RUST final"), rust);
     let mut glyph_bad = 0usize;
@@ -721,14 +739,16 @@ fn assert_glyph_parity(name: &str, py: &Grid, rust: &Grid, skip_rows: &[usize]) 
         py.bg_palette(),
         rust.bg_palette(),
     );
-    assert_eq!(
-        colour_bad,
-        0,
-        "PARITY (colour) FAIL for {name}: {colour_bad} glyph-matching cells differ in fg/bg \
-         (see COLDIFF lines above).\nBG palette (py): {:?}\nBG palette (rust): {:?}",
-        py.bg_palette(),
-        rust.bg_palette(),
-    );
+    if assert_colour {
+        assert_eq!(
+            colour_bad,
+            0,
+            "PARITY (colour) FAIL for {name}: {colour_bad} glyph-matching cells differ in fg/bg \
+             (see COLDIFF lines above).\nBG palette (py): {:?}\nBG palette (rust): {:?}",
+            py.bg_palette(),
+            rust.bg_palette(),
+        );
+    }
 }
 
 // ===========================================================================
@@ -1240,17 +1260,23 @@ fn parity_collapsible_custom_symbol() {
 // --- select -----------------------------------------------------------------
 
 /// select_widget: Enter opens the overlay (the option list of Dune lines).
+///
+/// GLYPH-exact: the arena `Select` (RA2.5b) floats a bordered `SelectOverlay`
+/// (`overlay: screen`) with the blank prompt row, per-option padding and wrapped
+/// long lines — pixel-identical structure to Python. Asserted GLYPH-only: a
+/// KNOWN 12-cell COLOUR delta remains, tracked as a separate colour-engine
+/// follow-up (NOT a Select-widget bug): (1) the `SelectCurrent` bar keeps its
+/// `Select:focus > SelectCurrent` background-tint while the overlay CHILD holds
+/// focus (Rust's ancestor `:focus` in the live loop resolves against a
+/// focus-within Select; Python's `:focus` is node-only) — same tint class as the
+/// ignored `parity_select_no_blank_swap`; (2) the dim blank-prompt row's fg is
+/// not dimmed over the focused block cursor (dim+highlight compositing).
 #[test]
-#[ignore = "BUG (larger rework): the opened Select overlay diverges from Python — Python floats a bordered \
-            OptionList (overlay: screen) containing the blank prompt row + wrapped option lines. The Rust \
-            Select renders its overlay inline and (a) needs a layout invalidation on open to reserve height, \
-            (b) the inner list lacks its border chrome, the blank/prompt row, and text wrapping. Full parity \
-            needs the screen-overlay layer or an inner-list rework (blank-option indexing) beyond a surgical fix."]
 fn parity_select_open_overlay() {
     let script = [Step::Key(Key::Enter), Step::Wait(300)];
     let (rf, pf) = widgets_both("select_widget", &script, 400);
     // Row 0 is the Header which carries a live clock; exclude it.
-    assert_glyph_parity("select_widget", &pf, &rf, &[0]);
+    assert_glyph_only_parity("select_widget", &pf, &rf, &[0]);
 }
 
 /// select_widget_no_blank: 's' swaps the option set; first value differs.
@@ -1266,14 +1292,15 @@ fn parity_select_no_blank_swap() {
 }
 
 /// select_from_values_widget: Enter opens the overlay built via from_values.
+///
+/// GLYPH-exact (same arena `Select` overlay as `parity_select_open_overlay`);
+/// asserted GLYPH-only for the same KNOWN 12-cell colour follow-up (bar
+/// focus-tint over a focused overlay child + dim-fg-over-block-cursor).
 #[test]
-#[ignore = "BUG (larger rework): same Select overlay divergence as parity_select_open_overlay — the inline \
-            overlay needs relayout-on-open + border chrome + blank/prompt row + wrapping (or the screen-overlay \
-            layer). Out of reach for a surgical widget-file fix."]
 fn parity_select_from_values_open() {
     let script = [Step::Key(Key::Enter), Step::Wait(300)];
     let (rf, pf) = widgets_both("select_from_values_widget", &script, 400);
-    assert_glyph_parity("select_from_values_widget", &pf, &rf, &[0]);
+    assert_glyph_only_parity("select_from_values_widget", &pf, &rf, &[0]);
 }
 
 // --- lists ------------------------------------------------------------------

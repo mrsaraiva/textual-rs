@@ -9,6 +9,30 @@ until the API stabilizes.
 
 ### Framework fundamentals
 
+- **`Select` is now a composed-children arena widget on the `overlay: screen`
+  layer** (RA2.5b) — it no longer renders its dropdown as an inline
+  `FrameBuffer` fake. `compose()` emits a `SelectCurrent` bar and a
+  `SelectOverlay` (an `OptionList`) as real child nodes; the overlay resolves
+  `overlay: screen; display: block` when the `Select` carries `-expanded`, so it
+  floats UNCLIPPED at the top z via the Mechanism-A deferred paint (RA2.4). The
+  bar and overlay style themselves through the CSS cascade on live nodes — the
+  down/up arrow swap (`Select.-expanded .down-arrow/.up-arrow`), the `-has-value`
+  label colour (driven by `Select` via `child_classes_for_tree`), and the
+  focused border/highlight all resolve on real nodes; no per-glyph compensation
+  or hand-drawn dropdown remains. `compose()` is state-pure, so a value/options
+  change recomposes an identical subtree rather than clearing it. Public API is
+  preserved (`new`/`value`/`set_value`/`set_options`/`with_allow_blank`/
+  `disabled`/`id`/`is_open`); `set_value`/`set_options` now recompose so the
+  closed-state label + overlay rebuild.
+  - **New messages:** `SelectCurrentToggle` (bar click → toggle overlay) and
+    `SelectOverlayDismiss { lost_focus }` (overlay → dismiss); `SelectChanged` /
+    `OptionSelected` unchanged.
+  - `OptionList` gained two root-cause rendering behaviours needed for overlay
+    parity (both no-ops for a bare `OptionList` — verified against the full
+    parity suite): a per-option left inset (`set_option_pad_left`, Python's
+    `.option-list--option { padding }`) and **word-wrapping of long plain
+    option prompts**, with a matching `item_height` wrap-count so measured height
+    and rendered lines agree.
 - **Focus now lands on a node revealed in the same frame** (RA2.5b prerequisite)
   — a widget handler can, in one pass, reveal a `display: none` composed child
   (by adding a class that flips its CSS `display`) AND request focus of it
