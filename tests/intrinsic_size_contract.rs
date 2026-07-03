@@ -308,22 +308,49 @@ fn switch_width_tracks_padding_delta() {
     );
 }
 
+/// RA2.5b made `Select` a composed-children arena widget: it reports no
+/// intrinsic `content_width` hint — its auto width comes from laying out the
+/// composed `SelectCurrent` subtree, which only exists on the runtime mount
+/// path. The bare-tree `measure_child_width` harness (`WidgetTree::mount`
+/// never runs `compose()`) sees an empty leaf, so it cannot measure a composed
+/// widget; this contract is asserted through the real path instead (compose +
+/// default CSS + layout pass), where the outer box must still grow by the
+/// left+right padding delta (content-box contract).
+///
+/// NOTE (Python divergence, engine-wide and pre-existing, NOT Select-specific):
+/// Python resolves a `width: 1fr` child under a `width: auto` container to the
+/// FULL container width (probed live: a `width: auto` Python Select spans all
+/// 120 cols with padding delta 0, because `SelectCurrent { width: 1fr }`
+/// expands it), while the Rust layout content-sizes fr children under auto
+/// parents. The padding contract locked here is orthogonal to that gap.
 #[test]
 fn select_width_tracks_padding_delta() {
-    let mut compact = Box::new(Select::new(
-        vec![("Alpha".to_string(), 1), ("Beta".to_string(), 2)],
-        "Pick",
-    ));
-    set_inline_border_box_padding(compact.as_mut(), 0);
-    let compact_w = measure_child_width(compact);
+    fn measure(horizontal: u16) -> u16 {
+        let mut select = Select::new(
+            vec![("Alpha".to_string(), 1), ("Beta".to_string(), 2)],
+            "Pick",
+        );
+        set_inline_border_box_padding(&mut select, horizontal);
+        let mut root = Container::new().with_child(select);
+        let mut tree = build_widget_tree_from_root(&mut root).expect("tree should exist");
+        let _css =
+            textual::css::set_style_context(textual::css::default_widget_stylesheet());
+        run_layout_pass(&mut tree, (120, 24));
+        let select_id = *tree
+            .query("Select")
+            .expect("selector should parse")
+            .first()
+            .expect("select node should exist");
+        layout_rect_wh(&tree, select_id).0
+    }
 
-    let mut padded = Box::new(Select::new(
-        vec![("Alpha".to_string(), 1), ("Beta".to_string(), 2)],
-        "Pick",
-    ));
-    set_inline_border_box_padding(padded.as_mut(), 2);
-    let padded_w = measure_child_width(padded);
+    let compact_w = measure(0);
+    let padded_w = measure(2);
 
+    assert!(
+        compact_w > 0 && compact_w < 120,
+        "composed Select must be content-sized in this harness (got {compact_w})"
+    );
     assert_eq!(
         padded_w.saturating_sub(compact_w),
         4,
