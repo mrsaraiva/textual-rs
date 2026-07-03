@@ -1261,30 +1261,31 @@ fn parity_collapsible_custom_symbol() {
 
 /// select_widget: Enter opens the overlay (the option list of Dune lines).
 ///
-/// GLYPH-exact: the arena `Select` (RA2.5b) floats a bordered `SelectOverlay`
-/// (`overlay: screen`) with the blank prompt row, per-option padding and wrapped
-/// long lines — pixel-identical structure to Python. Asserted GLYPH-only: a
-/// KNOWN 12-cell COLOUR delta remains, tracked as a separate colour-engine
-/// follow-up (NOT a Select-widget bug): (1) the `SelectCurrent` bar keeps its
-/// `Select:focus > SelectCurrent` background-tint while the overlay CHILD holds
-/// focus (Rust's ancestor `:focus` in the live loop resolves against a
-/// focus-within Select; Python's `:focus` is node-only) — same tint class as the
-/// ignored `parity_select_no_blank_swap`; (2) the dim blank-prompt row's fg is
-/// not dimmed over the focused block cursor (dim+highlight compositing).
+/// FULL (glyph + colour) parity: the arena `Select` (RA2.5b) floats a bordered
+/// `SelectOverlay` (`overlay: screen`) with the blank prompt row, per-option
+/// padding and wrapped long lines — pixel-identical to Python, including the
+/// `SelectCurrent` bar dropping its `Select:focus` background-tint the frame
+/// focus moves to the overlay child (frozen-ancestor-bg re-capture on ancestor
+/// pseudo-state changes) and the dim blank-prompt fg over the block cursor.
 #[test]
 fn parity_select_open_overlay() {
     let script = [Step::Key(Key::Enter), Step::Wait(300)];
     let (rf, pf) = widgets_both("select_widget", &script, 400);
     // Row 0 is the Header which carries a live clock; exclude it.
-    assert_glyph_only_parity("select_widget", &pf, &rf, &[0]);
+    assert_glyph_parity("select_widget", &pf, &rf, &[0]);
 }
 
 /// select_widget_no_blank: 's' swaps the option set; first value differs.
 #[test]
-#[ignore = "BUG (out of scope): 1 cell — the SelectCurrent dropdown arrow (▼) fg is `$foreground 50%` \
-            flattened over the untinted surface (#797979) instead of the focused/tinted surface (#838383). \
-            The arrow is painted by SelectCurrent (src/widgets/select_current.rs), outside this task's \
-            allowed widget-file scope."]
+#[ignore = "BUG (out of scope): the previously-documented arrow-fg COLOUR cell is FIXED \
+            (colour_diffs=0), but the `s` swap itself does not render in the LIVE loop: the demo \
+            mutates the Select via `with_query_one_mut_as` + a hand-made local `ReactiveCtx`, whose \
+            recorded recompose request is dropped (ctx-less mutation path), so the bar keeps the old \
+            first option (27 glyph diffs on the bar row: 'I must not fear.' vs 'Twinkle, twinkle, \
+            little star,'). Pre-existing on 767e891 (verified via a base-worktree PTY probe); the \
+            example's own headless `liveness_swap_changes_options` test fails the same way. Fix \
+            belongs in the demo (route the swap through a ctx path) and/or a fundamentals task for \
+            reactive flushes from `with_query_one_mut_as`."]
 fn parity_select_no_blank_swap() {
     let script = [Step::Key(Key::Char('s')), Step::Wait(300)];
     let (rf, pf) = widgets_both("select_widget_no_blank", &script, 400);
@@ -1293,14 +1294,13 @@ fn parity_select_no_blank_swap() {
 
 /// select_from_values_widget: Enter opens the overlay built via from_values.
 ///
-/// GLYPH-exact (same arena `Select` overlay as `parity_select_open_overlay`);
-/// asserted GLYPH-only for the same KNOWN 12-cell colour follow-up (bar
-/// focus-tint over a focused overlay child + dim-fg-over-block-cursor).
+/// FULL (glyph + colour) parity — same arena `Select` overlay as
+/// `parity_select_open_overlay`.
 #[test]
 fn parity_select_from_values_open() {
     let script = [Step::Key(Key::Enter), Step::Wait(300)];
     let (rf, pf) = widgets_both("select_from_values_widget", &script, 400);
-    assert_glyph_only_parity("select_from_values_widget", &pf, &rf, &[0]);
+    assert_glyph_parity("select_from_values_widget", &pf, &rf, &[0]);
 }
 
 // --- lists ------------------------------------------------------------------

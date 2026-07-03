@@ -719,6 +719,19 @@ demo to a verified-working state.
 
 ### Fixed
 
+- **Dim text under the block cursor now dims as a colour (OptionList
+  highlighted line)** — Python's always-on `ANSIToTruecolor` line filter
+  converts a `dim` attribute into a foreground pre-blended toward the
+  segment's background (`dim_color`: `bg + (fg - bg) * 0.66`) and strips the
+  attribute, so dim glyphs never reach the terminal as SGR dim. Rust forwarded
+  SGR dim, which most terminals ignore for truecolor — so the `Select`
+  overlay's dim blank-prompt row painted the `$block-cursor-foreground` at
+  full strength (#ddedf9) when highlighted instead of Python's dimmed #92c5ec
+  over #0178d4. `finalize_highlight_line` now pre-blends a dim segment's
+  applied cursor foreground toward the highlight background at Python's
+  `DIM_FACTOR` (0.66) and strips the attribute. With this and the
+  frozen-ancestor-bg fix, the interactive `select_widget` /
+  `select_from_values_widget` parity tests assert FULL glyph+colour parity.
 - **Ancestor pseudo-class changes now re-bake a transparent child's glyph
   background (frozen-ancestor-bg re-capture)** — the frozen-ancestor-background
   mechanism (Python `visual_style`-cache parity) kept a transparent child's

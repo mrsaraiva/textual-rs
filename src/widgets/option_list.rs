@@ -34,13 +34,44 @@ fn tag_segment_no_style(seg: &mut Segment) {
     seg.meta = Some(meta);
 }
 
+/// Python `DIM_FACTOR` (textual/constants.py): how much of the foreground
+/// survives when a `dim` attribute is converted to a colour blend (0 = pure
+/// background, 1 = unchanged foreground).
+const DIM_FACTOR: f64 = 0.66;
+
+/// Replace a `dim` attribute with a foreground pre-blended toward `bg`
+/// (Python `textual/filter.py` `dim_color`: `bg + (fg - bg) * DIM_FACTOR`,
+/// truncated per channel like rich's `Color.from_rgb`).
+///
+/// Python's ALWAYS-ON `ANSIToTruecolor` line filter performs this conversion
+/// on every rendered line and strips the `dim` attribute, so a dim glyph
+/// never reaches the terminal as SGR dim — its dimming is baked into the
+/// colour against the segment's own (composed) background. Rust forwards SGR
+/// dim to the terminal, which is wrong over the opaque block-cursor fill: the
+/// cursor fg would paint at full strength (terminals rarely dim truecolor).
+fn dim_fg_toward_bg(fg: rich_rs::SimpleColor, bg: rich_rs::SimpleColor) -> rich_rs::SimpleColor {
+    let f = crate::style::color_from_simple(fg);
+    let b = crate::style::color_from_simple(bg);
+    let blend =
+        |bc: u8, fc: u8| -> u8 { (f64::from(bc) + (f64::from(fc) - f64::from(bc)) * DIM_FACTOR) as u8 };
+    rich_rs::SimpleColor::Rgb {
+        r: blend(b.r, f.r),
+        g: blend(b.g, f.g),
+        b: blend(b.b, f.b),
+    }
+}
+
 /// Rebuild a highlighted option's display line so its opaque `$block-cursor`
 /// background spans the full option width (Python paints the whole highlighted
 /// row, including the trailing pad) and every cell is tagged `no_style`.
 ///
 /// `fill` carries the fully-composed highlight foreground/background; content
 /// cells keep their own foreground where present, but all cells are forced to
-/// the opaque highlight background.
+/// the opaque highlight background. A cell carrying a `dim` attribute (e.g.
+/// the `Select` overlay's blank prompt row) keeps its dimming as a COLOUR: the
+/// applied foreground is pre-blended toward the highlight background and the
+/// attribute is stripped, exactly as Python's `ANSIToTruecolor` filter
+/// composites dim over the block cursor (see [`dim_fg_toward_bg`]).
 fn finalize_highlight_line(line: &[Segment], width: usize, fill: rich_rs::Style) -> Vec<Segment> {
     let mut out: Vec<Segment> = Vec::new();
     let mut used = 0usize;
@@ -57,6 +88,16 @@ fn finalize_highlight_line(line: &[Segment], width: usize, fill: rich_rs::Style)
         style.bgcolor = fill.bgcolor;
         if style.color.is_none() {
             style.color = fill.color;
+        }
+        // Python parity: dim + colour => pre-blended colour, dim stripped
+        // (`truecolor_style` only converts when a foreground is present).
+        if style.dim == Some(true) {
+            if let (Some(fg), Some(bg)) = (style.color, style.bgcolor) {
+                if fg != rich_rs::SimpleColor::Default && bg != rich_rs::SimpleColor::Default {
+                    style.color = Some(dim_fg_toward_bg(fg, bg));
+                    style.dim = None;
+                }
+            }
         }
         let mut s = Segment::styled(seg.text.clone(), style);
         tag_segment_no_style(&mut s);
@@ -1109,6 +1150,53 @@ mod tests {
             focused: true,
             ..Default::default()
         }
+    }
+
+    /// Dim text under the block cursor keeps its dimming as a pre-blended
+    /// COLOUR (Python `ANSIToTruecolor`/`dim_color`: `bg + (fg - bg) * 0.66`),
+    /// with the `dim` attribute stripped — the `Select` overlay blank-prompt
+    /// row on the highlighted line. #ddedf9 over #0178d4 must give #92c5ec
+    /// (the exact Python value), never full-strength fg + SGR dim.
+    #[test]
+    fn finalize_highlight_line_pre_blends_dim_fg_over_cursor_bg() {
+        let fill = rich_rs::Style::new()
+            .with_color(rich_rs::SimpleColor::Rgb {
+                r: 0xdd,
+                g: 0xed,
+                b: 0xf9,
+            })
+            .with_bgcolor(rich_rs::SimpleColor::Rgb {
+                r: 0x01,
+                g: 0x78,
+                b: 0xd4,
+            });
+        let mut dim = rich_rs::Style::new();
+        dim.dim = Some(true);
+        let line = [Segment::styled("Select".to_string(), dim)];
+        let out = finalize_highlight_line(&line, 10, fill);
+
+        let glyphs = &out[0];
+        assert_eq!(glyphs.text, "Select");
+        let style = glyphs.style.expect("styled");
+        assert_eq!(
+            style.color,
+            Some(rich_rs::SimpleColor::Rgb {
+                r: 0x92,
+                g: 0xc5,
+                b: 0xec
+            }),
+            "dim fg must pre-blend toward the cursor bg at DIM_FACTOR 0.66"
+        );
+        assert_ne!(style.dim, Some(true), "dim attribute must be stripped");
+        assert_eq!(style.bgcolor, fill.bgcolor);
+
+        // A non-dim segment keeps the cursor fg at full strength.
+        let plain = [Segment::styled(
+            "Select".to_string(),
+            rich_rs::Style::new(),
+        )];
+        let out = finalize_highlight_line(&plain, 10, fill);
+        assert_eq!(out[0].style.expect("styled").color, fill.color);
     }
 
     #[test]
