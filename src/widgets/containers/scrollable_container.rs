@@ -1,9 +1,28 @@
 use crate::compose::ComposeResult;
 use crate::widgets::{BindingDecl, Container, Widget};
+use textual_macros::widget;
 
 use super::ScrollView;
-use crate::widgets::delegate::{delegate_renderable, delegate_widget_method};
 
+// Delegation container: `#[widget(base = ScrollView, field = inner)]` forwards the
+// full Widget surface to `inner`; the `override(..)` list below is supplied by the
+// inherent methods. `style_type`/`style_type_aliases` are delegated explicitly
+// (base= keeps the own type name by default, but this container's CSS identity is
+// the inner ScrollView's — preserving the prior `delegate_widget_method!` behavior).
+#[widget(
+    base = ScrollView,
+    field = inner,
+    override(
+        compose,
+        focusable,
+        can_focus,
+        can_focus_children,
+        bindings,
+        execute_action,
+        style_type,
+        style_type_aliases
+    )
+)]
 pub struct ScrollableContainer {
     inner: ScrollView,
     can_focus: bool,
@@ -110,24 +129,15 @@ impl ScrollableContainer {
     pub fn can_maximize(&self) -> bool {
         self.can_maximize.unwrap_or(self.can_focus)
     }
-}
 
-impl Default for ScrollableContainer {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+    // ── Widget-surface overrides (wired via #[widget(.., override(..))]) ──
 
-impl Widget for ScrollableContainer {
     fn compose(&mut self) -> ComposeResult {
         // The inner ScrollView composes `[Container, vscrollbar, hscrollbar,
         // corner]`. ScrollableContainer flattens the single content Container out
         // of the tree: its user children are hoisted to become direct children of
         // the scroll host (so this widget IS the scroll viewport, Python parity),
-        // while the dedicated scrollbar lanes pass through untouched. Because each
-        // hoisted child is a self-describing `ChildDecl` (its `with_compose`
-        // id/class/handle-sink already bundled by Container::compose), no index
-        // re-keying is needed — the flatten is a straight splice.
+        // while the dedicated scrollbar lanes pass through untouched.
         let inner_decls = self.inner.compose();
         let mut out: ComposeResult = Vec::new();
         let mut flattened_container = false;
@@ -163,10 +173,6 @@ impl Widget for ScrollableContainer {
         self.can_focus_children
     }
 
-    fn set_virtual_content_size(&mut self, width: usize, height: usize) {
-        ScrollableContainer::set_virtual_content_size(self, width, height);
-    }
-
     fn bindings(&self) -> Vec<crate::widgets::BindingDecl> {
         let mut bindings = self.inner.bindings();
         bindings.push(BindingDecl::new("ctrl+pageup", "page_left", "Page left").hidden());
@@ -200,69 +206,20 @@ impl Widget for ScrollableContainer {
         }
     }
 
-    // delegate-audit: 56 methods (after RA-2 step 6 cleanup)
-    delegate_widget_method!(
-        inner,
-        [
-            render,
-            render_with_debug,
-            render_line,
-            render_lines,
-            on_mount,
-            on_unmount,
-            on_tick,
-            on_resize,
-            on_layout,
-            on_event_capture,
-            on_event,
-            on_message,
-            on_mouse_scroll,
-            on_mouse_move,
-            on_app_key,
-            on_app_action,
-            on_app_message,
-            on_app_tick,
-            on_app_mount,
-            scroll_offset,
-            scroll_offset_f32,
-            scroll_viewport_size,
-            scroll_virtual_content_size,
-            clips_descendants_to_content,
-            child_display_for_tree,
-            tree_child_content_inset,
-            layout_height,
-            content_width,
-            preserve_underlay,
-            binding_hints,
-            action_namespace,
-            action_registry,
-            style,
-            set_inline_style,
-            take_node_seed,
-            style_type,
-            style_type_aliases,
-            border_title,
-            border_subtitle,
-            is_active,
-            mouse_interactive,
-            tooltip,
-            tooltip_anchor,
-            help_markup,
-            allow_select,
-            selection_at,
-            selection_word_range_at,
-            selection_all_range,
-            update_selection,
-            clear_selection,
-            get_selection,
-            selection_updated,
-            reactive_widget,
-        ]
-    );
+    fn style_type(&self) -> &'static str {
+        self.inner.style_type()
+    }
+
+    fn style_type_aliases(&self) -> &[&'static str] {
+        self.inner.style_type_aliases()
+    }
 }
 
-delegate_renderable!(ScrollableContainer);
-
+impl Default for ScrollableContainer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;

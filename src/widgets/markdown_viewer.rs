@@ -3,6 +3,7 @@ use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use rich_rs::{Console, ConsoleOptions, Segments};
+use textual_macros::widget;
 
 use crate::action::{ActionDecl, ParsedAction};
 use crate::compose::ComposeResult;
@@ -420,6 +421,7 @@ impl Navigator {
 /// ## Navigation history
 /// Uses a [`Navigator`] with `go()`, `back()`, and `forward()` methods for
 /// browser-like content history, matching Python's `MarkdownViewer.navigator`.
+#[widget(base = VerticalScroll, field = inner, override(style_type, style_classes, set_inline_style, take_node_seed, focusable, can_focus, can_focus_children, on_event_capture, on_event, on_message, action_namespace, action_registry, execute_action, style_type_aliases))]
 pub struct MarkdownViewer {
     /// Python-parity scroll host (`VerticalScroll`) that owns Markdown + TOC children.
     inner: VerticalScroll,
@@ -668,60 +670,7 @@ impl MarkdownViewer {
     fn parse_heading_lines(content: &str) -> Vec<(usize, String, String, usize)> {
         parse_markdown_heading_lines(content)
     }
-}
 
-fn slugify_heading(title: &str) -> String {
-    let mut slug = String::new();
-    let mut prev_dash = false;
-    for ch in title.chars() {
-        if ch.is_ascii_alphanumeric() {
-            slug.push(ch.to_ascii_lowercase());
-            prev_dash = false;
-        } else if ch == '_' || ch == '-' {
-            if !prev_dash && !slug.is_empty() {
-                slug.push(ch);
-                prev_dash = true;
-            }
-        } else if ch.is_ascii_whitespace() && !prev_dash && !slug.is_empty() {
-            slug.push('-');
-            prev_dash = true;
-        }
-    }
-    let slug = slug.trim_end_matches('-').to_string();
-    if slug.is_empty() {
-        "section".to_string()
-    } else {
-        slug
-    }
-}
-
-fn heading_margins(level: usize) -> (usize, usize) {
-    if level <= 2 { (2, 1) } else { (1, 1) }
-}
-
-pub(crate) fn parse_markdown_heading_lines(content: &str) -> Vec<(usize, String, String, usize)> {
-    let mut out = Vec::new();
-    let mut slug_counts: HashMap<String, usize> = HashMap::new();
-    for (marker_len, title, line_idx) in parse_markdown_headings_with_lines(content) {
-        let base = slugify_heading(&title);
-        let seen = slug_counts.entry(base.clone()).or_insert(0);
-        let block_id = if *seen == 0 {
-            base
-        } else {
-            format!("{base}-{}", *seen)
-        };
-        *seen += 1;
-        out.push((marker_len, title, block_id, line_idx));
-    }
-    out
-}
-
-// ---------------------------------------------------------------------------
-// Widget impl — delegates scroll behavior to inner ScrollableContainer,
-// overrides identity (style_type, style_classes) for CSS resolution.
-// ---------------------------------------------------------------------------
-
-impl Widget for MarkdownViewer {
     fn style_type(&self) -> &'static str {
         "MarkdownViewer"
     }
@@ -820,63 +769,59 @@ impl Widget for MarkdownViewer {
         self.inner.execute_action(action, ctx)
     }
 
-    // delegate-audit: 67 methods as of 2026-02-26
-    delegate_widget_method!(
-        inner,
-        [
-            render,
-            render_with_debug,
-            render_line,
-            render_lines,
-            compose,
-            on_mount,
-            on_unmount,
-            on_tick,
-            on_resize,
-            on_layout,
-            set_virtual_content_size,
-            on_mouse_scroll,
-            on_mouse_move,
-            on_app_key,
-            on_app_action,
-            on_app_message,
-            on_app_tick,
-            on_app_mount,
-            scroll_offset,
-            scroll_offset_f32,
-            scroll_viewport_size,
-            scroll_virtual_content_size,
-            clips_descendants_to_content,
-            child_display_for_tree,
-            tree_child_content_inset,
-            layout_height,
-            content_width,
-            preserve_underlay,
-            bindings,
-            binding_hints,
-            style_type_aliases,
-            border_title,
-            border_subtitle,
-            is_active,
-            mouse_interactive,
-            tooltip,
-            tooltip_anchor,
-            help_markup,
-            allow_select,
-            selection_at,
-            selection_word_range_at,
-            selection_all_range,
-            update_selection,
-            clear_selection,
-            get_selection,
-            selection_updated,
-            reactive_widget,
-        ]
-    );
+    fn style_type_aliases(&self) -> &[&'static str] { self.inner.style_type_aliases() }
 }
 
-delegate_renderable!(MarkdownViewer);
+fn slugify_heading(title: &str) -> String {
+    let mut slug = String::new();
+    let mut prev_dash = false;
+    for ch in title.chars() {
+        if ch.is_ascii_alphanumeric() {
+            slug.push(ch.to_ascii_lowercase());
+            prev_dash = false;
+        } else if ch == '_' || ch == '-' {
+            if !prev_dash && !slug.is_empty() {
+                slug.push(ch);
+                prev_dash = true;
+            }
+        } else if ch.is_ascii_whitespace() && !prev_dash && !slug.is_empty() {
+            slug.push('-');
+            prev_dash = true;
+        }
+    }
+    let slug = slug.trim_end_matches('-').to_string();
+    if slug.is_empty() {
+        "section".to_string()
+    } else {
+        slug
+    }
+}
 
+fn heading_margins(level: usize) -> (usize, usize) {
+    if level <= 2 { (2, 1) } else { (1, 1) }
+}
+
+pub(crate) fn parse_markdown_heading_lines(content: &str) -> Vec<(usize, String, String, usize)> {
+    let mut out = Vec::new();
+    let mut slug_counts: HashMap<String, usize> = HashMap::new();
+    for (marker_len, title, line_idx) in parse_markdown_headings_with_lines(content) {
+        let base = slugify_heading(&title);
+        let seen = slug_counts.entry(base.clone()).or_insert(0);
+        let block_id = if *seen == 0 {
+            base
+        } else {
+            format!("{base}-{}", *seen)
+        };
+        *seen += 1;
+        out.push((marker_len, title, block_id, line_idx));
+    }
+    out
+}
+
+// ---------------------------------------------------------------------------
+// Widget impl — delegates scroll behavior to inner ScrollableContainer,
+// overrides identity (style_type, style_classes) for CSS resolution.
+// ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------

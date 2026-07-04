@@ -2,9 +2,10 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use textual_macros::widget;
+
 use crate::event::{Event, MouseDownEvent};
 use crate::message::*;
-use crate::widgets::delegate::{delegate_renderable, delegate_widget_method};
 
 use crate::node_id::NodeId;
 
@@ -93,6 +94,7 @@ struct VisibleEntry {
 }
 
 #[derive(Debug, Clone)]
+#[widget(base = Tree, field = tree, override(focusable, on_node_state_changed, on_layout, on_unmount, on_resize, on_event, on_message, layout_height, content_width, style_type, set_inline_style, take_node_seed, style_type_aliases))]
 pub struct DirectoryTree {
     root_path: PathBuf,
     root: DirectoryNode,
@@ -377,9 +379,7 @@ impl DirectoryTree {
             self.spawn_directory_load(&entry_path, ctx);
         }
     }
-}
 
-impl Widget for DirectoryTree {
     fn focusable(&self) -> bool {
         true
     }
@@ -506,64 +506,8 @@ impl Widget for DirectoryTree {
         std::mem::take(&mut self.seed)
     }
 
-    // delegate-audit: 70 methods as of 2026-02-26
-    delegate_widget_method!(
-        tree,
-        [
-            render,
-            render_with_debug,
-            render_line,
-            render_lines,
-            compose,
-            can_focus,
-            can_focus_children,
-            on_mount,
-            on_tick,
-            set_virtual_content_size,
-            on_event_capture,
-            on_mouse_scroll,
-            on_mouse_move,
-            on_app_key,
-            on_app_action,
-            on_app_message,
-            on_app_tick,
-            on_app_mount,
-            scroll_offset,
-            scroll_offset_f32,
-            scroll_viewport_size,
-            scroll_virtual_content_size,
-            clips_descendants_to_content,
-            child_display_for_tree,
-            tree_child_content_inset,
-            preserve_underlay,
-            bindings,
-            binding_hints,
-            execute_action,
-            action_namespace,
-            action_registry,
-            style_type_aliases,
-            border_title,
-            border_subtitle,
-            is_active,
-            mouse_interactive,
-            tooltip,
-            tooltip_anchor,
-            help_markup,
-            allow_select,
-            selection_at,
-            selection_word_range_at,
-            selection_all_range,
-            update_selection,
-            clear_selection,
-            get_selection,
-            selection_updated,
-            reactive_widget,
-        ]
-    );
+    fn style_type_aliases(&self) -> &[&'static str] { self.tree.style_type_aliases() }
 }
-
-delegate_renderable!(DirectoryTree);
-
 fn read_children(
     path: &Path,
     show_hidden: bool,
