@@ -1,6 +1,3 @@
-// `Node` is deprecated (RA2.6) but intentionally exercised here until the 1.x
-// container seed-builder unification migrates these off the wrapper.
-#![allow(deprecated)]
 use rich_rs::Console;
 use textual::css::set_style_context;
 use textual::prelude::*;
@@ -36,13 +33,13 @@ fn render_with_sheet(
 #[test]
 fn stylesheet_parser_applies_rules() {
     let css = r#"
-Node { fg: red; bold: true; }
+Label { fg: red; bold: true; }
 #hero { underline: true; }
 .notice { bg: blue; }
 "#;
 
     let sheet = StyleSheet::parse(css);
-    let mut label = Node::new(Label::new("hi")).id("hero").class("notice");
+    let mut label = Container::new().with_child(Label::new("hi").id("hero").class("notice"));
     let buf = render_with_sheet(&mut label, 6, 1, sheet);
 
     let cell = buf.get(0, 0);

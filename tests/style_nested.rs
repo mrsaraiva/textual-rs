@@ -1,6 +1,3 @@
-// `Node` is deprecated (RA2.6) but intentionally exercised here until the 1.x
-// container seed-builder unification migrates these off the wrapper.
-#![allow(deprecated)]
 use rich_rs::Console;
 use textual::prelude::*;
 use textual::runtime::{build_widget_tree_from_root, render_tree_to_frame_with_stylesheet};
@@ -36,13 +33,13 @@ fn nested_descendant_selector_applies() {
 #[test]
 fn nested_amp_class_selector_applies() {
     let css = r#"
-    Node {
+    Label {
         &.notice { bold: true; }
     }
     "#;
     let sheet = StyleSheet::parse(css);
 
-    let mut label = Node::new(Label::new("hi")).class("notice");
+    let mut label = Container::new().with_child(Label::new("hi").class("notice"));
     let buf = render_with_sheet(&mut label, 6, 1, sheet);
 
     let cell = buf.get(0, 0);
@@ -53,14 +50,14 @@ fn nested_amp_class_selector_applies() {
 #[test]
 fn nested_parent_and_child_rules_both_apply() {
     let css = r#"
-    Node {
+    Label {
         color: red;
         &.notice { bold: true; }
     }
     "#;
     let sheet = StyleSheet::parse(css);
 
-    let mut label = Node::new(Label::new("hi")).class("notice");
+    let mut label = Container::new().with_child(Label::new("hi").class("notice"));
     let buf = render_with_sheet(&mut label, 6, 1, sheet);
 
     let cell = buf.get(0, 0);

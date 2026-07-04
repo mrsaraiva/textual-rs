@@ -1,6 +1,3 @@
-// `Node` is deprecated (RA2.6) but intentionally exercised here until the 1.x
-// container seed-builder unification migrates these off the wrapper.
-#![allow(deprecated)]
 use rich_rs::Console;
 use textual::prelude::*;
 use textual::runtime::{build_widget_tree_from_root, render_tree_to_frame_with_stylesheet};
@@ -8,10 +5,10 @@ use textual::runtime::{build_widget_tree_from_root, render_tree_to_frame_with_st
 #[test]
 fn stylesheet_applies_type_and_id_styles() {
     let console = Console::new();
-    let mut label = Node::new(Label::new("hi")).id("hero");
+    let mut label = Container::new().with_child(Label::new("hi").id("hero"));
 
     let mut sheet = StyleSheet::new();
-    sheet.add_type("Node", Style::new().bold(true));
+    sheet.add_type("Label", Style::new().bold(true));
     sheet.add_id("hero", Style::new().underline(true));
 
     let mut tree = build_widget_tree_from_root(&mut label).expect("tree should exist");

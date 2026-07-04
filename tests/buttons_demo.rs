@@ -1,6 +1,3 @@
-// `Node` is deprecated (RA2.6) but intentionally exercised here until the 1.x
-// container seed-builder unification migrates these off the wrapper.
-#![allow(deprecated)]
 use rich_rs::Console;
 use textual::css::{StyleSheet, set_style_context};
 use textual::prelude::*;
@@ -48,7 +45,7 @@ fn buttons_demo_renders_labels() {
     let buttons = Horizontal::new()
         .with_child(
             VerticalScroll::new()
-                .with_child(Node::new(Static::new("Standard Buttons")).class("header"))
+                .with_child(Static::new("Standard Buttons").class("header"))
                 .with_child(Button::new("Default"))
                 .with_child(Button::primary("Primary!"))
                 .with_child(Button::success("Success!"))
@@ -57,7 +54,7 @@ fn buttons_demo_renders_labels() {
         )
         .with_child(
             VerticalScroll::new()
-                .with_child(Node::new(Static::new("Disabled Buttons")).class("header"))
+                .with_child(Static::new("Disabled Buttons").class("header"))
                 .with_child(Button::new("Default").disabled(true))
                 .with_child(Button::primary("Primary!").disabled(true))
                 .with_child(Button::success("Success!").disabled(true))
@@ -66,7 +63,7 @@ fn buttons_demo_renders_labels() {
         )
         .with_child(
             VerticalScroll::new()
-                .with_child(Node::new(Static::new("Flat Buttons")).class("header"))
+                .with_child(Static::new("Flat Buttons").class("header"))
                 .with_child(Button::new("Default").flat(true))
                 .with_child(Button::primary("Primary!").flat(true))
                 .with_child(Button::success("Success!").flat(true))
@@ -75,7 +72,7 @@ fn buttons_demo_renders_labels() {
         )
         .with_child(
             VerticalScroll::new()
-                .with_child(Node::new(Static::new("Disabled Flat Buttons")).class("header"))
+                .with_child(Static::new("Disabled Flat Buttons").class("header"))
                 .with_child(Button::new("Default").disabled(true).flat(true))
                 .with_child(Button::primary("Primary!").disabled(true).flat(true))
                 .with_child(Button::success("Success!").disabled(true).flat(true))
