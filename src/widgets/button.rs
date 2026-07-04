@@ -350,7 +350,12 @@ impl Button {
             });
         } else {
             ctx.post_message(ButtonPressed {
-                description: self.describe(),
+                // The button's LABEL (Python parity: `event.button.label`), so
+                // `on_button_pressed(description, …)` and `ButtonPressed.description`
+                // carry the human text a handler matches on — NOT the debug repr
+                // (`describe()`, still available for logging). Matching a button by
+                // its label was a day-one cold-user footgun when this was a repr.
+                description: self.label.clone(),
                 button_id: self.css_id.clone(),
             });
         }
@@ -956,7 +961,7 @@ mod tests {
     }
 
     #[test]
-    fn mouse_click_message_description_includes_active_class() {
+    fn mouse_click_message_description_is_the_button_label() {
         let mut button = Button::new("Run");
         let mut ctx = EventCtx::default();
 
@@ -995,9 +1000,10 @@ mod tests {
             })
             .expect("mouse click should emit ButtonPressed");
 
-        assert!(
-            description.contains("-active"),
-            "mouse click ButtonPressed description should include -active; got: {description}"
+        assert_eq!(
+            description, "Run",
+            "ButtonPressed.description must be the button's label (Python \
+             `event.button.label`), not a debug repr; got: {description}"
         );
     }
 

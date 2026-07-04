@@ -195,10 +195,21 @@ pub trait TextualApp: Send + 'static {
         self.on_message(message, ctx);
     }
 
-    /// Typed convenience hook for button-pressed messages.
+    /// Typed convenience hook for button-pressed messages. `description` is the
+    /// button's **label** (Python `event.button.label`); to disambiguate buttons
+    /// that share a label, downcast `ButtonPressed` for its `button_id`.
+    ///
+    /// This hook receives only a `WidgetCtx` (deferred). To READ sibling widget
+    /// state in response to a press (query field values, etc.) you need
+    /// `&mut App` — use [`on_message_with_app`](Self::on_message_with_app) and
+    /// downcast `ButtonPressed` there instead.
     fn on_button_pressed(&mut self, _description: &str, _ctx: &mut crate::event::WidgetCtx) {}
 
     /// Typed convenience hook for input-changed messages.
+    ///
+    /// Receives only a `WidgetCtx`; for `&mut App` (to read other fields) use
+    /// [`on_message_with_app`](Self::on_message_with_app) with an `InputChanged`
+    /// downcast (its `sender()`/`control()` identify which input changed).
     fn on_input_changed(
         &mut self,
         _value: &str,

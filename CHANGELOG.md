@@ -91,6 +91,20 @@ hand-implemented on the common path.
   replace `Node::new(Vertical::new()).id("x").class("y").with_border_title("t")`
   uniformly, and is the groundwork for the pending `Node` removal.
 
+### Fixed — `ButtonPressed.description` is the button label, not a debug repr
+
+- `ButtonPressed.description` (and the `on_button_pressed(description, …)` app
+  hook) now carries the button's **label text** — Python parity with
+  `event.button.label` — instead of a debug repr like
+  `"Button(classes='-active', variant='success')"`. Matching a button by its
+  label (`match description { "Save" => … }`) now works as written; previously it
+  silently never matched. The debug repr is still available via
+  `Button::describe()`. Widgets that re-emit `ButtonPressed` with their own
+  routing string (e.g. `Welcome` → `"Welcome.close"`) are unchanged. Docs on
+  `on_button_pressed`/`on_input_changed` now note they receive only a
+  `WidgetCtx`; use `on_message_with_app` when you need `&mut App` to read other
+  widgets' state in response.
+
 ### Changed — height-chrome layout convention (symmetric with the width axis)
 
 - **`layout_height()` now reports PURE content height on every widget**, and the

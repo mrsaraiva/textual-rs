@@ -70,12 +70,17 @@ impl TextualApp for ModalApp {
 
     fn on_message_with_app(&mut self, app: &mut App, message: &MessageEvent, ctx: &mut textual::event::WidgetCtx) {
         if let Some(ButtonPressed { description, .. }) = message.downcast_ref::<ButtonPressed>() {
-            if description.contains("variant='primary'") {
-                self.overlay_open = true;
-                self.set_overlay_visible(app, true, ctx);
-            } else if description.contains("variant='error'") {
-                self.overlay_open = false;
-                self.set_overlay_visible(app, false, ctx);
+            // `description` is the button label (Python `event.button.label`).
+            match description.as_str() {
+                "Open modal" => {
+                    self.overlay_open = true;
+                    self.set_overlay_visible(app, true, ctx);
+                }
+                "Close modal" => {
+                    self.overlay_open = false;
+                    self.set_overlay_visible(app, false, ctx);
+                }
+                _ => {}
             }
         }
     }

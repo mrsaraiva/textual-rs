@@ -162,10 +162,16 @@ crate::impl_message!(TextEditClipboardPaste);
 
 #[derive(Debug, Clone)]
 pub struct ButtonPressed {
+    /// The pressed button's **label text** (Python parity: `event.button.label`),
+    /// so a handler can `match` on the human-readable label. (Widgets that
+    /// re-emit `ButtonPressed` may set this to a routing string of their own,
+    /// e.g. `Welcome` emits `"Welcome.close"`.) For a debug repr of the button
+    /// use `Button::describe()`.
     pub description: String,
     /// CSS id of the button that was pressed, if the button has one.
     ///
-    /// Mirrors Python's `Button.Pressed.button.id`.
+    /// Mirrors Python's `Button.Pressed.button.id`. Prefer this over
+    /// `description` when several buttons share a label.
     pub button_id: Option<String>,
 }
 
