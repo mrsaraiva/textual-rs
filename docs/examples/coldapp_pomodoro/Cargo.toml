@@ -1,0 +1,13 @@
+[package]
+name = "coldapp-pomodoro"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[[bin]]
+name = "coldapp_pomodoro"
+path = "src/main.rs"
+
+[dependencies]
+textual = { path = "../../.." }
+rich-rs = "1.1.1"

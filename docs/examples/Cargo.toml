@@ -2,6 +2,7 @@
 members = [
   "app",
   "coldapp_kanban",
+  "coldapp_pomodoro",
   "events",
   "getting_started",
   "guide/actions",
