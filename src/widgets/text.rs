@@ -428,6 +428,7 @@ impl crate::widgets::Render for Label {
         segments
     }
 }
+#[widget(Focus, Interactive, Layout, Selectable)]
 pub struct Markdown {
     markup: String,
     /// Shared content reference for parent-driven content updates (e.g. from MarkdownViewer).
@@ -947,6 +948,7 @@ fn format_markdown_link_action(href: &str) -> String {
 }
 
 #[derive(Debug)]
+#[widget(Interactive, Layout)]
 struct MarkdownHeadingBlock {
     level: usize,
     text: String,
@@ -969,7 +971,29 @@ impl MarkdownHeadingBlock {
     }
 }
 
-impl Widget for MarkdownHeadingBlock {
+impl crate::widgets::Interactive for MarkdownHeadingBlock {
+    fn on_layout(&mut self, width: u16, _height: u16) {
+        if width > 1 {
+            self.layout_width = usize::from(width);
+        }
+    }
+}
+
+impl crate::widgets::Layout for MarkdownHeadingBlock {
+    fn content_width(&self) -> Option<usize> {
+        if self.level == 1 {
+            None
+        } else {
+            Some(rich_rs::cell_len(&self.text).max(1))
+        }
+    }
+
+    fn layout_height(&self) -> Option<usize> {
+        Some(rendered_plain_height(&self.text, self.layout_width.max(1)))
+    }
+}
+
+impl crate::widgets::Render for MarkdownHeadingBlock {
     fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
 
@@ -1036,31 +1060,10 @@ impl Widget for MarkdownHeadingBlock {
     fn style_type_aliases(&self) -> &[&'static str] {
         &["MarkdownHeader", "MarkdownBlock"]
     }
-
-    fn on_layout(&mut self, width: u16, _height: u16) {
-        if width > 1 {
-            self.layout_width = usize::from(width);
-        }
-    }
-
-    fn content_width(&self) -> Option<usize> {
-        if self.level == 1 {
-            None
-        } else {
-            Some(rich_rs::cell_len(&self.text).max(1))
-        }
-    }
-
-    fn layout_height(&self) -> Option<usize> {
-        Some(rendered_plain_height(&self.text, self.layout_width.max(1)))
-    }
-
-    fn take_node_seed(&mut self) -> NodeSeed {
-        std::mem::take(&mut self.seed)
-    }
 }
 
 #[derive(Debug)]
+#[widget(Focus, Interactive, Layout)]
 struct MarkdownParagraphBlock {
     inline_doc: InlineTextDoc,
     layout_width: usize,
@@ -1077,28 +1080,17 @@ impl MarkdownParagraphBlock {
     }
 }
 
-impl Widget for MarkdownParagraphBlock {
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        self.inline_doc
-            .render_for_widget(self, console, options, self.hovered_link.as_deref())
+impl crate::widgets::Focus for MarkdownParagraphBlock {
+    fn mouse_interactive(&self) -> bool {
+        true
     }
+}
 
-    fn style_type(&self) -> &'static str {
-        "MarkdownParagraph"
-    }
-
-    fn style_type_aliases(&self) -> &[&'static str] {
-        &["MarkdownBlock"]
-    }
-
+impl crate::widgets::Interactive for MarkdownParagraphBlock {
     fn on_layout(&mut self, width: u16, _height: u16) {
         if width > 1 {
             self.layout_width = usize::from(width);
         }
-    }
-
-    fn mouse_interactive(&self) -> bool {
-        true
     }
 
     fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {
@@ -1136,13 +1128,31 @@ impl Widget for MarkdownParagraphBlock {
             ctx.set_handled();
         }
     }
+}
 
+impl crate::widgets::Layout for MarkdownParagraphBlock {
     fn layout_height(&self) -> Option<usize> {
         Some(self.inline_doc.rendered_height(self.layout_width.max(1)))
     }
 }
 
+impl crate::widgets::Render for MarkdownParagraphBlock {
+    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        self.inline_doc
+            .render_for_widget(self, console, options, self.hovered_link.as_deref())
+    }
+
+    fn style_type(&self) -> &'static str {
+        "MarkdownParagraph"
+    }
+
+    fn style_type_aliases(&self) -> &[&'static str] {
+        &["MarkdownBlock"]
+    }
+}
+
 #[derive(Debug)]
+#[widget(Interactive, Layout)]
 struct MarkdownFenceBlock {
     raw: String,
     layout_width: usize,
@@ -1157,7 +1167,24 @@ impl MarkdownFenceBlock {
     }
 }
 
-impl Widget for MarkdownFenceBlock {
+impl crate::widgets::Interactive for MarkdownFenceBlock {
+    fn on_layout(&mut self, width: u16, _height: u16) {
+        if width > 1 {
+            self.layout_width = usize::from(width);
+        }
+    }
+}
+
+impl crate::widgets::Layout for MarkdownFenceBlock {
+    fn layout_height(&self) -> Option<usize> {
+        Some(rendered_markdown_height(
+            &self.raw,
+            self.layout_width.max(1),
+        ))
+    }
+}
+
+impl crate::widgets::Render for MarkdownFenceBlock {
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         rich_rs::markdown::Markdown::new(self.raw.clone()).render(console, options)
     }
@@ -1169,22 +1196,10 @@ impl Widget for MarkdownFenceBlock {
     fn style_type_aliases(&self) -> &[&'static str] {
         &["MarkdownBlock"]
     }
-
-    fn on_layout(&mut self, width: u16, _height: u16) {
-        if width > 1 {
-            self.layout_width = usize::from(width);
-        }
-    }
-
-    fn layout_height(&self) -> Option<usize> {
-        Some(rendered_markdown_height(
-            &self.raw,
-            self.layout_width.max(1),
-        ))
-    }
 }
 
 #[derive(Debug)]
+#[widget(Layout)]
 struct MarkdownHorizontalRuleBlock;
 
 impl MarkdownHorizontalRuleBlock {
@@ -1193,7 +1208,13 @@ impl MarkdownHorizontalRuleBlock {
     }
 }
 
-impl Widget for MarkdownHorizontalRuleBlock {
+impl crate::widgets::Layout for MarkdownHorizontalRuleBlock {
+    fn layout_height(&self) -> Option<usize> {
+        Some(1)
+    }
+}
+
+impl crate::widgets::Render for MarkdownHorizontalRuleBlock {
     fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
         Segments::from(vec![Segment::new("─".repeat(width))])
@@ -1205,10 +1226,6 @@ impl Widget for MarkdownHorizontalRuleBlock {
 
     fn style_type_aliases(&self) -> &[&'static str] {
         &["MarkdownBlock"]
-    }
-
-    fn layout_height(&self) -> Option<usize> {
-        Some(1)
     }
 }
 
@@ -1348,6 +1365,7 @@ fn wrap_plain_lines(text: &str, width: usize) -> Vec<String> {
 /// and blank bar lines around nested quotes — matching Python `MarkdownBlockQuote`
 /// (`border-left: outer`, `margin: 1 0`, nested `> BlockQuote { margin-left: 2; margin-top: 1 }`).
 #[derive(Debug, Clone)]
+#[widget(Interactive, Layout)]
 struct MarkdownBlockQuoteBlock {
     children: Vec<QuoteChild>,
     layout_width: usize,
@@ -1397,7 +1415,21 @@ impl MarkdownBlockQuoteBlock {
     }
 }
 
-impl Widget for MarkdownBlockQuoteBlock {
+impl crate::widgets::Interactive for MarkdownBlockQuoteBlock {
+    fn on_layout(&mut self, width: u16, _height: u16) {
+        if width > 1 {
+            self.layout_width = usize::from(width);
+        }
+    }
+}
+
+impl crate::widgets::Layout for MarkdownBlockQuoteBlock {
+    fn layout_height(&self) -> Option<usize> {
+        Some(Self::render_lines(&self.children, 0, self.layout_width.max(1)).len())
+    }
+}
+
+impl crate::widgets::Render for MarkdownBlockQuoteBlock {
     fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(self.layout_width.max(1));
         let lines = Self::render_lines(&self.children, 0, width);
@@ -1418,19 +1450,10 @@ impl Widget for MarkdownBlockQuoteBlock {
     fn style_type_aliases(&self) -> &[&'static str] {
         &["MarkdownBlock"]
     }
-
-    fn on_layout(&mut self, width: u16, _height: u16) {
-        if width > 1 {
-            self.layout_width = usize::from(width);
-        }
-    }
-
-    fn layout_height(&self) -> Option<usize> {
-        Some(Self::render_lines(&self.children, 0, self.layout_width.max(1)).len())
-    }
 }
 
 #[derive(Debug)]
+#[widget(Layout)]
 struct MarkdownBullet {
     symbol: String,
 }
@@ -1441,7 +1464,13 @@ impl MarkdownBullet {
     }
 }
 
-impl Widget for MarkdownBullet {
+impl crate::widgets::Layout for MarkdownBullet {
+    fn content_width(&self) -> Option<usize> {
+        Some(rich_rs::cell_len(&self.symbol).max(1))
+    }
+}
+
+impl crate::widgets::Render for MarkdownBullet {
     fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
         Segments::from(vec![Segment::new(self.symbol.clone())])
     }
@@ -1449,13 +1478,10 @@ impl Widget for MarkdownBullet {
     fn style_type(&self) -> &'static str {
         "MarkdownBullet"
     }
-
-    fn content_width(&self) -> Option<usize> {
-        Some(rich_rs::cell_len(&self.symbol).max(1))
-    }
 }
 
 #[derive(Debug)]
+#[widget(Focus, Interactive, Layout)]
 struct MarkdownInlineItem {
     inline_doc: InlineTextDoc,
     layout_width: usize,
@@ -1472,28 +1498,17 @@ impl MarkdownInlineItem {
     }
 }
 
-impl Widget for MarkdownInlineItem {
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        self.inline_doc
-            .render_for_widget(self, console, options, self.hovered_link.as_deref())
+impl crate::widgets::Focus for MarkdownInlineItem {
+    fn mouse_interactive(&self) -> bool {
+        true
     }
+}
 
-    fn style_type(&self) -> &'static str {
-        "MarkdownParagraph"
-    }
-
-    fn style_type_aliases(&self) -> &[&'static str] {
-        &["MarkdownBlock"]
-    }
-
+impl crate::widgets::Interactive for MarkdownInlineItem {
     fn on_layout(&mut self, width: u16, _height: u16) {
         if width > 1 {
             self.layout_width = usize::from(width);
         }
-    }
-
-    fn mouse_interactive(&self) -> bool {
-        true
     }
 
     fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {
@@ -1531,12 +1546,30 @@ impl Widget for MarkdownInlineItem {
             ctx.set_handled();
         }
     }
+}
 
+impl crate::widgets::Layout for MarkdownInlineItem {
     fn layout_height(&self) -> Option<usize> {
         Some(self.inline_doc.rendered_height(self.layout_width.max(1)))
     }
 }
 
+impl crate::widgets::Render for MarkdownInlineItem {
+    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        self.inline_doc
+            .render_for_widget(self, console, options, self.hovered_link.as_deref())
+    }
+
+    fn style_type(&self) -> &'static str {
+        "MarkdownParagraph"
+    }
+
+    fn style_type_aliases(&self) -> &[&'static str] {
+        &["MarkdownBlock"]
+    }
+}
+
+#[widget(Interactive, Layout)]
 struct MarkdownListItemBlock {
     symbol: String,
     item_inline_doc: InlineTextDoc,
@@ -1560,25 +1593,29 @@ impl MarkdownListItemBlock {
     }
 }
 
-impl Widget for MarkdownListItemBlock {
+impl crate::widgets::Interactive for MarkdownListItemBlock {
+    fn on_layout(&mut self, width: u16, _height: u16) {
+        if width > 1 {
+            self.layout_width = usize::from(width);
+        }
+    }
+}
+
+impl crate::widgets::Layout for MarkdownListItemBlock {
+    fn layout_height(&self) -> Option<usize> {
+        let bullet_width = rich_rs::cell_len(&self.symbol).max(1);
+        let content_width = self.layout_width.saturating_sub(bullet_width).max(1);
+        Some(self.item_inline_doc.rendered_height(content_width))
+    }
+}
+
+impl crate::widgets::Render for MarkdownListItemBlock {
     fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
         Segments::new()
     }
 
     fn style_type(&self) -> &'static str {
         "MarkdownListItem"
-    }
-
-    fn on_layout(&mut self, width: u16, _height: u16) {
-        if width > 1 {
-            self.layout_width = usize::from(width);
-        }
-    }
-
-    fn layout_height(&self) -> Option<usize> {
-        let bullet_width = rich_rs::cell_len(&self.symbol).max(1);
-        let content_width = self.layout_width.saturating_sub(bullet_width).max(1);
-        Some(self.item_inline_doc.rendered_height(content_width))
     }
 
     fn compose(&mut self) -> crate::compose::ComposeResult {
@@ -1589,6 +1626,7 @@ impl Widget for MarkdownListItemBlock {
     }
 }
 
+#[widget(Interactive, Layout)]
 struct MarkdownListBlock {
     ordered: bool,
     items: Vec<String>,
@@ -1640,29 +1678,15 @@ impl MarkdownListBlock {
     }
 }
 
-impl Widget for MarkdownListBlock {
-    fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
-        Segments::new()
-    }
-
-    fn style_type(&self) -> &'static str {
-        if self.ordered {
-            "MarkdownOrderedList"
-        } else {
-            "MarkdownBulletList"
-        }
-    }
-
-    fn style_type_aliases(&self) -> &[&'static str] {
-        &["MarkdownList", "MarkdownBlock"]
-    }
-
+impl crate::widgets::Interactive for MarkdownListBlock {
     fn on_layout(&mut self, width: u16, _height: u16) {
         if width > 1 {
             self.layout_width = usize::from(width);
         }
     }
+}
 
+impl crate::widgets::Layout for MarkdownListBlock {
     fn layout_height(&self) -> Option<usize> {
         let width = self.layout_width.max(1);
         let bullet_width = if self.ordered {
@@ -1679,6 +1703,24 @@ impl Widget for MarkdownListBlock {
             .max(1);
         Some(content_height)
     }
+}
+
+impl crate::widgets::Render for MarkdownListBlock {
+    fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+        Segments::new()
+    }
+
+    fn style_type(&self) -> &'static str {
+        if self.ordered {
+            "MarkdownOrderedList"
+        } else {
+            "MarkdownBulletList"
+        }
+    }
+
+    fn style_type_aliases(&self) -> &[&'static str] {
+        &["MarkdownList", "MarkdownBlock"]
+    }
 
     fn compose(&mut self) -> crate::compose::ComposeResult {
         std::mem::take(&mut self.children)
@@ -1689,6 +1731,7 @@ impl Widget for MarkdownListBlock {
 }
 
 #[derive(Debug)]
+#[widget(Focus, Interactive, Layout, HasTooltip)]
 struct MarkdownTableCell {
     text: String,
     inline_doc: InlineTextDoc,
@@ -1713,31 +1756,17 @@ impl MarkdownTableCell {
     }
 }
 
-impl Widget for MarkdownTableCell {
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        let mut one_line = options.clone();
-        one_line.max_height = 1;
-        one_line.size.1 = 1;
-        self.inline_doc
-            .render_for_widget(self, console, &one_line, self.hovered_link.as_deref())
+impl crate::widgets::Focus for MarkdownTableCell {
+    fn mouse_interactive(&self) -> bool {
+        true
     }
+}
 
-    fn style_type(&self) -> &'static str {
-        "MarkdownTableCell"
-    }
-
-    fn style_type_aliases(&self) -> &[&'static str] {
-        &["MarkdownBlock"]
-    }
-
+impl crate::widgets::Interactive for MarkdownTableCell {
     fn on_layout(&mut self, width: u16, _height: u16) {
         if width > 1 {
             self.layout_width = usize::from(width);
         }
-    }
-
-    fn mouse_interactive(&self) -> bool {
-        true
     }
 
     fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {
@@ -1775,12 +1804,16 @@ impl Widget for MarkdownTableCell {
             ctx.set_handled();
         }
     }
+}
 
+impl crate::widgets::Layout for MarkdownTableCell {
     fn layout_height(&self) -> Option<usize> {
         let _ = &self.text;
         Some(1)
     }
+}
 
+impl crate::widgets::HasTooltip for MarkdownTableCell {
     fn tooltip(&self) -> Option<String> {
         let value = self.text.trim();
         if value.is_empty() {
@@ -1796,9 +1829,23 @@ impl Widget for MarkdownTableCell {
         let x = (self.layout_width.max(1) / 2).min(u16::MAX as usize) as u16;
         Some((x, 0))
     }
+}
 
-    fn take_node_seed(&mut self) -> NodeSeed {
-        std::mem::take(&mut self.seed)
+impl crate::widgets::Render for MarkdownTableCell {
+    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        let mut one_line = options.clone();
+        one_line.max_height = 1;
+        one_line.size.1 = 1;
+        self.inline_doc
+            .render_for_widget(self, console, &one_line, self.hovered_link.as_deref())
+    }
+
+    fn style_type(&self) -> &'static str {
+        "MarkdownTableCell"
+    }
+
+    fn style_type_aliases(&self) -> &[&'static str] {
+        &["MarkdownBlock"]
     }
 }
 
@@ -1980,6 +2027,7 @@ fn estimate_markdown_table_height(
         .max(1)
 }
 
+#[widget(Interactive, Layout)]
 struct MarkdownTableContentBlock {
     column_count: usize,
     header_markups: Vec<String>,
@@ -2070,19 +2118,7 @@ impl MarkdownTableContentBlock {
     }
 }
 
-impl Widget for MarkdownTableContentBlock {
-    fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
-        Segments::new()
-    }
-
-    fn style_type(&self) -> &'static str {
-        "MarkdownTableContent"
-    }
-
-    fn style_type_aliases(&self) -> &[&'static str] {
-        &["MarkdownBlock"]
-    }
-
+impl crate::widgets::Interactive for MarkdownTableContentBlock {
     fn on_layout(&mut self, width: u16, _height: u16) {
         if width > 1 {
             self.layout_width = usize::from(width);
@@ -2112,7 +2148,9 @@ impl Widget for MarkdownTableContentBlock {
                 .collect(),
         );
     }
+}
 
+impl crate::widgets::Layout for MarkdownTableContentBlock {
     fn style(&self) -> Option<crate::style::Style> {
         self.grid_rows.as_ref().map(|rows| crate::style::Style {
             grid_rows: Some(rows.clone()),
@@ -2129,6 +2167,20 @@ impl Widget for MarkdownTableContentBlock {
             self.row_count,
         ))
     }
+}
+
+impl crate::widgets::Render for MarkdownTableContentBlock {
+    fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+        Segments::new()
+    }
+
+    fn style_type(&self) -> &'static str {
+        "MarkdownTableContent"
+    }
+
+    fn style_type_aliases(&self) -> &[&'static str] {
+        &["MarkdownBlock"]
+    }
 
     fn compose(&mut self) -> crate::compose::ComposeResult {
         std::mem::take(&mut self.children)
@@ -2136,12 +2188,9 @@ impl Widget for MarkdownTableContentBlock {
             .map(crate::compose::ChildDecl::new)
             .collect()
     }
-
-    fn take_node_seed(&mut self) -> NodeSeed {
-        std::mem::take(&mut self.seed)
-    }
 }
 
+#[widget(Interactive, Layout)]
 struct MarkdownTableBlock {
     column_count: usize,
     header_markups: Vec<String>,
@@ -2199,7 +2248,27 @@ impl MarkdownTableBlock {
     }
 }
 
-impl Widget for MarkdownTableBlock {
+impl crate::widgets::Interactive for MarkdownTableBlock {
+    fn on_layout(&mut self, width: u16, _height: u16) {
+        if width > 1 {
+            self.layout_width = usize::from(width);
+        }
+    }
+}
+
+impl crate::widgets::Layout for MarkdownTableBlock {
+    fn layout_height(&self) -> Option<usize> {
+        Some(estimate_markdown_table_height(
+            &self.header_markups,
+            &self.row_markups,
+            self.layout_width.max(1),
+            self.column_count,
+            self.row_count,
+        ))
+    }
+}
+
+impl crate::widgets::Render for MarkdownTableBlock {
     fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
         Segments::new()
     }
@@ -2210,22 +2279,6 @@ impl Widget for MarkdownTableBlock {
 
     fn style_type_aliases(&self) -> &[&'static str] {
         &["MarkdownBlock"]
-    }
-
-    fn on_layout(&mut self, width: u16, _height: u16) {
-        if width > 1 {
-            self.layout_width = usize::from(width);
-        }
-    }
-
-    fn layout_height(&self) -> Option<usize> {
-        Some(estimate_markdown_table_height(
-            &self.header_markups,
-            &self.row_markups,
-            self.layout_width.max(1),
-            self.column_count,
-            self.row_count,
-        ))
     }
 
     fn compose(&mut self) -> crate::compose::ComposeResult {
@@ -2506,11 +2559,7 @@ impl Markdown {
     }
 }
 
-impl Widget for Markdown {
-    fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
-        Segments::new()
-    }
-
+impl crate::widgets::Focus for Markdown {
     fn focusable(&self) -> bool {
         self.can_focus
     }
@@ -2518,14 +2567,9 @@ impl Widget for Markdown {
     fn can_focus(&self) -> bool {
         self.can_focus
     }
+}
 
-    fn compose(&mut self) -> crate::compose::ComposeResult {
-        std::mem::take(&mut self.composed_children)
-            .into_iter()
-            .map(crate::compose::ChildDecl::new)
-            .collect()
-    }
-
+impl crate::widgets::Interactive for Markdown {
     fn on_layout(&mut self, width: u16, _height: u16) {
         if let Some(shared) = self.shared_markup.clone() {
             if let Ok(current) = shared.read()
@@ -2549,7 +2593,9 @@ impl Widget for Markdown {
             self.pending_recompose = false;
         }
     }
+}
 
+impl crate::widgets::Layout for Markdown {
     fn layout_height(&self) -> Option<usize> {
         Some(self.intrinsic_height)
     }
@@ -2557,19 +2603,24 @@ impl Widget for Markdown {
     fn content_width(&self) -> Option<usize> {
         None
     }
+}
 
-    fn take_node_seed(&mut self) -> NodeSeed {
-        std::mem::take(&mut self.seed)
-    }
-
+impl crate::widgets::Selectable for Markdown {
     fn allow_select(&self) -> bool {
         false
     }
 }
 
-impl Renderable for Markdown {
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        Widget::render(self, console, options)
+impl crate::widgets::Render for Markdown {
+    fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+        Segments::new()
+    }
+
+    fn compose(&mut self) -> crate::compose::ComposeResult {
+        std::mem::take(&mut self.composed_children)
+            .into_iter()
+            .map(crate::compose::ChildDecl::new)
+            .collect()
     }
 }
 #[cfg(test)]
