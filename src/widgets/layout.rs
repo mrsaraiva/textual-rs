@@ -445,6 +445,8 @@ impl Widget for Row {
         std::mem::take(&mut self.seed)
     }
 
+    crate::seed_style_identity_methods!();
+
     fn render_with_debug(
         &self,
         console: &Console,
@@ -1449,6 +1451,8 @@ impl Widget for Dock {
         std::mem::take(&mut self.seed)
     }
 
+    crate::seed_style_identity_methods!();
+
     fn render_with_debug(
         &self,
         console: &Console,
@@ -2319,6 +2323,8 @@ impl Widget for Grid {
     fn take_node_seed(&mut self) -> NodeSeed {
         std::mem::take(&mut self.seed)
     }
+
+    crate::seed_style_identity_methods!();
 }
 
 impl Renderable for Grid {

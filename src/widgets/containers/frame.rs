@@ -313,6 +313,8 @@ impl Widget for Frame {
         std::mem::take(&mut self.seed)
     }
 
+    crate::seed_style_identity_methods!();
+
     fn focusable(&self) -> bool {
         if self.child_extracted {
             return false;

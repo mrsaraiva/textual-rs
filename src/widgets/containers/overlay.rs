@@ -330,6 +330,8 @@ impl Widget for Overlay {
         std::mem::take(&mut self.seed)
     }
 
+    crate::seed_style_identity_methods!();
+
     fn layout_height(&self) -> Option<usize> {
         if self.visible {
             match (self.base.layout_height(), self.modal.layout_height()) {

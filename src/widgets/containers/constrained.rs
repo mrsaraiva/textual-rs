@@ -203,6 +203,8 @@ impl Widget for Constrained {
     fn take_node_seed(&mut self) -> NodeSeed {
         std::mem::take(&mut self.seed)
     }
+
+    crate::seed_style_identity_methods!();
 }
 
 impl Renderable for Constrained {

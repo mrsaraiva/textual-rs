@@ -607,6 +607,8 @@ impl Widget for AppRoot {
         std::mem::take(&mut self.seed)
     }
 
+    crate::seed_style_identity_methods!();
+
     fn style_type(&self) -> &'static str {
         "Screen"
     }

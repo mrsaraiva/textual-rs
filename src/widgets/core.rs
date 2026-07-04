@@ -1336,6 +1336,34 @@ macro_rules! seed_ident_methods {
     };
 }
 
+/// Expose a seed-owning widget's pre-mount CSS identity through the off-tree
+/// [`Widget::style_classes`] / [`Widget::style_id`] readers.
+///
+/// The `.id()`/`.class()` builders (see [`seed_ident_methods!`]) store identity
+/// in `self.seed`, but the `Widget` trait's `style_classes()`/`style_id()`
+/// default to empty. Those readers are the off-tree identity source consulted by
+/// `selector_meta_generic` AND by `build_widget_tree_from_root` when it mirrors a
+/// ROOT widget's identity onto the root node (the root is never consumed through
+/// `make_node_from_seed`, so its seed must be READ, not taken — taking it would
+/// break the still-externally-rendered root widget's own `style()`/layout
+/// readers). Widgets owning a `seed: NodeSeed` field invoke this inside their
+/// `impl Widget` block so a `.class()`/`.id()` on a ROOT of that type matches
+/// descendant/child selectors against its children (`.panel > Label`).
+///
+/// Do NOT use on widgets that maintain their own dynamic class list and already
+/// override `style_classes()` (e.g. `Button`, `Input`) — they own that reader.
+#[macro_export]
+macro_rules! seed_style_identity_methods {
+    () => {
+        fn style_classes(&self) -> &[String] {
+            &self.seed.classes
+        }
+        fn style_id(&self) -> Option<&str> {
+            self.seed.css_id.as_deref()
+        }
+    };
+}
+
 /// Like [`seed_ident_methods!`] but for a thin wrapper widget that delegates its
 /// identity to an inner field (which itself exposes `.id()`/`.class()`).
 #[macro_export]

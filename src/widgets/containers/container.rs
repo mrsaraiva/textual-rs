@@ -542,6 +542,8 @@ impl Widget for Container {
         std::mem::take(&mut self.seed)
     }
 
+    crate::seed_style_identity_methods!();
+
     fn border_title(&self) -> Option<&str> {
         self.border_title.as_deref()
     }

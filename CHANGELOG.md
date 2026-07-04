@@ -83,17 +83,26 @@ in the sections below; this is the migration index:
   test: `classed_leaf_folds_onto_its_own_node_no_wrapper`). `is_transparent_wrapper`
   (a distinct, still-used layout hook) is retained.
 - **Fixed (Node-deletion follow-up): a seed-based widget used as the tree ROOT
-  now keeps its `.id()`/`.class()`/inline styles.** `build_widget_tree_from_root`
-  propagated root identity only via `style_classes()`/`style_id()`, which are
-  empty for seed-based widgets (`Container` and every `seed_ident_methods!` user)
-  — the root's `NodeSeed` was never harvested, so a `.class("panel")` on a ROOT
-  `Container` was silently dropped and descendant/child selectors (`.panel Label`,
+  now matches descendant/child selectors against its children via its own
+  `.id()`/`.class()`.** `build_widget_tree_from_root` mirrors the root widget's
+  CSS identity onto the root node via `style_classes()`/`style_id()`, which
+  default to empty for seed-based widgets (`Container` and every
+  `seed_ident_methods!` user) — so a `.class("panel")` on a ROOT `Container` was
+  silently dropped and descendant/child selectors (`.panel Label`,
   `.panel > Label`) never matched its children. The old `Node` wrapper masked
-  this by overriding `style_classes()`/`style_id()`. The root's seed is now
-  harvested via `WidgetTree::apply_forwarded_seed` (id + classes + inline styles),
-  additive to the existing class-list-widget read (Button/Input). Regression
-  tests: `root_widget_seed_identity_lands_on_root_node`, plus the now-un-ignored
-  `descendant_selectors_match` / `child_selectors_match_direct_children_only`.
+  this by overriding `style_classes()`/`style_id()`. Seed-based container widgets
+  now expose their pre-mount seed identity through those readers via the new
+  `seed_style_identity_methods!` macro (base `Container`, `Frame`, `Overlay`,
+  `Styled`, `Panel`, `Constrained`, `AppRoot`, and the `layout.rs` `Row`/`Dock`/
+  `Grid` flow containers; `Vertical`/`Horizontal` aliases already exposed it).
+  This is a NON-destructive READ: the ROOT widget stays owned by the caller and
+  is rendered directly, so consuming its seed (an earlier approach) is avoided —
+  that had blanked a `Styled`/`Container` root's inline `style()` (root
+  inheritance reads the root widget's `style()`, not the root node's styles).
+  Regression tests: `root_widget_seed_identity_lands_on_root_node`, the
+  un-ignored `descendant_selectors_match` / `child_selectors_match_direct_children_only`,
+  and `style_inheritance::inherited_styles_apply_to_children` (guards the
+  no-consume invariant for inline-style-carrying roots).
 
 ### Removed (prelude prune — RA2.6b, BREAKING)
 
