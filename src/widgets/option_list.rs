@@ -1,5 +1,6 @@
 use crossterm::event::KeyCode;
 use rich_rs::{Console, ConsoleOptions, MetaValue, Renderable, Segment, Segments, Text};
+use textual_macros::widget;
 
 use crate::event::{Action, Event};
 use crate::message::*;
@@ -117,6 +118,7 @@ fn finalize_highlight_line(line: &[Segment], width: usize, fill: rich_rs::Style)
 /// Supports separators between groups, disabled items, keyboard and mouse navigation,
 /// and emits [`OptionHighlighted`] / [`OptionSelected`] messages.
 #[derive(Debug, Clone)]
+#[widget(Focus, Interactive, Layout, Scrollable)]
 pub struct OptionList {
     items: Vec<OptionItem>,
     cursor: OptionCursorState,
@@ -699,11 +701,13 @@ impl OptionList {
     }
 }
 
-impl Widget for OptionList {
+impl crate::widgets::Focus for OptionList {
     fn focusable(&self) -> bool {
         !self.disabled
     }
+}
 
+impl crate::widgets::Interactive for OptionList {
     fn on_node_state_changed(
         &mut self,
         _old: crate::widgets::NodeState,
@@ -839,6 +843,46 @@ impl Widget for OptionList {
         false
     }
 
+    fn on_unmount(&mut self) {
+        self.hovered_index = None;
+    }
+
+    fn on_message(&mut self, event: &MessageEvent, ctx: &mut crate::event::WidgetCtx) {
+        let Some(payload) = event.downcast_ref::<ScrollbarScrollTo>() else {
+            return;
+        };
+        if payload.axis != ScrollbarAxis::Vertical {
+            return;
+        }
+        let next = (payload.offset.max(0.0).round() as usize).min(self.max_offset());
+        if next != self.offset {
+            self.offset = next;
+            ctx.request_repaint();
+        }
+        ctx.set_handled();
+    }
+}
+
+impl crate::widgets::Layout for OptionList {
+    fn layout_height(&self) -> Option<usize> {
+        // Sum of per-option display-line heights (multi-row options count fully).
+        Some(self.total_lines().max(1))
+    }
+
+    fn content_width(&self) -> Option<usize> {
+        let content_width = self.content_width_inner();
+        let meta = crate::css::selector_meta_generic(self);
+        let resolved = crate::css::resolve_style(self, &meta);
+        let padding = resolved.effective_padding();
+        let (_, _, border_left, border_right) =
+            super::helpers::border_spacing_from_style(&resolved);
+        let chrome_lr =
+            usize::from(padding.left.saturating_add(padding.right)) + border_left + border_right;
+        Some(content_width.saturating_add(chrome_lr).max(1))
+    }
+}
+
+impl crate::widgets::Scrollable for OptionList {
     fn on_mouse_scroll(&mut self, _delta_x: i32, delta_y: i32, ctx: &mut crate::event::WidgetCtx) {
         if self.disabled {
             return;
@@ -852,10 +896,25 @@ impl Widget for OptionList {
         );
     }
 
-    fn on_unmount(&mut self) {
-        self.hovered_index = None;
+    fn scroll_offset(&self) -> (usize, usize) {
+        (0, self.offset)
     }
 
+    fn scroll_offset_f32(&self) -> (f32, f32) {
+        (0.0, self.offset as f32)
+    }
+
+    fn scroll_virtual_content_size(&self) -> Option<(usize, usize)> {
+        // Width: the widest option content (no chrome) so the host reserves a
+        // horizontal lane only on genuine overflow. Height: the total flattened
+        // display-line count so a vertical lane appears when the list overflows
+        // the viewport. OptionList renders its own content (no child widgets),
+        // so the host falls back to this for the virtual extent.
+        Some((self.content_width_inner().max(1), self.total_lines().max(1)))
+    }
+}
+
+impl crate::widgets::Render for OptionList {
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
         let height = options.size.1.max(1);
@@ -1053,33 +1112,8 @@ impl Widget for OptionList {
         out
     }
 
-    fn layout_height(&self) -> Option<usize> {
-        // Sum of per-option display-line heights (multi-row options count fully).
-        Some(self.total_lines().max(1))
-    }
-
-    fn content_width(&self) -> Option<usize> {
-        let content_width = self.content_width_inner();
-        let meta = crate::css::selector_meta_generic(self);
-        let resolved = crate::css::resolve_style(self, &meta);
-        let padding = resolved.effective_padding();
-        let (_, _, border_left, border_right) =
-            super::helpers::border_spacing_from_style(&resolved);
-        let chrome_lr =
-            usize::from(padding.left.saturating_add(padding.right)) + border_left + border_right;
-        Some(content_width.saturating_add(chrome_lr).max(1))
-    }
-
     fn style_type(&self) -> &'static str {
         "OptionList"
-    }
-
-    fn set_inline_style(&mut self, style: crate::style::Style) {
-        self.seed.styles.style = style;
-    }
-
-    fn take_node_seed(&mut self) -> NodeSeed {
-        std::mem::take(&mut self.seed)
     }
 
     fn compose(&mut self) -> crate::compose::ComposeResult {
@@ -1091,46 +1125,7 @@ impl Widget for OptionList {
         vbar.seed.css_id = Some(OPTION_LIST_VSCROLLBAR_ID.to_string());
         vec![crate::compose::ChildDecl::new(Box::new(vbar))]
     }
-
-    fn on_message(&mut self, event: &MessageEvent, ctx: &mut crate::event::WidgetCtx) {
-        let Some(payload) = event.downcast_ref::<ScrollbarScrollTo>() else {
-            return;
-        };
-        if payload.axis != ScrollbarAxis::Vertical {
-            return;
-        }
-        let next = (payload.offset.max(0.0).round() as usize).min(self.max_offset());
-        if next != self.offset {
-            self.offset = next;
-            ctx.request_repaint();
-        }
-        ctx.set_handled();
-    }
-
-    fn scroll_offset(&self) -> (usize, usize) {
-        (0, self.offset)
-    }
-
-    fn scroll_offset_f32(&self) -> (f32, f32) {
-        (0.0, self.offset as f32)
-    }
-
-    fn scroll_virtual_content_size(&self) -> Option<(usize, usize)> {
-        // Width: the widest option content (no chrome) so the host reserves a
-        // horizontal lane only on genuine overflow. Height: the total flattened
-        // display-line count so a vertical lane appears when the list overflows
-        // the viewport. OptionList renders its own content (no child widgets),
-        // so the host falls back to this for the virtual extent.
-        Some((self.content_width_inner().max(1), self.total_lines().max(1)))
-    }
 }
-
-impl Renderable for OptionList {
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        Widget::render(self, console, options)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

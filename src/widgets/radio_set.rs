@@ -1,5 +1,6 @@
 use crossterm::event::KeyCode;
-use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
+use rich_rs::{Console, ConsoleOptions, Segment, Segments};
+use textual_macros::widget;
 
 use crate::event::Event;
 use crate::message::*;
@@ -22,6 +23,7 @@ use crate::reactive::{ReactiveCtx, ReactiveFlags, ReactiveWidget};
 /// `RadioSet:focus`/`:blur` ancestor), the RadioButtons style themselves — the
 /// set owns no per-glyph compensation.
 #[derive(Debug, Clone)]
+#[widget(Focus, Interactive, Layout)]
 pub struct RadioSet {
     /// Authoritative button metadata (labels / disabled / initial value). This
     /// survives compose (the buttons are *cloned* into arena children, not
@@ -246,27 +248,7 @@ impl RadioSet {
     }
 }
 
-impl Widget for RadioSet {
-    /// Emit the RadioButtons as real arena children.
-    ///
-    /// State-pure and idempotent: every call regenerates the children from the
-    /// authoritative `buttons` metadata (cloned, with their ordinal stamped), so
-    /// a recompose of this node rebuilds an identical child set rather than
-    /// clearing it. RadioSet never *requests* a recompose for selection changes
-    /// (those are driven onto the existing children via `child_classes_for_tree`),
-    /// so it stays clear of the recompose-under-draining-compose trap.
-    fn compose(&mut self) -> ComposeResult {
-        self.buttons
-            .iter()
-            .enumerate()
-            .map(|(ordinal, button)| {
-                let mut child = button.clone();
-                child.set_ordinal(ordinal);
-                ChildDecl::new(Box::new(child))
-            })
-            .collect()
-    }
-
+impl crate::widgets::Focus for RadioSet {
     fn focusable(&self) -> bool {
         !self.disabled && self.has_enabled_button()
     }
@@ -280,23 +262,9 @@ impl Widget for RadioSet {
         // focus and drives selection between its buttons.
         false
     }
+}
 
-    /// Drive each child RadioButton's `-on` (pressed) and `-selected`
-    /// (navigation cursor) classes onto its arena node. This is the canonical
-    /// arena mechanism (mirrors Python's `watch__selected` adding `-selected`
-    /// and `watch_value` toggling `-on`), letting the CSS cascade resolve on the
-    /// real child node.
-    fn child_classes_for_tree(&self, child_index: usize) -> Vec<(&'static str, bool)> {
-        let pressed = self.cursor.selected() == Some(child_index);
-        let selected = self.cursor.highlighted() == Some(child_index)
-            && self
-                .buttons
-                .get(child_index)
-                .map(|b| !b.is_disabled())
-                .unwrap_or(false);
-        vec![("-on", pressed), ("-selected", selected)]
-    }
-
+impl crate::widgets::Interactive for RadioSet {
     fn on_mount(&mut self, _ctx: &mut crate::event::WidgetCtx) {
         self.mounted = true;
     }
@@ -363,35 +331,23 @@ impl Widget for RadioSet {
             ctx.request_repaint();
         }
     }
+}
 
-    // NOTE: RadioSet intentionally does NOT implement visit_children_mut.
-    // With `can_focus_children = false` the buttons never enter the global focus
-    // traversal — the set manages navigation internally.
-
-    /// Chrome-only render. The `RadioButton` children render through the arena
-    /// tree; `RadioSet` only paints its own resolved surface (background/tint/
-    /// border) — the children composite over it.
-    fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
-        let width = options.size.0.max(1);
-        let resolved = crate::css::resolve_style(self, &crate::css::selector_meta_generic(self));
-        let paints_surface = resolved.bg.is_some()
-            || resolved.hatch.is_some()
-            || resolved.border_top.is_set()
-            || resolved.border_right.is_set()
-            || resolved.border_bottom.is_set()
-            || resolved.border_left.is_set();
-        if !paints_surface {
-            return Segments::new();
-        }
-        let height = options.size.1.max(1);
-        let mut out = Segments::new();
-        for idx in 0..height {
-            out.push(Segment::new(" ".repeat(width)));
-            if idx + 1 < height {
-                out.push(Segment::line());
-            }
-        }
-        out
+impl crate::widgets::Layout for RadioSet {
+    /// Drive each child RadioButton's `-on` (pressed) and `-selected`
+    /// (navigation cursor) classes onto its arena node. This is the canonical
+    /// arena mechanism (mirrors Python's `watch__selected` adding `-selected`
+    /// and `watch_value` toggling `-on`), letting the CSS cascade resolve on the
+    /// real child node.
+    fn child_classes_for_tree(&self, child_index: usize) -> Vec<(&'static str, bool)> {
+        let pressed = self.cursor.selected() == Some(child_index);
+        let selected = self.cursor.highlighted() == Some(child_index)
+            && self
+                .buttons
+                .get(child_index)
+                .map(|b| !b.is_disabled())
+                .unwrap_or(false);
+        vec![("-on", pressed), ("-selected", selected)]
     }
 
     fn layout_height(&self) -> Option<usize> {
@@ -428,26 +384,59 @@ impl Widget for RadioSet {
             usize::from(padding.left.saturating_add(padding.right)) + border_left + border_right;
         Some(content_width.saturating_add(chrome_lr).max(1))
     }
+}
+
+impl crate::widgets::Render for RadioSet {
+    /// Emit the RadioButtons as real arena children.
+    ///
+    /// State-pure and idempotent: every call regenerates the children from the
+    /// authoritative `buttons` metadata (cloned, with their ordinal stamped), so
+    /// a recompose of this node rebuilds an identical child set rather than
+    /// clearing it. RadioSet never *requests* a recompose for selection changes
+    /// (those are driven onto the existing children via `child_classes_for_tree`),
+    /// so it stays clear of the recompose-under-draining-compose trap.
+    fn compose(&mut self) -> ComposeResult {
+        self.buttons
+            .iter()
+            .enumerate()
+            .map(|(ordinal, button)| {
+                let mut child = button.clone();
+                child.set_ordinal(ordinal);
+                ChildDecl::new(Box::new(child))
+            })
+            .collect()
+    }
+
+    /// Chrome-only render. The `RadioButton` children render through the arena
+    /// tree; `RadioSet` only paints its own resolved surface (background/tint/
+    /// border) — the children composite over it.
+    fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
+        let width = options.size.0.max(1);
+        let resolved = crate::css::resolve_style(self, &crate::css::selector_meta_generic(self));
+        let paints_surface = resolved.bg.is_some()
+            || resolved.hatch.is_some()
+            || resolved.border_top.is_set()
+            || resolved.border_right.is_set()
+            || resolved.border_bottom.is_set()
+            || resolved.border_left.is_set();
+        if !paints_surface {
+            return Segments::new();
+        }
+        let height = options.size.1.max(1);
+        let mut out = Segments::new();
+        for idx in 0..height {
+            out.push(Segment::new(" ".repeat(width)));
+            if idx + 1 < height {
+                out.push(Segment::line());
+            }
+        }
+        out
+    }
 
     fn style_type(&self) -> &'static str {
         "RadioSet"
     }
-
-    fn set_inline_style(&mut self, style: crate::style::Style) {
-        self.seed.styles.style = style;
-    }
-
-    fn take_node_seed(&mut self) -> NodeSeed {
-        std::mem::take(&mut self.seed)
-    }
 }
-
-impl Renderable for RadioSet {
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        Widget::render(self, console, options)
-    }
-}
-
 impl ReactiveWidget for RadioSet {}
 
 #[cfg(test)]

@@ -1,5 +1,6 @@
 use crossterm::event::KeyCode;
-use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
+use rich_rs::{Console, ConsoleOptions, Segment, Segments};
+use textual_macros::widget;
 
 use crate::compose::ComposeResult;
 use crate::css;
@@ -46,6 +47,7 @@ use super::{BindingDecl, ListItem, NodeSeed, ScrollView, Widget};
 /// [`selected`](Self::selected) / [`offset`](Self::offset) /
 /// [`hovered_index`](Self::hovered_index) without mounting the list.
 #[derive(Debug)]
+#[widget(Focus, Interactive, Layout, Scrollable)]
 pub struct ListView {
     /// Authoritative text of each item (the headless state model and message
     /// payloads use this; it survives arena extraction). For text-based items it
@@ -450,35 +452,7 @@ impl ListView {
     }
 }
 
-impl Widget for ListView {
-    fn compose(&mut self) -> ComposeResult {
-        if self.children_extracted {
-            return Vec::new();
-        }
-        self.children_extracted = true;
-        // Use the user-supplied items on first mount; on a recompose (after a
-        // text-based mutation such as `append`/`set_items`) the pending buffer is
-        // empty, so rebuild every item from the retained `item_text`/`disabled`
-        // state — this keeps previously-mounted items and avoids dropping any.
-        let mut items = std::mem::take(&mut self.pending_items);
-        if items.is_empty() && !self.item_text.is_empty() {
-            items = self
-                .item_text
-                .iter()
-                .enumerate()
-                .map(|(idx, text)| {
-                    ListItem::from_text(text.clone()).disabled(self.is_item_disabled(idx))
-                })
-                .collect();
-        }
-        let mut out: ComposeResult = Vec::with_capacity(items.len());
-        for (ordinal, mut item) in items.into_iter().enumerate() {
-            item.set_ordinal(ordinal);
-            out.push(crate::compose::ChildDecl::new(Box::new(item)));
-        }
-        out
-    }
-
+impl crate::widgets::Focus for ListView {
     fn focusable(&self) -> bool {
         true
     }
@@ -490,49 +464,6 @@ impl Widget for ListView {
     fn can_focus_children(&self) -> bool {
         // Python: `ListView(..., can_focus_children=False)`.
         false
-    }
-
-    /// Drive the highlight (and hover) on child `ListItem` nodes by index. This
-    /// is the canonical arena mechanism (mirrors Python's `watch_index` setting
-    /// `-highlight` on the highlighted child). The highlight is background-only.
-    fn child_classes_for_tree(&self, child_index: usize) -> Vec<(&'static str, bool)> {
-        // The highlight is independent of focus — the `:focus` CSS variant
-        // restyles the highlighted item when the list is focused.
-        let highlighted = child_index == self.selected && self.is_selectable(child_index);
-        let hovered = self.hovered_index == Some(child_index) && !highlighted;
-        vec![("-highlight", highlighted), ("-hovered", hovered)]
-    }
-
-    /// Post the initial `ListViewSelectionChanged` at mount, mirroring Python's
-    /// `watch_index` firing for the initial highlight. RA2.3: this replaces the
-    /// former mount-message staging hook — `on_mount` runs with a `WidgetCtx` in
-    /// every mount path, so the message posts (and bubbles) through the normal bus.
-    fn on_mount(&mut self, ctx: &mut crate::event::WidgetCtx) {
-        if self.pending_initial_highlight
-            && self.is_selectable(self.selected)
-            && let Some(item) = self.item_text.get(self.selected)
-        {
-            ctx.post_message(ListViewSelectionChanged {
-                index: self.selected,
-                item: item.clone(),
-            });
-        }
-        self.pending_initial_highlight = false;
-    }
-
-    fn on_node_state_changed(
-        &mut self,
-        _old: crate::widgets::NodeState,
-        new: crate::widgets::NodeState,
-    ) {
-        if !new.hovered {
-            self.hovered_index = None;
-        }
-    }
-
-    fn on_layout(&mut self, _width: u16, height: u16) {
-        self.viewport_height = usize::from(height).max(1);
-        self.ensure_visible();
     }
 
     fn action_namespace(&self) -> &str {
@@ -596,6 +527,40 @@ impl Widget for ListView {
             }
             _ => false,
         }
+    }
+}
+
+impl crate::widgets::Interactive for ListView {
+    /// Post the initial `ListViewSelectionChanged` at mount, mirroring Python's
+    /// `watch_index` firing for the initial highlight. RA2.3: this replaces the
+    /// former mount-message staging hook — `on_mount` runs with a `WidgetCtx` in
+    /// every mount path, so the message posts (and bubbles) through the normal bus.
+    fn on_mount(&mut self, ctx: &mut crate::event::WidgetCtx) {
+        if self.pending_initial_highlight
+            && self.is_selectable(self.selected)
+            && let Some(item) = self.item_text.get(self.selected)
+        {
+            ctx.post_message(ListViewSelectionChanged {
+                index: self.selected,
+                item: item.clone(),
+            });
+        }
+        self.pending_initial_highlight = false;
+    }
+
+    fn on_node_state_changed(
+        &mut self,
+        _old: crate::widgets::NodeState,
+        new: crate::widgets::NodeState,
+    ) {
+        if !new.hovered {
+            self.hovered_index = None;
+        }
+    }
+
+    fn on_layout(&mut self, _width: u16, height: u16) {
+        self.viewport_height = usize::from(height).max(1);
+        self.ensure_visible();
     }
 
     fn on_message(&mut self, message: &MessageEvent, ctx: &mut crate::event::WidgetCtx) {
@@ -719,6 +684,60 @@ impl Widget for ListView {
         false
     }
 
+    fn on_unmount(&mut self) {
+        self.hovered_index = None;
+        self.pressed_index = None;
+    }
+}
+
+impl crate::widgets::Layout for ListView {
+    /// Drive the highlight (and hover) on child `ListItem` nodes by index. This
+    /// is the canonical arena mechanism (mirrors Python's `watch_index` setting
+    /// `-highlight` on the highlighted child). The highlight is background-only.
+    fn child_classes_for_tree(&self, child_index: usize) -> Vec<(&'static str, bool)> {
+        // The highlight is independent of focus — the `:focus` CSS variant
+        // restyles the highlighted item when the list is focused.
+        let highlighted = child_index == self.selected && self.is_selectable(child_index);
+        let hovered = self.hovered_index == Some(child_index) && !highlighted;
+        vec![("-highlight", highlighted), ("-hovered", hovered)]
+    }
+
+    fn layout_height(&self) -> Option<usize> {
+        // height: auto — pre-mount estimate from the pending items. After
+        // extraction the arena owns layout, so return None.
+        if self.children_extracted {
+            return None;
+        }
+        if !self.pending_items.is_empty() {
+            let mut total = 0usize;
+            for item in &self.pending_items {
+                match crate::widgets::Widget::layout_height(item) {
+                    Some(h) => total = total.saturating_add(h.max(1)),
+                    None => return None,
+                }
+            }
+            return Some(total.max(1));
+        }
+        // Text-only estimate: one row per item (real heights come from the
+        // arena once the `ListItem`/`Label` children are mounted).
+        Some(self.item_text.len().max(1))
+    }
+
+    fn auto_content_width(&self) -> Option<usize> {
+        // For `width: auto`, report the widest item text regardless of arena
+        // extraction (the authoritative `item_text` survives a drain).
+        self.intrinsic_text_width()
+    }
+
+    fn content_width(&self) -> Option<usize> {
+        if self.children_extracted {
+            return None;
+        }
+        self.intrinsic_text_width()
+    }
+}
+
+impl crate::widgets::Scrollable for ListView {
     fn on_mouse_scroll(&mut self, _delta_x: i32, delta_y: i32, ctx: &mut crate::event::WidgetCtx) {
         if delta_y == 0 {
             return;
@@ -728,10 +747,35 @@ impl Widget for ListView {
             ctx,
         );
     }
+}
 
-    fn on_unmount(&mut self) {
-        self.hovered_index = None;
-        self.pressed_index = None;
+impl crate::widgets::Render for ListView {
+    fn compose(&mut self) -> ComposeResult {
+        if self.children_extracted {
+            return Vec::new();
+        }
+        self.children_extracted = true;
+        // Use the user-supplied items on first mount; on a recompose (after a
+        // text-based mutation such as `append`/`set_items`) the pending buffer is
+        // empty, so rebuild every item from the retained `item_text`/`disabled`
+        // state — this keeps previously-mounted items and avoids dropping any.
+        let mut items = std::mem::take(&mut self.pending_items);
+        if items.is_empty() && !self.item_text.is_empty() {
+            items = self
+                .item_text
+                .iter()
+                .enumerate()
+                .map(|(idx, text)| {
+                    ListItem::from_text(text.clone()).disabled(self.is_item_disabled(idx))
+                })
+                .collect();
+        }
+        let mut out: ComposeResult = Vec::with_capacity(items.len());
+        for (ordinal, mut item) in items.into_iter().enumerate() {
+            item.set_ordinal(ordinal);
+            out.push(crate::compose::ChildDecl::new(Box::new(item)));
+        }
+        out
     }
 
     fn style_type(&self) -> &'static str {
@@ -762,56 +806,7 @@ impl Widget for ListView {
         }
         out
     }
-
-    fn layout_height(&self) -> Option<usize> {
-        // height: auto — pre-mount estimate from the pending items. After
-        // extraction the arena owns layout, so return None.
-        if self.children_extracted {
-            return None;
-        }
-        if !self.pending_items.is_empty() {
-            let mut total = 0usize;
-            for item in &self.pending_items {
-                match item.layout_height() {
-                    Some(h) => total = total.saturating_add(h.max(1)),
-                    None => return None,
-                }
-            }
-            return Some(total.max(1));
-        }
-        // Text-only estimate: one row per item (real heights come from the
-        // arena once the `ListItem`/`Label` children are mounted).
-        Some(self.item_text.len().max(1))
-    }
-
-    fn auto_content_width(&self) -> Option<usize> {
-        // For `width: auto`, report the widest item text regardless of arena
-        // extraction (the authoritative `item_text` survives a drain).
-        self.intrinsic_text_width()
-    }
-
-    fn content_width(&self) -> Option<usize> {
-        if self.children_extracted {
-            return None;
-        }
-        self.intrinsic_text_width()
-    }
-
-    fn set_inline_style(&mut self, style: crate::style::Style) {
-        self.seed.styles.style = style;
-    }
-
-    fn take_node_seed(&mut self) -> NodeSeed {
-        std::mem::take(&mut self.seed)
-    }
 }
-
-impl Renderable for ListView {
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        Widget::render(self, console, options)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::{ListItem, ListView};

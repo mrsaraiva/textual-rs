@@ -1,4 +1,5 @@
-use rich_rs::{Console, ConsoleOptions, Renderable, Segments};
+use rich_rs::{Console, ConsoleOptions, Segments};
+use textual_macros::widget;
 use std::collections::HashSet;
 use std::time::Instant;
 
@@ -458,6 +459,7 @@ impl Template {
 // MaskedInput
 // ---------------------------------------------------------------------------
 
+#[widget(Focus, Interactive, Layout, Selectable)]
 pub struct MaskedInput {
     template: Template,
     /// Current value as a char vec (positions correspond 1:1 with template defs).
@@ -819,23 +821,21 @@ impl MaskedInput {
     }
 }
 
-impl Widget for MaskedInput {
-    fn style_type(&self) -> &'static str {
-        "MaskedInput"
-    }
-
+impl crate::widgets::Focus for MaskedInput {
     fn focusable(&self) -> bool {
         true
     }
 
+    fn is_active(&self) -> bool {
+        self.chrome.is_active()
+    }
+}
+
+impl crate::widgets::Interactive for MaskedInput {
     fn on_node_state_changed(&mut self, old: NodeState, new: NodeState) {
         if old.focused != new.focused {
             self.chrome.set_focus(new.focused);
         }
-    }
-
-    fn is_active(&self) -> bool {
-        self.chrome.is_active()
     }
 
     fn on_mouse_move(&mut self, x: u16, _y: u16) -> bool {
@@ -999,6 +999,26 @@ impl Widget for MaskedInput {
             }
         }
     }
+}
+
+impl crate::widgets::Layout for MaskedInput {
+    fn layout_height(&self) -> Option<usize> {
+        // PURE content height (1 row). The flow layout adds the CSS-resolved
+        // vertical chrome (MaskedInput's default border) with ancestor context.
+        Some(1)
+    }
+}
+
+impl crate::widgets::Selectable for MaskedInput {
+    fn get_selection(&self) -> Option<String> {
+        self.copy_text()
+    }
+}
+
+impl crate::widgets::Render for MaskedInput {
+    fn style_type(&self) -> &'static str {
+        "MaskedInput"
+    }
 
     fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
@@ -1009,7 +1029,7 @@ impl Widget for MaskedInput {
         let base_bg = base_style.bg.unwrap_or(fallback_bg);
 
         let resolve_component_rich = |class: &str| -> rich_rs::Style {
-            let meta = crate::css::selector_meta_component(self.style_type(), &[class]);
+            let meta = crate::css::selector_meta_component(crate::widgets::Widget::style_type(self), &[class]);
             let style = crate::css::resolve_style_for_meta(&meta);
             let mut rich = style
                 .to_rich_without_colors()
@@ -1081,32 +1101,7 @@ impl Widget for MaskedInput {
         }
         adjust_line_length_no_bg(&out, width).into()
     }
-
-    fn layout_height(&self) -> Option<usize> {
-        // PURE content height (1 row). The flow layout adds the CSS-resolved
-        // vertical chrome (MaskedInput's default border) with ancestor context.
-        Some(1)
-    }
-
-    fn set_inline_style(&mut self, style: crate::style::Style) {
-        self.seed.styles.style = style;
-    }
-
-    fn take_node_seed(&mut self) -> NodeSeed {
-        std::mem::take(&mut self.seed)
-    }
-
-    fn get_selection(&self) -> Option<String> {
-        self.copy_text()
-    }
 }
-
-impl Renderable for MaskedInput {
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        Widget::render(self, console, options)
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------

@@ -5,6 +5,7 @@ use crossterm::event::KeyCode;
 use unicode_segmentation::UnicodeSegmentation;
 
 use rich_rs::{Console, ConsoleOptions, Segment, Segments};
+use textual_macros::widget;
 use tree_sitter::{Parser, Query, QueryCursor};
 
 use crate::event::Event;
@@ -159,6 +160,7 @@ impl Selection {
     }
 }
 
+#[widget(Focus, Interactive, Selectable)]
 pub struct TextArea {
     lines: Vec<String>,
     cursor: Cursor,
@@ -1273,44 +1275,13 @@ impl ReactiveWidget for TextArea {
     }
 }
 
-impl Widget for TextArea {
+impl crate::widgets::Focus for TextArea {
     fn focusable(&self) -> bool {
         true
     }
 
-    fn on_node_state_changed(&mut self, old: NodeState, new: NodeState) {
-        if old.focused != new.focused {
-            if !new.focused {
-                self.mouse_down = false;
-                self.cursor_visible = false;
-                self.cursor_blink_next_at = None;
-            } else {
-                self.reset_blink();
-            }
-        }
-    }
-
     fn is_active(&self) -> bool {
         self.mouse_down
-    }
-
-    fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {
-        if !self.mouse_down {
-            return false;
-        }
-        let gutter = self.line_number_gutter_width() as u16;
-        let row = self.scroll_row.saturating_add(y as usize);
-        let row = row.min(self.lines.len().saturating_sub(1));
-        let local_x = x.saturating_sub(gutter) as usize;
-        let cell_x = self.scroll_col.saturating_add(local_x);
-        let col = self.cursor_from_cell_x(row, cell_x);
-        let next = Cursor { row, col };
-        if next == self.selection.end && next == self.cursor {
-            return false;
-        }
-        self.selection.end = next;
-        self.cursor = next;
-        true
     }
 
     fn action_namespace(&self) -> &str {
@@ -1354,6 +1325,39 @@ impl Widget for TextArea {
             }
             _ => false,
         }
+    }
+}
+
+impl crate::widgets::Interactive for TextArea {
+    fn on_node_state_changed(&mut self, old: NodeState, new: NodeState) {
+        if old.focused != new.focused {
+            if !new.focused {
+                self.mouse_down = false;
+                self.cursor_visible = false;
+                self.cursor_blink_next_at = None;
+            } else {
+                self.reset_blink();
+            }
+        }
+    }
+
+    fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {
+        if !self.mouse_down {
+            return false;
+        }
+        let gutter = self.line_number_gutter_width() as u16;
+        let row = self.scroll_row.saturating_add(y as usize);
+        let row = row.min(self.lines.len().saturating_sub(1));
+        let local_x = x.saturating_sub(gutter) as usize;
+        let cell_x = self.scroll_col.saturating_add(local_x);
+        let col = self.cursor_from_cell_x(row, cell_x);
+        let next = Cursor { row, col };
+        if next == self.selection.end && next == self.cursor {
+            return false;
+        }
+        self.selection.end = next;
+        self.cursor = next;
+        true
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
@@ -1662,7 +1666,15 @@ impl Widget for TextArea {
         self.layout_initialized = true;
         self.adjust_scroll_to_cursor();
     }
+}
 
+impl crate::widgets::Selectable for TextArea {
+    fn get_selection(&self) -> Option<String> {
+        self.selected_text()
+    }
+}
+
+impl crate::widgets::Render for TextArea {
     fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
         let height = options.size.1.max(1);
@@ -1689,7 +1701,7 @@ impl Widget for TextArea {
                     return override_style;
                 }
             }
-            let meta = crate::css::selector_meta_component(self.style_type(), &[class]);
+            let meta = crate::css::selector_meta_component(crate::widgets::Widget::style_type(self), &[class]);
             crate::css::resolve_style_for_meta(&meta)
         };
 
@@ -1903,18 +1915,6 @@ impl Widget for TextArea {
         }
 
         out
-    }
-
-    fn set_inline_style(&mut self, style: crate::style::Style) {
-        self.seed.styles.style = style;
-    }
-
-    fn take_node_seed(&mut self) -> NodeSeed {
-        std::mem::take(&mut self.seed)
-    }
-
-    fn get_selection(&self) -> Option<String> {
-        self.selected_text()
     }
 }
 

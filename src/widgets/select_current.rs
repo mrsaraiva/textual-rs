@@ -16,7 +16,8 @@
 //! ancestor rule `Select:focus > SelectCurrent` — so `SelectCurrent` itself owns
 //! no focus/value state.
 
-use rich_rs::{Console, ConsoleOptions, Renderable, Segments};
+use rich_rs::{Console, ConsoleOptions, Segments};
+use textual_macros::widget;
 
 use super::{NodeSeed, Widget};
 use crate::compose::{ChildDecl, ComposeResult};
@@ -27,6 +28,7 @@ use crate::widgets::Static;
 /// The currently-selected option bar shown at the top of a
 /// [`Select`](super::Select). Owns the tall border + padding chrome (via CSS
 /// defaults) and composes the label + arrow glyphs as real child nodes.
+#[widget(Focus, Interactive)]
 pub(crate) struct SelectCurrent {
     /// Placeholder text shown when there is no current value.
     placeholder: String,
@@ -51,7 +53,28 @@ impl SelectCurrent {
     }
 }
 
-impl Widget for SelectCurrent {
+impl crate::widgets::Focus for SelectCurrent {
+    /// The bar is not focusable — the parent `Select` owns focus. Python
+    /// `SelectCurrent.ALLOW_SELECT = False` and it has no `can_focus`.
+    fn focusable(&self) -> bool {
+        false
+    }
+}
+
+impl crate::widgets::Interactive for SelectCurrent {
+    /// Clicking the bar asks the ancestor `Select` to toggle the overlay
+    /// (Python `SelectCurrent._on_click` → `post_message(self.Toggle())`).
+    fn on_event(&mut self, event: &Event, ctx: &mut WidgetCtx) {
+        if let Event::MouseDown(mouse) = event {
+            if mouse.target == self.node_id() {
+                ctx.post_message(SelectCurrentToggle);
+                ctx.set_handled();
+            }
+        }
+    }
+}
+
+impl crate::widgets::Render for SelectCurrent {
     /// Compose the label + down/up arrow glyphs as real child nodes (Python
     /// `SelectCurrent.compose`). State-pure: rebuilt identically from
     /// `placeholder`/`label` every call, so an ancestor recompose (the Select
@@ -67,23 +90,6 @@ impl Widget for SelectCurrent {
         ]
     }
 
-    /// The bar is not focusable — the parent `Select` owns focus. Python
-    /// `SelectCurrent.ALLOW_SELECT = False` and it has no `can_focus`.
-    fn focusable(&self) -> bool {
-        false
-    }
-
-    /// Clicking the bar asks the ancestor `Select` to toggle the overlay
-    /// (Python `SelectCurrent._on_click` → `post_message(self.Toggle())`).
-    fn on_event(&mut self, event: &Event, ctx: &mut WidgetCtx) {
-        if let Event::MouseDown(mouse) = event {
-            if mouse.target == self.node_id() {
-                ctx.post_message(SelectCurrentToggle);
-                ctx.set_handled();
-            }
-        }
-    }
-
     /// Chrome-only: the framework draws the border/bg via `render_styled`; the
     /// composed children (label + arrows) render themselves and composite over
     /// this node's surface.
@@ -93,19 +99,5 @@ impl Widget for SelectCurrent {
 
     fn style_type(&self) -> &'static str {
         "SelectCurrent"
-    }
-
-    fn set_inline_style(&mut self, style: crate::style::Style) {
-        self.seed.styles.style = style;
-    }
-
-    fn take_node_seed(&mut self) -> NodeSeed {
-        std::mem::take(&mut self.seed)
-    }
-}
-
-impl Renderable for SelectCurrent {
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        Widget::render(self, console, options)
     }
 }

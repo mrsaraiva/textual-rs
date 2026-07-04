@@ -1,5 +1,6 @@
 use crossterm::event::{KeyCode, KeyModifiers};
 use rich_rs::{Console, ConsoleOptions, MetaValue, Renderable, Segment, Segments};
+use textual_macros::widget;
 
 use crate::event::{Action, Event};
 use crate::message::*;
@@ -151,6 +152,7 @@ impl TreeNode {
 }
 
 #[derive(Debug, Clone)]
+#[widget(Focus, Interactive, Layout, Scrollable)]
 pub struct Tree {
     roots: Vec<TreeNode>,
     selected: usize,
@@ -1130,24 +1132,9 @@ impl ReactiveWidget for Tree {
     }
 }
 
-impl Widget for Tree {
+impl crate::widgets::Focus for Tree {
     fn focusable(&self) -> bool {
         true
-    }
-
-    fn on_node_state_changed(
-        &mut self,
-        _old: crate::widgets::NodeState,
-        new: crate::widgets::NodeState,
-    ) {
-        if !new.hovered {
-            self.hovered_index = None;
-        }
-    }
-
-    fn on_layout(&mut self, _width: u16, height: u16) {
-        self.viewport_height = usize::from(height).max(1);
-        self.ensure_visible();
     }
 
     fn action_namespace(&self) -> &str {
@@ -1252,6 +1239,23 @@ impl Widget for Tree {
             }
             _ => false,
         }
+    }
+}
+
+impl crate::widgets::Interactive for Tree {
+    fn on_node_state_changed(
+        &mut self,
+        _old: crate::widgets::NodeState,
+        new: crate::widgets::NodeState,
+    ) {
+        if !new.hovered {
+            self.hovered_index = None;
+        }
+    }
+
+    fn on_layout(&mut self, _width: u16, height: u16) {
+        self.viewport_height = usize::from(height).max(1);
+        self.ensure_visible();
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
@@ -1423,6 +1427,31 @@ impl Widget for Tree {
         false
     }
 
+    fn on_unmount(&mut self) {
+        self.hovered_index = None;
+        self.pressed_activation_index = None;
+    }
+}
+
+impl crate::widgets::Layout for Tree {
+    fn layout_height(&self) -> Option<usize> {
+        Some(self.visible_count().max(1))
+    }
+
+    fn content_width(&self) -> Option<usize> {
+        let content_width = self.max_line_width();
+        let meta = crate::css::selector_meta_generic(self);
+        let resolved = crate::css::resolve_style(self, &meta);
+        let padding = resolved.effective_padding();
+        let (_, _, border_left, border_right) =
+            super::helpers::border_spacing_from_style(&resolved);
+        let chrome_lr =
+            usize::from(padding.left.saturating_add(padding.right)) + border_left + border_right;
+        Some(content_width.saturating_add(chrome_lr).max(1))
+    }
+}
+
+impl crate::widgets::Scrollable for Tree {
     fn on_mouse_scroll(&mut self, _delta_x: i32, delta_y: i32, ctx: &mut crate::event::WidgetCtx) {
         if delta_y == 0 {
             return;
@@ -1432,12 +1461,9 @@ impl Widget for Tree {
             ctx,
         );
     }
+}
 
-    fn on_unmount(&mut self) {
-        self.hovered_index = None;
-        self.pressed_activation_index = None;
-    }
-
+impl crate::widgets::Render for Tree {
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
         let height = options.size.1.max(1);
@@ -1638,30 +1664,6 @@ impl Widget for Tree {
 
         out
     }
-
-    fn layout_height(&self) -> Option<usize> {
-        Some(self.visible_count().max(1))
-    }
-
-    fn content_width(&self) -> Option<usize> {
-        let content_width = self.max_line_width();
-        let meta = crate::css::selector_meta_generic(self);
-        let resolved = crate::css::resolve_style(self, &meta);
-        let padding = resolved.effective_padding();
-        let (_, _, border_left, border_right) =
-            super::helpers::border_spacing_from_style(&resolved);
-        let chrome_lr =
-            usize::from(padding.left.saturating_add(padding.right)) + border_left + border_right;
-        Some(content_width.saturating_add(chrome_lr).max(1))
-    }
-
-    fn set_inline_style(&mut self, style: crate::style::Style) {
-        self.seed.styles.style = style;
-    }
-
-    fn take_node_seed(&mut self) -> NodeSeed {
-        std::mem::take(&mut self.seed)
-    }
 }
 
 // ── Free helpers for recursive tree operations ──────────────────────────
@@ -1686,13 +1688,6 @@ fn set_all_expanded(node: &mut TreeNode, value: bool) {
         set_all_expanded(child, value);
     }
 }
-
-impl Renderable for Tree {
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        Widget::render(self, console, options)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::{Tree, TreeNode, VisibleNode};
