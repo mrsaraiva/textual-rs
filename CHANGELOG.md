@@ -26,6 +26,26 @@ in the sections below; this is the migration index:
 | Notifications are real docked `ToastRack` widgets (Wave 3) | **`App::notify(...)` is unchanged** — no migration needed. Internally, toasts are now real `Toast` nodes mounted in a docked `ToastRack` (a system child of the app root, on the `_toastrack` layer), not a runtime framebuffer blit. `Toast` gains `with_notification_id`; its `with_timeout` builder is removed (auto-dismiss timing is a notification-level concern set via `App::notify`'s `timeout` arg and owned by the rack). New public: `ToastRack`, `ToastHolder`, `NotificationSnapshot`, and the `NotificationExpired` message. |
 | The tooltip is a real `overlay: screen` widget node (Wave 4) | **`.with_tooltip(...)` is unchanged** — no migration needed. The system tooltip's widget-local `FrameBuffer` overlay compositor is retired; the bubble is now a real `position: absolute; overlay: screen` node placed at the hover anchor via the new node `absolute_offset`, centered by CSS `offset-x: -50%` and constrained by the shared overlay:screen paint pass. **BREAKING (minor):** `Tooltip::new(child, text)` (the test-only wrapper constructor) becomes `Tooltip::new(text)` — `Tooltip` no longer wraps a child. |
 
+### Added — Widget trait split (authoring capability traits; Phase 1)
+
+- **Small authoring traits over a monolithic `dyn Widget`.** The 83-method
+  `Widget` trait is now split at the *authoring* layer into a required core
+  `Render` (implement `render` **or** `compose`, plus `style_type`) and opt-in
+  capability traits `Interactive`, `Layout`, `Scrollable`, `Focus`,
+  `Selectable`, `HasTooltip`, `Components`, and `AppHooks`. A from-scratch leaf
+  widget implements `Render` (often just `render`) plus only the capabilities it
+  needs, instead of facing all 83 methods. `Widget` itself is unchanged — it
+  remains the single object-safe dispatch trait the runtime calls through
+  `Box<dyn Widget>`, so this phase is additive and non-breaking.
+- **`#[widget(..)]` own-widget mode.** The existing delegation attribute macro
+  gains a second mode: with no `base = <Type>`, list the capabilities you
+  implement (e.g. `#[widget(Layout)]`) and the macro generates `impl Widget`
+  forwarding each opted-in capability to your capability-trait impl (everything
+  else falls through to the `Widget` default), plus `impl Renderable` and — when
+  the struct has a `seed: NodeSeed` field — the seed plumbing
+  (`take_node_seed`/`set_inline_style`). LOUD rule: you must BOTH implement a
+  capability trait AND list it in `#[widget(..)]` for its methods to run.
+
 ### Added — container seed-builder unification (Node-removal groundwork)
 
 - **Uniform identity/border builders on the container family.** Completing the

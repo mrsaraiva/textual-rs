@@ -1,5 +1,6 @@
 mod aliases;
 mod button;
+mod capabilities;
 mod checkbox;
 mod collapsible;
 mod command_palette;
@@ -55,6 +56,9 @@ mod welcome;
 
 pub use crate::event::ClassOp;
 pub use aliases::Static;
+pub use capabilities::{
+    AppHooks, Components, Focus, HasTooltip, Interactive, Layout, Render, Scrollable, Selectable,
+};
 pub use button::{Button, ButtonVariant};
 pub use checkbox::Checkbox;
 pub use collapsible::{Collapsible, CollapsibleTitle};

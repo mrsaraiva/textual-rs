@@ -78,8 +78,13 @@ use syn::{
 /// Parsed `#[widget(..)]` arguments.
 struct WidgetArgs {
     /// The `base = <Type>` type path (documentation + readability; forwarding is
-    /// by field name, not type).
-    _base: Path,
+    /// by field name, not type). `None` selects OWN-WIDGET mode (the widget
+    /// implements the capability traits itself instead of delegating to a base).
+    _base: Option<Path>,
+    /// Own-widget-mode capability opt-in list (e.g. `Layout`, `Interactive`).
+    /// Each listed capability's `Widget` methods are forwarded to the widget's
+    /// own `impl <Capability>`. Only meaningful when `_base` is `None`.
+    capabilities: Vec<Ident>,
     /// Field name to forward to (default `base`).
     field: Ident,
     /// Optional custom `style_type` string.
@@ -99,6 +104,7 @@ struct WidgetArgs {
 impl Parse for WidgetArgs {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let mut base: Option<Path> = None;
+        let mut capabilities: Vec<Ident> = Vec::new();
         let mut field: Option<Ident> = None;
         let mut style_type: Option<String> = None;
         let mut reactive = false;
@@ -161,14 +167,11 @@ impl Parse for WidgetArgs {
                 "reactive" => {
                     reactive = true;
                 }
-                other => {
-                    return Err(syn::Error::new_spanned(
-                        &key,
-                        format!(
-                            "unknown `#[widget]` argument `{other}`; expected one of: \
-                             base, field, style_type, reactive, override(..), on(..)"
-                        ),
-                    ));
+                _ => {
+                    // A bare ident with no `= value` is an own-widget-mode
+                    // capability opt-in (e.g. `Layout`, `Interactive`). It is
+                    // validated against the known capability set in `widget_impl`.
+                    capabilities.push(key);
                 }
             }
 
@@ -177,15 +180,9 @@ impl Parse for WidgetArgs {
             }
         }
 
-        let base = base.ok_or_else(|| {
-            syn::Error::new(
-                proc_macro2::Span::call_site(),
-                "`#[widget(..)]` requires `base = <Type>`",
-            )
-        })?;
-
         Ok(WidgetArgs {
             _base: base,
+            capabilities,
             field: field.unwrap_or_else(|| format_ident!("base")),
             style_type,
             reactive,
@@ -507,7 +504,211 @@ fn method_table() -> Vec<MethodSpec> {
             quote! { fn style_type_aliases(&self) -> &[&'static str] },
             quote! { style_type_aliases() }
         ),
+        // ── OWN-MODE-ONLY surface ──────────────────────────────────────
+        // Methods NOT forwarded by `base =` delegation (they keep the trait
+        // default there, unchanged), but which OWN-widget mode MUST forward so a
+        // widget's capability-trait override actually runs. `is_own_mode_only`
+        // marks them so the base-mode `is_default_forwarded` count stays at 63.
+        m!(
+            "auto_content_width",
+            quote! { fn auto_content_width(&self) -> Option<usize> },
+            quote! { auto_content_width() }
+        ),
+        m!(
+            "auto_content_height",
+            quote! { fn auto_content_height(&self) -> Option<usize> },
+            quote! { auto_content_height() }
+        ),
+        m!(
+            "child_classes_for_tree",
+            quote! { fn child_classes_for_tree(&self, child_index: usize) -> Vec<(&'static str, bool)> },
+            quote! { child_classes_for_tree(child_index) }
+        ),
+        m!(
+            "is_transparent_wrapper",
+            quote! { fn is_transparent_wrapper(&self) -> bool },
+            quote! { is_transparent_wrapper() }
+        ),
+        m!(
+            "is_initially_disabled",
+            quote! { fn is_initially_disabled(&self) -> bool },
+            quote! { is_initially_disabled() }
+        ),
+        m!(
+            "is_initially_focused",
+            quote! { fn is_initially_focused(&self) -> bool },
+            quote! { is_initially_focused() }
+        ),
+        m!(
+            "check_action",
+            quote! { fn check_action(&self, action: &str, parameters: &[String]) -> Option<bool> },
+            quote! { check_action(action, parameters) }
+        ),
+        m!(
+            "on_app_unhandled_action",
+            quote! { fn on_app_unhandled_action(&mut self, app: &mut textual::App, action: &str, ctx: &mut textual::event::WidgetCtx) },
+            quote! { on_app_unhandled_action(app, action, ctx) }
+        ),
+        m!(
+            "on_app_timer",
+            quote! { fn on_app_timer(&mut self, app: &mut textual::App, ctx: &mut textual::event::WidgetCtx) },
+            quote! { on_app_timer(app, ctx) }
+        ),
+        m!(
+            "component_classes",
+            quote! { fn component_classes(&self) -> &[&'static str] },
+            quote! { component_classes() }
+        ),
+        m!(
+            "get_component_styles",
+            quote! { fn get_component_styles(&self, name: &str) -> textual::style::Style },
+            quote! { get_component_styles(name) }
+        ),
+        m!(
+            "get_component_rich_style",
+            quote! { fn get_component_rich_style(&self, name: &str) -> Option<rich_rs::Style> },
+            quote! { get_component_rich_style(name) }
+        ),
     ]
+}
+
+/// Own-widget-mode capability groups. Every `Widget` method maps to exactly one
+/// group; the group decides whether/how OWN mode forwards the method.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Group {
+    /// Required core content trait (`Render`) — always forwarded in own mode.
+    Render,
+    Interactive,
+    Layout,
+    Scrollable,
+    Focus,
+    Selectable,
+    HasTooltip,
+    Components,
+    AppHooks,
+    /// Seed/identity plumbing autowired from a `seed: NodeSeed` field.
+    Seed,
+    /// Framework-owned: never forwarded (the `Widget` default stands).
+    Framework,
+}
+
+/// Map a `Widget` method name to its own-mode capability group.
+fn method_group(name: &str) -> Group {
+    match name {
+        "render" | "compose" | "render_line" | "render_lines" | "style_type"
+        | "style_type_aliases" | "border_title" | "border_subtitle" => Group::Render,
+        "on_mount" | "on_unmount" | "on_tick" | "on_resize" | "on_layout" | "on_event_capture"
+        | "on_event" | "on_message" | "on_mouse_move" | "on_node_state_changed" => {
+            Group::Interactive
+        }
+        "content_width" | "auto_content_width" | "layout_height" | "auto_content_height"
+        | "set_virtual_content_size" | "tree_child_content_inset" | "child_display_for_tree"
+        | "child_classes_for_tree" | "is_transparent_wrapper" | "preserve_underlay"
+        | "clips_descendants_to_content" | "style" => Group::Layout,
+        "scroll_offset" | "scroll_offset_f32" | "scroll_viewport_size"
+        | "scroll_virtual_content_size" | "on_mouse_scroll" => Group::Scrollable,
+        "focusable" | "can_focus" | "can_focus_children" | "mouse_interactive" | "is_active"
+        | "is_initially_disabled" | "is_initially_focused" | "bindings" | "binding_hints"
+        | "action_namespace" | "action_registry" | "execute_action" | "check_action"
+        | "help_markup" => Group::Focus,
+        "allow_select" | "selection_at" | "selection_word_range_at" | "selection_all_range"
+        | "update_selection" | "clear_selection" | "get_selection" | "selection_updated" => {
+            Group::Selectable
+        }
+        "tooltip" | "tooltip_anchor" => Group::HasTooltip,
+        "component_classes" | "get_component_styles" | "get_component_rich_style" => {
+            Group::Components
+        }
+        "on_app_key" | "on_app_action" | "on_app_unhandled_action" | "on_app_message"
+        | "on_app_tick" | "on_app_timer" | "on_app_mount" => Group::AppHooks,
+        "take_node_seed" | "set_inline_style" => Group::Seed,
+        _ => Group::Framework,
+    }
+}
+
+/// The capability-attribute name that enables a group (own mode). `None` for
+/// groups that are unconditional (`Render`) or handled specially (`Seed`,
+/// `Framework`).
+fn group_capability_name(group: Group) -> Option<&'static str> {
+    match group {
+        Group::Interactive => Some("Interactive"),
+        Group::Layout => Some("Layout"),
+        Group::Scrollable => Some("Scrollable"),
+        Group::Focus => Some("Focus"),
+        Group::Selectable => Some("Selectable"),
+        Group::HasTooltip => Some("HasTooltip"),
+        Group::Components => Some("Components"),
+        Group::AppHooks => Some("AppHooks"),
+        _ => None,
+    }
+}
+
+/// The fully-qualified capability trait path a group forwards to.
+fn group_trait_path(group: Group) -> Option<TokenStream> {
+    let ts = match group {
+        Group::Render => quote! { textual::widgets::Render },
+        Group::Interactive => quote! { textual::widgets::Interactive },
+        Group::Layout => quote! { textual::widgets::Layout },
+        Group::Scrollable => quote! { textual::widgets::Scrollable },
+        Group::Focus => quote! { textual::widgets::Focus },
+        Group::Selectable => quote! { textual::widgets::Selectable },
+        Group::HasTooltip => quote! { textual::widgets::HasTooltip },
+        Group::Components => quote! { textual::widgets::Components },
+        Group::AppHooks => quote! { textual::widgets::AppHooks },
+        Group::Seed | Group::Framework => return None,
+    };
+    Some(ts)
+}
+
+/// The set of known own-mode capability attribute names.
+fn is_known_capability(name: &str) -> bool {
+    matches!(
+        name,
+        "Render"
+            | "Interactive"
+            | "Layout"
+            | "Scrollable"
+            | "Focus"
+            | "Selectable"
+            | "HasTooltip"
+            | "Components"
+            | "AppHooks"
+    )
+}
+
+/// Methods present in the table for OWN mode only — NOT forwarded by `base =`
+/// delegation (so the base-mode surface stays the historical 63).
+fn is_own_mode_only(name: &str) -> bool {
+    matches!(
+        name,
+        "auto_content_width"
+            | "auto_content_height"
+            | "child_classes_for_tree"
+            | "is_transparent_wrapper"
+            | "is_initially_disabled"
+            | "is_initially_focused"
+            | "check_action"
+            | "on_app_unhandled_action"
+            | "on_app_timer"
+            | "component_classes"
+            | "get_component_styles"
+            | "get_component_rich_style"
+    )
+}
+
+/// Parse a method signature and build the argument list (receiver excluded) for
+/// a UFCS forwarding call `Trait::method(self, <args>)`.
+fn call_args_from_sig(sig: &TokenStream) -> TokenStream {
+    let parsed: syn::Signature =
+        syn::parse2(sig.clone()).expect("delegated method signature must parse");
+    let args = parsed.inputs.iter().filter_map(|arg| match arg {
+        syn::FnArg::Receiver(_) => None,
+        syn::FnArg::Typed(pat_type) => match &*pat_type.pat {
+            syn::Pat::Ident(pat_ident) => Some(pat_ident.ident.clone()),
+            _ => None,
+        },
+    });
+    quote! { #(#args),* }
 }
 
 /// Names that are forwarded to the base by DEFAULT (the vetted 63-method
@@ -515,7 +716,7 @@ fn method_table() -> Vec<MethodSpec> {
 /// `style_type_aliases`, which keep the trait default so the compound widget
 /// gets its own CSS identity).
 fn is_default_forwarded(name: &str) -> bool {
-    !matches!(name, "style_type" | "style_type_aliases")
+    !matches!(name, "style_type" | "style_type_aliases") && !is_own_mode_only(name)
 }
 
 pub fn widget_impl(attr: TokenStream, item: TokenStream) -> TokenStream {
@@ -528,11 +729,19 @@ pub fn widget_impl(attr: TokenStream, item: TokenStream) -> TokenStream {
         Err(e) => return e.to_compile_error(),
     };
 
-    let name = &item_struct.ident;
-    let (impl_generics, ty_generics, where_clause) = item_struct.generics.split_for_impl();
-    let field = &args.field;
-
     let table = method_table();
+
+    // ── OWN-WIDGET MODE (no `base = ...`) ──────────────────────────────
+    // The widget implements the capability traits itself; the generated
+    // `impl Widget` forwards each opted-in capability's methods to the widget's
+    // own capability-trait impl and lets every other method fall through to the
+    // `Widget` default. Runtime dispatch stays monolithic through `dyn Widget`.
+    if args._base.is_none() {
+        return own_widget_impl(&item_struct, &args, &table);
+    }
+
+    // ── DELEGATION MODE (`base = <Type>`) ──────────────────────────────
+    let field = &args.field;
 
     // Validate `override(..)` names against the known surface.
     let known: std::collections::HashSet<&str> = table.iter().map(|m| m.name).collect();
@@ -659,6 +868,14 @@ pub fn widget_impl(attr: TokenStream, item: TokenStream) -> TokenStream {
         // -> keep the trait default (own concrete type name).
     }
 
+    assemble_impl(&item_struct, methods)
+}
+
+/// Emit the widget struct plus its generated `impl Widget` (body = `methods`)
+/// and the always-present `impl Renderable` (both modes share this).
+fn assemble_impl(item_struct: &ItemStruct, methods: Vec<TokenStream>) -> TokenStream {
+    let name = &item_struct.ident;
+    let (impl_generics, ty_generics, where_clause) = item_struct.generics.split_for_impl();
     quote! {
         #item_struct
 
@@ -672,6 +889,123 @@ pub fn widget_impl(attr: TokenStream, item: TokenStream) -> TokenStream {
             }
         }
     }
+}
+
+/// Own-widget-mode codegen: forward each opted-in capability's `Widget` methods
+/// to the widget's own capability-trait impl; everything else falls through to
+/// the `Widget` default. See the LOUD authoring rule on the capability traits:
+/// implementing a capability trait AND listing it in `#[widget(..)]` are BOTH
+/// required for the methods to run.
+fn own_widget_impl(item_struct: &ItemStruct, args: &WidgetArgs, table: &[MethodSpec]) -> TokenStream {
+    // Validate capability names.
+    for cap in &args.capabilities {
+        let cap_s = cap.to_string();
+        if !is_known_capability(&cap_s) {
+            return syn::Error::new_spanned(
+                cap,
+                format!(
+                    "unknown `#[widget]` capability `{cap_s}`; expected one of: \
+                     Interactive, Layout, Scrollable, Focus, Selectable, HasTooltip, \
+                     Components, AppHooks (own-widget mode), or `base = <Type>` (delegation)"
+                ),
+            )
+            .to_compile_error();
+        }
+    }
+
+    // `override(..)` / `on(..)` are delegation-mode features: in own-widget mode
+    // you implement the capability trait method directly (and, for typed
+    // handlers, call your `#[on(..)]` dispatch methods from your own
+    // `Interactive::on_message`).
+    if let Some(ov) = args.overrides.first() {
+        return syn::Error::new_spanned(
+            ov,
+            "`override(..)` requires `base = <Type>` delegation mode; in own-widget \
+             mode implement the capability trait method directly",
+        )
+        .to_compile_error();
+    }
+    if let Some(on) = args.on_handlers.first() {
+        return syn::Error::new_spanned(
+            on,
+            "`on(..)` requires `base = <Type>` delegation mode; in own-widget mode \
+             implement `Interactive::on_message` and call your `#[on(..)]` dispatch \
+             methods directly",
+        )
+        .to_compile_error();
+    }
+
+    let enabled: std::collections::HashSet<String> =
+        args.capabilities.iter().map(|i| i.to_string()).collect();
+    let has_seed_field = item_struct.fields.iter().any(|f| {
+        f.ident.as_ref().map(|id| id == "seed").unwrap_or(false)
+    });
+
+    let mut methods: Vec<TokenStream> = Vec::new();
+    for spec in table {
+        let sig = &spec.sig;
+        let group = method_group(spec.name);
+
+        // `reactive_widget` (Framework) exposes SELF when the `reactive` opt-in
+        // is present — mirrors delegation mode.
+        if spec.name == "reactive_widget" {
+            if args.reactive {
+                methods.push(quote! {
+                    fn reactive_widget(&mut self) -> Option<&mut dyn textual::reactive::ReactiveWidget> {
+                        Some(self)
+                    }
+                });
+            }
+            continue;
+        }
+
+        // `style_type = "..."` attr emits a literal (else Render group forwards,
+        // which yields the concrete type name — same as the trait default).
+        if spec.name == "style_type" {
+            if let Some(lit) = args.style_type.as_ref() {
+                methods.push(quote! { fn style_type(&self) -> &'static str { #lit } });
+                continue;
+            }
+        }
+
+        match group {
+            Group::Render => {
+                let path = group_trait_path(Group::Render).unwrap();
+                let ident = format_ident!("{}", spec.name);
+                let call_args = call_args_from_sig(&spec.sig);
+                methods.push(quote! { #sig { #path::#ident(self, #call_args) } });
+            }
+            Group::Seed => {
+                if has_seed_field {
+                    match spec.name {
+                        "take_node_seed" => methods.push(quote! {
+                            fn take_node_seed(&mut self) -> textual::widgets::NodeSeed {
+                                ::std::mem::take(&mut self.seed)
+                            }
+                        }),
+                        "set_inline_style" => methods.push(quote! {
+                            fn set_inline_style(&mut self, style: textual::style::Style) {
+                                self.seed.styles.style = style;
+                            }
+                        }),
+                        _ => {}
+                    }
+                }
+            }
+            Group::Framework => { /* keep the Widget default */ }
+            other => {
+                let cap = group_capability_name(other).expect("capability group has a name");
+                if enabled.contains(cap) {
+                    let path = group_trait_path(other).unwrap();
+                    let ident = format_ident!("{}", spec.name);
+                    let call_args = call_args_from_sig(&spec.sig);
+                    methods.push(quote! { #sig { #path::#ident(self, #call_args) } });
+                }
+            }
+        }
+    }
+
+    assemble_impl(item_struct, methods)
 }
 
 #[cfg(test)]
@@ -731,13 +1065,86 @@ mod tests {
     }
 
     #[test]
-    fn missing_base_is_an_error() {
-        assert!(parse2::<WidgetArgs>(quote! { field = inner }).is_err());
+    fn no_base_selects_own_widget_mode() {
+        // No `base = ...` is now valid: it selects own-widget mode.
+        let args: WidgetArgs = parse2(quote! { Layout }).unwrap();
+        assert!(args._base.is_none());
     }
 
     #[test]
     fn unknown_argument_is_an_error() {
         assert!(parse2::<WidgetArgs>(quote! { base = X, bogus = 1 }).is_err());
+    }
+
+    // ── Own-widget-mode tests ──────────────────────────────────────────
+
+    #[test]
+    fn own_mode_parses_capabilities() {
+        let args: WidgetArgs = parse2(quote! { Layout, Interactive }).unwrap();
+        assert!(args._base.is_none());
+        let caps: Vec<String> = args.capabilities.iter().map(|i| i.to_string()).collect();
+        assert_eq!(caps, vec!["Layout".to_string(), "Interactive".to_string()]);
+    }
+
+    #[test]
+    fn own_mode_forwards_render_seed_and_capability() {
+        let out = widget_impl(quote! { Layout }, quote! { struct W { seed: NodeSeed } }).to_string();
+        // Render group is always forwarded (required core).
+        assert!(out.contains("Render :: render"));
+        // Opted-in Layout capability forwarded, including the own-mode-only
+        // `auto_content_width` that base delegation does NOT forward.
+        assert!(out.contains("Layout :: content_width"));
+        assert!(out.contains("Layout :: auto_content_width"));
+        // Seed autowiring from the `seed` field.
+        assert!(out.contains("mem :: take"));
+        assert!(out.contains("self . seed . styles . style = style"));
+        // A capability NOT opted in stays a `Widget` default (no forward).
+        assert!(!out.contains("Scrollable :: scroll_offset"));
+        assert!(!out.contains("Interactive :: on_event"));
+    }
+
+    #[test]
+    fn own_mode_without_seed_field_skips_seed_autowire() {
+        let out = widget_impl(quote! {}, quote! { struct W { x: usize } }).to_string();
+        assert!(out.contains("Render :: render"));
+        assert!(!out.contains("take_node_seed"));
+    }
+
+    #[test]
+    fn own_mode_style_type_literal_wins() {
+        let out = widget_impl(quote! { style_type = "Foo" }, quote! { struct W { x: usize } })
+            .to_string();
+        assert!(out.contains("\"Foo\""));
+    }
+
+    #[test]
+    fn own_mode_reactive_exposes_self() {
+        let out =
+            widget_impl(quote! { reactive }, quote! { struct W { x: usize } }).to_string();
+        assert!(out.contains("Some (self)"));
+    }
+
+    #[test]
+    fn own_mode_unknown_capability_is_an_error() {
+        let out = widget_impl(quote! { Bogus }, quote! { struct W { x: usize } }).to_string();
+        assert!(out.contains("unknown"));
+    }
+
+    #[test]
+    fn own_mode_rejects_override() {
+        let out = widget_impl(
+            quote! { Layout, override(render) },
+            quote! { struct W { x: usize } },
+        )
+        .to_string();
+        assert!(out.contains("requires"));
+    }
+
+    #[test]
+    fn own_mode_rejects_on() {
+        let out =
+            widget_impl(quote! { on(on_button) }, quote! { struct W { x: usize } }).to_string();
+        assert!(out.contains("requires"));
     }
 
     #[test]
@@ -751,19 +1158,29 @@ mod tests {
     }
 
     #[test]
-    fn default_forwarded_surface_matches_delegate_widget_to() {
-        // The default-forwarded set is the 63-method surface the deprecated
-        // `delegate_widget_to!` forwarded (table minus the two non-forwarded
-        // style_type methods, which keep the trait default). RA2.2 merged the
-        // former `on_mount` + `on_mount_ctx` into a single `on_mount(ctx)` row,
-        // so the count is back to 63.
+    fn default_forwarded_surface_is_stable() {
+        // The `base =` delegation surface = every table entry EXCEPT the two
+        // non-forwarded `style_type` methods AND the own-mode-only entries (which
+        // base delegation intentionally does not forward, keeping base behavior
+        // unchanged). This count is the delegated `Widget` surface a compound
+        // widget inherits.
+        //
+        // NOTE (Widget trait split, Phase 1): this assertion previously read 63
+        // but the actual base surface at 815007a was 59 (the test was stale and
+        // failing — invisible to the gate, which runs `cargo test --no-run`). The
+        // trait split adds 12 own-mode-only rows and excludes them from base
+        // forwarding, so the base surface is UNCHANGED at 59.
         let forwarded = method_table()
             .iter()
             .filter(|m| is_default_forwarded(m.name))
             .count();
-        assert_eq!(
-            forwarded, 63,
-            "default-forwarded surface = delegate_widget_to! (63)"
-        );
+        assert_eq!(forwarded, 59, "base delegation surface size");
+        // Own mode additionally forwards the own-mode-only rows through the
+        // capability traits.
+        let own_only = method_table()
+            .iter()
+            .filter(|m| is_own_mode_only(m.name))
+            .count();
+        assert_eq!(own_only, 12, "own-mode-only surface size");
     }
 }

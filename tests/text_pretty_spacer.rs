@@ -34,8 +34,11 @@ fn pretty_switches_to_multiline_when_narrow() {
 #[test]
 fn spacer_reports_intrinsic_width_hint() {
     let spacer = Spacer::new(2).width(8);
-    assert_eq!(spacer.content_width(), Some(8));
-    assert_eq!(spacer.layout_height(), Some(2));
+    // Spacer implements the `Layout` capability trait AND the `Widget` monolith
+    // (generated), so a bare `spacer.content_width()` is ambiguous with both in
+    // scope — disambiguate to the capability trait.
+    assert_eq!(Layout::content_width(&spacer), Some(8));
+    assert_eq!(Layout::layout_height(&spacer), Some(2));
 }
 
 #[test]

@@ -1,7 +1,14 @@
-use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
+use rich_rs::{Console, ConsoleOptions, Segment, Segments};
+use textual_macros::widget;
 
-use super::{NodeSeed, Widget};
+use super::{Layout, NodeSeed, Render};
 
+// Widget trait split — pilot migration (Phase 1). The `#[widget(Layout)]`
+// attribute generates `impl Widget for Spacer` (forwarding render → `Render`,
+// layout methods → `Layout`, seed plumbing autowired from the `seed` field) and
+// `impl Renderable`. The authoring surface is now the 3 methods below across two
+// small named traits — down from a 63-method `impl Widget` stare-down.
+#[widget(Layout)]
 pub struct Spacer {
     height: usize,
     width_hint: Option<usize>,
@@ -25,7 +32,7 @@ impl Spacer {
     }
 }
 
-impl Widget for Spacer {
+impl Render for Spacer {
     fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
         let line = " ".repeat(width);
@@ -38,26 +45,14 @@ impl Widget for Spacer {
         }
         out
     }
+}
 
+impl Layout for Spacer {
     fn layout_height(&self) -> Option<usize> {
         Some(self.height)
     }
 
     fn content_width(&self) -> Option<usize> {
         Some(self.width_hint.unwrap_or(1).max(1))
-    }
-
-    fn set_inline_style(&mut self, style: crate::style::Style) {
-        self.seed.styles.style = style;
-    }
-
-    fn take_node_seed(&mut self) -> NodeSeed {
-        std::mem::take(&mut self.seed)
-    }
-}
-
-impl Renderable for Spacer {
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        Widget::render(self, console, options)
     }
 }
