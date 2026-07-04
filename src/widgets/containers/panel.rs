@@ -241,33 +241,25 @@ impl Widget for Panel {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        self.child.layout_height().map(|child| {
-            let border = if self.border { 2 } else { 0 };
-            let meta = crate::css::selector_meta_generic(self);
-            let resolved = crate::css::resolve_style(self, &meta);
-            let padding = resolved.effective_padding();
-            let (border_top, border_bottom, _border_left, _border_right) =
-                crate::widgets::helpers::border_spacing_from_style(&resolved);
-            let chrome_tb = usize::from(padding.top.saturating_add(padding.bottom))
-                + border_top
-                + border_bottom;
-            child + self.padding * 2 + border + chrome_tb
-        })
+        // Report the child's height plus Panel's OWN STRUCTURAL frame (the border
+        // it always draws + its structural `self.padding`). CSS-resolved chrome
+        // (an author's `Panel { border/padding }`) is NOT added here — the flow
+        // layout adds that via `full_v_chrome`, symmetric with the width axis.
+        // (Previously this also baked the CSS-resolved `chrome_tb`, which now
+        // double-counts against the layout side; removed as part of the
+        // pure-content height-chrome keystone.)
+        self.child
+            .layout_height()
+            .map(|child| child + self.padding * 2 + if self.border { 2 } else { 0 })
     }
 
     fn content_width(&self) -> Option<usize> {
-        self.child.content_width().map(|child| {
-            let border = if self.border { 2 } else { 0 };
-            let meta = crate::css::selector_meta_generic(self);
-            let resolved = crate::css::resolve_style(self, &meta);
-            let padding = resolved.effective_padding();
-            let (_border_top, _border_bottom, border_left, border_right) =
-                crate::widgets::helpers::border_spacing_from_style(&resolved);
-            let chrome_lr = usize::from(padding.left.saturating_add(padding.right))
-                + border_left
-                + border_right;
-            child + self.padding * 2 + border + chrome_lr
-        })
+        // Structural frame only (see `layout_height`); the flow layout's width arm
+        // adds the CSS-resolved `full_h_chrome`, so the CSS `chrome_lr` is not
+        // baked here either.
+        self.child
+            .content_width()
+            .map(|child| child + self.padding * 2 + if self.border { 2 } else { 0 })
     }
 
     fn on_mount(&mut self, ctx: &mut crate::event::WidgetCtx) {
@@ -365,6 +357,26 @@ mod tests {
         let mut panel = Panel::new(Spacer::new(1));
         let children = panel.compose();
         assert_eq!(children.len(), 1);
+    }
+
+    #[test]
+    fn panel_layout_height_reports_structural_frame_only_not_css_chrome() {
+        // Height-chrome keystone guard: Panel's `layout_height` must report the
+        // child height + its OWN STRUCTURAL frame (border + `self.padding`) and
+        // NOT the CSS-resolved border/padding — the flow layout adds that via
+        // `full_v_chrome`. Baking it here would double-count. Even under a
+        // stylesheet that adds a CSS `Panel { border; padding }`, the reported
+        // height must stay child(1) + structural border(2) + structural padding(0).
+        use crate::css::StyleSheet;
+        let sheet = StyleSheet::parse("Panel { border: solid; padding: 2; }");
+        let _guard = crate::css::set_style_context(sheet);
+
+        let panel = Panel::new(Spacer::new(1)); // border=true, padding=0
+        assert_eq!(
+            panel.layout_height(),
+            Some(3),
+            "layout_height must be child(1)+structural border(2), excluding CSS chrome"
+        );
     }
 
     #[test]

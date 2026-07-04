@@ -116,10 +116,14 @@ fn label_layout_height_includes_vertical_padding() {
         .layout_height()
         .expect("Label reports a layout height");
 
+    // Post height-chrome keystone: `layout_height()` reports PURE content height
+    // on BOTH axes (symmetric with `content_width()`). The widget's own
+    // padding/border is NOT folded in — the flow layout adds it via
+    // `full_v_chrome` with ancestor context. So padding does NOT change the
+    // reported height here.
     assert_eq!(
-        padded_h.saturating_sub(compact_h),
-        2,
-        "Label layout_height must include top+bottom padding (outer height)"
+        padded_h, compact_h,
+        "Label layout_height is PURE content (padding is added by the layout side, not baked)"
     );
 }
 
@@ -142,17 +146,17 @@ fn engine_border_box_auto_adds_padding_chrome() {
     resolve_layout(&mut tree, root, Region::new(0, 0, 80, 20), (80, 20));
     let (w, h) = layout_rect_wh(&tree, child);
 
-    // Post-RA-2 contract: `content_width()` is PURE content (widgets no longer
-    // fold their own chrome into the intrinsic hint — the layout owns chrome),
-    // so `width: auto` adds full horizontal chrome regardless of box-sizing
-    // (box-sizing only governs how an EXPLICIT width is interpreted).
+    // Post height-chrome keystone: `content_width()` AND `layout_height()` are
+    // both PURE content (widgets no longer fold their own chrome into the
+    // intrinsic hint — the layout owns chrome), so `width: auto` / `height: auto`
+    // add the full chrome on their respective axes regardless of box-sizing
+    // (box-sizing only governs how an EXPLICIT size is interpreted).
     // Padding left+right = 4, so outer width = 10 + 4 = 14.
     assert_eq!(w, 14);
-    // Known asymmetry (tracked follow-up): the height path still adds only
-    // margin to the intrinsic hint, because several real widgets report
-    // `layout_height()` that already includes border/padding (e.g. bordered
-    // grid cells in five_by_five). So vertical padding is not added here.
-    assert_eq!(h, 3);
+    // Height is now SYMMETRIC with width: padding top+bottom = 2, so outer
+    // height = 3 + 2 = 5. (This is the asymmetry the height-chrome keystone
+    // retired — the layout adds `full_v_chrome` instead of only margin.)
+    assert_eq!(h, 5);
 }
 
 #[test]

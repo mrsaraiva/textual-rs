@@ -280,16 +280,9 @@ impl Widget for Toast {
             Self::wrapped_line_count(&self.message, content_width).max(1)
         };
         let content_lines = (title_lines + message_lines).max(1);
-
-        let meta = crate::css::selector_meta_generic(self);
-        let resolved = crate::css::resolve_style(self, &meta);
-        let padding = resolved.effective_padding();
-        let (border_top, border_bottom, _border_left, _border_right) =
-            super::helpers::border_spacing_from_style(&resolved);
-        let chrome_height = usize::from(padding.top.saturating_add(padding.bottom))
-            .saturating_add(border_top)
-            .saturating_add(border_bottom);
-        Some(content_lines.saturating_add(chrome_height))
+        // PURE content height. The flow layout adds the CSS-resolved vertical
+        // chrome (Toast's border/padding) with ancestor context.
+        Some(content_lines)
     }
 
     fn style_type(&self) -> &'static str {
@@ -333,7 +326,9 @@ mod tests {
         let console = Console::new();
         let mut options = console.options().clone();
         let width = 50usize;
-        let height = toast.layout_height().expect("toast layout height");
+        // Chrome headroom so the padded toast box is not clipped (`layout_height`
+        // is now pure content; the layout side adds the border/padding).
+        let height = toast.layout_height().expect("toast layout height") + 4;
         options.size = (width, height);
         options.max_width = width;
         options.max_height = height;
@@ -385,7 +380,9 @@ mod tests {
         let console = Console::new();
         let mut options = console.options().clone();
         let width = 50usize;
-        let height = toast.layout_height().expect("toast layout height");
+        // Chrome headroom so the padded toast box is not clipped (`layout_height`
+        // is now pure content; the layout side adds the border/padding).
+        let height = toast.layout_height().expect("toast layout height") + 4;
         options.size = (width, height);
         options.max_width = width;
         options.max_height = height;
@@ -451,21 +448,25 @@ mod tests {
         )
         .with_title("Possible trap detected");
 
-        // title (1) + wrapped message (2) + padding top/bottom (2) = 5
+        // PURE content height: title (1) + wrapped message (2) = 3. The toast's
+        // border/padding chrome is added by the layout side (height-chrome
+        // keystone), not baked into `layout_height()`.
         let height = toast.layout_height().expect("toast layout height");
-        assert_eq!(height, 5, "wrapped toast should be 5 rows tall");
+        assert_eq!(height, 3, "wrapped toast content is 3 rows (title + 2 wrapped lines)");
 
+        // Render with chrome headroom so the padded box is not clipped.
+        let render_h = height + 4;
         let console = Console::new();
         let mut options = console.options().clone();
         let width = 60usize;
-        options.size = (width, height);
+        options.size = (width, render_h);
         options.max_width = width;
-        options.max_height = height;
+        options.max_height = render_h;
 
         let rendered = toast.render_styled(&console, &options);
         let lines = Segment::split_and_crop_lines(rendered, width, None, true, false);
-        let lines = Segment::set_shape(&lines, width, Some(height), None, false);
-        let frame = FrameBuffer::from_lines(&lines, width, height, None);
+        let lines = Segment::set_shape(&lines, width, Some(render_h), None, false);
+        let frame = FrameBuffer::from_lines(&lines, width, render_h, None);
         let rows: Vec<String> = frame.as_plain_lines();
 
         // The message must break before OPERATIONAL, not truncate it.

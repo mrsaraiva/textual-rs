@@ -70,16 +70,13 @@ pub(crate) fn compute_carve_box(
     let height_is_explicit = matches!(style.height, Some(ref s) if !matches!(s, Scalar::Auto));
     let width_is_explicit = matches!(style.width, Some(ref s) if !matches!(s, Scalar::Auto));
 
-    // `h_is_outer`: the resolved `child_h` is ALREADY an outer height (includes
-    // this widget's own border+padding) rather than a content height. This is the
-    // case when the value comes from a leaf widget's own `layout_height()` (e.g.
-    // Button/Checkbox report 1 + border_vertical_padding). For such values we must
-    // NOT re-add the border/padding chrome below — only the margin. (Mirror of
-    // `common::measure_child_outer_height`'s `own_outer` handling.)
-    let mut h_is_outer = false;
+    // Post-keystone, `layout_height()` reports PURE content height (no folded
+    // border/padding), so a reported value is treated exactly like any other
+    // content size and the full vertical chrome is added below — symmetric with
+    // the width axis and with `common::measure_child_outer_height`.
     let child_h = match style.height.as_ref() {
         None => {
-            // Unset: use widget intrinsic (OUTER) height if available, fall back to
+            // Unset: use widget intrinsic content height if available, fall back to
             // full available height (fill behaviour for unset height, same as
             // `extract_child_spec` for None with no intrinsic).
             match tree
@@ -87,10 +84,7 @@ pub(crate) fn compute_carve_box(
                 .and_then(|node| node.widget.layout_height())
                 .and_then(|h| u16::try_from(h).ok())
             {
-                Some(h) => {
-                    h_is_outer = true;
-                    h
-                }
+                Some(h) => h,
                 None => current_h,
             }
         }
@@ -99,18 +93,16 @@ pub(crate) fn compute_carve_box(
             // available height. Python parity (`_get_box_model`: `is_auto_height`
             // branch calls `get_content_height` instead of filling the container).
             //
-            // Try intrinsic leaf height first (fast path for single-widget leaves
-            // like Button/Checkbox that report their own OUTER layout_height). Fall
-            // back to `measure_intrinsic_content_height` for containers whose
-            // children were drained into the arena tree (layout_height == None) —
-            // that returns CONTENT height. Only if measurement also yields nothing
+            // Try intrinsic leaf content height first (Button/Checkbox report their
+            // own pure content height). Fall back to `measure_intrinsic_content_height`
+            // for containers whose children were drained into the arena tree
+            // (layout_height == None). Only if measurement also yields nothing
             // (truly empty / unmeasurable) do we fall back to filling the height.
             let leaf = tree
                 .get(child)
                 .and_then(|node| node.widget.layout_height())
                 .and_then(|h| u16::try_from(h).ok());
             if let Some(h) = leaf {
-                h_is_outer = true;
                 h
             } else {
                 measure_intrinsic_content_height(tree, child, viewport, current_h)
@@ -198,13 +190,7 @@ pub(crate) fn compute_carve_box(
     // with `height: 1` + `border: tall` (chrome 2) renders only its top border
     // row instead of top + bottom border rows.
     let border_box_size = |specified: u16, chrome: u16| -> u16 { specified.max(chrome) };
-    let outer_h = if h_is_outer {
-        // `child_h` already includes the widget's own border+padding (leaf's own
-        // OUTER `layout_height()`). Add ONLY margin — re-adding `chrome_h` here
-        // would double-count the border (e.g. a docked Button reporting 3 would
-        // become 5).
-        child_h.saturating_add(margin.top + margin.bottom)
-    } else if box_sizing == BoxSizing::BorderBox && height_is_explicit {
+    let outer_h = if box_sizing == BoxSizing::BorderBox && height_is_explicit {
         border_box_size(child_h, chrome_h).saturating_add(margin.top + margin.bottom)
     } else {
         child_h
@@ -413,17 +399,17 @@ pub(crate) fn layout_absolute(
         };
         let mut layout_h = match style.height.as_ref() {
             Some(Scalar::Auto) => {
-                // `measure_intrinsic_content_height` returns the child's own
-                // OUTER box height for a leaf widget (its `layout_height()`
-                // already includes the widget's border+padding), so chrome is
-                // NOT re-added here (unlike `width`, whose `auto_content_width`
-                // reports pure content). Mirrors Python `_get_box_model` sizing
-                // an auto-height widget to its content box.
+                // `measure_intrinsic_content_height` returns PURE content height
+                // (post-keystone; symmetric with `auto_content_width` on the width
+                // arm above), so this widget's own vertical chrome is added here to
+                // get the outer box height. Mirrors Python `_get_box_model` sizing
+                // an auto-height widget to its content box + chrome.
                 let avail_content_h = available
                     .height
                     .saturating_sub(margin.top + margin.bottom)
                     .saturating_sub(chrome_h);
                 measure_intrinsic_content_height(tree, child, viewport, avail_content_h)
+                    .map(|h| h.saturating_add(chrome_h))
                     .unwrap_or_else(|| available.height.saturating_sub(margin.top + margin.bottom))
             }
             Some(s) => {

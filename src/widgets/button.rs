@@ -728,22 +728,10 @@ impl Widget for Button {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        // Include the button's own classes (e.g. `-style-default`) so that
-        // CSS rules nested under class selectors (border-top, border-bottom) match.
-        //
-        // `self.seed.classes` may be empty if `take_node_seed()` already consumed
-        // it (tree-mount path), so we rebuild the class list from the button's
-        // current fields which is the same deterministic logic as `rebuild_classes_in_place`.
-        let mut classes = vec!["button"];
-        if self.flat {
-            classes.push("-style-flat");
-        } else {
-            classes.push("-style-default");
-        }
-        let meta = crate::css::selector_meta_component("Button", &classes);
-        let base_style = crate::css::resolve_style(self, &meta);
-        let default_height = 1 + super::helpers::border_vertical_padding(&base_style);
-        Some(default_height)
+        // PURE content height (1 row). The flow layout adds the CSS-resolved
+        // vertical chrome (the default `-style-default`/`-style-flat` top+bottom
+        // border) with ancestor context, symmetric with the width axis.
+        Some(1)
     }
 
     fn set_inline_style(&mut self, style: crate::style::Style) {

@@ -42,6 +42,26 @@ in the sections below; this is the migration index:
   replace `Node::new(Vertical::new()).id("x").class("y").with_border_title("t")`
   uniformly, and is the groundwork for the pending `Node` removal.
 
+### Changed — height-chrome layout convention (symmetric with the width axis)
+
+- **`layout_height()` now reports PURE content height on every widget**, and the
+  flow layout adds the CSS-resolved vertical chrome (border + padding + margin)
+  with full ancestor context — symmetric with how the width axis already handled
+  `content_width()`. Previously ~13 widgets baked their own border/padding into
+  `layout_height()` using a context-free style resolution, which could not match
+  DESCENDANT-selected chrome (e.g. `#questions .button { border; padding }`) and
+  collapsed such auto-height boxes. The layout side now owns all chrome uniformly.
+  Widgets made pure-content: `Static`, `Label`, `Checkbox`, `Switch`, `RadioSet`,
+  `Tooltip`, `Button`, `Input`, `MaskedInput`, `Digits`, `Pretty`, `Toast`,
+  `SelectionList` (and `Panel` dropped its CSS-resolved chrome, keeping only its
+  structural frame). The `extract_child_spec` height arm, `measure_child_outer_height`,
+  the vertical/horizontal `own_v_chrome` compensations, `grid`, and `split`
+  (`compute_carve_box` + `layout_absolute`) were reconciled to add the chrome once.
+  This is largely value-preserving (chrome moved from widget-baked to layout-added)
+  and corrective for descendant/context-dependent selectors; it unblocks the
+  seed-based `Static::class()` and the `Node` removal. Widget authors implementing
+  a custom `layout_height()` should now return content height only.
+
 ### Deprecated
 
 - **`Node` is deprecated (`#[deprecated]` since 1.0.0) and scheduled for

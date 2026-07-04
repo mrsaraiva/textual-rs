@@ -220,27 +220,6 @@ pub(crate) fn border_spacing_from_style(style: &Style) -> (usize, usize, usize, 
     (top, bottom, left, right)
 }
 
-pub(crate) fn border_vertical_padding(style: &Style) -> usize {
-    let (top, bottom, _, _) = border_spacing_from_style(style);
-    top + bottom
-}
-
-/// Resolve a widget's own vertical chrome (border top/bottom + padding
-/// top/bottom) by resolving its cascaded style off-tree.
-///
-/// `layout_height()` reports a widget's OUTER auto height (content + own
-/// chrome); the layout side adds only margin (`extract_child_spec`). Leaf
-/// widgets that have a border via CSS (`Checkbox`, `Switch`, `Digits`, …) use
-/// this so an example that gives them `border: tall`/`double` is allocated the
-/// border rows instead of being clipped to content height.
-pub(crate) fn resolved_vertical_chrome<T: Widget + ?Sized>(widget: &T) -> usize {
-    let meta = crate::css::selector_meta_generic(widget);
-    let resolved = crate::css::resolve_style(widget, &meta);
-    let padding = resolved.effective_padding();
-    let (bt, bb, _, _) = border_spacing_from_style(&resolved);
-    usize::from(padding.top.saturating_add(padding.bottom)) + bt + bb
-}
-
 // `opacity_percent`: When set, pre-blend border colors by opacity, matching Python's
 // `base_background + border_color.multiply_alpha(opacity)` step. This is necessary so
 // that after `apply_widget_opacity_to_segments` applies a second blend, the net result

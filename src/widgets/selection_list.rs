@@ -512,19 +512,10 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for SelectionList<T> {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        // `layout_height()` reports the OUTER auto height (content + own
-        // border/padding chrome); the layout side adds only margin on top
-        // (see `extract_child_spec`). Resolve the cascaded style so an example
-        // that adds `border`/`padding` (e.g. selection_list_selected.tcss) is
-        // measured correctly instead of clipping its rows.
-        let meta = crate::css::selector_meta_generic(self);
-        let resolved = crate::css::resolve_style(self, &meta);
-        let padding = resolved.effective_padding();
-        let (border_top, border_bottom, _, _) =
-            super::helpers::border_spacing_from_style(&resolved);
-        let chrome_v =
-            usize::from(padding.top.saturating_add(padding.bottom)) + border_top + border_bottom;
-        Some(self.inner.option_count().max(1).saturating_add(chrome_v))
+        // PURE content height (one row per option). The flow layout adds the
+        // CSS-resolved vertical chrome (e.g. selection_list_selected.tcss's
+        // border/padding) with ancestor context, symmetric with the width axis.
+        Some(self.inner.option_count().max(1))
     }
 
     fn content_width(&self) -> Option<usize> {

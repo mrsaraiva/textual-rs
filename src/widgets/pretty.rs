@@ -208,17 +208,9 @@ impl Widget for Pretty {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        // Outer auto height = content lines + own border/padding chrome (the
-        // layout side adds only margin). Resolve the cascaded style so a border
-        // added by an example (e.g. `Pretty { border: solid }`) is accounted for.
-        let meta = crate::css::selector_meta_generic(self);
-        let resolved = crate::css::resolve_style(self, &meta);
-        let padding = resolved.effective_padding();
-        let (border_top, border_bottom, _, _) =
-            super::helpers::border_spacing_from_style(&resolved);
-        let chrome_v =
-            usize::from(padding.top.saturating_add(padding.bottom)) + border_top + border_bottom;
-
+        // PURE content height (line count). The flow layout adds the CSS-resolved
+        // vertical chrome (e.g. `Pretty { border: solid }`) with ancestor context,
+        // symmetric with the width axis.
         let debug_str = self.debug_str();
         let content_lines = if debug_str.is_empty() {
             1
@@ -234,7 +226,7 @@ impl Widget for Pretty {
             );
             text.lines().count().max(1)
         };
-        Some(content_lines.saturating_add(chrome_v))
+        Some(content_lines)
     }
 
     fn set_inline_style(&mut self, style: crate::style::Style) {

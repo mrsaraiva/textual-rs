@@ -178,6 +178,9 @@ impl PaletteCommandList {
     ///    width edge), so the border would otherwise clip the option rows to zero
     ///    (exactly the `SelectOverlay::layout_height` +2 case).
     fn layout_height(&self) -> Option<usize> {
+        // STRUCTURAL `+2` (the palette's own frame rows), NOT CSS-resolved chrome,
+        // so it is additive with the layout side's `full_v_chrome` and does not
+        // double-count under the height-chrome keystone (no migration needed).
         self.inner.layout_height().map(|h| h + 2)
     }
 }

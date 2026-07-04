@@ -294,6 +294,12 @@ impl Widget for Frame {
     }
 
     fn layout_height(&self) -> Option<usize> {
+        // STRUCTURAL frame only (`self.padding`/`self.border` fields) — NOT
+        // CSS-resolved chrome. The height-chrome keystone makes the flow layout add
+        // CSS `full_v_chrome` on top of this; since these are Frame's own structural
+        // fields (additive, not the CSS border/padding the layout resolves), there
+        // is no double-count and no migration is needed. (Left explicit so the
+        // asymmetry vs the migrated CSS-chrome bakers like Panel is not lost.)
         self.child
             .layout_height()
             .map(|h| h + self.padding * 2 + if self.border { 2 } else { 0 })

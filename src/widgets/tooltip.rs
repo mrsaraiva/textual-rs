@@ -248,14 +248,13 @@ impl Widget for Tooltip {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        // Outer box height = wrapped line count (at the laid-out content width)
-        // + resolved vertical chrome (padding/border). Matches the `Static`
-        // convention `measure_intrinsic_content_height` relies on for `height:
-        // auto` (chrome is NOT re-added by the caller).
+        // PURE content height = wrapped line count at the laid-out content width.
+        // The flow layout adds the CSS-resolved vertical chrome (padding/border)
+        // with ancestor context, symmetric with the width axis (same `Static`
+        // convention `measure_intrinsic_content_height` now relies on).
         let lines =
             super::text::intrinsic_wrapped_height(&self.text, self.layout_width.max(1), true);
-        let chrome = super::helpers::resolved_vertical_chrome(self);
-        Some(lines.saturating_add(chrome))
+        Some(lines)
     }
 
     fn on_unmount(&mut self) {

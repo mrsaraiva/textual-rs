@@ -603,17 +603,13 @@ pub fn layout_grid(
             None
         };
         let intrinsic_h_outer = if matches!(style.height.as_ref(), Some(Scalar::Auto)) {
-            // `layout_height()` is already the OUTER height (content + own
-            // border/padding); only the drained-container fallback returns pure
-            // content and needs the chrome added.
-            tree.get(child)
-                .and_then(|n| n.widget.layout_height())
-                .and_then(|h| u16::try_from(h).ok())
-                .or_else(|| {
-                    let avail_content_h = cell_h.saturating_sub(own_v_chrome);
-                    measure_intrinsic_content_height(tree, child, viewport, avail_content_h)
-                        .map(|h| h.saturating_add(own_v_chrome))
-                })
+            // Post-keystone `layout_height()` (surfaced via
+            // `measure_intrinsic_content_height`) is PURE content on both the leaf
+            // and drained-container paths; the grid adds the child's own
+            // (context-resolved) vertical chrome to get the OUTER cell height.
+            let avail_content_h = cell_h.saturating_sub(own_v_chrome);
+            measure_intrinsic_content_height(tree, child, viewport, avail_content_h)
+                .map(|h| h.saturating_add(own_v_chrome))
         } else {
             None
         };

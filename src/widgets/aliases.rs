@@ -50,7 +50,7 @@ pub struct Static {
     /// CSS id cache preserved across `take_node_seed()`.
     ///
     /// `take_node_seed()` moves the seed out of the widget (clearing `seed.css_id`).
-    /// Off-tree CSS resolution (`layout_height()` → `resolved_vertical_chrome()`)
+    /// Off-tree CSS resolution (`style_id()`/`style_classes()` during layout/render)
     /// runs AFTER mounting, so `seed.css_id` would be `None` at that point.
     /// We preserve the id here before the seed is taken so `style_id()` keeps
     /// returning the correct value for off-tree resolution.
@@ -112,31 +112,16 @@ impl Static {
     /// rules (`#questions .button { ... }`) continue to apply to the wrapper
     /// and the Rust layout tree structure stays compatible with nesting01/02.
     ///
-    /// DEFERRED(display-clear): making this SEED-BASED (the class on the Static's
-    /// own node, like Python `Static(classes=...)`) is the faithful fix for
-    /// `docs/examples/styles/display` (`Static.remove { display:none }`), and it
-    /// DOES clear `display` cleanly (verified: only type/class selectors, which
-    /// the leaf resolves fine). But it regresses `nesting01`/`nesting02`, and the
-    /// REAL root is NOT `apply_parent_align` (that already centers the margin box
-    /// correctly): it is auto-HEIGHT chrome resolution for a DESCENDANT-selected
-    /// leaf. `#questions .button { border; padding; margin }` is a descendant
-    /// rule, so the leaf Static's context-free `layout_height()` (via
-    /// `resolved_vertical_chrome` → `selector_meta_generic`, which has NO ancestor
-    /// chain) cannot match `#questions .button` and reports content height with
-    /// ZERO chrome. The box then collapses to 1 row (debug: `lr h=1`, expected 5),
-    /// and the (correct) margin-box centering places that 1-row box ~2 rows low.
-    /// The Node wrapper masked this because the chrome lived on the wrapper, whose
-    /// height the layout engine resolves WITH full ancestor context.
-    /// The faithful fix is to make the auto/unset HEIGHT edge add the
-    /// CSS-resolved `v_chrome` to the widget's PURE content height (symmetric with
-    /// the WIDTH arm in `extract_child_spec`, which already does
-    /// `content + full_h_chrome`). That requires unwinding the mixed
-    /// `layout_height()`-includes-chrome convention across the height-measurement
-    /// callsites (`horizontal.rs`/`vertical.rs`/grid) and the ~6 widgets that bake
-    /// chrome into `layout_height()` (Static/Label/Checkbox/Switch/RadioSet/Panel),
-    /// with five_by_five `GameCell` as the regression guard — out of this cluster's
-    /// allowed-file scope. Re-land seed-based `class()` together with that
-    /// height-chrome convention fix.
+    /// The blocker that kept this a `Node` wrapper — making it SEED-BASED (the
+    /// class on the Static's own node, like Python `Static(classes=...)`) used to
+    /// regress `nesting01`/`nesting02` because the leaf Static's context-free
+    /// `layout_height()` could not resolve DESCENDANT-selected chrome
+    /// (`#questions .button { border; padding }`, no ancestor chain) and collapsed
+    /// the box to 1 row — is now RESOLVED: the height-chrome keystone makes
+    /// `layout_height()` report PURE content and the flow layout add the
+    /// ancestor-resolved `full_v_chrome` (symmetric with the width axis). Converting
+    /// this to a seed-based `.class()` returning `Self` (and deleting `Node`) is the
+    /// Node-removal step that consumes that unblock.
     #[allow(deprecated)] // Returns a `Node` wrapper (deprecated RA2.6, supported one release).
     pub fn class(self, value: impl Into<String>) -> Node {
         Node::new(self).class(value)
@@ -436,11 +421,13 @@ impl Widget for Static {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        // `layout_height()` returns the widget's OUTER height (content + own
-        // padding/border chrome). This matches the convention used by flow layout.
-        let chrome = crate::widgets::helpers::resolved_vertical_chrome(self);
+        // `layout_height()` returns PURE content height (no own padding/border/
+        // margin). The flow layout adds the CSS-resolved vertical chrome
+        // (`full_v_chrome`) with full ancestor context, symmetric with the width
+        // axis — so descendant-selected chrome (`#questions .button`) resolves
+        // correctly instead of collapsing.
         match &self.content {
-            StaticContent::Plain => Some(self.intrinsic_height().saturating_add(chrome)),
+            StaticContent::Plain => Some(self.intrinsic_height()),
             StaticContent::Content(content) => {
                 // Word-wrap-aware height from the content's plain text (same
                 // shared counter as the Plain path), so wrapped pre-built Content
@@ -451,11 +438,11 @@ impl Widget for Static {
                     self.layout_width,
                     self.wrap,
                 );
-                Some(lines.saturating_add(chrome))
+                Some(lines)
             }
             StaticContent::Rich(text) => {
                 let line_count = text.plain_text().lines().count().max(1);
-                Some(line_count.saturating_add(chrome))
+                Some(line_count)
             }
         }
     }

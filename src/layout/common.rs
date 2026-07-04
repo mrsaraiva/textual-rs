@@ -383,17 +383,19 @@ pub(crate) fn extract_child_spec(
     let parent_width_adj = parent_width.saturating_sub(margin.left + margin.right);
     let parent_height_adj = parent_height.saturating_sub(margin.top + margin.bottom);
 
-    // Full horizontal chrome (margin + border + padding), independent of
-    // box-sizing. For `width: auto` the intrinsic `content_width()` represents
-    // PURE content (post-RA-2: widgets no longer fold their own padding/border
-    // into intrinsic width — the layout side owns chrome). So an auto width edge
-    // is always `content + full chrome`, regardless of box-sizing (box-sizing
-    // only changes how an EXPLICIT width is interpreted, handled by the `_ =>`
-    // scalar arm below). Height keeps its existing margin-only behavior:
-    // `layout_height()` already accounts for border/padding chrome for the
-    // widgets that report it, and changing it regresses bordered grid cells
-    // (e.g. five_by_five GameCell).
+    // Full chrome (margin + border + padding) per axis, independent of
+    // box-sizing. For an auto/unset edge the intrinsic content size represents
+    // PURE content (widgets report `content_width()`/`layout_height()` WITHOUT
+    // folding their own padding/border — the layout side owns chrome). So an
+    // auto edge is always `content + full chrome`, regardless of box-sizing
+    // (box-sizing only changes how an EXPLICIT size is interpreted, handled by
+    // the scalar arms below). HEIGHT is now symmetric with WIDTH: the resolved
+    // `full_v_chrome` is added HERE (with full ancestor CSS context), instead of
+    // relying on each widget's context-free `layout_height()` chrome baking —
+    // which could not resolve descendant-selected chrome (`#questions .button`)
+    // and collapsed such boxes.
     let full_h_chrome = horizontal_chrome(&margin, &padding, border_left, border_right);
+    let full_v_chrome = vertical_chrome(&margin, &padding, border_top, border_bottom);
 
     // Build height edge for 1D resolver.
     //
@@ -404,7 +406,7 @@ pub(crate) fn extract_child_spec(
         Some(Scalar::Auto) => {
             if let Some(intrinsic) = intrinsic_height {
                 let min_size = min_h_cells.saturating_add(v_chrome);
-                let auto_size = intrinsic.saturating_add(margin.top + margin.bottom);
+                let auto_size = intrinsic.saturating_add(full_v_chrome);
                 Edge {
                     size: Some(auto_size.max(min_size)),
                     fraction: 1,
@@ -430,7 +432,7 @@ pub(crate) fn extract_child_spec(
                 // height still sizes to its content (preserves auto-content leaves
                 // that omit an explicit `height: auto`).
                 let min_size = min_h_cells.saturating_add(v_chrome);
-                let auto_size = intrinsic.saturating_add(margin.top + margin.bottom);
+                let auto_size = intrinsic.saturating_add(full_v_chrome);
                 Edge {
                     size: Some(auto_size.max(min_size)),
                     fraction: 1,
@@ -935,18 +937,17 @@ fn measure_child_outer_height(
     let box_sizing = style.box_sizing.unwrap_or(BoxSizing::BorderBox);
     let v_chrome = margin.top + margin.bottom + bt + bb + padding.top + padding.bottom;
 
-    // `outer` is computed directly per arm so we can avoid double-counting a
-    // leaf's own border/padding chrome:
+    // `outer` = PURE content height + full vertical chrome. Post-keystone,
+    // widgets report PURE content from `layout_height()` (no folded border/
+    // padding), symmetric with the width axis, so the layout side owns ALL chrome
+    // uniformly:
     //
     // - explicit `cells` / percent: value is pure content → add full v_chrome.
-    // - auto/None/fr: `measure_intrinsic_content_height` either returns the
-    //   widget's own `layout_height()` (already an OUTER height that INCLUDES the
-    //   widget's border+padding — true for leaf widgets like Checkbox/Button) or,
-    //   when the widget reports None (a drained/auto container), the summed
-    //   children CONTENT. For the former we must add ONLY margin; for the latter
-    //   we add the full vertical chrome (border+padding+margin). Adding the full
-    //   chrome unconditionally double-counts a leaf's border/padding (Checkbox
-    //   `border: tall` → 3, was inflated to 5).
+    // - auto/None/fr: `measure_intrinsic_content_height` returns pure content
+    //   (the widget's own `layout_height()` when reported, else the summed
+    //   children content) → add full v_chrome. (Formerly leaves reported an OUTER
+    //   height and this arm added only margin; that asymmetry — and its
+    //   descendant-selector chrome miss — is what the keystone retires.)
     let mut outer = match style.height.as_ref() {
         Some(Scalar::Cells(n)) => {
             if box_sizing == BoxSizing::BorderBox {
@@ -955,19 +956,9 @@ fn measure_child_outer_height(
             (*n).saturating_add(v_chrome)
         }
         None | Some(Scalar::Auto) | Some(Scalar::Fraction(_)) => {
-            // Does the widget report its own (OUTER) layout height directly?
-            let own_outer = tree
-                .get(node)
-                .and_then(|n| n.widget.layout_height())
-                .and_then(|h| u16::try_from(h).ok());
-            if let Some(h) = own_outer {
-                // Already OUTER (content + own border/padding) → add only margin.
-                h.saturating_add(margin.top + margin.bottom)
-            } else {
-                // Children-sum CONTENT → add full vertical chrome.
-                let content = measure_intrinsic_content_height(tree, node, viewport, 0).unwrap_or(0);
-                content.saturating_add(v_chrome)
-            }
+            let content =
+                measure_intrinsic_content_height(tree, node, viewport, 0).unwrap_or(0);
+            content.saturating_add(v_chrome)
         }
         Some(other) => resolve_scalar_to_cells(other, 0, viewport).saturating_add(v_chrome),
     };

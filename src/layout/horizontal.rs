@@ -79,11 +79,11 @@ pub fn layout_horizontal(
                 .get(child)
                 .and_then(|node| node.widget.content_width())
                 .and_then(|w| u16::try_from(w).ok());
-            // `extract_child_spec` adds the FULL horizontal chrome on the
-            // auto-WIDTH arm but only margin on the auto-HEIGHT arm, so pre-add
-            // only the container's own vertical chrome to the measured height
-            // (see vertical.rs for the full rationale). Pre-adding horizontal
-            // chrome here would double-count against the width arm.
+            // `extract_child_spec` now adds the full vertical chrome
+            // (margin+border+padding) on the auto-HEIGHT arm, symmetric with the
+            // auto-WIDTH arm — so the measured intrinsic stays PURE content on
+            // both axes and the layout side owns all chrome (see vertical.rs).
+            // The old `+ own_v_chrome` pre-add is retired.
             let (_own_h_chrome, own_v_chrome) = super::common::own_box_chrome(&style);
             if intrinsic_width.is_none() && width_is_auto {
                 intrinsic_width = measure_intrinsic_content_width(tree, child, viewport);
@@ -97,8 +97,7 @@ pub fn layout_horizontal(
                     .saturating_sub(style.effective_margin().top + style.effective_margin().bottom)
                     .saturating_sub(own_v_chrome);
                 intrinsic_height =
-                    measure_intrinsic_content_height(tree, child, viewport, avail_content_h)
-                        .map(|h| h.saturating_add(own_v_chrome));
+                    measure_intrinsic_content_height(tree, child, viewport, avail_content_h);
             }
             let mut spec = extract_child_spec(
                 &style,

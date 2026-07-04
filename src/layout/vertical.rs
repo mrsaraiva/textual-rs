@@ -203,14 +203,12 @@ pub fn layout_vertical(
         let height_is_explicit_auto =
             matches!(style.height.as_ref(), Some(crate::style::Scalar::Auto));
         // The measured value is the children's content extent (the container's
-        // OWN border+padding are NOT included). `extract_child_spec` adds chrome
-        // asymmetrically: the auto-WIDTH arm adds the FULL horizontal chrome
-        // (margin+border+padding), while the auto-HEIGHT arm adds ONLY margin.
-        // So we pre-add the container's own vertical chrome (border+padding) to
-        // the measured HEIGHT — otherwise a measured auto container with its own
-        // border (e.g. RadioSet `border: tall`) is clipped — but we must NOT
-        // pre-add horizontal chrome, or it would be double-counted against the
-        // width arm's `full_h_chrome` (e.g. a bordered `width: auto` Static box).
+        // OWN border+padding are NOT included). `extract_child_spec` now adds the
+        // full vertical chrome (margin+border+padding) on the auto-HEIGHT arm,
+        // symmetric with the auto-WIDTH arm — so the measured intrinsic stays
+        // PURE content on BOTH axes and the layout side owns all chrome. (The old
+        // `+ own_v_chrome` pre-add compensated for the former margin-only height
+        // arm and is retired now that the arm is symmetric.)
         let (_own_h_chrome, own_v_chrome) = super::common::own_box_chrome(&style);
         if intrinsic_width.is_none() && width_is_explicit_auto {
             intrinsic_width = measure_intrinsic_content_width(tree, child, viewport);
@@ -219,14 +217,12 @@ pub fn layout_vertical(
             // Available CONTENT height this auto container would receive (its
             // outer fill minus own margins + border/padding). Lets Python's
             // all-dynamic-children rule fill an `fr` child (e.g. `Center >
-            // Middle(1fr)`); `measure_intrinsic_content_height` adds chrome back
-            // via the caller's `+ own_v_chrome`.
+            // Middle(1fr)`).
             let avail_content_h = available
                 .height
                 .saturating_sub(style.effective_margin().top + style.effective_margin().bottom)
                 .saturating_sub(own_v_chrome);
-            intrinsic_height = measure_intrinsic_content_height(tree, child, viewport, avail_content_h)
-                .map(|h| h.saturating_add(own_v_chrome));
+            intrinsic_height = measure_intrinsic_content_height(tree, child, viewport, avail_content_h);
         }
         let mut spec = extract_child_spec(
             &style,

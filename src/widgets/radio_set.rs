@@ -395,12 +395,13 @@ impl Widget for RadioSet {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        // Pre-mount estimate: one row per button + own vertical chrome (default
-        // `border: tall` adds 2). After mount the arena owns child layout.
+        // Pre-mount estimate: PURE content height (one row per button). The flow
+        // layout adds the CSS-resolved vertical chrome (default `border: tall`
+        // adds 2) with ancestor context. After mount the arena owns child layout.
         if self.mounted {
             return None;
         }
-        Some(self.buttons.len().max(1) + super::helpers::resolved_vertical_chrome(self))
+        Some(self.buttons.len().max(1))
     }
 
     fn content_width(&self) -> Option<usize> {

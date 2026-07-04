@@ -308,9 +308,10 @@ impl Widget for Switch {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        // 1 content row + own border/padding chrome (the default `border: tall`
-        // adds 2 rows). The layout side adds only margin (extract_child_spec).
-        Some(1 + super::helpers::resolved_vertical_chrome(self))
+        // PURE content height (1 row). The flow layout adds the CSS-resolved
+        // vertical chrome (the default `border: tall` adds 2 rows) with ancestor
+        // context, symmetric with the width axis.
+        Some(1)
     }
 
     fn style_type(&self) -> &'static str {

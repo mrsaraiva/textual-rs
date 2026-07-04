@@ -115,6 +115,18 @@ WinnerMessage {
     padding: 1;
     text-align: center;
     border: round;
+    /* Hidden by default: `display: none` takes the message OUT of the layout
+       flow entirely so it neither paints nor shrinks the grid — matching Python
+       five_by_five.tcss, where WinnerMessage is `visibility: hidden` on a
+       separate layer and toggled `visible` via a class. (Its border/padding box
+       is correctly allocated by the height-chrome layout when shown; the old
+       Rust port relied on an empty `height: auto` box collapsing to zero, which
+       the pure-content height keystone no longer does.) */
+    display: none;
+}
+
+WinnerMessage.visible {
+    display: block;
 }
 
 HelpRoot {
@@ -611,9 +623,14 @@ impl FiveByFiveApp {
     ) {
         let new = *new;
         if let Ok(h) = self.winner.handle() {
-            let _ = h.update(app, |w, _ctx| match new {
-                Some(moves) => w.show(moves),
-                None => w.hide(),
+            let _ = h.update(app, |w, ctx| {
+                match new {
+                    Some(moves) => w.show(moves),
+                    None => w.hide(),
+                }
+                // Toggle the `.visible` class so the node's `display` flips
+                // between `none` (out of flow when hidden) and `block` (shown).
+                ctx.set_class(new.is_some(), "visible");
             });
         }
         ctx.request_layout();

@@ -390,9 +390,10 @@ impl Widget for Digits {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        // Digits glyphs are always 3 rows tall; add the widget's own
-        // border/padding chrome (e.g. an example's `border: double` adds 2).
-        Some(3 + crate::widgets::helpers::resolved_vertical_chrome(self))
+        // PURE content height: Digits glyphs are always 3 rows tall. The flow
+        // layout adds the CSS-resolved vertical chrome (e.g. `border: double`)
+        // with ancestor context, symmetric with the width axis.
+        Some(3)
     }
 
     fn content_width(&self) -> Option<usize> {

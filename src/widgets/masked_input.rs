@@ -1083,10 +1083,9 @@ impl Widget for MaskedInput {
     }
 
     fn layout_height(&self) -> Option<usize> {
-        let meta = crate::css::selector_meta_generic(self);
-        let base_style = crate::css::resolve_style(self, &meta);
-        let default_height = 1 + super::helpers::border_vertical_padding(&base_style);
-        Some(default_height)
+        // PURE content height (1 row). The flow layout adds the CSS-resolved
+        // vertical chrome (MaskedInput's default border) with ancestor context.
+        Some(1)
     }
 
     fn set_inline_style(&mut self, style: crate::style::Style) {
