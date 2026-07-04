@@ -1,6 +1,7 @@
 [workspace]
 members = [
   "app",
+  "coldapp_kanban",
   "events",
   "getting_started",
   "guide/actions",
