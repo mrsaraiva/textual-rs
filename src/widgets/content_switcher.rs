@@ -1,4 +1,5 @@
-use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
+use rich_rs::{Console, ConsoleOptions, Segment, Segments};
+use textual_macros::widget;
 
 use crate::compose::ComposeResult;
 use crate::css;
@@ -13,6 +14,7 @@ use super::{
     },
 };
 
+#[widget(Focus, Layout, Interactive)]
 pub struct ContentSwitcher {
     children: Vec<Box<dyn Widget>>,
     /// CSS ids of children in insertion order.  Populated when children are
@@ -224,7 +226,7 @@ impl ContentSwitcher {
     }
 }
 
-impl Widget for ContentSwitcher {
+impl crate::widgets::Render for ContentSwitcher {
     fn compose(&mut self) -> ComposeResult {
         // Capture each child's CSS id from its `style_id()` before the children
         // are drained into the arena tree. `current_child_index()` (and thus
@@ -253,66 +255,8 @@ impl Widget for ContentSwitcher {
             .collect()
     }
 
-    fn focusable(&self) -> bool {
-        false
-    }
-
     fn style_type(&self) -> &'static str {
         "ContentSwitcher"
-    }
-
-    /// Control arena-tree child visibility based on `self.current`.
-    ///
-    /// Called every frame by `sync_widget_controlled_child_display_tree`.
-    /// Returns `Some(true)` for the active child, `Some(false)` for all others.
-    /// Returns `None` before `compose` is called (flat mode).
-    fn child_display_for_tree(&self, child_index: usize) -> Option<bool> {
-        if !self.children_extracted {
-            return None;
-        }
-        Some(self.current_child_index() == Some(child_index))
-    }
-
-    fn on_mount(&mut self, ctx: &mut crate::event::WidgetCtx) {
-        for child in &mut self.children {
-            child.on_mount(ctx);
-        }
-    }
-
-    fn on_unmount(&mut self) {
-        for child in &mut self.children {
-            child.on_unmount();
-        }
-    }
-
-    fn on_tick(&mut self, tick: u64) {
-        if let Some(child) = self.visible_child_mut() {
-            child.on_tick(tick);
-        }
-    }
-
-    fn on_resize(&mut self, width: u16, height: u16) {
-        if let Some(child) = self.visible_child_mut() {
-            child.on_resize(width, height);
-        }
-    }
-
-    fn on_event_capture(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
-        if let Some(child) = self.visible_child_mut() {
-            child.on_event_capture(event, ctx);
-        }
-    }
-
-    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
-        if let Some(child) = self.visible_child_mut() {
-            child.on_event(event, ctx);
-        }
-    }
-
-    fn on_message(&mut self, message: &crate::message::MessageEvent, ctx: &mut crate::event::WidgetCtx) {
-        if let Some(child) = self.visible_child_mut() {
-            child.on_message(message, ctx);
-        }
     }
 
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
@@ -388,6 +332,26 @@ impl Widget for ContentSwitcher {
         }
         out
     }
+}
+
+impl crate::widgets::Focus for ContentSwitcher {
+    fn focusable(&self) -> bool {
+        false
+    }
+}
+
+impl crate::widgets::Layout for ContentSwitcher {
+    /// Control arena-tree child visibility based on `self.current`.
+    ///
+    /// Called every frame by `sync_widget_controlled_child_display_tree`.
+    /// Returns `Some(true)` for the active child, `Some(false)` for all others.
+    /// Returns `None` before `compose` is called (flat mode).
+    fn child_display_for_tree(&self, child_index: usize) -> Option<bool> {
+        if !self.children_extracted {
+            return None;
+        }
+        Some(self.current_child_index() == Some(child_index))
+    }
 
     fn layout_height(&self) -> Option<usize> {
         let child = self.visible_child()?;
@@ -419,19 +383,49 @@ impl Widget for ContentSwitcher {
             + border_right;
         Some(content_width.saturating_add(chrome_lr).max(1))
     }
-
-    fn set_inline_style(&mut self, style: crate::style::Style) {
-        self.seed.styles.style = style;
-    }
-
-    fn take_node_seed(&mut self) -> NodeSeed {
-        std::mem::take(&mut self.seed)
-    }
 }
 
-impl Renderable for ContentSwitcher {
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        Widget::render(self, console, options)
+impl crate::widgets::Interactive for ContentSwitcher {
+    fn on_mount(&mut self, ctx: &mut crate::event::WidgetCtx) {
+        for child in &mut self.children {
+            child.on_mount(ctx);
+        }
+    }
+
+    fn on_unmount(&mut self) {
+        for child in &mut self.children {
+            child.on_unmount();
+        }
+    }
+
+    fn on_tick(&mut self, tick: u64) {
+        if let Some(child) = self.visible_child_mut() {
+            child.on_tick(tick);
+        }
+    }
+
+    fn on_resize(&mut self, width: u16, height: u16) {
+        if let Some(child) = self.visible_child_mut() {
+            child.on_resize(width, height);
+        }
+    }
+
+    fn on_event_capture(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
+        if let Some(child) = self.visible_child_mut() {
+            child.on_event_capture(event, ctx);
+        }
+    }
+
+    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
+        if let Some(child) = self.visible_child_mut() {
+            child.on_event(event, ctx);
+        }
+    }
+
+    fn on_message(&mut self, message: &crate::message::MessageEvent, ctx: &mut crate::event::WidgetCtx) {
+        if let Some(child) = self.visible_child_mut() {
+            child.on_message(message, ctx);
+        }
     }
 }
 

@@ -5,7 +5,8 @@ use crate::message::{TabActivated, TabsCleared};
 use crate::reactive::ReactiveCtx;
 use crate::widgets::delegate::{delegate_renderable, delegate_widget_method};
 use crate::widgets::{Container, NodeSeed, Widget};
-use rich_rs::{Console, ConsoleOptions, Renderable, Segments};
+use rich_rs::{Console, ConsoleOptions, Segments};
+use textual_macros::widget;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -68,6 +69,7 @@ pub struct TabPaneMeta {
     pub hidden: bool,
 }
 
+#[widget(Interactive, Focus)]
 pub struct TabPane {
     title: String,
     pane_id: Option<String>,
@@ -133,10 +135,10 @@ impl TabPane {
     }
 }
 
-impl Widget for TabPane {
+impl crate::widgets::Render for TabPane {
     fn compose(&mut self) -> ComposeResult {
         self.children_extracted = true;
-        self.inner.compose()
+        crate::widgets::Widget::compose(&mut self.inner)
     }
 
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
@@ -146,60 +148,64 @@ impl Widget for TabPane {
         Widget::render(&self.inner, console, options)
     }
 
+    fn style_type(&self) -> &'static str {
+        "TabPane"
+    }
+}
+
+impl crate::widgets::Focus for TabPane {
+    fn focusable(&self) -> bool {
+        false
+    }
+}
+
+impl crate::widgets::Interactive for TabPane {
     fn on_mount(&mut self, ctx: &mut crate::event::WidgetCtx) {
         if !self.is_tree_mode() {
-            self.inner.on_mount(ctx);
+            crate::widgets::Widget::on_mount(&mut self.inner, ctx);
         }
     }
 
     fn on_unmount(&mut self) {
         if !self.is_tree_mode() {
-            self.inner.on_unmount();
+            crate::widgets::Widget::on_unmount(&mut self.inner);
         }
     }
 
     fn on_tick(&mut self, tick: u64) {
         if !self.is_tree_mode() {
-            self.inner.on_tick(tick);
+            crate::widgets::Widget::on_tick(&mut self.inner, tick);
         }
     }
 
     fn on_resize(&mut self, width: u16, height: u16) {
         if !self.is_tree_mode() {
-            self.inner.on_resize(width, height);
+            crate::widgets::Widget::on_resize(&mut self.inner, width, height);
         }
     }
 
     fn on_layout(&mut self, width: u16, height: u16) {
         if !self.is_tree_mode() {
-            self.inner.on_layout(width, height);
+            crate::widgets::Widget::on_layout(&mut self.inner, width, height);
         }
     }
 
     fn on_event_capture(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         if !self.is_tree_mode() {
-            self.inner.on_event_capture(event, ctx);
+            crate::widgets::Widget::on_event_capture(&mut self.inner, event, ctx);
         }
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         if !self.is_tree_mode() {
-            self.inner.on_event(event, ctx);
+            crate::widgets::Widget::on_event(&mut self.inner, event, ctx);
         }
     }
 
     fn on_message(&mut self, message: &crate::message::MessageEvent, ctx: &mut crate::event::WidgetCtx) {
         if !self.is_tree_mode() {
-            self.inner.on_message(message, ctx);
+            crate::widgets::Widget::on_message(&mut self.inner, message, ctx);
         }
-    }
-
-    fn focusable(&self) -> bool {
-        false
-    }
-
-    fn style_type(&self) -> &'static str {
-        "TabPane"
     }
 
     fn on_node_state_changed(
@@ -209,22 +215,9 @@ impl Widget for TabPane {
     ) {
         self.disabled = new.disabled;
     }
-
-    fn set_inline_style(&mut self, style: crate::style::Style) {
-        self.seed.styles.style = style;
-    }
-
-    fn take_node_seed(&mut self) -> NodeSeed {
-        std::mem::take(&mut self.seed)
-    }
 }
 
-impl Renderable for TabPane {
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        Widget::render(self, console, options)
-    }
-}
-
+#[widget(Focus, Interactive, Layout)]
 pub struct TabbedContent {
     panes: Mutex<Vec<TabPane>>,
     pane_meta: Mutex<Vec<TabPaneMeta>>,
@@ -562,7 +555,7 @@ impl TabbedContent {
     }
 }
 
-impl Widget for TabbedContent {
+impl crate::widgets::Render for TabbedContent {
     fn compose(&mut self) -> ComposeResult {
         if self.children_extracted.load(Ordering::SeqCst) {
             return Vec::new();
@@ -583,6 +576,33 @@ impl Widget for TabbedContent {
         children
     }
 
+    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        if self.children_extracted.load(Ordering::SeqCst) {
+            return Segments::new();
+        }
+        let width = options.size.0.max(1);
+        let height = options.size.1.clamp(1, 2);
+        let mut tabs = self.build_tabs();
+        if self.focused {
+            crate::widgets::Widget::on_node_state_changed(
+                &mut tabs,
+                crate::widgets::NodeState::default(),
+                crate::widgets::NodeState {
+                    focused: true,
+                    ..Default::default()
+                },
+            );
+        }
+        crate::widgets::Widget::on_layout(&mut tabs, width as u16, height as u16);
+        let mut tab_options = options.clone();
+        tab_options.size = (width, height);
+        tab_options.max_width = width;
+        tab_options.max_height = height;
+        Widget::render(&tabs, console, &tab_options)
+    }
+}
+
+impl crate::widgets::Focus for TabbedContent {
     fn action_namespace(&self) -> &str {
         "tabbed_content"
     }
@@ -615,6 +635,41 @@ impl Widget for TabbedContent {
         false
     }
 
+    fn is_initially_focused(&self) -> bool {
+        self.focused
+    }
+
+    fn binding_hints(&self) -> Vec<BindingHint> {
+        if self.selectable_pane_count() <= 1 {
+            return Vec::new();
+        }
+        vec![
+            BindingHint::new("left", "Previous tab")
+                .with_key_display("←")
+                .hidden(true),
+            BindingHint::new("right", "Next tab")
+                .with_key_display("→")
+                .hidden(true),
+        ]
+    }
+}
+
+impl crate::widgets::Layout for TabbedContent {
+    fn child_display_for_tree(&self, child_index: usize) -> Option<bool> {
+        if child_index == 0 {
+            return Some(true);
+        }
+        let pane_index = child_index.saturating_sub(1);
+        let meta = self.pane_meta.lock().expect("tabbed meta lock");
+        let pane = meta.get(pane_index)?;
+        if pane.hidden {
+            return Some(false);
+        }
+        Some(self.active.as_deref() == Some(pane.id.as_str()))
+    }
+}
+
+impl crate::widgets::Interactive for TabbedContent {
     fn on_node_state_changed(
         &mut self,
         _old: crate::widgets::NodeState,
@@ -622,10 +677,6 @@ impl Widget for TabbedContent {
     ) {
         self.focused = new.focused;
         self.hovered = new.hovered;
-    }
-
-    fn is_initially_focused(&self) -> bool {
-        self.focused
     }
 
     fn on_mount(&mut self, _ctx: &mut crate::event::WidgetCtx) {
@@ -642,7 +693,7 @@ impl Widget for TabbedContent {
             .expect("tabbed tabs handle lock")
             .as_mut()
         {
-            tabs.on_layout(width, 2);
+            crate::widgets::Widget::on_layout(tabs, width, 2);
         }
     }
 
@@ -655,7 +706,7 @@ impl Widget for TabbedContent {
                     .expect("tabbed tabs handle lock")
                     .as_mut()
             {
-                tabs.on_event(event, ctx);
+                crate::widgets::Widget::on_event(tabs, event, ctx);
             }
             return;
         }
@@ -717,71 +768,6 @@ impl Widget for TabbedContent {
             ctx.request_repaint();
             ctx.set_handled();
         }
-    }
-
-    fn child_display_for_tree(&self, child_index: usize) -> Option<bool> {
-        if child_index == 0 {
-            return Some(true);
-        }
-        let pane_index = child_index.saturating_sub(1);
-        let meta = self.pane_meta.lock().expect("tabbed meta lock");
-        let pane = meta.get(pane_index)?;
-        if pane.hidden {
-            return Some(false);
-        }
-        Some(self.active.as_deref() == Some(pane.id.as_str()))
-    }
-
-    fn binding_hints(&self) -> Vec<BindingHint> {
-        if self.selectable_pane_count() <= 1 {
-            return Vec::new();
-        }
-        vec![
-            BindingHint::new("left", "Previous tab")
-                .with_key_display("←")
-                .hidden(true),
-            BindingHint::new("right", "Next tab")
-                .with_key_display("→")
-                .hidden(true),
-        ]
-    }
-
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        if self.children_extracted.load(Ordering::SeqCst) {
-            return Segments::new();
-        }
-        let width = options.size.0.max(1);
-        let height = options.size.1.clamp(1, 2);
-        let mut tabs = self.build_tabs();
-        if self.focused {
-            tabs.on_node_state_changed(
-                crate::widgets::NodeState::default(),
-                crate::widgets::NodeState {
-                    focused: true,
-                    ..Default::default()
-                },
-            );
-        }
-        tabs.on_layout(width as u16, height as u16);
-        let mut tab_options = options.clone();
-        tab_options.size = (width, height);
-        tab_options.max_width = width;
-        tab_options.max_height = height;
-        Widget::render(&tabs, console, &tab_options)
-    }
-
-    fn set_inline_style(&mut self, style: crate::style::Style) {
-        self.seed.styles.style = style;
-    }
-
-    fn take_node_seed(&mut self) -> NodeSeed {
-        std::mem::take(&mut self.seed)
-    }
-}
-
-impl Renderable for TabbedContent {
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        Widget::render(self, console, options)
     }
 }
 
