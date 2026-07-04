@@ -1,12 +1,13 @@
 use crossterm::event::KeyCode;
-use rich_rs::{Console, ConsoleOptions, Renderable, Segments};
+use rich_rs::{Console, ConsoleOptions, Segments};
+use textual_macros::widget;
 
 use crate::event::{Action, Event};
 use crate::message::*;
 use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
 
 use super::scrollbar::ScrollBarRender;
-use super::{NodeSeed, Widget};
+use super::{Focus, Interactive, Layout, NodeSeed, Render};
 
 /// The content width of the switch slider track (in cells).
 ///
@@ -27,6 +28,7 @@ const ANIMATION_TICKS: u64 = 18;
 /// Renders as a slider track with a knob that smoothly animates left/right.
 /// Toggled via click, Enter, or Space.
 #[derive(Debug, Clone)]
+#[widget(Focus, Interactive, Layout, reactive, style_type = "Switch")]
 pub struct Switch {
     value: bool,
     pressed: bool,
@@ -172,39 +174,38 @@ impl ReactiveWidget for Switch {
     }
 }
 
-impl Widget for Switch {
+impl Focus for Switch {
     fn focusable(&self) -> bool {
         !self.disabled
     }
 
-    /// Expose the reactive dispatch impl so the runtime's reactive phase can run
-    /// `watch_value` after a programmatic `set_value` (e.g. via `Handle::update`).
-    ///
-    /// Without this the default returns `None`, so the queued `RuntimeReactiveEntry`
-    /// is dropped: `value` is set but `watch_value` never runs, leaving the slider
-    /// position un-snapped and the `-on` class un-rebuilt (an ON switch renders in
-    /// the OFF position). Interactive toggles use `on_event` directly and are
-    /// unaffected; this fixes the programmatic path (Python `watch_value` parity).
-    fn reactive_widget(&mut self) -> Option<&mut dyn ReactiveWidget> {
-        Some(self)
-    }
-
     fn is_active(&self) -> bool {
-        self.pressed && self.node_state().hovered
+        self.pressed && crate::widgets::Widget::node_state(self).hovered
     }
+}
 
+impl Layout for Switch {
     fn content_width(&self) -> Option<usize> {
         // Python `Switch.get_content_width` returns the bare content width (4);
         // the layout engine adds padding/border chrome around it.
         Some(SWITCH_WIDTH)
     }
 
+    fn layout_height(&self) -> Option<usize> {
+        // PURE content height (1 row). The flow layout adds the CSS-resolved
+        // vertical chrome (the default `border: tall` adds 2 rows) with ancestor
+        // context, symmetric with the width axis.
+        Some(1)
+    }
+}
+
+impl Interactive for Switch {
     fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         if self.disabled {
             return;
         }
         match event {
-            Event::MouseDown(mouse) if mouse.target == self.node_id() => {
+            Event::MouseDown(mouse) if mouse.target == crate::widgets::Widget::node_id(self) => {
                 self.pressed = true;
                 ctx.request_repaint();
                 ctx.set_handled();
@@ -213,7 +214,7 @@ impl Widget for Switch {
                 if self.pressed => {
                     self.pressed = false;
                     ctx.request_repaint();
-                    if mouse.target.is_some_and(|t| t == self.node_id()) {
+                    if mouse.target.is_some_and(|t| t == crate::widgets::Widget::node_id(self)) {
                         self.value = !self.value;
                         self.on_toggled();
                         self.emit_changed(ctx);
@@ -225,14 +226,14 @@ impl Widget for Switch {
                     self.pressed = false;
                     ctx.request_repaint();
                 }
-            Event::Action(Action::Toggle) if self.node_state().focused => {
+            Event::Action(Action::Toggle) if crate::widgets::Widget::node_state(self).focused => {
                 self.value = !self.value;
                 self.on_toggled();
                 self.emit_changed(ctx);
                 ctx.request_repaint();
                 ctx.set_handled();
             }
-            Event::Key(key) if self.node_state().focused => match key.code {
+            Event::Key(key) if crate::widgets::Widget::node_state(self).focused => match key.code {
                 KeyCode::Enter | KeyCode::Char(' ') => {
                     self.value = !self.value;
                     self.on_toggled();
@@ -266,7 +267,9 @@ impl Widget for Switch {
             }
         }
     }
+}
 
+impl Render for Switch {
     fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
 
@@ -305,31 +308,6 @@ impl Widget for Switch {
             out.extend(row);
         }
         out
-    }
-
-    fn layout_height(&self) -> Option<usize> {
-        // PURE content height (1 row). The flow layout adds the CSS-resolved
-        // vertical chrome (the default `border: tall` adds 2 rows) with ancestor
-        // context, symmetric with the width axis.
-        Some(1)
-    }
-
-    fn style_type(&self) -> &'static str {
-        "Switch"
-    }
-
-    fn set_inline_style(&mut self, style: crate::style::Style) {
-        self.seed.styles.style = style;
-    }
-
-    fn take_node_seed(&mut self) -> NodeSeed {
-        std::mem::take(&mut self.seed)
-    }
-}
-
-impl Renderable for Switch {
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        Widget::render(self, console, options)
     }
 }
 
@@ -459,8 +437,9 @@ mod tests {
         let changes = ctx.take_changes();
 
         // Mirror the runtime: only `reactive_widget()` can reach the dispatch.
-        let rw = widget
-            .reactive_widget()
+        // `reactive_widget` is a Widget-trait method (generated by `#[widget(..,
+        // reactive)]`); Widget is not imported here, so call it via full path.
+        let rw = crate::widgets::Widget::reactive_widget(&mut widget)
             .expect("Switch must expose its ReactiveWidget so the runtime runs watch_value");
         rw.reactive_dispatch(&changes, &mut ctx);
 
