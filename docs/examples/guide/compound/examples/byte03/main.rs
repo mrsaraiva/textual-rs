@@ -241,7 +241,7 @@ impl ByteEditor {
             .with_child(
                 Container::new()
                     .class("top")
-                    .with_child(Node::new(Input::new()).id("byte-input")),
+                    .with_child(Input::new().id("byte-input")),
             )
             .with_child(Container::new().with_child(ByteInput::new()));
         Self { inner }
@@ -427,7 +427,7 @@ mod tests {
     ///
     /// ROOT (fixed): the app writes the recomputed byte via
     /// `app.with_query_one_mut_as::<Input, _>("#byte-input", ...)`, where
-    /// `#byte-input` is `Node::new(Input::new()).id("byte-input")`. Previously the
+    /// `#byte-input` is `Input::new().id("byte-input")`. Previously the
     /// id landed on the `Node` *wrapper*, so the typed `#byte-input` query matched
     /// the `Node` and the `Input` downcast failed — the byte was never written.
     /// The node-build pipeline now collapses the structural `Node` out of the tree

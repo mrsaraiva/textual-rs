@@ -113,7 +113,6 @@ pub mod prelude {
         Function, Integer, Length, Number, Regex, Url, ValidationResult, Validator, ValidatorRef,
     };
     pub use crate::widget_tree::{LifecycleEvent, QueryError, WidgetNode, WidgetTree};
-    #[allow(deprecated)] // `Node` is deprecated (RA2.6) but re-exported for one release.
     pub use crate::widgets::{
         AppRoot, BindingDecl, BindingsTable, Button, ButtonVariant,
         Cell as DataTableCell, CellJustify, Center,
@@ -124,7 +123,7 @@ pub mod prelude {
         HeaderIcon, HeaderTitle, HelpPanel, Horizontal, HorizontalGroup, HorizontalScroll, Input,
         InputType, ItemGrid, KeyPanel, Label, LabelVariant, LayoutConstraints, LineStyle, Link,
         ListItem, ListView, LoadingIndicator, Log, Markdown, MarkdownTableOfContents,
-        MarkdownViewer, MaskedInput, Middle, Node, NodeSeed, NodeState, OptionContent, OptionId,
+        MarkdownViewer, MaskedInput, Middle, NodeSeed, NodeState, OptionContent, OptionId,
         OptionItem, OptionList,
         Overlay, PaletteCommand, Panel, Placeholder, PlaceholderVariant, Pretty, ProgressBar,
         RadioButton, RadioSet, RichLog, Right, Row, RowAlign, Rule, RuleOrientation, ScrollBar,

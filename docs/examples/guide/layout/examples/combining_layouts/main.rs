@@ -76,9 +76,9 @@ impl TextualApp for CombiningLayoutsExample {
         AppRoot::new()
             .with_child(Header::new())
             .with_child(
-                Node::new(Container::new()
+                Container::new()
                     .with_child(
-                        Node::new(VerticalScroll::new()
+                        VerticalScroll::new()
                             .with_child(Static::new("Vertical layout, child 0"))
                             .with_child(Static::new("Vertical layout, child 1"))
                             .with_child(Static::new("Vertical layout, child 2"))
@@ -93,26 +93,26 @@ impl TextualApp for CombiningLayoutsExample {
                             .with_child(Static::new("Vertical layout, child 11"))
                             .with_child(Static::new("Vertical layout, child 12"))
                             .with_child(Static::new("Vertical layout, child 13"))
-                            .with_child(Static::new("Vertical layout, child 14")))
+                            .with_child(Static::new("Vertical layout, child 14"))
                         .id("left-pane"),
                     )
                     .with_child(
-                        Node::new(Horizontal::new()
+                        Horizontal::new()
                             .with_child(Static::new("Horizontally"))
                             .with_child(Static::new("Positioned"))
                             .with_child(Static::new("Children"))
-                            .with_child(Static::new("Here")))
+                            .with_child(Static::new("Here"))
                         .id("top-right"),
                     )
                     .with_child(
-                        Node::new(Container::new()
+                        Container::new()
                             .with_child(Static::new("This"))
                             .with_child(Static::new("panel"))
                             .with_child(Static::new("is"))
                             .with_child(Static::new("using"))
-                            .with_child(Static::new("grid layout!").id("bottom-right-final")))
+                            .with_child(Static::new("grid layout!").id("bottom-right-final"))
                         .id("bottom-right"),
-                    ))
+                    )
                 .id("app-grid"),
             )
     }

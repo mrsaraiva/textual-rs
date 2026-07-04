@@ -3039,29 +3039,11 @@ impl App {
         if !classes.is_empty() {
             widget.set_seed_classes(classes.clone());
         }
-        // Collapse a purely structural wrapper (transparent `Node` carrying only
-        // an id/classes/inline-style) OUT of the tree: mount its inner child in
-        // its place and fold the wrapper's identity onto the inner widget. This
-        // keeps a wrapped scroll/flow container as the layout node itself (so it
-        // establishes its own scroll viewport) instead of being shrink-sized by
-        // an interposed wrapper layer. Mirrors Python `Widget(id="x")`.
-        if let Some((inner, seed)) = widget.elide_transparent_wrapper() {
-            let inner_id = Self::mount_child_decl(tree, parent, ChildDecl::new(inner));
-            tree.apply_forwarded_seed(inner_id, seed);
-            if let Some(id_str) = &id {
-                tree.set_css_id(inner_id, Some(id_str.clone()));
-            }
-            for class in &classes {
-                tree.add_class(inner_id, class);
-            }
-            if let Some(sink) = handle_sink {
-                sink(inner_id, tree.tree_id());
-            }
-            if !decl_children.is_empty() {
-                Self::mount_declarations(tree, inner_id, decl_children);
-            }
-            return inner_id;
-        }
+        // (The transparent-wrapper elision pass was removed with `Node`: identity
+        // now always rides the widget's OWN seed — `Widget::id()/.class()` — so
+        // there is no wrapper node to collapse. This is the "always-fold" end
+        // state: a classed leaf like `Static::new(..).class("box")` carries the
+        // class on its own node, never a separate wrapper.)
 
         // A widget's own children come solely from `compose(&mut self)` (RA2.1).
         let child_compose = widget.compose();
@@ -4593,12 +4575,11 @@ impl Widget for TreeStubWidget {
 }
 
 #[cfg(test)]
-#[allow(deprecated)] // Tests exercise the deprecated `Node` wrapper (RA2.6).
 mod tests {
     use super::*;
     use crate::event::BindingHint;
     use crate::widget_tree::QueryError;
-    use crate::widgets::{AppRoot, BindingDecl, Button, Label, Node};
+    use crate::widgets::{AppRoot, BindingDecl, Button, Label};
     use rich_rs::Segments;
     use rich_rs::{Console, ConsoleOptions};
     use std::sync::Arc;
@@ -5036,6 +5017,37 @@ mod tests {
             app.query_one("#native-seed-id").is_ok(),
             "a native .id() seed on a root's direct child must resolve via query_one"
         );
+    }
+
+    #[test]
+    fn classed_leaf_folds_onto_its_own_node_no_wrapper() {
+        // Always-fold regression (Node removal): a classed leaf
+        // `Static::new(..).class("box").id("s")` mounts as a SINGLE node — the
+        // Static itself carries the id AND the class. Historically `.class()`
+        // wrapped the leaf in a transparent `Node`, splitting id/class/type across
+        // two nodes; the height-chrome keystone made the seed-based class resolve
+        // its own chrome, so `Node` (and the wrapper-keeping elision) is gone.
+        use crate::compose::ChildDecl;
+
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(Box::new(AppRoot::new()));
+        App::mount_declarations(
+            &mut tree,
+            root,
+            vec![ChildDecl::new(Box::new(
+                crate::widgets::Static::new("hi").class("box").id("s"),
+            ))],
+        );
+
+        // Exactly one node was mounted under the root (no interposed wrapper).
+        let children = tree.children(root).to_vec();
+        assert_eq!(children.len(), 1, "a classed leaf must not create a wrapper node");
+        let leaf = children[0];
+        let node = tree.get(leaf).expect("leaf node");
+        // The id, the class, AND the widget type all live on the SAME node.
+        assert_eq!(node.css_id.as_deref(), Some("s"));
+        assert!(node.classes.contains("box"), "class must be on the leaf's own node");
+        assert_eq!(node.widget.style_type(), "Static", "the node IS the Static, not a wrapper");
     }
 
     #[test]
@@ -6237,8 +6249,8 @@ mod tests {
             fn compose(&self) -> Box<dyn Widget> {
                 Box::new(
                     AppRoot::new()
-                        .with_child(Node::new(Button::new("First")).id("first"))
-                        .with_child(Node::new(Button::new("Second")).id("second")),
+                        .with_child(Button::new("First").id("first"))
+                        .with_child(Button::new("Second").id("second")),
                 )
             }
         }

@@ -36,7 +36,7 @@ impl TextualApp for LayoutApp {
             let mut column = VerticalScroll::new();
             for tweet_no in 1..=19 {
                 column.push(
-                    Node::new(Placeholder::new(format!("#Tweet{}", tweet_no)))
+                    Placeholder::new(format!("#Tweet{}", tweet_no))
                         .id(format!("Tweet{}", tweet_no)),
                 );
             }
@@ -44,8 +44,8 @@ impl TextualApp for LayoutApp {
         }
 
         AppRoot::new()
-            .with_child(Node::new(Placeholder::new("#Header")).id("Header"))
-            .with_child(Node::new(Placeholder::new("#Footer")).id("Footer"))
+            .with_child(Placeholder::new("#Header").id("Header"))
+            .with_child(Placeholder::new("#Footer").id("Footer"))
             .with_child(columns)
     }
 }

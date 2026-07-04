@@ -2386,6 +2386,8 @@ fn push_block_widget(children: &mut Vec<Box<dyn Widget>>, block: MarkdownBlock) 
 }
 
 impl Markdown {
+    crate::seed_ident_methods!();
+
     fn measure_intrinsic_height(&self, width: usize) -> usize {
         let width = width.max(1);
         let mut children = build_markdown_children(&self.markup);

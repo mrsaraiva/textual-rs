@@ -44,20 +44,20 @@ impl TextualApp for LayoutApp {
     }
 
     fn compose(&mut self) -> AppRoot {
-        let header = Node::new(Placeholder::new("")).id("Header").class("header");
-        let footer = Node::new(Placeholder::new("")).id("Footer").class("footer");
+        let header = Placeholder::new("").id("Header").class("header");
+        let footer = Placeholder::new("").id("Footer").class("footer");
 
         let mut h_scroll = HorizontalScroll::new();
         for _ in 0..4 {
             let mut column = VerticalScroll::new();
             for tweet_no in 1..=19 {
                 column.push(
-                    Node::new(Placeholder::new(""))
+                    Placeholder::new("")
                         .id(format!("Tweet{}", tweet_no))
                         .class("tweet"),
                 );
             }
-            h_scroll.push(Node::new(column).class("column"));
+            h_scroll.push(column.class("column"));
         }
 
         AppRoot::new()

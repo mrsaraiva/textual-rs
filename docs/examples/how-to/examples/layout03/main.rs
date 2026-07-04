@@ -40,9 +40,9 @@ impl TextualApp for LayoutApp {
     }
 
     fn compose(&mut self) -> AppRoot {
-        let header = Node::new(Placeholder::new("#Header")).id("Header");
-        let footer = Node::new(Placeholder::new("#Footer")).id("Footer");
-        let columns = Node::new(Placeholder::new("#Columns")).id("Columns");
+        let header = Placeholder::new("#Header").id("Header");
+        let footer = Placeholder::new("#Footer").id("Footer");
+        let columns = Placeholder::new("#Columns").id("Columns");
 
         AppRoot::new()
             .with_child(header)

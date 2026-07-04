@@ -38,12 +38,11 @@ impl TextualApp for ContainerApp {
     }
 
     fn compose(&mut self) -> AppRoot {
-        let middle = Node::new(
+        let middle = 
             Middle::new()
-                .with_child(Node::new(Placeholder::new("Box 1.")).class("box"))
-                .with_child(Node::new(Placeholder::new("Box 2.")).class("box"))
-                .with_child(Node::new(Placeholder::new("Box 3.")).class("box")),
-        )
+                .with_child(Placeholder::new("Box 1.").class("box"))
+                .with_child(Placeholder::new("Box 2.").class("box"))
+                .with_child(Placeholder::new("Box 3.").class("box"))
         .class("with-border");
 
         AppRoot::new().with_child(middle)

@@ -50,6 +50,8 @@ struct Bar {
 }
 
 impl Bar {
+    textual::delegate_ident_methods!(inner);
+
     fn new(text: impl Into<String>) -> Self {
         Self {
             inner: Static::new(text),
@@ -60,6 +62,12 @@ impl Bar {
 impl Widget for Bar {
     fn style_type(&self) -> &'static str {
         "Bar"
+    }
+
+    fn take_node_seed(&mut self) -> textual::widgets::NodeSeed {
+        // Forward the inner Static's seed so a `.class(..)` set on the Bar reaches
+        // the Bar's own node (the class carries the background color).
+        self.inner.take_node_seed()
     }
 
     fn focusable(&self) -> bool {
@@ -98,7 +106,7 @@ impl TextualApp for BindingApp {
     fn compose(&mut self) -> AppRoot {
         AppRoot::new()
             .with_child(Footer::new())
-            .with_child(Node::new(VerticalScroll::new()).id("bars"))
+            .with_child(VerticalScroll::new().id("bars"))
     }
 
     fn on_app_action_str(&mut self, app: &mut App, action: &str, ctx: &mut textual::event::WidgetCtx) {
@@ -117,7 +125,7 @@ impl TextualApp for BindingApp {
         };
 
         // Mount the bar under #bars, with the color class for background.
-        let bar = Node::new(Bar::new(color)).class(color);
+        let bar = Bar::new(color).class(color);
         let _ = app.mount_under("#bars", bar);
 
         // Scroll to the bottom so the new bar is visible.
@@ -162,7 +170,7 @@ mod tests {
     /// `#bars`, and the rendered frame changes with the new `Bar` getting a real
     /// rendered region.
     ///
-    /// ROOT (fixed): the demo composes `#bars` as `Node::new(VerticalScroll::new())
+    /// ROOT (fixed): the demo composes `#bars` as `VerticalScroll::new()
     /// .id("bars")`. Previously the `#bars` id landed on the transparent `Node`
     /// wrapper, so `node_screen_rect("#bars") == None` and `mount_under("#bars",
     /// bar)` inserted the `Bar` as a child of the structural Node — *outside* the

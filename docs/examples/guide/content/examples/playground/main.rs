@@ -229,23 +229,21 @@ impl TextualApp for PlaygroundApp {
     fn compose(&mut self) -> AppRoot {
         // Top row: editor + variables.
         let top_row = HorizontalGroup::new()
-            .with_child(Node::new(TextArea::new("").with_soft_wrap(false)).id("editor"))
-            .with_child(Node::new(TextArea::new("").with_language("json")).id("variables"));
+            .with_child(TextArea::new("").with_soft_wrap(false).id("editor"))
+            .with_child(TextArea::new("").with_language("json").id("variables"));
 
         // Bottom row: results + spans.
-        let results_scroll = Node::new(
+        let results_scroll = 
             VerticalScroll::new()
-                .with_child(Static::new("").with_border_title("Output").id("results")),
-        )
+                .with_child(Static::new("").with_border_title("Output").id("results"))
         .id("results-container");
 
-        let spans_scroll = Node::new(
+        let spans_scroll = 
             VerticalScroll::new().with_child(
                 Pretty::from_debug_str("[]")
                     .with_border_title("Spans")
                     .id("spans"),
-            ),
-        )
+            )
         .id("spans-container");
 
         let bottom_row = HorizontalGroup::new()

@@ -1,8 +1,7 @@
 use rich_rs::{Console, ConsoleOptions, MetaValue, Renderable, Segment, Segments, Text};
 use std::sync::Arc;
 
-#[allow(deprecated)] // `.class()` builds a `Node` wrapper; deprecated but supported for one release.
-use crate::widgets::{Node, NodeSeed, Widget};
+use crate::widgets::{NodeSeed, Widget};
 
 /// Tag a segment with `textual:no_text_style = true` so `apply_style_to_segments`
 /// skips re-applying widget CSS text attributes (bold, italic, etc.) that have
@@ -106,25 +105,32 @@ impl Static {
         self
     }
 
-    /// Add a CSS class via a transparent `Node` wrapper.
+    /// Add a CSS class (Python `Static(classes=...)`). Idempotent.
     ///
-    /// Returns a `Node` (same as before) so that class-based CSS descendant
-    /// rules (`#questions .button { ... }`) continue to apply to the wrapper
-    /// and the Rust layout tree structure stays compatible with nesting01/02.
-    ///
-    /// The blocker that kept this a `Node` wrapper — making it SEED-BASED (the
-    /// class on the Static's own node, like Python `Static(classes=...)`) used to
-    /// regress `nesting01`/`nesting02` because the leaf Static's context-free
-    /// `layout_height()` could not resolve DESCENDANT-selected chrome
-    /// (`#questions .button { border; padding }`, no ancestor chain) and collapsed
-    /// the box to 1 row — is now RESOLVED: the height-chrome keystone makes
-    /// `layout_height()` report PURE content and the flow layout add the
-    /// ancestor-resolved `full_v_chrome` (symmetric with the width axis). Converting
-    /// this to a seed-based `.class()` returning `Self` (and deleting `Node`) is the
-    /// Node-removal step that consumes that unblock.
-    #[allow(deprecated)] // Returns a `Node` wrapper (deprecated RA2.6, supported one release).
-    pub fn class(self, value: impl Into<String>) -> Node {
-        Node::new(self).class(value)
+    /// Seed-based: the class is attached to the Static's OWN node (not a
+    /// transparent wrapper), so a type selector and a class/id selector resolve
+    /// to the same widget — matching Python. Descendant rules
+    /// (`#questions .button { border; padding }`) now resolve correctly on the
+    /// leaf because the height-chrome keystone lets the flow layout add the
+    /// ancestor-resolved chrome (previously this had to ride a `Node` wrapper so
+    /// the chrome resolved with ancestor context).
+    pub fn class(mut self, value: impl Into<String>) -> Self {
+        let v = value.into();
+        if !self.seed.classes.iter().any(|c| c == &v) {
+            self.seed.classes.push(v);
+        }
+        self
+    }
+
+    /// Add several CSS classes at once (Python `classes="a b c"`). Idempotent.
+    pub fn classes(mut self, values: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        for value in values {
+            let v = value.into();
+            if !self.seed.classes.iter().any(|c| c == &v) {
+                self.seed.classes.push(v);
+            }
+        }
+        self
     }
 
     /// Replace content with a plain text string.

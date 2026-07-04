@@ -37,10 +37,10 @@ impl TextualApp for OutlineBorderApp {
 
     fn compose(&mut self) -> AppRoot {
         AppRoot::new()
-            .with_child(Node::new(Label::new(TEXT)).class("outline"))
-            .with_child(Node::new(Label::new(TEXT)).class("border"))
+            .with_child(Label::new(TEXT).class("outline"))
+            .with_child(Label::new(TEXT).class("border"))
             .with_child(
-                Node::new(Label::new(TEXT))
+                Label::new(TEXT)
                     .class("outline")
                     .class("border"),
             )

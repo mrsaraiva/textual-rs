@@ -53,11 +53,10 @@ impl TextualApp for ValidateApp {
     }
 
     fn compose(&mut self) -> AppRoot {
-        let buttons = Node::new(
+        let buttons = 
             Horizontal::new()
                 .with_child(Button::success("+1").id("plus"))
-                .with_child(Button::error("-1").id("minus")),
-        )
+                .with_child(Button::error("-1").id("minus"))
         .id("buttons");
 
         AppRoot::new()

@@ -2173,6 +2173,18 @@ impl Widget for DataTable {
         std::mem::take(&mut self.seed)
     }
 
+    // Expose the seed-declared id/classes PRE-mount so composed-children readers
+    // (e.g. `ContentSwitcher`, which records each child's id via `style_id()`
+    // before draining) see the id set by `DataTable::new(..).id(..)`. Post-mount
+    // the seed is drained and the node record is authoritative.
+    fn style_id(&self) -> Option<&str> {
+        self.seed.css_id.as_deref()
+    }
+
+    fn style_classes(&self) -> &[String] {
+        &self.seed.classes
+    }
+
     fn on_message(&mut self, event: &MessageEvent, ctx: &mut crate::event::WidgetCtx) {
         let Some(payload) = event.downcast_ref::<ScrollbarScrollTo>() else {
             return;

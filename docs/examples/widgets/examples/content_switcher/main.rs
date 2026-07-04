@@ -78,10 +78,10 @@ impl TextualApp for ContentSwitcherApp {
 
         // ContentSwitcher children are wrapped in Node to assign CSS ids that
         // ContentSwitcher uses to track which child is visible.
-        let table = Node::new(DataTable::new(vec![], vec![])).id("data-table");
-        let markdown = Node::new(ScrollView::new(
-            Node::new(Markdown::new(MARKDOWN_EXAMPLE)).id("markdown-content"),
-        ))
+        let table = DataTable::new(vec![], vec![]).id("data-table");
+        let markdown = ScrollView::new(
+            Markdown::new(MARKDOWN_EXAMPLE).id("markdown-content"),
+        )
         .id("markdown");
 
         let switcher = ContentSwitcher::new()

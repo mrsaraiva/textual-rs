@@ -10,7 +10,6 @@ mod horizontal_group;
 mod horizontal_scroll;
 mod item_grid;
 mod middle;
-mod node;
 mod overlay;
 mod panel;
 mod right;
@@ -42,7 +41,6 @@ pub use horizontal_scroll::HorizontalScroll;
 pub use item_grid::ItemGrid;
 pub use middle::Middle;
 #[allow(deprecated)]
-pub use node::Node;
 pub use overlay::Overlay;
 pub use panel::Panel;
 pub use right::Right;

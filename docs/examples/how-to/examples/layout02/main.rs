@@ -33,8 +33,8 @@ impl TextualApp for LayoutApp {
         // Python: Header(id="Header") — Placeholder shows "#Header" (no label → falls
         // back to f"#{id}"). Pass "#Header" explicitly to match Python's display text.
         AppRoot::new()
-            .with_child(Node::new(Placeholder::new("#Header")).id("Header"))
-            .with_child(Node::new(Placeholder::new("#Footer")).id("Footer"))
+            .with_child(Placeholder::new("#Header").id("Header"))
+            .with_child(Placeholder::new("#Footer").id("Footer"))
     }
 }
 

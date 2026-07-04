@@ -33,8 +33,8 @@ impl TextualApp for LayoutApp {
         // "#Header" (the widget's CSS id). Mirror that by passing "#Header"
         // and "#Footer" as explicit labels.
         AppRoot::new()
-            .with_child(Node::new(Placeholder::new("#Header")).id("Header"))
-            .with_child(Node::new(Placeholder::new("#Footer")).id("Footer"))
+            .with_child(Placeholder::new("#Header").id("Header"))
+            .with_child(Placeholder::new("#Footer").id("Footer"))
             .with_child(HorizontalScroll::new())
     }
 }

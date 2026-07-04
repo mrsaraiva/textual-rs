@@ -42,11 +42,10 @@ impl TextualApp for NestingDemo {
 
     fn compose(&mut self) -> AppRoot {
         AppRoot::new().with_child(
-            Node::new(
+            
                 Horizontal::new()
                     .with_child(Static::new("Yes").class("button").class("affirmative"))
-                    .with_child(Static::new("No").class("button").class("negative")),
-            )
+                    .with_child(Static::new("No").class("button").class("negative"))
             .id("questions"),
         )
     }

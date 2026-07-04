@@ -24,26 +24,25 @@ impl ModalApp {
 
 impl TextualApp for ModalApp {
     fn compose(&mut self) -> AppRoot {
-        let base = Node::new(Vertical::new().with_compose(compose![
+        let base = Vertical::new().with_compose(compose![
             Static::new("Modal Overlay Debug Harness").class("title"),
             Static::new("Click 'Open modal' to show the modal layer."),
             Static::new("Click 'Close modal' (inside modal) or press Escape to dismiss."),
             Button::primary("Open modal"),
             Static::new("Background content should remain visible behind the modal.").class("hint"),
-        ]))
+        ])
         .class("base");
 
-        let modal = Node::new(
+        let modal = 
             Container::new().with_child(
-                Node::new(Vertical::new().with_compose(compose![
+                Vertical::new().with_compose(compose![
                     Static::new("Modal Title").class("modal-title"),
                     Static::new("This is a standalone overlay verification example."),
                     Static::new("If overlay composition is correct, base UI remains underneath."),
                     Button::error("Close modal"),
-                ]))
+                ])
                 .class("modal-card"),
-            ),
-        )
+            )
         .class("modal-layer");
 
         AppRoot::new().with_compose(compose![

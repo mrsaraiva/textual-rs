@@ -223,42 +223,6 @@ pub trait Widget: Send + Sync + Any {
         Vec::new()
     }
 
-    /// Elide a *purely structural* transparent wrapper out of the arena tree.
-    ///
-    /// This is a mount-time ELISION decision, NOT a child-drain hook — RA2.1
-    /// retired the legacy child-drain/meta/sink hooks (compose() is the sole
-    /// child path), but the transparent-wrapper elision is a real,
-    /// parity-sensitive placement decision that legitimately survives. Its exact
-    /// gating (id-only / scroll-host wrappers fold; border-titled or classed
-    /// non-scroll wrappers STAY as the rendered box) is preserved as-is. The
-    /// `Node` type — and this elision with it — is removed in RA2.6, when demos
-    /// migrate off `Node` onto seed `.id()`/`.class()` and the classed-wrapper
-    /// case disappears at the source.
-    ///
-    /// A transparent [`Node`](crate::widgets::Node) created only to attach an
-    /// id/inline-style to a single child (e.g.
-    /// `Node::new(HorizontalScroll::new()).id("page-container")`, or
-    /// `Node::new(Input::new()).id("byte-input")`) has no rendered surface AND no
-    /// border of its own — in Python the same intent is a single widget
-    /// (`HorizontalScroll(id="page-container")`, `Input(id="byte-input")`).
-    /// Keeping the wrapper as a distinct arena node interposes a `width:auto`
-    /// (shrink-to-content) layout layer ABOVE the inner widget, which drops the
-    /// inner widget's explicit size and prevents a wrapped scroll container from
-    /// establishing its own scroll viewport — so id-targeted mounts /
-    /// `scroll_visible` / typed `#id` downcast queries resolve to a wrapper with
-    /// no laid-out region or the wrong type, never the inner widget.
-    ///
-    /// When this returns `Some((inner, seed))`, the build pipeline mounts `inner`
-    /// directly in the wrapper's place (under the wrapper's parent) and applies
-    /// `seed` (id + classes + inline style) onto it — making the inner widget own
-    /// the identity AND the layout slot, exactly like Python. Returning `None`
-    /// (the default) keeps the widget as its own arena node. A wrapper that
-    /// carries a CSS *class* of its own (real styling, e.g.
-    /// `Static.class("words")`) or a border must NOT collapse — it is the rendered
-    /// box and stays put. See [`Node::elide_transparent_wrapper`] for the gating.
-    fn elide_transparent_wrapper(&mut self) -> Option<(Box<dyn Widget>, NodeSeed)> {
-        None
-    }
 
     /// Return this widget's arena-assigned NodeId.
     ///

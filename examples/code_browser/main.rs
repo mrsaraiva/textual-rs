@@ -158,13 +158,13 @@ impl TextualApp for CodeBrowserApp {
     }
 
     fn compose(&mut self) -> AppRoot {
-        // DirectoryTree is wrapped in a Node so we can assign it the id "tree-view".
-        let tree = Node::new(DirectoryTree::new(&self.start_path)).id("tree-view");
+        // DirectoryTree carries the id "tree-view" on its own node.
+        let tree = DirectoryTree::new(&self.start_path).id("tree-view");
 
         // Static widget for syntax-highlighted content, inside a VerticalScroll.
         // Python uses VerticalScroll (not ScrollView) for the code pane.
         let code = Static::new("").id("code");
-        let code_view = Node::new(VerticalScroll::new().with_child(code)).id("code-view");
+        let code_view = VerticalScroll::new().with_child(code).id("code-view");
 
         // Container groups tree and code view; dock:left on #tree-view handles
         // the side-by-side layout when the tree is visible.

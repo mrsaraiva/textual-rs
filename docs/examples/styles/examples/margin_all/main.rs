@@ -5,7 +5,7 @@
 /// widgets inside bordered Containers.
 ///
 /// Note: Python `Container(Placeholder(...), classes="bordered")` maps to
-/// `Node::new(Container::new()).class("bordered")` in Rust since Container
+/// `Container::new().class("bordered")` in Rust since Container
 /// does not have builder methods for id/class. The `#pN` ids are placed
 /// on Node wrappers around each Placeholder.
 use textual::prelude::*;
@@ -78,14 +78,14 @@ impl TextualApp for MarginAllApp {
     fn compose(&mut self) -> AppRoot {
         AppRoot::new().with_child(
             Grid::new(4, 2)
-                .with_child(Node::new(Container::new().with_child(Node::new(Placeholder::new("no margin")).id("p1"))).class("bordered"))
-                .with_child(Node::new(Container::new().with_child(Node::new(Placeholder::new("margin: 1")).id("p2"))).class("bordered"))
-                .with_child(Node::new(Container::new().with_child(Node::new(Placeholder::new("margin: 1 5")).id("p3"))).class("bordered"))
-                .with_child(Node::new(Container::new().with_child(Node::new(Placeholder::new("margin: 1 1 2 6")).id("p4"))).class("bordered"))
-                .with_child(Node::new(Container::new().with_child(Node::new(Placeholder::new("margin-top: 4")).id("p5"))).class("bordered"))
-                .with_child(Node::new(Container::new().with_child(Node::new(Placeholder::new("margin-right: 3")).id("p6"))).class("bordered"))
-                .with_child(Node::new(Container::new().with_child(Node::new(Placeholder::new("margin-bottom: 4")).id("p7"))).class("bordered"))
-                .with_child(Node::new(Container::new().with_child(Node::new(Placeholder::new("margin-left: 3")).id("p8"))).class("bordered")),
+                .with_child(Container::new().with_child(Placeholder::new("no margin").id("p1")).class("bordered"))
+                .with_child(Container::new().with_child(Placeholder::new("margin: 1").id("p2")).class("bordered"))
+                .with_child(Container::new().with_child(Placeholder::new("margin: 1 5").id("p3")).class("bordered"))
+                .with_child(Container::new().with_child(Placeholder::new("margin: 1 1 2 6").id("p4")).class("bordered"))
+                .with_child(Container::new().with_child(Placeholder::new("margin-top: 4").id("p5")).class("bordered"))
+                .with_child(Container::new().with_child(Placeholder::new("margin-right: 3").id("p6")).class("bordered"))
+                .with_child(Container::new().with_child(Placeholder::new("margin-bottom: 4").id("p7")).class("bordered"))
+                .with_child(Container::new().with_child(Placeholder::new("margin-left: 3").id("p8")).class("bordered")),
         )
     }
 }

@@ -44,10 +44,10 @@ impl TextualApp for MinHeightApp {
     fn compose(&mut self) -> AppRoot {
         AppRoot::new().with_child(
             Horizontal::new()
-                .with_child(Node::new(Placeholder::new("min-height: 25%")).id("p1"))
-                .with_child(Node::new(Placeholder::new("min-height: 75%")).id("p2"))
-                .with_child(Node::new(Placeholder::new("min-height: 30")).id("p3"))
-                .with_child(Node::new(Placeholder::new("min-height: 40w")).id("p4")),
+                .with_child(Placeholder::new("min-height: 25%").id("p1"))
+                .with_child(Placeholder::new("min-height: 75%").id("p2"))
+                .with_child(Placeholder::new("min-height: 30").id("p3"))
+                .with_child(Placeholder::new("min-height: 40w").id("p4")),
         )
     }
 }

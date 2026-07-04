@@ -34,14 +34,14 @@ impl TextualApp for MissionControl {
             &["4096", "zsh", "0.3", "32M"],
         ]);
 
-        let sidebar = Node::new(Container::new().with_compose(compose![
+        let sidebar = Container::new().with_compose(compose![
             Static::new("System Metrics").class("section-title"),
             Sparkline::new(cpu_data),
             Static::new("Disk Usage").class("section-title"),
             disk_bar,
             Rule::horizontal(),
             ScrollView::new(proc_table),
-        ]))
+        ])
         .class("sidebar");
 
         // -- Right column: Tabbed Content -------------------------------------
@@ -49,13 +49,13 @@ impl TextualApp for MissionControl {
 
         let config_pane = TabPane::new(
             "Config",
-            Node::new(Container::new().with_compose(compose![
+            Container::new().with_compose(compose![
                 Input::new().with_placeholder("Hostname"),
                 Checkbox::new("Enable notifications"),
                 Static::new("Dark mode"),
                 Switch::new(false),
                 Button::primary("Apply"),
-            ]))
+            ])
             .class("config-form"),
         )
         .id("config");

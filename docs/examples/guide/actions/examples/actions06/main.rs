@@ -50,14 +50,14 @@ impl TextualApp for PagesApp {
         let mut page_container = HorizontalScroll::new();
         for page_no in 0..PAGES_COUNT {
             page_container.push(
-                Node::new(Placeholder::new(format!("Page {}", page_no))).id(format!(
+                Placeholder::new(format!("Page {}", page_no)).id(format!(
                     "page-{}",
                     page_no
                 )),
             );
         }
         AppRoot::new()
-            .with_child(Node::new(page_container).id("page-container"))
+            .with_child(page_container.id("page-container"))
             .with_child(Footer::new())
     }
 
@@ -121,8 +121,8 @@ mod tests {
     /// the rendered frame.
     ///
     /// ROOT (fixed): the demo composes the scroller as
-    /// `Node::new(HorizontalScroll::new()).id("page-container")` and each page as
-    /// `Node::new(Placeholder).id("page-N")`. The structural `Node` wrappers used
+    /// `HorizontalScroll::new().id("page-container")` and each page as
+    /// `Placeholder.id("page-N")`. The structural `Node` wrappers used
     /// to interpose a non-scroll layout layer above the `HorizontalScroll`,
     /// shrink-sizing the pages so the scroll viewport never materialised. The
     /// node-build pipeline now COLLAPSES a purely structural transparent `Node`

@@ -70,13 +70,13 @@ impl TextualApp for SwitchApp {
             .with_child(
                 Horizontal::new()
                     .with_child(Static::new("focused: ").class("label"))
-                    .with_child(Node::new(Switch::new(false)).id("focused-switch")),
+                    .with_child(Switch::new(false).id("focused-switch")),
             )
             // Row 4: "custom" switch — #custom-design id for CSS styling
             .with_child(
                 Horizontal::new()
                     .with_child(Static::new("custom:  ").class("label"))
-                    .with_child(Node::new(Switch::new(false)).id("custom-design")),
+                    .with_child(Switch::new(false).id("custom-design")),
             )
     }
 

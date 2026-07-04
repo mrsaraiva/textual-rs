@@ -30,9 +30,9 @@ impl TextualApp for ContainerApp {
     fn compose(&mut self) -> AppRoot {
         let mut horizontal = HorizontalScroll::new();
         for n in 0..10 {
-            horizontal.push(Node::new(Placeholder::new(format!("Box {}", n + 1))).class("box"));
+            horizontal.push(Placeholder::new(format!("Box {}", n + 1)).class("box"));
         }
-        AppRoot::new().with_child(Node::new(horizontal).class("with-border"))
+        AppRoot::new().with_child(horizontal.class("with-border"))
     }
 }
 

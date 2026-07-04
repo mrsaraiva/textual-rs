@@ -117,6 +117,10 @@ const PASSING: &[&str] = &[
     "dimensions01",
     "dimensions02",
     "dimensions03",
+    // Promoted by the height-chrome keystone + seed-based `Static::class()`:
+    // `Static.remove { display: none }` now clears cleanly (the class is on the
+    // Static's own node, resolving `display` without a `Node` wrapper).
+    "display",
     "outline01",
     "padding01",
     "text_opacity",

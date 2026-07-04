@@ -1058,6 +1058,17 @@ impl Widget for ScrollView {
         std::mem::take(&mut self.seed)
     }
 
+    // Expose the seed-declared id/classes PRE-mount so composed-children readers
+    // (e.g. `ContentSwitcher`) see the id set by `ScrollView::new(..).id(..)`
+    // before the child is drained. Post-mount the node record is authoritative.
+    fn style_id(&self) -> Option<&str> {
+        self.seed.css_id.as_deref()
+    }
+
+    fn style_classes(&self) -> &[String] {
+        &self.seed.classes
+    }
+
     fn border_title(&self) -> Option<&str> {
         self.border_title.as_deref()
     }

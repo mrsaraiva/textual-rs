@@ -62,18 +62,26 @@ in the sections below; this is the migration index:
   seed-based `Static::class()` and the `Node` removal. Widget authors implementing
   a custom `layout_height()` should now return content height only.
 
-### Deprecated
+### Removed — `Node` is DELETED (BREAKING)
 
-- **`Node` is deprecated (`#[deprecated]` since 1.0.0) and scheduled for
-  removal** (RA2.6a). `Node` is the transitional transparent wrapper used to
-  attach a CSS `id`/`class` (and border title/subtitle) onto a single child
-  widget. It remains fully supported for the 1.0 release; the actual removal is
-  a dedicated 1.x task ("container seed-builder unification") that first gives
-  the general container widgets uniform `.id()`/`.class()`/`.border_title()`
-  seed builders. Migrate by attaching the id/classes directly onto the child
-  widget where it already supports them (e.g. `Placeholder::new("x").id("p1")`).
-  The deferred `elide_transparent_wrapper` always-fold behaviour change is
-  gated on Node-elimination and rides the same 1.x task.
+- **The transitional `Node` transparent wrapper is removed** from the public API,
+  the prelude, and `widgets`/`containers`. `Node` existed only to attach a CSS
+  `id`/`class`/border-title onto a single child by wrapping it in an extra arena
+  node. Now that every wrappable container carries uniform
+  `.id()`/`.class()`/`.classes()`/`.with_border_title()`/`.with_border_subtitle()`
+  seed builders (see the container seed-builder unification above) and the
+  height-chrome keystone lets a classed **leaf** resolve its own chrome, the
+  wrapper is unnecessary. **Migration:** replace `Node::new(X).id("i").class("c")`
+  with `X.id("i").class("c")` directly — every leaf and container type now
+  supports those builders. `Static::class(..)` now returns `Self` (seed-based,
+  the class lands on the Static's own node) instead of a `Node`.
+- **`elide_transparent_wrapper` (the mount-time wrapper-elision hook) and its
+  "keep classed wrappers" gate are removed** — the "always-fold" end state. There
+  are no transparent wrappers to collapse anymore; identity always rides the
+  widget's own seed. A classed leaf (`Static::new("x").class("box")`) now mounts
+  as a SINGLE node carrying the class, never a wrapper + child pair (regression
+  test: `classed_leaf_folds_onto_its_own_node_no_wrapper`). `is_transparent_wrapper`
+  (a distinct, still-used layout hook) is retained.
 
 ### Removed (prelude prune — RA2.6b, BREAKING)
 

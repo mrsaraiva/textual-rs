@@ -76,26 +76,26 @@ impl TextualApp for PlaceholderApp {
     fn compose(&mut self) -> AppRoot {
         // Horizontal row inside #bot: three placeholders side by side.
         let horiz = Horizontal::new().with_compose(compose![
-            Node::new(Placeholder::new("").with_variant(PlaceholderVariant::Size)).id("col1"),
-            Node::new(Placeholder::new("").with_variant(PlaceholderVariant::Text)).id("col2"),
-            Node::new(Placeholder::new("").with_variant(PlaceholderVariant::Size)).id("col3"),
+            Placeholder::new("").with_variant(PlaceholderVariant::Size).id("col1"),
+            Placeholder::new("").with_variant(PlaceholderVariant::Text).id("col2"),
+            Placeholder::new("").with_variant(PlaceholderVariant::Size).id("col3"),
         ]);
         // Give #c1 its CSS id via the seed of the delegate target (Container inner).
         // Since Horizontal delegates take_node_seed to its inner Container,
         // expose the seed by accessing the inner via seed access through the Node wrapper.
         // Use Node wrapper to carry the id for the Horizontal.
-        let c1 = Node::new(horiz).id("c1");
+        let c1 = horiz.id("c1");
 
         // #bot container: 8×8 grid. Set id directly on the Container seed.
         // Python Placeholder(id="pN") shows "#pN" as its label when no custom label
         // is provided. Rust Placeholder shows "Placeholder" as fallback, so we
         // explicitly pass the "#id" strings to match Python's visual output.
         let mut bot = Container::new().with_compose(compose![
-            Node::new(Placeholder::new("This is a custom label for p1.")).id("p1"),
-            Node::new(Placeholder::new("Placeholder p2 here!")).id("p2"),
-            Node::new(Placeholder::new("#p3")).id("p3"),
-            Node::new(Placeholder::new("#p4")).id("p4"),
-            Node::new(Placeholder::new("#p5")).id("p5"),
+            Placeholder::new("This is a custom label for p1.").id("p1"),
+            Placeholder::new("Placeholder p2 here!").id("p2"),
+            Placeholder::new("#p3").id("p3"),
+            Placeholder::new("#p4").id("p4"),
+            Placeholder::new("#p5").id("p5"),
             Placeholder::new(""),
             c1,
         ]);
@@ -103,9 +103,9 @@ impl TextualApp for PlaceholderApp {
 
         // #top container: 2×2 grid. Set id directly on the Container seed.
         let mut top = Container::new().with_compose(compose![
-            Node::new(Placeholder::new("").with_variant(PlaceholderVariant::Text)).id("left"),
-            Node::new(Placeholder::new("").with_variant(PlaceholderVariant::Size)).id("topright"),
-            Node::new(Placeholder::new("").with_variant(PlaceholderVariant::Text)).id("botright"),
+            Placeholder::new("").with_variant(PlaceholderVariant::Text).id("left"),
+            Placeholder::new("").with_variant(PlaceholderVariant::Size).id("topright"),
+            Placeholder::new("").with_variant(PlaceholderVariant::Text).id("botright"),
         ]);
         top.seed_mut().css_id = Some("top".to_string());
 

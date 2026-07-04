@@ -348,10 +348,9 @@ impl TextualApp for StopwatchApp {
             .with_child(Header::new())
             .with_child(Footer::new())
             .with_child(
-                Node::new(
+                
                     VerticalScroll::new()
-                        .with_child(Vertical::new().with_compose(stopwatches)),
-                )
+                        .with_child(Vertical::new().with_compose(stopwatches))
                 .id("timers"),
             )
     }

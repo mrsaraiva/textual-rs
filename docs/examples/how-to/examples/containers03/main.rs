@@ -31,12 +31,11 @@ impl TextualApp for ContainerApp {
     }
 
     fn compose(&mut self) -> AppRoot {
-        let horizontal = Node::new(
+        let horizontal = 
             Horizontal::new()
                 .with_child(Placeholder::new(""))
                 .with_child(Placeholder::new(""))
-                .with_child(Placeholder::new("")),
-        )
+                .with_child(Placeholder::new(""))
         .class("with-border");
 
         AppRoot::new().with_child(horizontal)

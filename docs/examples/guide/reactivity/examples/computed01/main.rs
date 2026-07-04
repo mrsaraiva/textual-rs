@@ -87,12 +87,11 @@ impl TextualApp for ComputedApp {
     fn compose(&mut self) -> AppRoot {
         AppRoot::new()
             .with_child(
-                Node::new(
+                
                     Horizontal::new()
                         .with_child(Input::new().with_placeholder("Enter red 0-255").id("red"))
                         .with_child(Input::new().with_placeholder("Enter green 0-255").id("green"))
-                        .with_child(Input::new().with_placeholder("Enter blue 0-255").id("blue")),
-                )
+                        .with_child(Input::new().with_placeholder("Enter blue 0-255").id("blue"))
                 .id("color-inputs"),
             )
             .with_child(Static::new("").id("color"))

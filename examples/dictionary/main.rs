@@ -159,8 +159,7 @@ impl TextualApp for DictionaryApp {
                     .id("dictionary-search"),
             )
             .with_child(
-                Node::new(ScrollView::new(Markdown::new("").with_id("results")))
-                    .id("results-container"),
+                ScrollView::new(Markdown::new("").with_id("results")).id("results-container"),
             )
     }
 
