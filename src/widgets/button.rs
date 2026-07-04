@@ -1,5 +1,6 @@
 use crossterm::event::KeyCode;
-use rich_rs::{Console, ConsoleOptions, MetaValue, Renderable, Segment, Segments, Text};
+use rich_rs::{Console, ConsoleOptions, MetaValue, Segment, Segments, Text};
+use textual_macros::widget;
 
 use crate::debug::{debug_input, debug_message};
 use crate::event::{Action, Event};
@@ -13,7 +14,7 @@ use crate::content::Content;
 
 #[cfg(test)]
 use super::NodeState;
-use super::{BindingDecl, NodeSeed, Widget};
+use super::{BindingDecl, Focus, Interactive, Layout, NodeSeed, Render, StyleIdentity};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ButtonVariant {
@@ -25,6 +26,7 @@ pub enum ButtonVariant {
 }
 
 #[derive(Clone)]
+#[widget(Focus, Interactive, Layout, StyleIdentity)]
 pub struct Button {
     label: String,
     /// Rich text content for the button label. When set, takes precedence over
@@ -444,24 +446,13 @@ impl ReactiveWidget for Button {
     }
 }
 
-impl Widget for Button {
+impl Focus for Button {
     fn focusable(&self) -> bool {
         !self.disabled
     }
 
     fn can_focus(&self) -> bool {
         true
-    }
-
-    fn on_node_state_changed(
-        &mut self,
-        _old: crate::widgets::NodeState,
-        new: crate::widgets::NodeState,
-    ) {
-        if self.disabled != new.disabled {
-            self.disabled = new.disabled;
-            self.rebuild_classes_in_place();
-        }
     }
 
     fn mouse_interactive(&self) -> bool {
@@ -472,94 +463,13 @@ impl Widget for Button {
     fn is_active(&self) -> bool {
         match self.pressed {
             PressedState::None => false,
-            PressedState::Mouse => self.node_state().hovered,
+            PressedState::Mouse => crate::widgets::Widget::node_state(self).hovered,
             _ => true,
         }
     }
 
     fn is_initially_disabled(&self) -> bool {
         self.disabled
-    }
-
-    fn style_classes(&self) -> &[String] {
-        &self.layout_classes
-    }
-
-    fn content_width(&self) -> Option<usize> {
-        // Match Textual's default behavior: content width is label width + a small padding.
-        Some(self.label_cell_len().saturating_add(2).max(1))
-    }
-
-    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
-        if self.disabled {
-            return;
-        }
-        match event {
-            Event::MouseDown(mouse) if mouse.target == self.node_id() => {
-                // Enter active visual state immediately on targeted press even if
-                // hover-move events haven't run yet in this frame.
-                self.pressed = PressedState::Mouse;
-                ctx.add_class("-active");
-                debug_input(&format!(
-                    "[button] mouse id={} label=\"{}\"",
-                    0u64, self.label
-                ));
-                ctx.request_repaint();
-                ctx.set_handled();
-            }
-            Event::MouseUp(mouse)
-                if self.pressed == PressedState::Mouse => {
-                    // Activate only on click (mouse released while still over the button).
-                    if mouse.target.is_some_and(|t| t == self.node_id()) {
-                        debug_message(&format!(
-                            "[button] emit mouse_up sender={} label=\"{}\"",
-                            0u64, self.label
-                        ));
-                        self.dispatch_press(ctx);
-                        ctx.set_handled();
-                    } else {
-                        debug_message(&format!(
-                            "[button] cancel mouse_up sender={} label=\"{}\" up_target={:?}",
-                            0u64, self.label, mouse.target
-                        ));
-                    }
-                    self.pressed = PressedState::None;
-                    ctx.remove_class("-active");
-                    ctx.request_repaint();
-                }
-            Event::Action(Action::Toggle) if self.node_state().focused => {
-                self.pressed = PressedState::KeyboardPending;
-                ctx.add_class("-active");
-                debug_message(&format!(
-                    "[button] emit action_toggle sender={} label=\"{}\"",
-                    0u64, self.label
-                ));
-                self.dispatch_press(ctx);
-                debug_input(&format!(
-                    "[button] toggle id={} label=\"{}\"",
-                    0u64, self.label
-                ));
-                ctx.set_handled();
-            }
-            Event::Key(key) if self.node_state().focused => match key.code {
-                KeyCode::Enter | KeyCode::Char(' ') => {
-                    self.pressed = PressedState::KeyboardPending;
-                    ctx.add_class("-active");
-                    debug_message(&format!(
-                        "[button] emit key sender={} label=\"{}\" code={:?}",
-                        0u64, self.label, key.code
-                    ));
-                    self.dispatch_press(ctx);
-                    debug_input(&format!(
-                        "[button] key id={} label=\"{}\"",
-                        0u64, self.label
-                    ));
-                    ctx.set_handled();
-                }
-                _ => {}
-            },
-            _ => {}
-        }
     }
 
     fn action_namespace(&self) -> &str {
@@ -588,6 +498,91 @@ impl Widget for Button {
             _ => false,
         }
     }
+}
+
+impl Interactive for Button {
+    fn on_node_state_changed(
+        &mut self,
+        _old: crate::widgets::NodeState,
+        new: crate::widgets::NodeState,
+    ) {
+        if self.disabled != new.disabled {
+            self.disabled = new.disabled;
+            self.rebuild_classes_in_place();
+        }
+    }
+
+    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
+        if self.disabled {
+            return;
+        }
+        match event {
+            Event::MouseDown(mouse) if mouse.target == crate::widgets::Widget::node_id(self) => {
+                // Enter active visual state immediately on targeted press even if
+                // hover-move events haven't run yet in this frame.
+                self.pressed = PressedState::Mouse;
+                ctx.add_class("-active");
+                debug_input(&format!(
+                    "[button] mouse id={} label=\"{}\"",
+                    0u64, self.label
+                ));
+                ctx.request_repaint();
+                ctx.set_handled();
+            }
+            Event::MouseUp(mouse)
+                if self.pressed == PressedState::Mouse => {
+                    // Activate only on click (mouse released while still over the button).
+                    if mouse.target.is_some_and(|t| t == crate::widgets::Widget::node_id(self)) {
+                        debug_message(&format!(
+                            "[button] emit mouse_up sender={} label=\"{}\"",
+                            0u64, self.label
+                        ));
+                        self.dispatch_press(ctx);
+                        ctx.set_handled();
+                    } else {
+                        debug_message(&format!(
+                            "[button] cancel mouse_up sender={} label=\"{}\" up_target={:?}",
+                            0u64, self.label, mouse.target
+                        ));
+                    }
+                    self.pressed = PressedState::None;
+                    ctx.remove_class("-active");
+                    ctx.request_repaint();
+                }
+            Event::Action(Action::Toggle) if crate::widgets::Widget::node_state(self).focused => {
+                self.pressed = PressedState::KeyboardPending;
+                ctx.add_class("-active");
+                debug_message(&format!(
+                    "[button] emit action_toggle sender={} label=\"{}\"",
+                    0u64, self.label
+                ));
+                self.dispatch_press(ctx);
+                debug_input(&format!(
+                    "[button] toggle id={} label=\"{}\"",
+                    0u64, self.label
+                ));
+                ctx.set_handled();
+            }
+            Event::Key(key) if crate::widgets::Widget::node_state(self).focused => match key.code {
+                KeyCode::Enter | KeyCode::Char(' ') => {
+                    self.pressed = PressedState::KeyboardPending;
+                    ctx.add_class("-active");
+                    debug_message(&format!(
+                        "[button] emit key sender={} label=\"{}\" code={:?}",
+                        0u64, self.label, key.code
+                    ));
+                    self.dispatch_press(ctx);
+                    debug_input(&format!(
+                        "[button] key id={} label=\"{}\"",
+                        0u64, self.label
+                    ));
+                    ctx.set_handled();
+                }
+                _ => {}
+            },
+            _ => {}
+        }
+    }
 
     fn on_tick(&mut self, tick: u64) {
         match self.pressed {
@@ -600,9 +595,25 @@ impl Widget for Button {
             _ => {}
         }
     }
+}
 
+impl Layout for Button {
+    fn content_width(&self) -> Option<usize> {
+        // Match Textual's default behavior: content width is label width + a small padding.
+        Some(self.label_cell_len().saturating_add(2).max(1))
+    }
+
+    fn layout_height(&self) -> Option<usize> {
+        // PURE content height (1 row). The flow layout adds the CSS-resolved
+        // vertical chrome (the default `-style-default`/`-style-flat` top+bottom
+        // border) with ancestor context, symmetric with the width axis.
+        Some(1)
+    }
+}
+
+impl Render for Button {
     fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
-        let state = self.node_state();
+        let state = crate::widgets::Widget::node_state(self);
 
         // `options.size.0` is the CONTENT width after render_widget_with_meta has
         // subtracted borders, padding, AND line_pad×2.  The framework's
@@ -726,16 +737,11 @@ impl Widget for Button {
         }
         out
     }
+}
 
-    fn layout_height(&self) -> Option<usize> {
-        // PURE content height (1 row). The flow layout adds the CSS-resolved
-        // vertical chrome (the default `-style-default`/`-style-flat` top+bottom
-        // border) with ancestor context, symmetric with the width axis.
-        Some(1)
-    }
-
-    fn set_inline_style(&mut self, style: crate::style::Style) {
-        self.seed.styles.style = style;
+impl StyleIdentity for Button {
+    fn style_classes(&self) -> &[String] {
+        &self.layout_classes
     }
 
     fn set_seed_css_id(&mut self, id: Option<String>) {
@@ -753,14 +759,11 @@ impl Widget for Button {
         self.css_id = seed.css_id.clone();
         seed
     }
-}
 
-impl Renderable for Button {
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        Widget::render(self, console, options)
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1035,7 +1038,7 @@ mod tests {
             max_width: 20,
             ..Default::default()
         };
-        let segments = Widget::render(&button, &console, &options);
+        let segments = crate::widgets::Widget::render(&button, &console, &options);
         assert!(!segments.is_empty());
     }
 
@@ -1048,7 +1051,7 @@ mod tests {
             max_width: 10,
             ..Default::default()
         };
-        let segments = Widget::render(&button, &console, &options);
+        let segments = crate::widgets::Widget::render(&button, &console, &options);
         let text: String = segments.iter().map(|s| s.text.as_ref()).collect();
         assert_eq!(text.len(), 10);
         assert!(text.contains("OK"));

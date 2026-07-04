@@ -115,7 +115,7 @@ pub mod prelude {
     pub use crate::widget_tree::{LifecycleEvent, QueryError, WidgetNode, WidgetTree};
     pub use crate::widgets::{
         AppHooks, Components, Focus, HasTooltip, Interactive, Layout, Render, Scrollable,
-        Selectable,
+        Selectable, StyleIdentity,
     };
     pub use crate::widgets::{
         AppRoot, BindingDecl, BindingsTable, Button, ButtonVariant,

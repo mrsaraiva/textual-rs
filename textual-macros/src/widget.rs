@@ -569,6 +569,32 @@ fn method_table() -> Vec<MethodSpec> {
             quote! { fn get_component_rich_style(&self, name: &str) -> Option<rich_rs::Style> },
             quote! { get_component_rich_style(name) }
         ),
+        // StyleIdentity capability (dynamic off-tree identity + seed identity).
+        m!(
+            "style_classes",
+            quote! { fn style_classes(&self) -> &[String] },
+            quote! { style_classes() }
+        ),
+        m!(
+            "style_id",
+            quote! { fn style_id(&self) -> Option<&str> },
+            quote! { style_id() }
+        ),
+        m!(
+            "is_hovered",
+            quote! { fn is_hovered(&self) -> bool },
+            quote! { is_hovered() }
+        ),
+        m!(
+            "set_seed_css_id",
+            quote! { fn set_seed_css_id(&mut self, id: Option<String>) },
+            quote! { set_seed_css_id(id) }
+        ),
+        m!(
+            "set_seed_classes",
+            quote! { fn set_seed_classes(&mut self, classes: Vec<String>) },
+            quote! { set_seed_classes(classes) }
+        ),
     ]
 }
 
@@ -586,6 +612,7 @@ enum Group {
     HasTooltip,
     Components,
     AppHooks,
+    StyleIdentity,
     /// Seed/identity plumbing autowired from a `seed: NodeSeed` field.
     Seed,
     /// Framework-owned: never forwarded (the `Widget` default stands).
@@ -621,6 +648,9 @@ fn method_group(name: &str) -> Group {
         }
         "on_app_key" | "on_app_action" | "on_app_unhandled_action" | "on_app_message"
         | "on_app_tick" | "on_app_timer" | "on_app_mount" => Group::AppHooks,
+        "style_classes" | "style_id" | "is_hovered" | "set_seed_css_id" | "set_seed_classes" => {
+            Group::StyleIdentity
+        }
         "take_node_seed" | "set_inline_style" => Group::Seed,
         _ => Group::Framework,
     }
@@ -639,6 +669,7 @@ fn group_capability_name(group: Group) -> Option<&'static str> {
         Group::HasTooltip => Some("HasTooltip"),
         Group::Components => Some("Components"),
         Group::AppHooks => Some("AppHooks"),
+        Group::StyleIdentity => Some("StyleIdentity"),
         _ => None,
     }
 }
@@ -655,6 +686,7 @@ fn group_trait_path(group: Group) -> Option<TokenStream> {
         Group::HasTooltip => quote! { textual::widgets::HasTooltip },
         Group::Components => quote! { textual::widgets::Components },
         Group::AppHooks => quote! { textual::widgets::AppHooks },
+        Group::StyleIdentity => quote! { textual::widgets::StyleIdentity },
         Group::Seed | Group::Framework => return None,
     };
     Some(ts)
@@ -673,6 +705,7 @@ fn is_known_capability(name: &str) -> bool {
             | "HasTooltip"
             | "Components"
             | "AppHooks"
+            | "StyleIdentity"
     )
 }
 
@@ -693,6 +726,11 @@ fn is_own_mode_only(name: &str) -> bool {
             | "component_classes"
             | "get_component_styles"
             | "get_component_rich_style"
+            | "style_classes"
+            | "style_id"
+            | "is_hovered"
+            | "set_seed_css_id"
+            | "set_seed_classes"
     )
 }
 
@@ -976,7 +1014,18 @@ fn own_widget_impl(item_struct: &ItemStruct, args: &WidgetArgs, table: &[MethodS
                 methods.push(quote! { #sig { #path::#ident(self, #call_args) } });
             }
             Group::Seed => {
-                if has_seed_field {
+                // Opting `StyleIdentity` takes FULL ownership of the seed surface:
+                // forward `take_node_seed` / `set_inline_style` to the widget's
+                // `impl StyleIdentity` (so a widget with a side-effecting
+                // `take_node_seed`, e.g. Button caching its css id, can override).
+                // Otherwise autowire the canonical seed bodies from the `seed`
+                // field.
+                if enabled.contains("StyleIdentity") {
+                    let path = group_trait_path(Group::StyleIdentity).unwrap();
+                    let ident = format_ident!("{}", spec.name);
+                    let call_args = call_args_from_sig(&spec.sig);
+                    methods.push(quote! { #sig { #path::#ident(self, #call_args) } });
+                } else if has_seed_field {
                     match spec.name {
                         "take_node_seed" => methods.push(quote! {
                             fn take_node_seed(&mut self) -> textual::widgets::NodeSeed {
@@ -1181,6 +1230,6 @@ mod tests {
             .iter()
             .filter(|m| is_own_mode_only(m.name))
             .count();
-        assert_eq!(own_only, 12, "own-mode-only surface size");
+        assert_eq!(own_only, 17, "own-mode-only surface size");
     }
 }

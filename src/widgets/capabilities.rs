@@ -336,6 +336,60 @@ pub trait HasTooltip {
     }
 }
 
+// ── StyleIdentity (dynamic off-tree CSS identity + seed identity) ───────
+
+/// Off-tree CSS identity for DYNAMIC-identity widgets — those that compute a
+/// LIVE class list / id / hover flag rather than storing them in a `seed:
+/// NodeSeed` field. Opt in with `#[widget(StyleIdentity)]`.
+///
+/// `style_classes` / `style_id` / `is_hovered` are consulted ONLY off-tree (when
+/// no dispatch context is active — e.g. during `layout_height` measurement or a
+/// direct `FrameBuffer::from_renderable` render). After mount the arena node
+/// record is the single source of truth. `set_seed_css_id` / `set_seed_classes`
+/// propagate a compose-declared id/classes (`ChildDecl::with_id(..)`) into the
+/// widget's own `NodeSeed` before mount.
+///
+/// Widgets whose identity IS seed-backed do NOT need this trait — the
+/// `#[widget(..)]` seed-field autowiring already handles `take_node_seed` /
+/// `set_inline_style`, and `style_classes` / `style_id` default to the seed via
+/// `crate::seed_style_identity_methods!`. Use `StyleIdentity` when the widget
+/// keeps a live class list (e.g. `Button`, `Input`, `DataTable`) that is not a
+/// simple view of `seed.classes`.
+pub trait StyleIdentity {
+    /// CSS classes for off-tree style resolution.
+    fn style_classes(&self) -> &[String] {
+        &[]
+    }
+    /// CSS id for off-tree style resolution.
+    fn style_id(&self) -> Option<&str> {
+        None
+    }
+    /// Hover state for off-tree style resolution.
+    fn is_hovered(&self) -> bool {
+        false
+    }
+    /// Pre-mount CSS-id injection (propagate a `ChildDecl`-declared id into seed).
+    fn set_seed_css_id(&mut self, _id: Option<String>) {}
+    /// Pre-mount CSS-class injection (companion to `set_seed_css_id`).
+    fn set_seed_classes(&mut self, _classes: Vec<String>) {}
+
+    // Seed lifecycle. Opting `StyleIdentity` takes FULL ownership of the widget's
+    // seed surface (the `#[widget(..)]` seed-field autowiring is suppressed), so a
+    // `StyleIdentity` widget with a `seed: NodeSeed` field MUST provide these two
+    // (usually the canonical bodies below; override `take_node_seed` when it has a
+    // side effect, e.g. `Button` caching its css id). This is why `StyleIdentity`
+    // exists: dynamic-identity widgets own the whole identity+seed surface.
+
+    /// Consume the one-shot mount seed. Default drops it — a seed-owning widget
+    /// MUST override (canonically `std::mem::take(&mut self.seed)`).
+    fn take_node_seed(&mut self) -> super::NodeSeed {
+        super::NodeSeed::default()
+    }
+    /// Pre-mount inline style injection. Default no-op — a seed-owning widget
+    /// overrides (canonically `self.seed.styles.style = style`).
+    fn set_inline_style(&mut self, _style: Style) {}
+}
+
 // ── Components (component-class styling hooks) ──────────────────────────
 
 /// Component-class styling hooks (Python `COMPONENT_CLASSES`). Opt in with

@@ -1,6 +1,7 @@
-use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
+use rich_rs::{Console, ConsoleOptions, Segment, Segments};
+use textual_macros::widget;
 
-use super::{NodeSeed, Widget};
+use super::{Layout, NodeSeed, Render, StyleIdentity};
 use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
 
 /// Orientation of a rule separator.
@@ -55,6 +56,7 @@ impl LineStyle {
 /// Renders a horizontal or vertical line using box-drawing characters.
 /// Not focusable or interactive.
 #[derive(Debug, Clone)]
+#[widget(Layout, StyleIdentity, style_type = "Rule")]
 pub struct Rule {
     orientation: RuleOrientation,
     line_style: LineStyle,
@@ -170,11 +172,7 @@ impl Rule {
     }
 }
 
-impl Widget for Rule {
-    fn focusable(&self) -> bool {
-        false
-    }
-
+impl Layout for Rule {
     fn content_width(&self) -> Option<usize> {
         match self.orientation {
             RuleOrientation::Horizontal => None, // expand to fill
@@ -198,7 +196,9 @@ impl Widget for Rule {
             RuleOrientation::Vertical => None, // expand to fill
         }
     }
+}
 
+impl Render for Rule {
     fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
         let height = options.size.1.max(1);
@@ -232,27 +232,19 @@ impl Widget for Rule {
 
         out
     }
+}
 
-    fn style_type(&self) -> &'static str {
-        "Rule"
-    }
-
+impl StyleIdentity for Rule {
     fn style_classes(&self) -> &[String] {
         &self.classes
-    }
-
-    fn set_inline_style(&mut self, style: crate::style::Style) {
-        self.seed.styles.style = style;
     }
 
     fn take_node_seed(&mut self) -> NodeSeed {
         std::mem::take(&mut self.seed)
     }
-}
 
-impl Renderable for Rule {
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        Widget::render(self, console, options)
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
     }
 }
 
@@ -357,7 +349,7 @@ mod tests {
     #[test]
     fn not_focusable() {
         let r = Rule::horizontal();
-        assert!(!r.focusable());
+        assert!(!crate::widgets::Widget::focusable(&r));
     }
 
     #[test]
@@ -462,7 +454,7 @@ mod tests {
         // DOM variant class must match the default CSS selector `Rule.-horizontal`
         // (Python adds `-horizontal`), not the old `rule--horizontal`.
         let mut r = Rule::horizontal();
-        let seed = r.take_node_seed();
+        let seed = crate::widgets::Widget::take_node_seed(&mut r);
         assert!(seed.classes.iter().any(|c| c == "rule"));
         assert!(seed.classes.iter().any(|c| c == "-horizontal"));
     }
@@ -470,7 +462,7 @@ mod tests {
     #[test]
     fn vertical_rule_carries_variant_class() {
         let mut r = Rule::vertical();
-        let seed = r.take_node_seed();
+        let seed = crate::widgets::Widget::take_node_seed(&mut r);
         assert!(seed.classes.iter().any(|c| c == "rule"));
         assert!(seed.classes.iter().any(|c| c == "-vertical"));
     }

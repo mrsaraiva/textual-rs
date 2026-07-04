@@ -58,6 +58,7 @@ pub use crate::event::ClassOp;
 pub use aliases::Static;
 pub use capabilities::{
     AppHooks, Components, Focus, HasTooltip, Interactive, Layout, Render, Scrollable, Selectable,
+    StyleIdentity,
 };
 pub use button::{Button, ButtonVariant};
 pub use checkbox::Checkbox;
