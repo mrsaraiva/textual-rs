@@ -1,6 +1,7 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
+use rich_rs::{Console, ConsoleOptions, Segment, Segments};
+use textual_macros::widget;
 
 use crate::event::Event;
 use crate::message::*;
@@ -61,6 +62,7 @@ static COLOR_COUNTER: AtomicUsize = AtomicUsize::new(0);
 /// Shows a colored area with identifying text. Cycles through variants on click.
 /// Each new instance gets the next color from a rotating palette.
 #[derive(Debug, Clone)]
+#[widget(Focus, Interactive, Layout)]
 pub struct Placeholder {
     label: String,
     variant: PlaceholderVariant,
@@ -201,7 +203,7 @@ impl Placeholder {
     }
 }
 
-impl Widget for Placeholder {
+impl crate::widgets::Focus for Placeholder {
     fn focusable(&self) -> bool {
         false
     }
@@ -209,7 +211,9 @@ impl Widget for Placeholder {
     fn mouse_interactive(&self) -> bool {
         true
     }
+}
 
+impl crate::widgets::Interactive for Placeholder {
     fn on_layout(&mut self, width: u16, height: u16) {
         self.last_width = width as usize;
         self.last_height = height as usize;
@@ -235,51 +239,9 @@ impl Widget for Placeholder {
             _ => {}
         }
     }
+}
 
-    fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
-        let width = options.size.0.max(1);
-        let height = options.size.1.max(1);
-        let text = self.render_text(width, height);
-        let mut out = Segments::new();
-
-        let style = crate::css::resolve_component_style(self, &["placeholder"])
-            .to_rich()
-            .unwrap_or_default();
-
-        // Python parity: `Placeholder.render()` returns the *bare* renderable
-        // (the label, the "W x H" string, or the lorem-ipsum text). All
-        // centering — horizontal AND vertical — is performed by the framework
-        // from the `content-align: center middle` CSS default (see
-        // `apply_content_alignment` in `widgets/core.rs`, mirroring Python's
-        // `_segment_tools.align_lines`). The widget must NOT pre-center its
-        // own content, or it would be centered twice (the leading padding from a
-        // self-centered line is not trimmed by the alignment pass, shifting the
-        // content one column right). We only emit the raw glyph lines here; the
-        // surface fill/alignment composes them into the content box.
-        match self.variant {
-            PlaceholderVariant::Text => {
-                // Word-wrap the text to fill the available width, but leave the
-                // wrapped lines un-padded/un-aligned (content-align handles the
-                // rest). The `.-text` variant uses `padding: 1`, so the content
-                // width is already inset by the framework before render.
-                let lines = word_wrap(&text, width);
-                for (row, content) in lines.iter().enumerate() {
-                    out.push(Segment::styled(content.clone(), style));
-                    if row + 1 < lines.len() {
-                        out.push(Segment::line());
-                    }
-                }
-            }
-            _ => {
-                // Default / size variant: a single bare line, centered by
-                // content-align.
-                out.push(Segment::styled(text, style));
-            }
-        }
-
-        out
-    }
-
+impl crate::widgets::Layout for Placeholder {
     /// Intrinsic content width for `width: auto` sizing (Python parity).
     ///
     /// Python `Placeholder.render()` returns the label string (e.g. `"#auto"`).
@@ -326,26 +288,57 @@ impl Widget for Placeholder {
         };
         Some(lines)
     }
+}
+
+impl crate::widgets::Render for Placeholder {
+    fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
+        let width = options.size.0.max(1);
+        let height = options.size.1.max(1);
+        let text = self.render_text(width, height);
+        let mut out = Segments::new();
+
+        let style = crate::css::resolve_component_style(self, &["placeholder"])
+            .to_rich()
+            .unwrap_or_default();
+
+        // Python parity: `Placeholder.render()` returns the *bare* renderable
+        // (the label, the "W x H" string, or the lorem-ipsum text). All
+        // centering — horizontal AND vertical — is performed by the framework
+        // from the `content-align: center middle` CSS default (see
+        // `apply_content_alignment` in `widgets/core.rs`, mirroring Python's
+        // `_segment_tools.align_lines`). The widget must NOT pre-center its
+        // own content, or it would be centered twice (the leading padding from a
+        // self-centered line is not trimmed by the alignment pass, shifting the
+        // content one column right). We only emit the raw glyph lines here; the
+        // surface fill/alignment composes them into the content box.
+        match self.variant {
+            PlaceholderVariant::Text => {
+                // Word-wrap the text to fill the available width, but leave the
+                // wrapped lines un-padded/un-aligned (content-align handles the
+                // rest). The `.-text` variant uses `padding: 1`, so the content
+                // width is already inset by the framework before render.
+                let lines = word_wrap(&text, width);
+                for (row, content) in lines.iter().enumerate() {
+                    out.push(Segment::styled(content.clone(), style));
+                    if row + 1 < lines.len() {
+                        out.push(Segment::line());
+                    }
+                }
+            }
+            _ => {
+                // Default / size variant: a single bare line, centered by
+                // content-align.
+                out.push(Segment::styled(text, style));
+            }
+        }
+
+        out
+    }
 
     fn style_type(&self) -> &'static str {
         "Placeholder"
     }
-
-    fn set_inline_style(&mut self, style: crate::style::Style) {
-        self.seed.styles.style = style;
-    }
-
-    fn take_node_seed(&mut self) -> NodeSeed {
-        std::mem::take(&mut self.seed)
-    }
 }
-
-impl Renderable for Placeholder {
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        Widget::render(self, console, options)
-    }
-}
-
 impl ReactiveWidget for Placeholder {
     fn reactive_dispatch(&mut self, changes: &[ReactiveChange], ctx: &mut ReactiveCtx) {
         for change in changes {

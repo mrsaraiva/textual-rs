@@ -1,7 +1,8 @@
-use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
+use rich_rs::{Console, ConsoleOptions, Segment, Segments};
+use textual_macros::widget;
 
 use crate::style::TextAlign;
-use crate::widgets::{NodeSeed, Widget};
+use crate::widgets::NodeSeed;
 
 /// Characters recognized by the 3×3 digit font.
 const DIGITS: &str = " 0123456789+-^x:ABCDEF$£€()";
@@ -243,6 +244,7 @@ const DIGITS3X3_BOLD: &[&str] = &[
 ///
 /// Text alignment is controlled via the CSS `text-align` property on the widget's
 /// resolved style. Defaults to left-aligned when no CSS rule is set.
+#[widget(Layout)]
 pub struct Digits {
     value: String,
     seed: NodeSeed,
@@ -347,7 +349,21 @@ impl Digits {
     }
 }
 
-impl Widget for Digits {
+impl crate::widgets::Layout for Digits {
+    fn layout_height(&self) -> Option<usize> {
+        // PURE content height: Digits glyphs are always 3 rows tall. The flow
+        // layout adds the CSS-resolved vertical chrome (e.g. `border: double`)
+        // with ancestor context, symmetric with the width axis.
+        Some(3)
+    }
+
+    fn content_width(&self) -> Option<usize> {
+        let width = Self::get_width(&self.value);
+        Some(width.max(1))
+    }
+}
+
+impl crate::widgets::Render for Digits {
     fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
         // Detect bold and text-align from resolved CSS style
         let meta = crate::css::selector_meta_generic(self);
@@ -389,40 +405,14 @@ impl Widget for Digits {
         out
     }
 
-    fn layout_height(&self) -> Option<usize> {
-        // PURE content height: Digits glyphs are always 3 rows tall. The flow
-        // layout adds the CSS-resolved vertical chrome (e.g. `border: double`)
-        // with ancestor context, symmetric with the width axis.
-        Some(3)
-    }
-
-    fn content_width(&self) -> Option<usize> {
-        let width = Self::get_width(&self.value);
-        Some(width.max(1))
-    }
-
     fn style_type(&self) -> &'static str {
         "Digits"
     }
-
-    fn set_inline_style(&mut self, style: crate::style::Style) {
-        self.seed.styles.style = style;
-    }
-
-    fn take_node_seed(&mut self) -> NodeSeed {
-        std::mem::take(&mut self.seed)
-    }
 }
-
-impl Renderable for Digits {
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        Widget::render(self, console, options)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::widgets::Widget;
 
     #[test]
     fn get_width_digits() {

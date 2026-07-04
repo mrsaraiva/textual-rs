@@ -4,6 +4,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crossterm::event::{KeyCode, KeyModifiers};
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments, Style as RichStyle};
+use textual_macros::widget;
 
 use crate::event::{Action, Event};
 use crate::message::*;
@@ -104,6 +105,7 @@ struct SelectionRange {
 // ── Log widget ─────────────────────────────────────────────────────────────
 
 #[derive(Debug)]
+#[widget(Focus, Interactive, Layout, Scrollable, Selectable)]
 pub struct Log {
     lines: Vec<String>,
     max_lines: Option<usize>,
@@ -579,82 +581,13 @@ impl Log {
     }
 }
 
-impl Widget for Log {
-    fn compose(&mut self) -> crate::compose::ComposeResult {
-        if self.scrollbar_extracted {
-            return Vec::new();
-        }
-        self.scrollbar_extracted = true;
-        let mut vbar = ScrollBar::new(true, 2);
-        vbar.seed.css_id = Some(LOG_VSCROLLBAR_ID.to_string());
-        vec![crate::compose::ChildDecl::new(Box::new(vbar))]
-    }
-
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        let width = options.size.0.max(1);
-        let height = options.size.1.max(1);
-        self.widget_width.store(width, Ordering::Relaxed);
-        self.widget_height.store(height, Ordering::Relaxed);
-
-        // WP-25: invalidate cache if width changed
-        let prev_width = self.cache_width.swap(width, Ordering::Relaxed);
-        if prev_width != width {
-            self.cache.lock().unwrap().clear();
-        }
-
-        let viewport_width = width;
-        let content_height = self.display_line_count();
-
-        self.viewport_height.store(height, Ordering::Relaxed);
-        self.content_height.store(content_height, Ordering::Relaxed);
-
-        let max_offset = content_height.saturating_sub(height);
-        let offset = self.offset_y.min(max_offset);
-        let start = offset.min(content_height);
-        let end = (start + height).min(content_height);
-
-        let selection = self.selection_range();
-        let display_count = self.line_count();
-        let mut rows: Vec<Vec<Segment>> = Vec::with_capacity(height);
-        for index in start..end {
-            if index < display_count {
-                let mut segs = self.render_line_segments(
-                    console,
-                    options,
-                    &self.lines[index],
-                    viewport_width,
-                    index,
-                );
-                // WP-24: apply selection highlight
-                if let Some(ref sel) = selection {
-                    segs = Self::apply_selection_to_segments(&segs, index, sel);
-                }
-                rows.push(segs);
-            } else {
-                rows.push(adjust_line_length_no_bg(
-                    &[Segment::new(String::new())],
-                    viewport_width.max(1),
-                ));
-            }
-        }
-        while rows.len() < height {
-            rows.push(vec![Segment::new(" ".repeat(viewport_width.max(1)))]);
-        }
-
-        let mut out = Segments::new();
-        for (index, row) in rows.into_iter().enumerate() {
-            out.extend(row);
-            if index + 1 < height {
-                out.push(Segment::line());
-            }
-        }
-        out
-    }
-
+impl crate::widgets::Focus for Log {
     fn focusable(&self) -> bool {
         true
     }
+}
 
+impl crate::widgets::Interactive for Log {
     fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         // WP-24: handle key events for copy
         if let Event::Key(key) = event {
@@ -728,19 +661,6 @@ impl Widget for Log {
         }
     }
 
-    fn on_mouse_scroll(&mut self, _delta_x: i32, delta_y: i32, ctx: &mut crate::event::WidgetCtx) {
-        if delta_y == 0 {
-            return;
-        }
-        let before = self.offset_y;
-        self.scroll_by(delta_y.saturating_mul(self.scroll_step as i32));
-        if self.offset_y != before {
-            ctx.request_repaint();
-            self.emit_scroll_changed_message(ctx);
-        }
-        ctx.set_handled();
-    }
-
     fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {
         // WP-24: extend selection during drag
         if self.selecting {
@@ -751,30 +671,6 @@ impl Widget for Log {
             }
         }
         false
-    }
-
-    fn content_width(&self) -> Option<usize> {
-        let content_width = self.max_line_width.max(1);
-        let meta = crate::css::selector_meta_generic(self);
-        let resolved = crate::css::resolve_style(self, &meta);
-        let padding = resolved.effective_padding();
-        let (_, _, border_left, border_right) =
-            super::helpers::border_spacing_from_style(&resolved);
-        let chrome_lr =
-            usize::from(padding.left.saturating_add(padding.right)) + border_left + border_right;
-        Some(content_width.saturating_add(chrome_lr).max(1))
-    }
-
-    fn set_inline_style(&mut self, style: crate::style::Style) {
-        self.seed.styles.style = style;
-    }
-
-    fn take_node_seed(&mut self) -> NodeSeed {
-        std::mem::take(&mut self.seed)
-    }
-
-    fn get_selection(&self) -> Option<String> {
-        self.selected_text()
     }
 
     fn on_message(&mut self, event: &MessageEvent, ctx: &mut crate::event::WidgetCtx) {
@@ -798,6 +694,35 @@ impl Widget for Log {
         }
         ctx.set_handled();
     }
+}
+
+impl crate::widgets::Layout for Log {
+    fn content_width(&self) -> Option<usize> {
+        let content_width = self.max_line_width.max(1);
+        let meta = crate::css::selector_meta_generic(self);
+        let resolved = crate::css::resolve_style(self, &meta);
+        let padding = resolved.effective_padding();
+        let (_, _, border_left, border_right) =
+            super::helpers::border_spacing_from_style(&resolved);
+        let chrome_lr =
+            usize::from(padding.left.saturating_add(padding.right)) + border_left + border_right;
+        Some(content_width.saturating_add(chrome_lr).max(1))
+    }
+}
+
+impl crate::widgets::Scrollable for Log {
+    fn on_mouse_scroll(&mut self, _delta_x: i32, delta_y: i32, ctx: &mut crate::event::WidgetCtx) {
+        if delta_y == 0 {
+            return;
+        }
+        let before = self.offset_y;
+        self.scroll_by(delta_y.saturating_mul(self.scroll_step as i32));
+        if self.offset_y != before {
+            ctx.request_repaint();
+            self.emit_scroll_changed_message(ctx);
+        }
+        ctx.set_handled();
+    }
 
     fn scroll_offset(&self) -> (usize, usize) {
         (0, self.offset_y)
@@ -812,12 +737,84 @@ impl Widget for Log {
     }
 }
 
-impl Renderable for Log {
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        Widget::render(self, console, options)
+impl crate::widgets::Selectable for Log {
+    fn get_selection(&self) -> Option<String> {
+        self.selected_text()
     }
 }
 
+impl crate::widgets::Render for Log {
+    fn compose(&mut self) -> crate::compose::ComposeResult {
+        if self.scrollbar_extracted {
+            return Vec::new();
+        }
+        self.scrollbar_extracted = true;
+        let mut vbar = ScrollBar::new(true, 2);
+        vbar.seed.css_id = Some(LOG_VSCROLLBAR_ID.to_string());
+        vec![crate::compose::ChildDecl::new(Box::new(vbar))]
+    }
+
+    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        let width = options.size.0.max(1);
+        let height = options.size.1.max(1);
+        self.widget_width.store(width, Ordering::Relaxed);
+        self.widget_height.store(height, Ordering::Relaxed);
+
+        // WP-25: invalidate cache if width changed
+        let prev_width = self.cache_width.swap(width, Ordering::Relaxed);
+        if prev_width != width {
+            self.cache.lock().unwrap().clear();
+        }
+
+        let viewport_width = width;
+        let content_height = self.display_line_count();
+
+        self.viewport_height.store(height, Ordering::Relaxed);
+        self.content_height.store(content_height, Ordering::Relaxed);
+
+        let max_offset = content_height.saturating_sub(height);
+        let offset = self.offset_y.min(max_offset);
+        let start = offset.min(content_height);
+        let end = (start + height).min(content_height);
+
+        let selection = self.selection_range();
+        let display_count = self.line_count();
+        let mut rows: Vec<Vec<Segment>> = Vec::with_capacity(height);
+        for index in start..end {
+            if index < display_count {
+                let mut segs = self.render_line_segments(
+                    console,
+                    options,
+                    &self.lines[index],
+                    viewport_width,
+                    index,
+                );
+                // WP-24: apply selection highlight
+                if let Some(ref sel) = selection {
+                    segs = Self::apply_selection_to_segments(&segs, index, sel);
+                }
+                rows.push(segs);
+            } else {
+                rows.push(adjust_line_length_no_bg(
+                    &[Segment::new(String::new())],
+                    viewport_width.max(1),
+                ));
+            }
+        }
+        while rows.len() < height {
+            rows.push(vec![Segment::new(" ".repeat(viewport_width.max(1)))]);
+        }
+
+        let mut out = Segments::new();
+        for (index, row) in rows.into_iter().enumerate() {
+            out.extend(row);
+            if index + 1 < height {
+                out.push(Segment::line());
+            }
+        }
+        out
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::{LOG_VSCROLLBAR_ID, Log};

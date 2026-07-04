@@ -1,9 +1,10 @@
 use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
 
-use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
+use rich_rs::{Console, ConsoleOptions, Segment, Segments};
+use textual_macros::widget;
 
-use super::{NodeSeed, Widget, helpers::adjust_line_length_no_bg};
+use super::{NodeSeed, helpers::adjust_line_length_no_bg};
 
 /// Internal data source for Pretty.
 #[derive(Clone)]
@@ -48,6 +49,7 @@ impl PrettySource {
 /// Pretty { fg: $foreground; }
 /// ```
 #[derive(Clone)]
+#[widget(Interactive, Layout)]
 pub struct Pretty {
     source: PrettySource,
     layout_width: usize,
@@ -155,45 +157,13 @@ impl Debug for Pretty {
     }
 }
 
-impl Widget for Pretty {
-    fn border_title(&self) -> Option<&str> {
-        self.border_title_text.as_deref()
-    }
-
-    fn style_type(&self) -> &'static str {
-        "Pretty"
-    }
-
+impl crate::widgets::Interactive for Pretty {
     fn on_layout(&mut self, width: u16, _height: u16) {
         self.layout_width = usize::from(width).max(1);
     }
+}
 
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        let width = options.size.0.max(1);
-
-        // Delegate to rich_rs::Pretty for rendering (syntax highlighting, indentation, etc.)
-        let rich = self.rich_pretty();
-        let mut render_opts = options.clone();
-        render_opts.max_width = width;
-
-        let segments = rich_rs::Renderable::render(&rich, console, &render_opts);
-
-        // Collect into lines for width adjustment
-        let raw: Vec<Segment> = segments.into_iter().collect();
-        let lines =
-            Segment::split_and_crop_lines(Segments::from_iter(raw), width, None, true, false);
-
-        let mut out = Segments::new();
-        let line_count = lines.len();
-        for (idx, line) in lines.into_iter().enumerate() {
-            out.extend(adjust_line_length_no_bg(&line, width));
-            if idx + 1 < line_count {
-                out.push(Segment::line());
-            }
-        }
-        out
-    }
-
+impl crate::widgets::Layout for Pretty {
     fn content_width(&self) -> Option<usize> {
         let debug_str = self.debug_str();
         if debug_str.is_empty() {
@@ -228,25 +198,47 @@ impl Widget for Pretty {
         };
         Some(content_lines)
     }
-
-    fn set_inline_style(&mut self, style: crate::style::Style) {
-        self.seed.styles.style = style;
-    }
-
-    fn take_node_seed(&mut self) -> NodeSeed {
-        std::mem::take(&mut self.seed)
-    }
 }
 
-impl Renderable for Pretty {
+impl crate::widgets::Render for Pretty {
+    fn border_title(&self) -> Option<&str> {
+        self.border_title_text.as_deref()
+    }
+
+    fn style_type(&self) -> &'static str {
+        "Pretty"
+    }
+
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        Widget::render(self, console, options)
+        let width = options.size.0.max(1);
+
+        // Delegate to rich_rs::Pretty for rendering (syntax highlighting, indentation, etc.)
+        let rich = self.rich_pretty();
+        let mut render_opts = options.clone();
+        render_opts.max_width = width;
+
+        let segments = rich_rs::Renderable::render(&rich, console, &render_opts);
+
+        // Collect into lines for width adjustment
+        let raw: Vec<Segment> = segments.into_iter().collect();
+        let lines =
+            Segment::split_and_crop_lines(Segments::from_iter(raw), width, None, true, false);
+
+        let mut out = Segments::new();
+        let line_count = lines.len();
+        for (idx, line) in lines.into_iter().enumerate() {
+            out.extend(adjust_line_length_no_bg(&line, width));
+            if idx + 1 < line_count {
+                out.push(Segment::line());
+            }
+        }
+        out
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::widgets::Widget;
 
     #[test]
     fn pretty_new_captures_debug() {

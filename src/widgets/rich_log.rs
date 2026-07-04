@@ -5,13 +5,14 @@ use unicode_width::UnicodeWidthChar;
 
 use rich_rs::highlighter::repr_highlighter;
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments, Text};
+use textual_macros::widget;
 
 use crate::event::{Action, Event};
 use crate::message::*;
 
 use super::helpers::adjust_line_length_no_bg;
 
-use super::{NodeSeed, ScrollBar, ScrollView, Widget};
+use super::{NodeSeed, ScrollBar, ScrollView};
 use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
 
 pub(crate) const RICH_LOG_VSCROLLBAR_ID: &str = "__rich_log_vscrollbar";
@@ -70,6 +71,7 @@ impl LineCache {
 }
 
 #[derive(Debug)]
+#[widget(Focus, Interactive, Scrollable)]
 pub struct RichLog {
     lines: Vec<LogLine>,
     max_lines: Option<usize>,
@@ -696,7 +698,101 @@ impl RichLog {
     }
 }
 
-impl Widget for RichLog {
+impl crate::widgets::Focus for RichLog {
+    fn focusable(&self) -> bool {
+        true
+    }
+}
+
+impl crate::widgets::Interactive for RichLog {
+    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
+        if let Event::Action(action) = event {
+            let before = self.offset_y;
+            match action {
+                Action::ScrollUp => self.scroll_by(-(self.scroll_step as i32)),
+                Action::ScrollDown => self.scroll_by(self.scroll_step as i32),
+                Action::ScrollPageUp => {
+                    let page = self.viewport_height.load(Ordering::Relaxed).max(1);
+                    self.scroll_by(-(page as i32));
+                }
+                Action::ScrollPageDown => {
+                    let page = self.viewport_height.load(Ordering::Relaxed).max(1);
+                    self.scroll_by(page as i32);
+                }
+                _ => return,
+            }
+            if self.offset_y != before {
+                ctx.request_repaint();
+                self.emit_scroll_changed_message(ctx);
+            }
+            ctx.set_handled();
+        }
+    }
+
+    fn on_mouse_move(&mut self, _x: u16, _y: u16) -> bool {
+        false
+    }
+
+    fn on_message(&mut self, event: &MessageEvent, ctx: &mut crate::event::WidgetCtx) {
+        let Some(payload) = event.downcast_ref::<ScrollbarScrollTo>() else {
+            return;
+        };
+        if payload.axis != ScrollbarAxis::Vertical {
+            return;
+        }
+        let viewport_h = self.viewport_height.load(Ordering::Relaxed).max(1);
+        let content_h = self.content_height.load(Ordering::Relaxed).max(1);
+        let next = ScrollView::line_clamp_offset(
+            payload.offset.max(0.0).round() as usize,
+            content_h,
+            viewport_h,
+        );
+        if next != self.offset_y {
+            self.offset_y = next;
+            ctx.request_repaint();
+            self.emit_scroll_changed_message(ctx);
+        }
+        ctx.set_handled();
+    }
+}
+
+impl crate::widgets::Scrollable for RichLog {
+    fn on_mouse_scroll(&mut self, _delta_x: i32, delta_y: i32, ctx: &mut crate::event::WidgetCtx) {
+        if delta_y == 0 {
+            return;
+        }
+        let before = self.offset_y;
+        self.scroll_by(delta_y.saturating_mul(self.scroll_step as i32));
+        if self.offset_y != before {
+            ctx.request_repaint();
+            self.emit_scroll_changed_message(ctx);
+        }
+        ctx.set_handled();
+    }
+
+    fn scroll_offset(&self) -> (usize, usize) {
+        (0, self.offset_y)
+    }
+
+    fn scroll_offset_f32(&self) -> (f32, f32) {
+        (0.0, self.offset_y as f32)
+    }
+
+    fn scroll_virtual_content_size(&self) -> Option<(usize, usize)> {
+        let width = self
+            .widget_width
+            .load(Ordering::Relaxed)
+            .max(self.min_width)
+            .max(1);
+        let height = self
+            .content_height
+            .load(Ordering::Relaxed)
+            .max(self.lines.len().max(1));
+        Some((width, height))
+    }
+}
+
+impl crate::widgets::Render for RichLog {
     fn compose(&mut self) -> crate::compose::ComposeResult {
         if self.scrollbar_extracted {
             return Vec::new();
@@ -742,110 +838,7 @@ impl Widget for RichLog {
         }
         out
     }
-
-    fn focusable(&self) -> bool {
-        true
-    }
-
-    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
-        if let Event::Action(action) = event {
-            let before = self.offset_y;
-            match action {
-                Action::ScrollUp => self.scroll_by(-(self.scroll_step as i32)),
-                Action::ScrollDown => self.scroll_by(self.scroll_step as i32),
-                Action::ScrollPageUp => {
-                    let page = self.viewport_height.load(Ordering::Relaxed).max(1);
-                    self.scroll_by(-(page as i32));
-                }
-                Action::ScrollPageDown => {
-                    let page = self.viewport_height.load(Ordering::Relaxed).max(1);
-                    self.scroll_by(page as i32);
-                }
-                _ => return,
-            }
-            if self.offset_y != before {
-                ctx.request_repaint();
-                self.emit_scroll_changed_message(ctx);
-            }
-            ctx.set_handled();
-        }
-    }
-
-    fn on_mouse_scroll(&mut self, _delta_x: i32, delta_y: i32, ctx: &mut crate::event::WidgetCtx) {
-        if delta_y == 0 {
-            return;
-        }
-        let before = self.offset_y;
-        self.scroll_by(delta_y.saturating_mul(self.scroll_step as i32));
-        if self.offset_y != before {
-            ctx.request_repaint();
-            self.emit_scroll_changed_message(ctx);
-        }
-        ctx.set_handled();
-    }
-
-    fn on_mouse_move(&mut self, _x: u16, _y: u16) -> bool {
-        false
-    }
-
-    fn set_inline_style(&mut self, style: crate::style::Style) {
-        self.seed.styles.style = style;
-    }
-
-    fn take_node_seed(&mut self) -> NodeSeed {
-        std::mem::take(&mut self.seed)
-    }
-
-    fn on_message(&mut self, event: &MessageEvent, ctx: &mut crate::event::WidgetCtx) {
-        let Some(payload) = event.downcast_ref::<ScrollbarScrollTo>() else {
-            return;
-        };
-        if payload.axis != ScrollbarAxis::Vertical {
-            return;
-        }
-        let viewport_h = self.viewport_height.load(Ordering::Relaxed).max(1);
-        let content_h = self.content_height.load(Ordering::Relaxed).max(1);
-        let next = ScrollView::line_clamp_offset(
-            payload.offset.max(0.0).round() as usize,
-            content_h,
-            viewport_h,
-        );
-        if next != self.offset_y {
-            self.offset_y = next;
-            ctx.request_repaint();
-            self.emit_scroll_changed_message(ctx);
-        }
-        ctx.set_handled();
-    }
-
-    fn scroll_offset(&self) -> (usize, usize) {
-        (0, self.offset_y)
-    }
-
-    fn scroll_offset_f32(&self) -> (f32, f32) {
-        (0.0, self.offset_y as f32)
-    }
-
-    fn scroll_virtual_content_size(&self) -> Option<(usize, usize)> {
-        let width = self
-            .widget_width
-            .load(Ordering::Relaxed)
-            .max(self.min_width)
-            .max(1);
-        let height = self
-            .content_height
-            .load(Ordering::Relaxed)
-            .max(self.lines.len().max(1));
-        Some((width, height))
-    }
 }
-
-impl Renderable for RichLog {
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        Widget::render(self, console, options)
-    }
-}
-
 impl ReactiveWidget for RichLog {
     fn reactive_dispatch(&mut self, changes: &[ReactiveChange], ctx: &mut ReactiveCtx) {
         for change in changes {

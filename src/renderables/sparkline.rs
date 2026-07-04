@@ -1,8 +1,9 @@
-use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
+use rich_rs::{Console, ConsoleOptions, Segment, Segments};
+use textual_macros::widget;
 
 use crate::reactive::{ReactiveCtx, ReactiveFlags, ReactiveWidget};
 use crate::style::Color;
-use crate::widgets::{NodeSeed, Widget, adjust_line_length_no_bg};
+use crate::widgets::{NodeSeed, adjust_line_length_no_bg};
 
 /// Unicode bar characters for sparkline rendering (8 levels, bottom to top).
 const BARS: &[char] = &['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
@@ -66,6 +67,7 @@ pub fn summary_mean(data: &[f64]) -> f64 {
 /// Sparkline > .sparkline--min-color { fg: $primary 30%; }
 /// ```
 #[derive(Debug, Clone)]
+#[widget(Focus, Layout)]
 pub struct Sparkline {
     data: Vec<f64>,
     summary_function: SummaryFunction,
@@ -195,11 +197,19 @@ impl Sparkline {
     }
 }
 
-impl Widget for Sparkline {
+impl crate::widgets::Focus for Sparkline {
     fn focusable(&self) -> bool {
         false
     }
+}
 
+impl crate::widgets::Layout for Sparkline {
+    fn layout_height(&self) -> Option<usize> {
+        Some(1)
+    }
+}
+
+impl crate::widgets::Render for Sparkline {
     fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
         let height = options.size.1.max(1);
@@ -319,29 +329,10 @@ impl Widget for Sparkline {
         out
     }
 
-    fn layout_height(&self) -> Option<usize> {
-        Some(1)
-    }
-
     fn style_type(&self) -> &'static str {
         "Sparkline"
     }
-
-    fn set_inline_style(&mut self, style: crate::style::Style) {
-        self.seed.styles.style = style;
-    }
-
-    fn take_node_seed(&mut self) -> NodeSeed {
-        std::mem::take(&mut self.seed)
-    }
 }
-
-impl Renderable for Sparkline {
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        Widget::render(self, console, options)
-    }
-}
-
 impl ReactiveWidget for Sparkline {}
 
 // ── Color helper (private) ──────────────────────────────────────────
@@ -360,6 +351,7 @@ fn blend_rgb(a: Color, b: Color, t: f64) -> Color {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::widgets::Widget;
     use crate::node_id::NodeId;
     use crate::reactive::ReactiveCtx;
     use slotmap::SlotMap;

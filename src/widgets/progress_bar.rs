@@ -1,13 +1,14 @@
 use std::time::Instant;
 
-use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
+use rich_rs::{Console, ConsoleOptions, Segment, Segments};
+use textual_macros::widget;
 
 use crate::event::AnimationLevel;
 use crate::renderables::{Bar, LinearGradient};
 #[cfg(test)]
 use crate::style::Color;
 
-use super::{NodeSeed, Widget, helpers::adjust_line_length_no_bg};
+use super::{NodeSeed, helpers::adjust_line_length_no_bg};
 use crate::compose::ComposeResult;
 use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
 
@@ -188,6 +189,7 @@ fn format_eta(eta_secs: Option<u64>) -> String {
 /// | `bar--complete` | The bar when progress reaches 100%. |
 /// | `bar--indeterminate` | The bar when total is unknown. |
 #[derive(Debug, Clone)]
+#[widget(Focus, Interactive, Layout)]
 pub struct ProgressBar {
     /// Total number of steps, or `None` for indeterminate.
     total: Option<f64>,
@@ -603,16 +605,7 @@ impl ProgressBar {
     }
 }
 
-impl Widget for ProgressBar {
-    /// Declare children for tree-based mounting.
-    ///
-    /// ProgressBar sub-components are logical rendering helpers, not mountable
-    /// children, so compose returns an empty list.
-    fn compose(&mut self) -> ComposeResult {
-        // Monolithic widget: renders inline, declares no arena children.
-        Vec::new()
-    }
-
+impl crate::widgets::Focus for ProgressBar {
     fn focusable(&self) -> bool {
         false
     }
@@ -622,9 +615,42 @@ impl Widget for ProgressBar {
     fn is_active(&self) -> bool {
         self.total.is_none() && self.animation_level != AnimationLevel::None
     }
+}
 
+impl crate::widgets::Interactive for ProgressBar {
     fn on_tick(&mut self, tick: u64) {
         let _ = tick;
+    }
+}
+
+impl crate::widgets::Layout for ProgressBar {
+    fn layout_height(&self) -> Option<usize> {
+        Some(1)
+    }
+
+    fn content_width(&self) -> Option<usize> {
+        // Base bar width (Python default: 32) + suffix widths.
+        let mut width = if self.show_bar { 32 } else { 0 };
+        if self.show_percentage {
+            // " NNN%" = 4 chars + 1 separator
+            width += if width > 0 { 5 } else { 4 };
+        }
+        if self.show_eta {
+            // " HH:MM:SS" = 8 chars + 1 separator
+            width += if width > 0 { 9 } else { 8 };
+        }
+        Some(width.max(1))
+    }
+}
+
+impl crate::widgets::Render for ProgressBar {
+    /// Declare children for tree-based mounting.
+    ///
+    /// ProgressBar sub-components are logical rendering helpers, not mountable
+    /// children, so compose returns an empty list.
+    fn compose(&mut self) -> ComposeResult {
+        // Monolithic widget: renders inline, declares no arena children.
+        Vec::new()
     }
 
     fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
@@ -713,43 +739,10 @@ impl Widget for ProgressBar {
         out
     }
 
-    fn layout_height(&self) -> Option<usize> {
-        Some(1)
-    }
-
-    fn content_width(&self) -> Option<usize> {
-        // Base bar width (Python default: 32) + suffix widths.
-        let mut width = if self.show_bar { 32 } else { 0 };
-        if self.show_percentage {
-            // " NNN%" = 4 chars + 1 separator
-            width += if width > 0 { 5 } else { 4 };
-        }
-        if self.show_eta {
-            // " HH:MM:SS" = 8 chars + 1 separator
-            width += if width > 0 { 9 } else { 8 };
-        }
-        Some(width.max(1))
-    }
-
     fn style_type(&self) -> &'static str {
         "ProgressBar"
     }
-
-    fn set_inline_style(&mut self, style: crate::style::Style) {
-        self.seed.styles.style = style;
-    }
-
-    fn take_node_seed(&mut self) -> NodeSeed {
-        std::mem::take(&mut self.seed)
-    }
 }
-
-impl Renderable for ProgressBar {
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        Widget::render(self, console, options)
-    }
-}
-
 impl ReactiveWidget for ProgressBar {
     fn reactive_dispatch(&mut self, changes: &[ReactiveChange], ctx: &mut ReactiveCtx) {
         for change in changes {
@@ -779,6 +772,7 @@ impl ReactiveWidget for ProgressBar {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::widgets::Widget;
     use crate::node_id::NodeId;
     use crate::reactive::ReactiveCtx;
     use slotmap::SlotMap;

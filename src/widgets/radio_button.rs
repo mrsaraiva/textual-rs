@@ -1,4 +1,5 @@
-use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
+use rich_rs::{Console, ConsoleOptions, Segment, Segments};
+use textual_macros::widget;
 
 use crate::event::Event;
 use crate::message::*;
@@ -14,6 +15,7 @@ use super::{NodeSeed, Widget, option_list::toggle_option::BinaryToggleState};
 /// On its own a RadioButton can be toggled freely. When placed inside a
 /// `RadioSet`, the set enforces that only one button is selected at a time.
 #[derive(Debug, Clone)]
+#[widget(Focus, Interactive, Layout)]
 pub struct RadioButton {
     label: String,
     state: BinaryToggleState,
@@ -113,11 +115,17 @@ impl RadioButton {
     }
 }
 
-impl Widget for RadioButton {
+impl crate::widgets::Focus for RadioButton {
     fn focusable(&self) -> bool {
         self.state.focusable()
     }
 
+    fn is_active(&self) -> bool {
+        self.state.is_active()
+    }
+}
+
+impl crate::widgets::Interactive for RadioButton {
     fn on_node_state_changed(
         &mut self,
         _old: crate::widgets::NodeState,
@@ -125,23 +133,6 @@ impl Widget for RadioButton {
     ) {
         self.state.set_focused(new.focused);
         self.state.set_hovered(new.hovered);
-    }
-
-    fn is_active(&self) -> bool {
-        self.state.is_active()
-    }
-
-    fn content_width(&self) -> Option<usize> {
-        let meta = crate::css::selector_meta_generic(self);
-        let resolved = crate::css::resolve_style(self, &meta);
-        let padding = resolved.effective_padding();
-        let (_, _, border_left, border_right) =
-            super::helpers::border_spacing_from_style(&resolved);
-        let chrome_lr =
-            usize::from(padding.left.saturating_add(padding.right)) + border_left + border_right;
-        // Rendered content is "▐●▌ " + label.
-        let content = rich_rs::cell_len(&self.label).saturating_add(4);
-        Some(content.saturating_add(chrome_lr).max(1))
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
@@ -157,7 +148,28 @@ impl Widget for RadioButton {
             ctx.set_handled();
         }
     }
+}
 
+impl crate::widgets::Layout for RadioButton {
+    fn content_width(&self) -> Option<usize> {
+        let meta = crate::css::selector_meta_generic(self);
+        let resolved = crate::css::resolve_style(self, &meta);
+        let padding = resolved.effective_padding();
+        let (_, _, border_left, border_right) =
+            super::helpers::border_spacing_from_style(&resolved);
+        let chrome_lr =
+            usize::from(padding.left.saturating_add(padding.right)) + border_left + border_right;
+        // Rendered content is "▐●▌ " + label.
+        let content = rich_rs::cell_len(&self.label).saturating_add(4);
+        Some(content.saturating_add(chrome_lr).max(1))
+    }
+
+    fn layout_height(&self) -> Option<usize> {
+        Some(1)
+    }
+}
+
+impl crate::widgets::Render for RadioButton {
     fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
 
@@ -224,29 +236,10 @@ impl Widget for RadioButton {
         out
     }
 
-    fn layout_height(&self) -> Option<usize> {
-        Some(1)
-    }
-
     fn style_type(&self) -> &'static str {
         "RadioButton"
     }
-
-    fn set_inline_style(&mut self, style: crate::style::Style) {
-        self.seed.styles.style = style;
-    }
-
-    fn take_node_seed(&mut self) -> NodeSeed {
-        std::mem::take(&mut self.seed)
-    }
 }
-
-impl Renderable for RadioButton {
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        Widget::render(self, console, options)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

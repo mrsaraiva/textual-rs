@@ -1,9 +1,10 @@
-use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
+use rich_rs::{Console, ConsoleOptions, Segment, Segments};
+use textual_macros::widget;
 
 use crate::node_id::NodeId;
 use crate::style::parse_color_like;
 
-use super::{NodeSeed, Widget};
+use super::NodeSeed;
 
 pub const SYSTEM_TOOLTIP_STYLE_ID: &str = "textual-tooltip";
 
@@ -20,6 +21,7 @@ pub const SYSTEM_TOOLTIP_STYLE_ID: &str = "textual-tooltip";
 /// The widget owns only its text + visibility + the owner it is currently
 /// describing. All geometry (size, centering, viewport constraint) is done by
 /// layout + the overlay:screen paint pass, not by the widget.
+#[widget(Focus, Interactive, Layout)]
 pub struct Tooltip {
     text: String,
     visible: bool,
@@ -203,7 +205,49 @@ impl Tooltip {
     }
 }
 
-impl Widget for Tooltip {
+impl crate::widgets::Focus for Tooltip {
+    fn focusable(&self) -> bool {
+        false
+    }
+
+    fn mouse_interactive(&self) -> bool {
+        false
+    }
+}
+
+impl crate::widgets::Interactive for Tooltip {
+    fn on_layout(&mut self, width: u16, _height: u16) {
+        // Hidden/disconnected nodes can transiently receive width=0/1 during
+        // display toggles; keep the last stable width so wrapped-height stays
+        // stable (mirrors `Static`).
+        if width > 1 {
+            self.layout_width = usize::from(width);
+        }
+    }
+
+    fn on_unmount(&mut self) {
+        self.visible = false;
+        self.system_owner = None;
+    }
+}
+
+impl crate::widgets::Layout for Tooltip {
+    fn auto_content_width(&self) -> Option<usize> {
+        Some(self.intrinsic_content_width())
+    }
+
+    fn layout_height(&self) -> Option<usize> {
+        // PURE content height = wrapped line count at the laid-out content width.
+        // The flow layout adds the CSS-resolved vertical chrome (padding/border)
+        // with ancestor context, symmetric with the width axis (same `Static`
+        // convention `measure_intrinsic_content_height` now relies on).
+        let lines =
+            super::text::intrinsic_wrapped_height(&self.text, self.layout_width.max(1), true);
+        Some(lines)
+    }
+}
+
+impl crate::widgets::Render for Tooltip {
     fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
         if !self.visible {
             return Segments::new();
@@ -234,64 +278,14 @@ impl Widget for Tooltip {
         out
     }
 
-    fn on_layout(&mut self, width: u16, _height: u16) {
-        // Hidden/disconnected nodes can transiently receive width=0/1 during
-        // display toggles; keep the last stable width so wrapped-height stays
-        // stable (mirrors `Static`).
-        if width > 1 {
-            self.layout_width = usize::from(width);
-        }
-    }
-
-    fn auto_content_width(&self) -> Option<usize> {
-        Some(self.intrinsic_content_width())
-    }
-
-    fn layout_height(&self) -> Option<usize> {
-        // PURE content height = wrapped line count at the laid-out content width.
-        // The flow layout adds the CSS-resolved vertical chrome (padding/border)
-        // with ancestor context, symmetric with the width axis (same `Static`
-        // convention `measure_intrinsic_content_height` now relies on).
-        let lines =
-            super::text::intrinsic_wrapped_height(&self.text, self.layout_width.max(1), true);
-        Some(lines)
-    }
-
-    fn on_unmount(&mut self) {
-        self.visible = false;
-        self.system_owner = None;
-    }
-
-    fn focusable(&self) -> bool {
-        false
-    }
-
-    fn mouse_interactive(&self) -> bool {
-        false
-    }
-
     fn style_type(&self) -> &'static str {
         "Tooltip"
     }
-
-    fn set_inline_style(&mut self, style: crate::style::Style) {
-        self.seed.styles.style = style;
-    }
-
-    fn take_node_seed(&mut self) -> NodeSeed {
-        std::mem::take(&mut self.seed)
-    }
 }
-
-impl Renderable for Tooltip {
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        Widget::render(self, console, options)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::widgets::Widget;
     use rich_rs::ConsoleOptions;
 
     #[test]
