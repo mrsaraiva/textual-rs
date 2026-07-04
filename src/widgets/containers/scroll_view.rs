@@ -1755,7 +1755,6 @@ impl crate::widgets::Render for ScrollView {
 }
 #[cfg(test)]
 mod tests {
-    use rich_rs::Renderable;
     use super::*;
     use crate::action::ParsedAction;
     use crate::event::{AnimationValueEvent, EventCtx};

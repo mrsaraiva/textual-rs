@@ -2495,7 +2495,6 @@ fn emit_row_per_cell(
 
 #[cfg(test)]
 mod tests {
-    use rich_rs::Renderable;
     use super::*;
     use crate::event::EventCtx;
     use crate::event::MouseDownEvent;

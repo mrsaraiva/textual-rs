@@ -1264,7 +1264,6 @@ impl crate::widgets::Render for Input {
 }
 #[cfg(test)]
 mod tests {
-    use rich_rs::Renderable;
     use super::*;
     use crate::event::EventCtx;
     use crate::event::MouseDownEvent;
