@@ -129,6 +129,7 @@ fn main() -> Result<()> {
 mod tests {
     use super::*;
     use std::sync::Mutex;
+    use textual::event::EventCtx;
 
     fn press(button_id: &str) -> Option<ScreenResult> {
         let mut screen = QuitScreen;
@@ -170,8 +171,13 @@ mod tests {
         let mut app = App::new().expect("app should initialize");
 
         // action_request_quit pushes the screen with the result callback.
+        // App handlers now receive `WidgetCtx` (RA2.2); wrap the raw `EventCtx`
+        // so the request/stop state is observed on it after the call.
         let mut action_ctx = EventCtx::default();
-        definition.on_app_action_str(&mut app, "request_quit", &mut action_ctx);
+        {
+            let mut wctx = WidgetCtx::__from_dispatch(NodeId::default(), &mut action_ctx);
+            definition.on_app_action_str(&mut app, "request_quit", &mut wctx);
+        }
         assert_eq!(app.screen_count(), 1);
 
         // The screen dismisses with true via its callback path.
@@ -180,7 +186,10 @@ mod tests {
 
         // The callback set should_quit; the tick hook requests stop.
         let mut tick_ctx = EventCtx::default();
-        definition.on_tick_with_app(&mut app, 0, &mut tick_ctx);
+        {
+            let mut wctx = WidgetCtx::__from_dispatch(NodeId::default(), &mut tick_ctx);
+            definition.on_tick_with_app(&mut app, 0, &mut wctx);
+        }
         assert!(tick_ctx.stop_requested());
     }
 
@@ -190,14 +199,20 @@ mod tests {
         let mut app = App::new().expect("app should initialize");
 
         let mut action_ctx = EventCtx::default();
-        definition.on_app_action_str(&mut app, "request_quit", &mut action_ctx);
+        {
+            let mut wctx = WidgetCtx::__from_dispatch(NodeId::default(), &mut action_ctx);
+            definition.on_app_action_str(&mut app, "request_quit", &mut wctx);
+        }
         assert_eq!(app.screen_count(), 1);
 
         assert!(app.dismiss_screen(ScreenResult::Value(Box::new(false))));
         assert_eq!(app.screen_count(), 0);
 
         let mut tick_ctx = EventCtx::default();
-        definition.on_tick_with_app(&mut app, 0, &mut tick_ctx);
+        {
+            let mut wctx = WidgetCtx::__from_dispatch(NodeId::default(), &mut tick_ctx);
+            definition.on_tick_with_app(&mut app, 0, &mut wctx);
+        }
         assert!(!tick_ctx.stop_requested());
     }
 

@@ -90,6 +90,7 @@ fn main() -> Result<()> {
 mod tests {
     use super::*;
     use std::sync::Mutex;
+    use textual::event::EventCtx;
 
     fn press(screen: &mut QuitScreen, button_id: &str) -> (Option<ScreenResult>, bool) {
         let slot: Mutex<Option<ScreenResult>> = Mutex::new(None);

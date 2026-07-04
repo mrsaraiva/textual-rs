@@ -157,6 +157,7 @@ fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use textual::event::EventCtx;
 
     /// The screen dismisses with `true` when `#yes` is pressed (Python
     /// `handle_yes` → `self.dismiss(True)`). Verified by driving a
