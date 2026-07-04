@@ -51,34 +51,30 @@ impl TextualApp for TableApp {
         AppRoot::new().with_child(table)
     }
 
-    fn on_mount_with_app(&mut self, app: &mut App, ctx: &mut textual::event::WidgetCtx) {
+    fn on_mount_with_app(&mut self, app: &mut App, _ctx: &mut textual::event::WidgetCtx) {
         let initial_cursor = self.next_cursor();
 
-        if let Ok(nid) = app.query_one("DataTable") {
-            let mut rctx = ReactiveCtx::new(nid);
-            let _ = app.with_query_one_mut_as::<DataTable, _>("DataTable", |table| {
-                table.set_cursor_type(initial_cursor, &mut rctx);
-                table.set_zebra_stripes(true, &mut rctx);
+        if let Ok(handle) = app.query_one_typed::<DataTable>("DataTable") {
+            let _ = handle.update(app, |table, rctx| {
+                table.set_cursor_type(initial_cursor, rctx);
+                table.set_zebra_stripes(true, rctx);
                 table.add_columns([ROWS[0].0, ROWS[0].1, ROWS[0].2, ROWS[0].3]);
                 for row in &ROWS[1..] {
                     table.add_row(vec![row.0, row.1, row.2, row.3]);
                 }
             });
         }
-        ctx.request_repaint();
     }
 
     fn on_key_with_app(&mut self, app: &mut App, key: &KeyEventData, ctx: &mut textual::event::WidgetCtx) {
         if key.name() == "c" {
             let next_cursor = self.next_cursor();
-            if let Ok(nid) = app.query_one("DataTable") {
-                let mut rctx = ReactiveCtx::new(nid);
-                let _ = app.with_query_one_mut_as::<DataTable, _>("DataTable", |table| {
-                    table.set_cursor_type(next_cursor, &mut rctx);
+            if let Ok(handle) = app.query_one_typed::<DataTable>("DataTable") {
+                let _ = handle.update(app, |table, rctx| {
+                    table.set_cursor_type(next_cursor, rctx);
                 });
             }
             ctx.set_handled();
-            ctx.request_repaint();
         }
     }
 }

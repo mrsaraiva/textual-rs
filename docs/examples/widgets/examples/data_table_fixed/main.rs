@@ -24,31 +24,26 @@ impl TextualApp for TableApp {
         AppRoot::new().with_child(table)
     }
 
-    fn on_mount_with_app(&mut self, app: &mut App, ctx: &mut textual::event::WidgetCtx) {
-        let _ = app.with_query_one_mut_as::<DataTable, _>("DataTable", |table| {
-            table.add_columns(["A", "B", "C"]);
-            for number in 1usize..=99 {
-                table.add_row(vec![
-                    number.to_string(),
-                    (number * 2).to_string(),
-                    (number * 3).to_string(),
-                ]);
-            }
-        });
-
-        // Set fixed_rows, fixed_columns, zebra_stripes via reactive setters.
-        if let Ok(nid) = app.query_one("DataTable") {
-            let mut rctx = ReactiveCtx::new(nid);
-            let _ = app.with_query_one_mut_as::<DataTable, _>("DataTable", |table| {
-                table.set_fixed_rows(2, &mut rctx);
-                table.set_fixed_columns(1, &mut rctx);
-                table.set_zebra_stripes(true, &mut rctx);
+    fn on_mount_with_app(&mut self, app: &mut App, _ctx: &mut textual::event::WidgetCtx) {
+        if let Ok(handle) = app.query_one_typed::<DataTable>("DataTable") {
+            let _ = handle.update(app, |table, rctx| {
+                table.add_columns(["A", "B", "C"]);
+                for number in 1usize..=99 {
+                    table.add_row(vec![
+                        number.to_string(),
+                        (number * 2).to_string(),
+                        (number * 3).to_string(),
+                    ]);
+                }
+                // Set fixed_rows, fixed_columns, zebra_stripes via reactive setters.
+                table.set_fixed_rows(2, rctx);
+                table.set_fixed_columns(1, rctx);
+                table.set_zebra_stripes(true, rctx);
             });
         }
 
         // Focus the table on mount.
         let _ = app.query_mut("DataTable").map(|q| q.focus());
-        ctx.request_repaint();
     }
 }
 
