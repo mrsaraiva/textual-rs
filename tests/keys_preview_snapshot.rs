@@ -67,7 +67,6 @@ fn action_bar() -> impl Widget {
 }
 
 #[test]
-#[ignore = "TRACKED (height-chrome keystone regression, PRE-EXISTING at base 461f6cc, NOT from the container-class work): the keystone drifted this layout snapshot two ways — (1) CORRECT: the help panel now renders its title + closes its border box (old golden had a broken empty box); (2) REGRESSION: a flat Button wrapped in `Constrained` inside a `Row` is clipped to its top edge (`▄▄▄` only; body `█ Clear █` + bottom `▀▀▀` gone). The SAME flat button renders all 3 rows correctly in a plain Container, so the clip is a keystone flow-layout gap in chrome-bearing-child height propagation through Constrained/Row, NOT a Button bug. Accepting the new snapshot would launder the button regression into the golden, so it is held. Un-ignore + re-accept once the Constrained/Row chrome-height propagation is fixed at the keystone layout level."]
 fn keys_preview_layout_snapshot() {
     let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let css_path = repo_root.join("docs/examples/widgets/examples/keys/keys.tcss");

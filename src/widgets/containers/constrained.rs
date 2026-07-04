@@ -180,11 +180,27 @@ impl Widget for Constrained {
         } else {
             self.child.layout_height()
         };
+        // NOTE (height-chrome keystone): the constrained arms below clamp the
+        // child's PURE-content `layout_height()` — they do NOT add the child's own
+        // vertical chrome (the flow layout's `measure_intrinsic_content_height`
+        // recursion owns that, and it only runs when a child reports `None`). So a
+        // min-ONLY or max-ONLY `Constrained` wrapping a chrome-bearing child
+        // (e.g. a bordered/flat widget) still under-reports by that chrome and can
+        // clip it. No such usage exists in-tree today; fully closing it needs
+        // routing these constraints into the node CSS layout (see KNOWN_GAPS
+        // `[1.x]`). The unconstrained arm defers to the recursion (returns `None`,
+        // like `Container`) so chrome IS added — this is what un-clips a flat
+        // `Button` wrapped in a bare `Constrained` inside a `Row`.
         match (constraints.min_height, constraints.max_height, child_height) {
             (Some(min), Some(max), Some(child)) => Some(child.max(min).min(max)),
             (Some(min), Some(max), None) if min == max => Some(min),
             (Some(min), _, Some(child)) => Some(child.max(min)),
             (_, Some(max), Some(child)) => Some(child.min(max)),
+            // No effective height constraint: defer to the keystone
+            // `measure_intrinsic_content_height` recursion (which adds the child's
+            // own chrome) instead of short-circuiting it with a pure-content
+            // `Some(..)`. Mirrors `Container::layout_height` returning `None`.
+            (None, None, _) => None,
             (_, _, other) => other,
         }
     }

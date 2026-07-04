@@ -61,6 +61,20 @@ in the sections below; this is the migration index:
   and corrective for descendant/context-dependent selectors; it unblocks the
   seed-based `Static::class()` and the `Node` removal. Widget authors implementing
   a custom `layout_height()` should now return content height only.
+- **Fixed (keystone follow-up): an unconstrained `Constrained` no longer clips a
+  chrome-bearing child.** `Constrained` was an un-migrated consumer of the above
+  convention: its `layout_height()` returned the child's context-free pure-content
+  height as `Some(..)`, which short-circuited the flow layout's chrome-adding
+  `measure_intrinsic_content_height` recursion (that recursion only runs when a
+  child reports `None`, which is how `Container`/`split` get their children's
+  chrome added). A chrome-bearing child (e.g. a flat `Button`, chrome = its
+  half-block top/bottom borders) wrapped in a bare `Constrained` inside a `Row`
+  was therefore sized to pure content and clipped to its top edge. When it carries
+  no effective height constraint, `Constrained::layout_height()` now returns
+  `None` (deferring to the recursion, like `Container`), so the child's chrome is
+  added. Regression guard: the un-ignored `keys_preview_snapshot`. (A min-only /
+  max-only `Constrained` + chrome-bearing child still under-reports chrome — no
+  in-tree usage; tracked in `KNOWN_GAPS.md` `[1.x]`.)
 
 ### Removed — `Node` is DELETED (BREAKING)
 
