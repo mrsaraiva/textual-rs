@@ -14,14 +14,15 @@ fn render_with_sheet(
 }
 
 #[test]
-#[ignore = "TRACKED (Node-deletion/always-fold blast radius): post-always-fold, a `.class(\"panel\")` on a non-folding Container parent does not match `.panel Label` (descendant) for its child Label (style resolves None). Needs ContainerIds to determine test-expression-vs-real-bug in container-class descendant matching + un-ignore."]
 fn descendant_selectors_match() {
     let css = ".panel Label { underline: true; }";
     let sheet = StyleSheet::parse(css);
 
-    // A real (non-folding) `.panel` parent: a Container with content, so the
-    // `.panel` ancestor node persists (a transparent single-child wrapper would
-    // fold onto its child post-always-fold, leaving no `.panel` ancestor).
+    // A `.class("panel")` on the ROOT Container must land on the root node so its
+    // children match `.panel Label`. Regression guard for the seed-based root
+    // identity harvest in `build_widget_tree_from_root` (the Node deletion made
+    // `.class()` seed-based; the root propagation used to read the Node wrapper's
+    // `style_classes()` and silently dropped a seed-based root's classes).
     let mut row = Container::new()
         .with_child(Label::new("hi"))
         .with_child(Label::new("x"))
@@ -34,13 +35,13 @@ fn descendant_selectors_match() {
 }
 
 #[test]
-#[ignore = "TRACKED (Node-deletion/always-fold blast radius): post-always-fold, a `.class(\"panel\")` on a non-folding Container parent does not match `.panel > Label` (direct child) for its child Label (style resolves None). Needs ContainerIds to determine test-expression-vs-real-bug in container-class child matching + un-ignore."]
 fn child_selectors_match_direct_children_only() {
     let css = ".panel > Label { bold: true; }";
     let sheet = StyleSheet::parse(css);
 
-    // Direct child case: the `.panel` node is the immediate parent of the `Label`.
-    // Two children keep the Container a real (non-folding) parent node.
+    // Direct-child case: the `.panel` ROOT Container is the immediate parent of the
+    // `Label`. Same seed-based root-identity regression guard as
+    // `descendant_selectors_match`, for the `>` (direct child) combinator.
     let mut row = Container::new()
         .with_child(Label::new("hi"))
         .with_child(Label::new("x"))
@@ -50,6 +51,24 @@ fn child_selectors_match_direct_children_only() {
     let cell = buf.get(0, 0);
     let style = cell.style.expect("style should be present");
     assert_eq!(style.bold, Some(true));
+}
+
+#[test]
+fn root_widget_seed_identity_lands_on_root_node() {
+    // Tightest guard on the exact bug: a seed-based widget used as the tree ROOT
+    // must keep its `.id()` + `.class()` on the root arena node (previously the
+    // seed was never consumed for the root, so identity was silently dropped).
+    let mut root = Container::new()
+        .with_child(Label::new("hi"))
+        .id("hero")
+        .class("panel")
+        .class("boxed");
+    let tree = build_widget_tree_from_root(&mut root).expect("tree should exist");
+    let root_id = tree.root().expect("root node");
+
+    assert_eq!(tree.css_id(root_id), Some("hero"));
+    assert!(tree.has_class(root_id, "panel"));
+    assert!(tree.has_class(root_id, "boxed"));
 }
 
 #[test]

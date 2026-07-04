@@ -82,6 +82,18 @@ in the sections below; this is the migration index:
   as a SINGLE node carrying the class, never a wrapper + child pair (regression
   test: `classed_leaf_folds_onto_its_own_node_no_wrapper`). `is_transparent_wrapper`
   (a distinct, still-used layout hook) is retained.
+- **Fixed (Node-deletion follow-up): a seed-based widget used as the tree ROOT
+  now keeps its `.id()`/`.class()`/inline styles.** `build_widget_tree_from_root`
+  propagated root identity only via `style_classes()`/`style_id()`, which are
+  empty for seed-based widgets (`Container` and every `seed_ident_methods!` user)
+  — the root's `NodeSeed` was never harvested, so a `.class("panel")` on a ROOT
+  `Container` was silently dropped and descendant/child selectors (`.panel Label`,
+  `.panel > Label`) never matched its children. The old `Node` wrapper masked
+  this by overriding `style_classes()`/`style_id()`. The root's seed is now
+  harvested via `WidgetTree::apply_forwarded_seed` (id + classes + inline styles),
+  additive to the existing class-list-widget read (Button/Input). Regression
+  tests: `root_widget_seed_identity_lands_on_root_node`, plus the now-un-ignored
+  `descendant_selectors_match` / `child_selectors_match_direct_children_only`.
 
 ### Removed (prelude prune — RA2.6b, BREAKING)
 

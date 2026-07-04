@@ -4480,16 +4480,30 @@ pub fn build_widget_tree_from_root(root: &mut dyn Widget) -> Option<WidgetTree> 
     let mut tree = WidgetTree::new();
     let root_node_id = tree.set_root(Box::new(TreeStubWidget::from_widget(root)));
 
-    // Propagate the real root widget's CSS identity (id/classes) to the tree
-    // root node so node_selector_meta() and CSS combinator rules (.panel > ...)
-    // see the correct ancestor metadata during layout and rendering.
+    // Propagate the real root widget's CSS identity (id/classes/inline styles) to
+    // the tree root node so node_selector_meta() and CSS combinator rules
+    // (`.panel > ...`) see the correct ancestor metadata during layout/rendering.
+    //
+    // Two identity sources must both be honored because the root widget is only a
+    // TreeStubWidget slot here (never mounted through `make_node_from_seed`, which
+    // is where a CHILD's seed is harvested):
+    //  - seed-based widgets (Container + every `seed_ident_methods!` user) carry
+    //    `.class()`/`.id()`/inline styles in their pre-mount `NodeSeed`; harvest it
+    //    with `take_node_seed()` and fold it onto the root node. Without this a
+    //    `.panel` on a ROOT Container is silently dropped (the seed is never
+    //    consumed), breaking `.panel Label` / `.panel > Label` for its children.
+    //  - class-list widgets (Button, Input, FooterKey, …) expose identity via
+    //    `style_classes()`/`style_id()` instead; keep reading those too.
     {
-        let root_classes: Vec<String> = root.style_classes().to_vec();
-        let root_css_id: Option<String> = root.style_id().map(|s| s.to_string());
-        for class in &root_classes {
+        let root_seed = root.take_node_seed();
+        tree.apply_forwarded_seed(root_node_id, root_seed);
+
+        for class in root.style_classes() {
             tree.add_class(root_node_id, class);
         }
-        tree.set_css_id(root_node_id, root_css_id);
+        if let Some(css_id) = root.style_id() {
+            tree.set_css_id(root_node_id, Some(css_id.to_string()));
+        }
     }
 
     let declarations = root.compose();
