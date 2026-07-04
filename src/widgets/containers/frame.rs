@@ -1,4 +1,5 @@
-use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
+use rich_rs::{Console, ConsoleOptions, Segment, Segments};
+use textual_macros::widget;
 
 use crate::debug::DebugLayout;
 use crate::event::Event;
@@ -6,6 +7,7 @@ use crate::message::MessageEvent;
 
 use crate::widgets::{NodeSeed, Spacer, Widget, helpers::apply_debug_box};
 
+#[widget(Focus, Interactive, Layout, Scrollable, StyleIdentity)]
 pub struct Frame {
     child: Box<dyn Widget>,
     padding: usize,
@@ -38,7 +40,110 @@ impl Frame {
     }
 }
 
-impl Widget for Frame {
+impl crate::widgets::Focus for Frame {
+    fn focusable(&self) -> bool {
+        if self.child_extracted {
+            return false;
+        }
+        self.child.focusable()
+    }
+}
+
+impl crate::widgets::Interactive for Frame {
+    fn on_mount(&mut self, ctx: &mut crate::event::WidgetCtx) {
+        if !self.child_extracted {
+            self.child.on_mount(ctx);
+        }
+    }
+
+    fn on_unmount(&mut self) {
+        if !self.child_extracted {
+            self.child.on_unmount();
+        }
+    }
+
+    fn on_tick(&mut self, tick: u64) {
+        if !self.child_extracted {
+            self.child.on_tick(tick);
+        }
+    }
+
+    fn on_resize(&mut self, width: u16, height: u16) {
+        if !self.child_extracted {
+            self.child.on_resize(width, height);
+        }
+    }
+
+    fn on_layout(&mut self, width: u16, height: u16) {
+        if self.child_extracted {
+            return;
+        }
+        let border_width: usize = if self.border { 1 } else { 0 };
+        let total_padding = self.padding.saturating_mul(2);
+        let inner_width = usize::from(width)
+            .saturating_sub(border_width.saturating_mul(2) + total_padding)
+            .max(1);
+        let inner_height = usize::from(height)
+            .saturating_sub(border_width.saturating_mul(2) + total_padding)
+            .max(1);
+        self.child
+            .on_layout(inner_width as u16, inner_height as u16);
+    }
+
+    fn on_event_capture(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
+        if !self.child_extracted {
+            self.child.on_event_capture(event, ctx);
+        }
+    }
+
+    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
+        if !self.child_extracted {
+            self.child.on_event(event, ctx);
+        }
+    }
+
+    fn on_message(&mut self, message: &MessageEvent, ctx: &mut crate::event::WidgetCtx) {
+        if !self.child_extracted {
+            self.child.on_message(message, ctx);
+        }
+    }
+}
+
+impl crate::widgets::Layout for Frame {
+    fn layout_height(&self) -> Option<usize> {
+        // STRUCTURAL frame only (`self.padding`/`self.border` fields) — NOT
+        // CSS-resolved chrome. The height-chrome keystone makes the flow layout add
+        // CSS `full_v_chrome` on top of this; since these are Frame's own structural
+        // fields (additive, not the CSS border/padding the layout resolves), there
+        // is no double-count and no migration is needed. (Left explicit so the
+        // asymmetry vs the migrated CSS-chrome bakers like Panel is not lost.)
+        self.child
+            .layout_height()
+            .map(|h| h + self.padding * 2 + if self.border { 2 } else { 0 })
+    }
+}
+
+impl crate::widgets::Scrollable for Frame {
+    fn on_mouse_scroll(&mut self, delta_x: i32, delta_y: i32, ctx: &mut crate::event::WidgetCtx) {
+        if !self.child_extracted {
+            self.child.on_mouse_scroll(delta_x, delta_y, ctx);
+        }
+    }
+}
+
+impl crate::widgets::StyleIdentity for Frame {
+    fn take_node_seed(&mut self) -> NodeSeed {
+        std::mem::take(&mut self.seed)
+    }
+
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
+    }
+
+    crate::seed_style_identity_methods!();
+}
+
+impl crate::widgets::Render for Frame {
     fn compose(&mut self) -> crate::compose::ComposeResult {
         if self.child_extracted {
             return Vec::new();
@@ -228,107 +333,7 @@ impl Widget for Frame {
         }
         out
     }
-
-    fn on_mount(&mut self, ctx: &mut crate::event::WidgetCtx) {
-        if !self.child_extracted {
-            self.child.on_mount(ctx);
-        }
-    }
-
-    fn on_unmount(&mut self) {
-        if !self.child_extracted {
-            self.child.on_unmount();
-        }
-    }
-
-    fn on_tick(&mut self, tick: u64) {
-        if !self.child_extracted {
-            self.child.on_tick(tick);
-        }
-    }
-
-    fn on_resize(&mut self, width: u16, height: u16) {
-        if !self.child_extracted {
-            self.child.on_resize(width, height);
-        }
-    }
-
-    fn on_layout(&mut self, width: u16, height: u16) {
-        if self.child_extracted {
-            return;
-        }
-        let border_width: usize = if self.border { 1 } else { 0 };
-        let total_padding = self.padding.saturating_mul(2);
-        let inner_width = usize::from(width)
-            .saturating_sub(border_width.saturating_mul(2) + total_padding)
-            .max(1);
-        let inner_height = usize::from(height)
-            .saturating_sub(border_width.saturating_mul(2) + total_padding)
-            .max(1);
-        self.child
-            .on_layout(inner_width as u16, inner_height as u16);
-    }
-
-    fn on_event_capture(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
-        if !self.child_extracted {
-            self.child.on_event_capture(event, ctx);
-        }
-    }
-
-    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
-        if !self.child_extracted {
-            self.child.on_event(event, ctx);
-        }
-    }
-
-    fn on_message(&mut self, message: &MessageEvent, ctx: &mut crate::event::WidgetCtx) {
-        if !self.child_extracted {
-            self.child.on_message(message, ctx);
-        }
-    }
-
-    fn on_mouse_scroll(&mut self, delta_x: i32, delta_y: i32, ctx: &mut crate::event::WidgetCtx) {
-        if !self.child_extracted {
-            self.child.on_mouse_scroll(delta_x, delta_y, ctx);
-        }
-    }
-
-    fn layout_height(&self) -> Option<usize> {
-        // STRUCTURAL frame only (`self.padding`/`self.border` fields) — NOT
-        // CSS-resolved chrome. The height-chrome keystone makes the flow layout add
-        // CSS `full_v_chrome` on top of this; since these are Frame's own structural
-        // fields (additive, not the CSS border/padding the layout resolves), there
-        // is no double-count and no migration is needed. (Left explicit so the
-        // asymmetry vs the migrated CSS-chrome bakers like Panel is not lost.)
-        self.child
-            .layout_height()
-            .map(|h| h + self.padding * 2 + if self.border { 2 } else { 0 })
-    }
-
-    fn set_inline_style(&mut self, style: crate::style::Style) {
-        self.seed.styles.style = style;
-    }
-
-    fn take_node_seed(&mut self) -> NodeSeed {
-        std::mem::take(&mut self.seed)
-    }
-
-    crate::seed_style_identity_methods!();
-
-    fn focusable(&self) -> bool {
-        if self.child_extracted {
-            return false;
-        }
-        self.child.focusable()
-    }
 }
-
-impl Renderable for Frame {
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        Widget::render(self, console, options)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

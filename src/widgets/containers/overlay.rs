@@ -1,5 +1,6 @@
 use crossterm::event::KeyCode;
-use rich_rs::{Console, ConsoleOptions, Renderable, Segments};
+use rich_rs::{Console, ConsoleOptions, Segments};
+use textual_macros::widget;
 
 use crate::event::Event;
 use crate::message::*;
@@ -8,6 +9,7 @@ use crate::render::{Cell, FrameBuffer};
 use crate::node_id::NodeId;
 use crate::widgets::{NodeSeed, Spacer, Widget, WidgetRenderable};
 
+#[widget(Interactive, Layout, StyleIdentity)]
 pub struct Overlay {
     base: Box<dyn Widget>,
     modal: Box<dyn Widget>,
@@ -151,47 +153,7 @@ impl Overlay {
     }
 }
 
-impl Widget for Overlay {
-    fn compose(&mut self) -> crate::compose::ComposeResult {
-        if self.children_extracted {
-            return Vec::new();
-        }
-        self.children_extracted = true;
-        let base = std::mem::replace(&mut self.base, Box::new(Spacer::new(1)));
-        let modal = std::mem::replace(&mut self.modal, Box::new(Spacer::new(1)));
-        vec![
-            crate::compose::ChildDecl::new(base),
-            crate::compose::ChildDecl::new(modal),
-        ]
-    }
-
-    fn child_display_for_tree(&self, child_index: usize) -> Option<bool> {
-        if !self.children_extracted {
-            return None;
-        }
-        match child_index {
-            // Base subtree is always present; modal subtree follows overlay visibility.
-            0 => Some(true),
-            1 => Some(self.visible),
-            _ => None,
-        }
-    }
-
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        if self.children_extracted {
-            // Tree-mode: Overlay has no chrome of its own; return empty.
-            return Segments::new();
-        }
-        if !self.visible {
-            return self.base.render_styled(console, options);
-        }
-        let base_renderable = WidgetRenderable::new(self.base.as_ref());
-        let modal_renderable = WidgetRenderable::new(self.modal.as_ref());
-        let base = FrameBuffer::from_renderable(console, options, &base_renderable, None);
-        let top = FrameBuffer::from_renderable(console, options, &modal_renderable, None);
-        Self::compose_overlay(&base, &top).to_segments()
-    }
-
+impl crate::widgets::Interactive for Overlay {
     fn on_mount(&mut self, ctx: &mut crate::event::WidgetCtx) {
         if !self.children_extracted {
             self.base.on_mount(ctx);
@@ -321,16 +283,20 @@ impl Widget for Overlay {
             self.base.on_message(message, ctx);
         }
     }
+}
 
-    fn set_inline_style(&mut self, style: crate::style::Style) {
-        self.seed.styles.style = style;
+impl crate::widgets::Layout for Overlay {
+    fn child_display_for_tree(&self, child_index: usize) -> Option<bool> {
+        if !self.children_extracted {
+            return None;
+        }
+        match child_index {
+            // Base subtree is always present; modal subtree follows overlay visibility.
+            0 => Some(true),
+            1 => Some(self.visible),
+            _ => None,
+        }
     }
-
-    fn take_node_seed(&mut self) -> NodeSeed {
-        std::mem::take(&mut self.seed)
-    }
-
-    crate::seed_style_identity_methods!();
 
     fn layout_height(&self) -> Option<usize> {
         if self.visible {
@@ -346,12 +312,47 @@ impl Widget for Overlay {
     }
 }
 
-impl Renderable for Overlay {
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        Widget::render(self, console, options)
+impl crate::widgets::StyleIdentity for Overlay {
+    fn take_node_seed(&mut self) -> NodeSeed {
+        std::mem::take(&mut self.seed)
     }
+
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
+    }
+
+    crate::seed_style_identity_methods!();
 }
 
+impl crate::widgets::Render for Overlay {
+    fn compose(&mut self) -> crate::compose::ComposeResult {
+        if self.children_extracted {
+            return Vec::new();
+        }
+        self.children_extracted = true;
+        let base = std::mem::replace(&mut self.base, Box::new(Spacer::new(1)));
+        let modal = std::mem::replace(&mut self.modal, Box::new(Spacer::new(1)));
+        vec![
+            crate::compose::ChildDecl::new(base),
+            crate::compose::ChildDecl::new(modal),
+        ]
+    }
+
+    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        if self.children_extracted {
+            // Tree-mode: Overlay has no chrome of its own; return empty.
+            return Segments::new();
+        }
+        if !self.visible {
+            return self.base.render_styled(console, options);
+        }
+        let base_renderable = WidgetRenderable::new(self.base.as_ref());
+        let modal_renderable = WidgetRenderable::new(self.modal.as_ref());
+        let base = FrameBuffer::from_renderable(console, options, &base_renderable, None);
+        let top = FrameBuffer::from_renderable(console, options, &modal_renderable, None);
+        Self::compose_overlay(&base, &top).to_segments()
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;

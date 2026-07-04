@@ -2,7 +2,8 @@ use std::sync::OnceLock;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
-use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
+use rich_rs::{Console, ConsoleOptions, Segment, Segments};
+use textual_macros::widget;
 
 use crate::compose::ComposeResult;
 use crate::css;
@@ -16,6 +17,7 @@ use crate::node_id::NodeId;
 use crate::style::parse_color_like;
 use crate::widgets::{NodeSeed, ScrollBar, ScrollBarCorner, Widget, scrollbar_max_offset};
 
+#[widget(Interactive, Layout, Scrollable, StyleIdentity)]
 pub struct AppRoot {
     children: Vec<Box<dyn Widget>>,
     children_extracted: bool,
@@ -278,113 +280,7 @@ impl Default for AppRoot {
     }
 }
 
-impl Widget for AppRoot {
-    fn compose(&mut self) -> ComposeResult {
-        self.children_extracted = true;
-        // User children first (with their with_compose id/class/handle-sink
-        // metadata folded into each ChildDecl), then the dedicated scrollbar
-        // lanes appended after — their positions never collide with the
-        // user-children-keyed metadata.
-        let mut decls = crate::compose::zip_child_decls(
-            std::mem::take(&mut self.children),
-            std::mem::take(&mut self.child_decl_meta),
-            std::mem::take(&mut self.child_handle_sinks),
-        );
-
-        let mut vbar = ScrollBar::new(true, 2);
-        vbar.seed.css_id = Some(APP_ROOT_VSCROLLBAR_ID.to_string());
-        decls.push(crate::compose::ChildDecl::new(Box::new(vbar)));
-
-        let mut hbar = ScrollBar::new(false, 1);
-        hbar.seed.css_id = Some(APP_ROOT_HSCROLLBAR_ID.to_string());
-        decls.push(crate::compose::ChildDecl::new(Box::new(hbar)));
-
-        let mut corner = ScrollBarCorner::new();
-        corner.seed.css_id = Some(APP_ROOT_SCROLLBAR_CORNER_ID.to_string());
-        decls.push(crate::compose::ChildDecl::new(Box::new(corner)));
-
-        // System child: the docked notification stack (Python mounts a ToastRack
-        // on every screen). Starts `display: none` (its default CSS) and floats on
-        // the `_toastrack` layer above app content; `App::notify` -> the rack's
-        // `sync` turns it on and mounts real Toast children.
-        let rack = crate::widgets::ToastRack::new();
-        decls.push(
-            crate::compose::ChildDecl::new(Box::new(rack)).with_id(APP_ROOT_TOAST_RACK_ID),
-        );
-
-        decls
-    }
-
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        let _ = console;
-        let width = options.size.0.max(1);
-        let height = options.size.1.max(1);
-
-        let meta = css::selector_meta_generic(self);
-        let resolved = css::resolve_style(self, &meta);
-        let raw_viewport_w = self.viewport_width.load(Ordering::Relaxed);
-        let raw_viewport_h = self.viewport_height.load(Ordering::Relaxed);
-        let viewport_w = if raw_viewport_w == 0 {
-            width
-        } else {
-            raw_viewport_w
-        }
-        .max(1);
-        let viewport_h = if raw_viewport_h == 0 {
-            height
-        } else {
-            raw_viewport_h
-        }
-        .max(1);
-        let content_w = self.content_width.load(Ordering::Relaxed).max(1);
-        let content_h = self.content_height.load(Ordering::Relaxed).max(1);
-        let clamped_offset_x = scrollbar_clamp_offset_f32(self.offset_x, content_w, viewport_w);
-        let clamped_offset_y = scrollbar_clamp_offset_f32(self.offset_y, content_h, viewport_h);
-        if scrollbar_drag_trace_enabled() {
-            debug_input(&format!(
-                "[app-root-geom] self=0x{:x} node={} widget={}x{} content={}x{} viewport={}x{} offsets=({:.3}, {:.3})",
-                self as *const _ as usize,
-                crate::node_id::node_id_to_ffi(self.node_id()),
-                width,
-                height,
-                content_w,
-                content_h,
-                viewport_w,
-                viewport_h,
-                clamped_offset_x,
-                clamped_offset_y
-            ));
-        }
-
-        // App/screen baseline surface is a concrete blank renderable using
-        // the resolved background.
-        let bg = resolved
-            .bg
-            .or_else(|| parse_color_like("$background"))
-            .unwrap_or_else(|| crate::style::Color::rgb(0, 0, 0));
-        let base_style = rich_rs::Style::new().with_bgcolor(bg.to_simple_opaque());
-
-        let mut out = Segments::new();
-        for row in 0..height {
-            out.push(Segment::styled(" ".repeat(width), base_style));
-
-            if row + 1 < height {
-                out.push(Segment::line());
-            }
-        }
-
-        out
-    }
-
-    fn render_with_debug(
-        &self,
-        console: &Console,
-        options: &ConsoleOptions,
-        _debug: &DebugLayout,
-    ) -> Segments {
-        Widget::render(self, console, options)
-    }
-
+impl crate::widgets::Interactive for AppRoot {
     fn on_mount(&mut self, _ctx: &mut crate::event::WidgetCtx) {}
 
     fn on_unmount(&mut self) {}
@@ -392,7 +288,7 @@ impl Widget for AppRoot {
     fn on_tick(&mut self, _tick: u64) {}
 
     fn on_resize(&mut self, width: u16, height: u16) {
-        self.on_layout(width, height);
+        crate::widgets::Interactive::on_layout(self, width, height);
     }
 
     fn on_layout(&mut self, width: u16, height: u16) {
@@ -412,10 +308,6 @@ impl Widget for AppRoot {
             ));
         }
         self.clamp_offsets();
-    }
-
-    fn set_virtual_content_size(&mut self, width: usize, height: usize) {
-        AppRoot::set_virtual_content_size(self, width, height);
     }
 
     fn on_event_capture(&mut self, _event: &Event, _ctx: &mut crate::event::WidgetCtx) {}
@@ -523,6 +415,27 @@ impl Widget for AppRoot {
         ctx.set_handled();
     }
 
+    fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {
+        let _ = (x, y);
+        false
+    }
+}
+
+impl crate::widgets::Layout for AppRoot {
+    fn set_virtual_content_size(&mut self, width: usize, height: usize) {
+        AppRoot::set_virtual_content_size(self, width, height);
+    }
+
+    fn layout_height(&self) -> Option<usize> {
+        None
+    }
+
+    fn content_width(&self) -> Option<usize> {
+        None
+    }
+}
+
+impl crate::widgets::Scrollable for AppRoot {
     fn on_mouse_scroll(&mut self, delta_x: i32, delta_y: i32, ctx: &mut crate::event::WidgetCtx) {
         let before_x = self.offset_x;
         let before_y = self.offset_y;
@@ -542,19 +455,6 @@ impl Widget for AppRoot {
             ctx.request_layout_invalidation();
             ctx.set_handled();
         }
-    }
-
-    fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {
-        let _ = (x, y);
-        false
-    }
-
-    fn layout_height(&self) -> Option<usize> {
-        None
-    }
-
-    fn content_width(&self) -> Option<usize> {
-        None
     }
 
     fn scroll_offset(&self) -> (usize, usize) {
@@ -598,16 +498,126 @@ impl Widget for AppRoot {
             Some((viewport_w.max(1), viewport_h.max(1)))
         }
     }
+}
+
+impl crate::widgets::StyleIdentity for AppRoot {
+    fn take_node_seed(&mut self) -> NodeSeed {
+        std::mem::take(&mut self.seed)
+    }
 
     fn set_inline_style(&mut self, style: crate::style::Style) {
         self.seed.styles.style = style;
     }
 
-    fn take_node_seed(&mut self) -> NodeSeed {
-        std::mem::take(&mut self.seed)
+    crate::seed_style_identity_methods!();
+}
+
+impl crate::widgets::Render for AppRoot {
+    fn compose(&mut self) -> ComposeResult {
+        self.children_extracted = true;
+        // User children first (with their with_compose id/class/handle-sink
+        // metadata folded into each ChildDecl), then the dedicated scrollbar
+        // lanes appended after — their positions never collide with the
+        // user-children-keyed metadata.
+        let mut decls = crate::compose::zip_child_decls(
+            std::mem::take(&mut self.children),
+            std::mem::take(&mut self.child_decl_meta),
+            std::mem::take(&mut self.child_handle_sinks),
+        );
+
+        let mut vbar = ScrollBar::new(true, 2);
+        vbar.seed.css_id = Some(APP_ROOT_VSCROLLBAR_ID.to_string());
+        decls.push(crate::compose::ChildDecl::new(Box::new(vbar)));
+
+        let mut hbar = ScrollBar::new(false, 1);
+        hbar.seed.css_id = Some(APP_ROOT_HSCROLLBAR_ID.to_string());
+        decls.push(crate::compose::ChildDecl::new(Box::new(hbar)));
+
+        let mut corner = ScrollBarCorner::new();
+        corner.seed.css_id = Some(APP_ROOT_SCROLLBAR_CORNER_ID.to_string());
+        decls.push(crate::compose::ChildDecl::new(Box::new(corner)));
+
+        // System child: the docked notification stack (Python mounts a ToastRack
+        // on every screen). Starts `display: none` (its default CSS) and floats on
+        // the `_toastrack` layer above app content; `App::notify` -> the rack's
+        // `sync` turns it on and mounts real Toast children.
+        let rack = crate::widgets::ToastRack::new();
+        decls.push(
+            crate::compose::ChildDecl::new(Box::new(rack)).with_id(APP_ROOT_TOAST_RACK_ID),
+        );
+
+        decls
     }
 
-    crate::seed_style_identity_methods!();
+    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        let _ = console;
+        let width = options.size.0.max(1);
+        let height = options.size.1.max(1);
+
+        let meta = css::selector_meta_generic(self);
+        let resolved = css::resolve_style(self, &meta);
+        let raw_viewport_w = self.viewport_width.load(Ordering::Relaxed);
+        let raw_viewport_h = self.viewport_height.load(Ordering::Relaxed);
+        let viewport_w = if raw_viewport_w == 0 {
+            width
+        } else {
+            raw_viewport_w
+        }
+        .max(1);
+        let viewport_h = if raw_viewport_h == 0 {
+            height
+        } else {
+            raw_viewport_h
+        }
+        .max(1);
+        let content_w = self.content_width.load(Ordering::Relaxed).max(1);
+        let content_h = self.content_height.load(Ordering::Relaxed).max(1);
+        let clamped_offset_x = scrollbar_clamp_offset_f32(self.offset_x, content_w, viewport_w);
+        let clamped_offset_y = scrollbar_clamp_offset_f32(self.offset_y, content_h, viewport_h);
+        if scrollbar_drag_trace_enabled() {
+            debug_input(&format!(
+                "[app-root-geom] self=0x{:x} node={} widget={}x{} content={}x{} viewport={}x{} offsets=({:.3}, {:.3})",
+                self as *const _ as usize,
+                crate::node_id::node_id_to_ffi(self.node_id()),
+                width,
+                height,
+                content_w,
+                content_h,
+                viewport_w,
+                viewport_h,
+                clamped_offset_x,
+                clamped_offset_y
+            ));
+        }
+
+        // App/screen baseline surface is a concrete blank renderable using
+        // the resolved background.
+        let bg = resolved
+            .bg
+            .or_else(|| parse_color_like("$background"))
+            .unwrap_or_else(|| crate::style::Color::rgb(0, 0, 0));
+        let base_style = rich_rs::Style::new().with_bgcolor(bg.to_simple_opaque());
+
+        let mut out = Segments::new();
+        for row in 0..height {
+            out.push(Segment::styled(" ".repeat(width), base_style));
+
+            if row + 1 < height {
+                out.push(Segment::line());
+            }
+        }
+
+        out
+    }
+
+    fn render_with_debug(
+        &self,
+        console: &Console,
+        options: &ConsoleOptions,
+        _debug: &DebugLayout,
+    ) -> Segments {
+        Widget::render(self, console, options)
+    }
 
     fn style_type(&self) -> &'static str {
         "Screen"
@@ -617,13 +627,6 @@ impl Widget for AppRoot {
         APP_ROOT_TYPE_ALIASES
     }
 }
-
-impl Renderable for AppRoot {
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        Widget::render(self, console, options)
-    }
-}
-
 #[cfg(test)]
 mod focus_tests {
     use super::*;

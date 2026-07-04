@@ -1,4 +1,5 @@
-use rich_rs::{Console, ConsoleOptions, Renderable, Segments};
+use rich_rs::{Console, ConsoleOptions, Segments};
+use textual_macros::widget;
 
 use crate::debug::DebugLayout;
 use crate::event::Event;
@@ -7,6 +8,7 @@ use crate::style::Style;
 
 use crate::widgets::{LayoutConstraints, NodeSeed, Spacer, Widget};
 
+#[widget(Focus, Interactive, Layout, Scrollable, StyleIdentity)]
 pub struct Styled {
     child: Box<dyn Widget>,
     seed: NodeSeed,
@@ -36,7 +38,71 @@ impl Styled {
     }
 }
 
-impl Widget for Styled {
+impl crate::widgets::Focus for Styled {
+    fn focusable(&self) -> bool {
+        false
+    }
+}
+
+impl crate::widgets::Interactive for Styled {
+    fn on_mount(&mut self, _ctx: &mut crate::event::WidgetCtx) {}
+
+    fn on_unmount(&mut self) {}
+
+    fn on_tick(&mut self, _tick: u64) {}
+
+    fn on_resize(&mut self, _width: u16, _height: u16) {}
+
+    fn on_layout(&mut self, _width: u16, _height: u16) {}
+
+    fn on_event_capture(&mut self, _event: &Event, _ctx: &mut crate::event::WidgetCtx) {}
+
+    fn on_event(&mut self, _event: &Event, _ctx: &mut crate::event::WidgetCtx) {}
+
+    fn on_message(&mut self, _message: &MessageEvent, _ctx: &mut crate::event::WidgetCtx) {}
+}
+
+impl crate::widgets::Layout for Styled {
+    fn layout_height(&self) -> Option<usize> {
+        let constraints = self.seed_constraints();
+        if let (Some(min), Some(max)) = (constraints.min_height, constraints.max_height) {
+            if min == max {
+                return Some(min);
+            }
+        }
+        self.child.layout_height()
+    }
+
+    fn style(&self) -> Option<Style> {
+        let s = self.seed.styles.style.clone();
+        if s == Default::default() {
+            None
+        } else {
+            Some(s)
+        }
+    }
+}
+
+impl crate::widgets::Scrollable for Styled {
+    fn on_mouse_scroll(&mut self, _delta_x: i32, _delta_y: i32, _ctx: &mut crate::event::WidgetCtx) {}
+}
+
+impl crate::widgets::StyleIdentity for Styled {
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        // Merge incoming layout hints (dock, height, box_sizing) with the
+        // existing widget style (borders, bg, etc.) so neither loses its
+        // properties. The incoming style's fields win only where they are set.
+        self.seed.styles.style = self.seed.styles.style.combine(&style);
+    }
+
+    fn take_node_seed(&mut self) -> NodeSeed {
+        std::mem::take(&mut self.seed)
+    }
+
+    crate::seed_style_identity_methods!();
+}
+
+impl crate::widgets::Render for Styled {
     fn compose(&mut self) -> crate::compose::ComposeResult {
         if self.child_extracted {
             return Vec::new();
@@ -61,71 +127,10 @@ impl Widget for Styled {
         Segments::new()
     }
 
-    fn on_mount(&mut self, _ctx: &mut crate::event::WidgetCtx) {}
-
-    fn on_unmount(&mut self) {}
-
-    fn on_tick(&mut self, _tick: u64) {}
-
-    fn on_resize(&mut self, _width: u16, _height: u16) {}
-
-    fn on_layout(&mut self, _width: u16, _height: u16) {}
-
-    fn on_event_capture(&mut self, _event: &Event, _ctx: &mut crate::event::WidgetCtx) {}
-
-    fn on_event(&mut self, _event: &Event, _ctx: &mut crate::event::WidgetCtx) {}
-
-    fn on_message(&mut self, _message: &MessageEvent, _ctx: &mut crate::event::WidgetCtx) {}
-
-    fn on_mouse_scroll(&mut self, _delta_x: i32, _delta_y: i32, _ctx: &mut crate::event::WidgetCtx) {}
-
-    fn focusable(&self) -> bool {
-        false
-    }
-
-    fn layout_height(&self) -> Option<usize> {
-        let constraints = self.seed_constraints();
-        if let (Some(min), Some(max)) = (constraints.min_height, constraints.max_height) {
-            if min == max {
-                return Some(min);
-            }
-        }
-        self.child.layout_height()
-    }
-
-    fn style(&self) -> Option<Style> {
-        let s = self.seed.styles.style.clone();
-        if s == Default::default() {
-            None
-        } else {
-            Some(s)
-        }
-    }
-
     fn style_type(&self) -> &'static str {
         "Styled"
     }
-
-    fn set_inline_style(&mut self, style: crate::style::Style) {
-        // Merge incoming layout hints (dock, height, box_sizing) with the
-        // existing widget style (borders, bg, etc.) so neither loses its
-        // properties. The incoming style's fields win only where they are set.
-        self.seed.styles.style = self.seed.styles.style.combine(&style);
-    }
-
-    fn take_node_seed(&mut self) -> NodeSeed {
-        std::mem::take(&mut self.seed)
-    }
-
-    crate::seed_style_identity_methods!();
 }
-
-impl Renderable for Styled {
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        Widget::render(self, console, options)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

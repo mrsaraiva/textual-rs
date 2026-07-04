@@ -1,4 +1,5 @@
-use rich_rs::{Console, ConsoleOptions, Renderable, Segments};
+use rich_rs::{Console, ConsoleOptions, Segments};
+use textual_macros::widget;
 
 use crate::event::{BindingHint, Event};
 use crate::message::*;
@@ -11,6 +12,7 @@ use super::{FooterBinding, KeyPanel, Markdown, NodeSeed, Overlay, Widget, Widget
 /// Composes an optional markdown help section above a `KeyPanel` and relies on the shared
 /// overlay compositor for deterministic layer composition.
 #[derive(Debug)]
+#[widget(Focus, Interactive, Layout)]
 pub struct HelpPanel {
     markdown: Markdown,
     key_panel: KeyPanel,
@@ -105,49 +107,13 @@ impl HelpPanel {
     }
 }
 
-impl Widget for HelpPanel {
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        let width = options.size.0.max(1);
-        let height = options.size.1.max(1);
-
-        let mut merged = FrameBuffer::new(width, height, None);
-        let (help_height, keys_height) = self.split_heights(width, height);
-
-        if help_height > 0 {
-            let mut help_options = options.clone();
-            help_options.size = (width, help_height);
-            help_options.max_width = width;
-            help_options.max_height = help_height;
-            // Render the help markup through the rich-rs markdown renderer directly. The
-            // textual `Markdown` widget is compose-only — its `render()` returns empty
-            // segments and its content lives in composed children rendered by the tree
-            // engine — so rendering it via `from_renderable` here produces nothing.
-            // `self.markdown` is still used for height/layout (`split_heights`) and CSS state.
-            let help_markdown = rich_rs::markdown::Markdown::new(self.help_markup.clone());
-            let help = FrameBuffer::from_renderable(console, &help_options, &help_markdown, None);
-            Overlay::compose_overlay_at(&mut merged, &help, 0, 0);
-        }
-
-        let mut keys_options = options.clone();
-        keys_options.size = (width, keys_height);
-        keys_options.max_width = width;
-        keys_options.max_height = keys_height;
-        let keys_renderable = WidgetRenderable::new(&self.key_panel);
-        let keys = FrameBuffer::from_renderable(console, &keys_options, &keys_renderable, None);
-        Overlay::compose_overlay_at(&mut merged, &keys, 0, help_height);
-
-        merged.to_segments()
+impl crate::widgets::Focus for HelpPanel {
+    fn mouse_interactive(&self) -> bool {
+        true
     }
+}
 
-    fn layout_height(&self) -> Option<usize> {
-        if self.show_help {
-            let markdown_height = self.markdown.layout_height().unwrap_or(1).max(1);
-            let key_panel_height = self.key_panel.layout_height().unwrap_or(1).max(1);
-            return Some(markdown_height.saturating_add(key_panel_height));
-        }
-        self.key_panel.layout_height().or(Some(1))
-    }
-
+impl crate::widgets::Interactive for HelpPanel {
     fn on_layout(&mut self, width: u16, height: u16) {
         let width = usize::from(width).max(1);
         let height = usize::from(height).max(1);
@@ -245,30 +211,57 @@ impl Widget for HelpPanel {
             self.key_panel.on_message(message, ctx);
         }
     }
+}
 
-    fn mouse_interactive(&self) -> bool {
-        true
+impl crate::widgets::Layout for HelpPanel {
+    fn layout_height(&self) -> Option<usize> {
+        if self.show_help {
+            let markdown_height = self.markdown.layout_height().unwrap_or(1).max(1);
+            let key_panel_height = self.key_panel.layout_height().unwrap_or(1).max(1);
+            return Some(markdown_height.saturating_add(key_panel_height));
+        }
+        self.key_panel.layout_height().or(Some(1))
+    }
+}
+
+impl crate::widgets::Render for HelpPanel {
+    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        let width = options.size.0.max(1);
+        let height = options.size.1.max(1);
+
+        let mut merged = FrameBuffer::new(width, height, None);
+        let (help_height, keys_height) = self.split_heights(width, height);
+
+        if help_height > 0 {
+            let mut help_options = options.clone();
+            help_options.size = (width, help_height);
+            help_options.max_width = width;
+            help_options.max_height = help_height;
+            // Render the help markup through the rich-rs markdown renderer directly. The
+            // textual `Markdown` widget is compose-only — its `render()` returns empty
+            // segments and its content lives in composed children rendered by the tree
+            // engine — so rendering it via `from_renderable` here produces nothing.
+            // `self.markdown` is still used for height/layout (`split_heights`) and CSS state.
+            let help_markdown = rich_rs::markdown::Markdown::new(self.help_markup.clone());
+            let help = FrameBuffer::from_renderable(console, &help_options, &help_markdown, None);
+            Overlay::compose_overlay_at(&mut merged, &help, 0, 0);
+        }
+
+        let mut keys_options = options.clone();
+        keys_options.size = (width, keys_height);
+        keys_options.max_width = width;
+        keys_options.max_height = keys_height;
+        let keys_renderable = WidgetRenderable::new(&self.key_panel);
+        let keys = FrameBuffer::from_renderable(console, &keys_options, &keys_renderable, None);
+        Overlay::compose_overlay_at(&mut merged, &keys, 0, help_height);
+
+        merged.to_segments()
     }
 
     fn style_type(&self) -> &'static str {
         "HelpPanel"
     }
-
-    fn set_inline_style(&mut self, style: crate::style::Style) {
-        self.seed.styles.style = style;
-    }
-
-    fn take_node_seed(&mut self) -> NodeSeed {
-        std::mem::take(&mut self.seed)
-    }
 }
-
-impl Renderable for HelpPanel {
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        Widget::render(self, console, options)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

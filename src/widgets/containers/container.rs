@@ -1,6 +1,7 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
+use rich_rs::{Console, ConsoleOptions, Segment, Segments};
+use textual_macros::widget;
 
 use crate::compose::ComposeResult;
 use crate::css;
@@ -26,6 +27,7 @@ fn clamp_offset_f32(offset: f32, content_len: usize, viewport_len: usize) -> f32
     offset.clamp(0.0, max)
 }
 
+#[widget(Interactive, Layout, Scrollable, StyleIdentity)]
 pub struct Container {
     children: Vec<Box<dyn Widget>>,
     children_extracted: bool,
@@ -226,99 +228,7 @@ impl Container {
     }
 }
 
-impl Widget for Container {
-    fn compose(&mut self) -> ComposeResult {
-        // Idempotent: only the first drain yields declared children. Re-draining
-        // yields nothing (the arena tree owns the mounted nodes after the first
-        // pass) — this is why a plain container must NEVER self-request recompose.
-        //
-        // NOTE: scrollbar lanes are NOT injected here. Whether a plain container
-        // scrolls depends on its CSS-resolved `overflow`, which is unknown at
-        // compose time (it can be set by an external stylesheet). The runtime
-        // lazily mounts the lanes during the layout pass once overflow resolves
-        // (`ensure_container_scrollbar_lanes` in `runtime::render`), so a
-        // non-scrolling `overflow: hidden` container keeps a clean child list.
-        //
-        // Each child's `with_compose` id/class/handle-sink metadata is folded
-        // back into its `ChildDecl` here (the single child-declaration path).
-        if self.children_extracted {
-            return Vec::new();
-        }
-        self.children_extracted = true;
-        crate::compose::zip_child_decls(
-            std::mem::take(&mut self.children),
-            std::mem::take(&mut self.child_decl_meta),
-            std::mem::take(&mut self.child_handle_sinks),
-        )
-    }
-
-    fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
-        let width = options.size.0.max(1);
-        let height_limit = options.size.1.max(1);
-
-        // Chrome-only render. Children are rendered through the arena tree.
-        let meta = css::selector_meta_generic(self);
-        let resolved = css::resolve_style(self, &meta);
-        let paints_surface = resolved.bg.is_some()
-            || resolved.hatch.is_some()
-            || resolved.border_top.is_set()
-            || resolved.border_right.is_set()
-            || resolved.border_bottom.is_set()
-            || resolved.border_left.is_set()
-            || resolved.outline_top.is_set()
-            || resolved.outline_right.is_set()
-            || resolved.outline_bottom.is_set()
-            || resolved.outline_left.is_set();
-        if !paints_surface {
-            return Segments::new();
-        }
-
-        let lines = vec![vec![Segment::new(" ".repeat(width))]; height_limit];
-        let line_count = lines.len();
-        let mut out = Segments::new();
-        for (idx, line) in lines.into_iter().enumerate() {
-            out.extend(line);
-            if idx + 1 < line_count {
-                out.push(Segment::line());
-            }
-        }
-        out
-    }
-
-    fn render_with_debug(
-        &self,
-        console: &Console,
-        options: &ConsoleOptions,
-        debug: &DebugLayout,
-    ) -> Segments {
-        let rendered = Widget::render(self, console, options);
-        let width = options.size.0.max(1);
-        let height_limit = options.size.1.max(1);
-        let mut lines = Segment::split_and_crop_lines(rendered, width, None, true, false);
-        lines = Segment::set_shape(&lines, width, Some(height_limit), None, false);
-        let label = if debug.show_sizes {
-            Some(format!("{width}x{height_limit}"))
-        } else {
-            None
-        };
-        let boxed = apply_debug_box(
-            lines,
-            width,
-            height_limit,
-            label.as_deref(),
-            debug.style_for(0),
-        );
-        let line_count = boxed.len();
-        let mut out = Segments::new();
-        for (idx, line) in boxed.into_iter().enumerate() {
-            out.extend(line);
-            if idx + 1 < line_count {
-                out.push(Segment::line());
-            }
-        }
-        out
-    }
-
+impl crate::widgets::Interactive for Container {
     fn on_mount(&mut self, _ctx: &mut crate::event::WidgetCtx) {}
 
     fn on_unmount(&mut self) {}
@@ -418,29 +328,12 @@ impl Widget for Container {
         ctx.set_handled();
     }
 
-    fn on_mouse_scroll(&mut self, delta_x: i32, delta_y: i32, ctx: &mut crate::event::WidgetCtx) {
-        if !self.is_scroll_host() {
-            return;
-        }
-        let before_x = self.offset_x;
-        let before_y = self.offset_y;
-        if delta_y != 0 && self.scrollable_y() {
-            self.offset_y += delta_y.saturating_mul(self.scroll_step_y as i32) as f32;
-        }
-        if delta_x != 0 && self.scrollable_x() {
-            self.offset_x += delta_x.saturating_mul(self.scroll_step_x as i32) as f32;
-        }
-        self.clamp_offsets();
-        if self.offset_x != before_x || self.offset_y != before_y {
-            ctx.request_layout_invalidation();
-            ctx.set_handled();
-        }
-    }
-
     fn on_mouse_move(&mut self, _x: u16, _y: u16) -> bool {
         false
     }
+}
 
+impl crate::widgets::Layout for Container {
     fn layout_height(&self) -> Option<usize> {
         if self.children_extracted {
             return None;
@@ -474,8 +367,44 @@ impl Widget for Container {
         self.content_height.store(height.max(1), Ordering::Relaxed);
     }
 
+    fn clips_descendants_to_content(&self) -> bool {
+        // Only clip when actually scrolling; a non-scrolling plain container
+        // keeps its historical (non-clipping) behavior so the `node_has_gutter`
+        // / border-padding clip path in the runtime stays the sole authority.
+        self.is_scroll_host()
+    }
+
+    fn style(&self) -> Option<crate::style::Style> {
+        if self.seed.styles.style != Default::default() {
+            Some(self.seed.styles.style.clone())
+        } else {
+            None
+        }
+    }
+}
+
+impl crate::widgets::Scrollable for Container {
+    fn on_mouse_scroll(&mut self, delta_x: i32, delta_y: i32, ctx: &mut crate::event::WidgetCtx) {
+        if !self.is_scroll_host() {
+            return;
+        }
+        let before_x = self.offset_x;
+        let before_y = self.offset_y;
+        if delta_y != 0 && self.scrollable_y() {
+            self.offset_y += delta_y.saturating_mul(self.scroll_step_y as i32) as f32;
+        }
+        if delta_x != 0 && self.scrollable_x() {
+            self.offset_x += delta_x.saturating_mul(self.scroll_step_x as i32) as f32;
+        }
+        self.clamp_offsets();
+        if self.offset_x != before_x || self.offset_y != before_y {
+            ctx.request_layout_invalidation();
+            ctx.set_handled();
+        }
+    }
+
     fn scroll_offset(&self) -> (usize, usize) {
-        let (x, y) = self.scroll_offset_f32();
+        let (x, y) = crate::widgets::Scrollable::scroll_offset_f32(self);
         (x.round() as usize, y.round() as usize)
     }
 
@@ -518,31 +447,112 @@ impl Widget for Container {
             Some((cw, ch))
         }
     }
+}
 
-    fn clips_descendants_to_content(&self) -> bool {
-        // Only clip when actually scrolling; a non-scrolling plain container
-        // keeps its historical (non-clipping) behavior so the `node_has_gutter`
-        // / border-padding clip path in the runtime stays the sole authority.
-        self.is_scroll_host()
-    }
-
-    fn style(&self) -> Option<crate::style::Style> {
-        if self.seed.styles.style != Default::default() {
-            Some(self.seed.styles.style.clone())
-        } else {
-            None
-        }
+impl crate::widgets::StyleIdentity for Container {
+    fn take_node_seed(&mut self) -> NodeSeed {
+        std::mem::take(&mut self.seed)
     }
 
     fn set_inline_style(&mut self, style: crate::style::Style) {
         self.seed.styles.style = style;
     }
 
-    fn take_node_seed(&mut self) -> NodeSeed {
-        std::mem::take(&mut self.seed)
+    crate::seed_style_identity_methods!();
+}
+
+impl crate::widgets::Render for Container {
+    fn compose(&mut self) -> ComposeResult {
+        // Idempotent: only the first drain yields declared children. Re-draining
+        // yields nothing (the arena tree owns the mounted nodes after the first
+        // pass) — this is why a plain container must NEVER self-request recompose.
+        //
+        // NOTE: scrollbar lanes are NOT injected here. Whether a plain container
+        // scrolls depends on its CSS-resolved `overflow`, which is unknown at
+        // compose time (it can be set by an external stylesheet). The runtime
+        // lazily mounts the lanes during the layout pass once overflow resolves
+        // (`ensure_container_scrollbar_lanes` in `runtime::render`), so a
+        // non-scrolling `overflow: hidden` container keeps a clean child list.
+        //
+        // Each child's `with_compose` id/class/handle-sink metadata is folded
+        // back into its `ChildDecl` here (the single child-declaration path).
+        if self.children_extracted {
+            return Vec::new();
+        }
+        self.children_extracted = true;
+        crate::compose::zip_child_decls(
+            std::mem::take(&mut self.children),
+            std::mem::take(&mut self.child_decl_meta),
+            std::mem::take(&mut self.child_handle_sinks),
+        )
     }
 
-    crate::seed_style_identity_methods!();
+    fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
+        let width = options.size.0.max(1);
+        let height_limit = options.size.1.max(1);
+
+        // Chrome-only render. Children are rendered through the arena tree.
+        let meta = css::selector_meta_generic(self);
+        let resolved = css::resolve_style(self, &meta);
+        let paints_surface = resolved.bg.is_some()
+            || resolved.hatch.is_some()
+            || resolved.border_top.is_set()
+            || resolved.border_right.is_set()
+            || resolved.border_bottom.is_set()
+            || resolved.border_left.is_set()
+            || resolved.outline_top.is_set()
+            || resolved.outline_right.is_set()
+            || resolved.outline_bottom.is_set()
+            || resolved.outline_left.is_set();
+        if !paints_surface {
+            return Segments::new();
+        }
+
+        let lines = vec![vec![Segment::new(" ".repeat(width))]; height_limit];
+        let line_count = lines.len();
+        let mut out = Segments::new();
+        for (idx, line) in lines.into_iter().enumerate() {
+            out.extend(line);
+            if idx + 1 < line_count {
+                out.push(Segment::line());
+            }
+        }
+        out
+    }
+
+    fn render_with_debug(
+        &self,
+        console: &Console,
+        options: &ConsoleOptions,
+        debug: &DebugLayout,
+    ) -> Segments {
+        let rendered = Widget::render(self, console, options);
+        let width = options.size.0.max(1);
+        let height_limit = options.size.1.max(1);
+        let mut lines = Segment::split_and_crop_lines(rendered, width, None, true, false);
+        lines = Segment::set_shape(&lines, width, Some(height_limit), None, false);
+        let label = if debug.show_sizes {
+            Some(format!("{width}x{height_limit}"))
+        } else {
+            None
+        };
+        let boxed = apply_debug_box(
+            lines,
+            width,
+            height_limit,
+            label.as_deref(),
+            debug.style_for(0),
+        );
+        let line_count = boxed.len();
+        let mut out = Segments::new();
+        for (idx, line) in boxed.into_iter().enumerate() {
+            out.extend(line);
+            if idx + 1 < line_count {
+                out.push(Segment::line());
+            }
+        }
+        out
+    }
 
     fn border_title(&self) -> Option<&str> {
         self.border_title.as_deref()
@@ -552,13 +562,6 @@ impl Widget for Container {
         self.border_subtitle.as_deref()
     }
 }
-
-impl Renderable for Container {
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        Widget::render(self, console, options)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

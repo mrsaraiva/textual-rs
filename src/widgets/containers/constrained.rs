@@ -1,4 +1,5 @@
-use rich_rs::{Console, ConsoleOptions, Renderable, Segments};
+use rich_rs::{Console, ConsoleOptions, Segments};
+use textual_macros::widget;
 
 use crate::debug::DebugLayout;
 use crate::event::Event;
@@ -9,6 +10,7 @@ use crate::widgets::{
     helpers::{clamp_with_constraints, merge_constraints},
 };
 
+#[widget(Focus, Interactive, Layout, StyleIdentity)]
 pub struct Constrained {
     child: Box<dyn Widget>,
     constraints: LayoutConstraints,
@@ -57,56 +59,13 @@ impl Constrained {
     }
 }
 
-impl Widget for Constrained {
-    fn clips_descendants_to_content(&self) -> bool {
-        true
+impl crate::widgets::Focus for Constrained {
+    fn focusable(&self) -> bool {
+        !self.child_extracted && self.child.focusable()
     }
+}
 
-    fn compose(&mut self) -> crate::compose::ComposeResult {
-        if self.child_extracted {
-            return Vec::new();
-        }
-        self.child_extracted = true;
-        self.extracted_child_layout_height = self.child.layout_height();
-        self.extracted_child_content_width = self.child.content_width();
-        let child = std::mem::replace(&mut self.child, Box::new(Spacer::new(1)));
-        vec![crate::compose::ChildDecl::new(child)]
-    }
-
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        if self.child_extracted {
-            return Segments::new();
-        }
-        let constraints = self.seed_constraints();
-        let width = clamp_with_constraints(
-            options.size.0.max(1),
-            constraints.min_width,
-            constraints.max_width,
-            options.size.0.max(1),
-        );
-        let height = clamp_with_constraints(
-            options.size.1.max(1),
-            constraints.min_height,
-            constraints.max_height,
-            options.size.1.max(1),
-        );
-
-        let mut child_options = options.clone();
-        child_options.size = (width, height);
-        child_options.max_width = width;
-        child_options.max_height = height;
-        self.child.render_styled(console, &child_options)
-    }
-
-    fn render_with_debug(
-        &self,
-        console: &Console,
-        options: &ConsoleOptions,
-        _debug: &DebugLayout,
-    ) -> Segments {
-        Widget::render(self, console, options)
-    }
-
+impl crate::widgets::Interactive for Constrained {
     fn on_mount(&mut self, ctx: &mut crate::event::WidgetCtx) {
         if !self.child_extracted {
             self.child.on_mount(ctx);
@@ -168,9 +127,11 @@ impl Widget for Constrained {
             self.child.on_message(message, ctx);
         }
     }
+}
 
-    fn focusable(&self) -> bool {
-        !self.child_extracted && self.child.focusable()
+impl crate::widgets::Layout for Constrained {
+    fn clips_descendants_to_content(&self) -> bool {
+        true
     }
 
     fn layout_height(&self) -> Option<usize> {
@@ -211,24 +172,66 @@ impl Widget for Constrained {
         }
         self.child.content_width()
     }
+}
+
+impl crate::widgets::StyleIdentity for Constrained {
+    fn take_node_seed(&mut self) -> NodeSeed {
+        std::mem::take(&mut self.seed)
+    }
 
     fn set_inline_style(&mut self, style: crate::style::Style) {
         self.seed.styles.style = style;
     }
 
-    fn take_node_seed(&mut self) -> NodeSeed {
-        std::mem::take(&mut self.seed)
-    }
-
     crate::seed_style_identity_methods!();
 }
 
-impl Renderable for Constrained {
+impl crate::widgets::Render for Constrained {
+    fn compose(&mut self) -> crate::compose::ComposeResult {
+        if self.child_extracted {
+            return Vec::new();
+        }
+        self.child_extracted = true;
+        self.extracted_child_layout_height = self.child.layout_height();
+        self.extracted_child_content_width = self.child.content_width();
+        let child = std::mem::replace(&mut self.child, Box::new(Spacer::new(1)));
+        vec![crate::compose::ChildDecl::new(child)]
+    }
+
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        if self.child_extracted {
+            return Segments::new();
+        }
+        let constraints = self.seed_constraints();
+        let width = clamp_with_constraints(
+            options.size.0.max(1),
+            constraints.min_width,
+            constraints.max_width,
+            options.size.0.max(1),
+        );
+        let height = clamp_with_constraints(
+            options.size.1.max(1),
+            constraints.min_height,
+            constraints.max_height,
+            options.size.1.max(1),
+        );
+
+        let mut child_options = options.clone();
+        child_options.size = (width, height);
+        child_options.max_width = width;
+        child_options.max_height = height;
+        self.child.render_styled(console, &child_options)
+    }
+
+    fn render_with_debug(
+        &self,
+        console: &Console,
+        options: &ConsoleOptions,
+        _debug: &DebugLayout,
+    ) -> Segments {
         Widget::render(self, console, options)
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
