@@ -96,7 +96,7 @@ impl HelpPanel {
             return (0, height);
         }
 
-        let markdown_intrinsic = self.markdown.layout_height().unwrap_or(1).max(1);
+        let markdown_intrinsic = crate::widgets::Widget::layout_height(&self.markdown).unwrap_or(1).max(1);
         let max_help = (height / 2).max(1);
         let help_height = markdown_intrinsic
             .min(max_help)
@@ -118,38 +118,38 @@ impl crate::widgets::Interactive for HelpPanel {
         let width = usize::from(width).max(1);
         let height = usize::from(height).max(1);
         let (help_height, keys_height) = self.split_heights(width, height);
-        self.markdown.on_layout(width as u16, help_height as u16);
-        self.key_panel.on_layout(width as u16, keys_height as u16);
+        crate::widgets::Widget::on_layout(&mut self.markdown, width as u16, help_height as u16);
+        crate::widgets::Widget::on_layout(&mut self.key_panel, width as u16, keys_height as u16);
     }
 
     fn on_resize(&mut self, width: u16, height: u16) {
         let width_usize = usize::from(width).max(1);
         let height_usize = usize::from(height).max(1);
         let (help_height, keys_height) = self.split_heights(width_usize, height_usize);
-        self.markdown.on_resize(width, help_height as u16);
-        self.key_panel.on_resize(width, keys_height as u16);
+        crate::widgets::Widget::on_resize(&mut self.markdown, width, help_height as u16);
+        crate::widgets::Widget::on_resize(&mut self.key_panel, width, keys_height as u16);
     }
 
     fn on_mount(&mut self, ctx: &mut crate::event::WidgetCtx) {
-        self.markdown.on_mount(ctx);
-        self.key_panel.on_mount(ctx);
+        crate::widgets::Widget::on_mount(&mut self.markdown, ctx);
+        crate::widgets::Widget::on_mount(&mut self.key_panel, ctx);
     }
 
     fn on_unmount(&mut self) {
         self.app_active = true;
-        self.markdown.on_unmount();
-        self.key_panel.on_unmount();
+        crate::widgets::Widget::on_unmount(&mut self.markdown, );
+        crate::widgets::Widget::on_unmount(&mut self.key_panel, );
     }
 
     fn on_tick(&mut self, tick: u64) {
-        self.markdown.on_tick(tick);
-        self.key_panel.on_tick(tick);
+        crate::widgets::Widget::on_tick(&mut self.markdown, tick);
+        crate::widgets::Widget::on_tick(&mut self.key_panel, tick);
     }
 
     fn on_event_capture(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
-        self.markdown.on_event_capture(event, ctx);
+        crate::widgets::Widget::on_event_capture(&mut self.markdown, event, ctx);
         if !ctx.handled() {
-            self.key_panel.on_event_capture(event, ctx);
+            crate::widgets::Widget::on_event_capture(&mut self.key_panel, event, ctx);
         }
     }
 
@@ -166,9 +166,9 @@ impl crate::widgets::Interactive for HelpPanel {
             }
         }
 
-        self.key_panel.on_event(event, ctx);
+        crate::widgets::Widget::on_event(&mut self.key_panel, event, ctx);
         if !ctx.handled() {
-            self.markdown.on_event(event, ctx);
+            crate::widgets::Widget::on_event(&mut self.markdown, event, ctx);
         }
 
         if let Event::BindingsChanged(hints) = event {
@@ -206,9 +206,9 @@ impl crate::widgets::Interactive for HelpPanel {
             return;
         }
 
-        self.markdown.on_message(message, ctx);
+        crate::widgets::Widget::on_message(&mut self.markdown, message, ctx);
         if !ctx.handled() {
-            self.key_panel.on_message(message, ctx);
+            crate::widgets::Widget::on_message(&mut self.key_panel, message, ctx);
         }
     }
 }
@@ -216,11 +216,11 @@ impl crate::widgets::Interactive for HelpPanel {
 impl crate::widgets::Layout for HelpPanel {
     fn layout_height(&self) -> Option<usize> {
         if self.show_help {
-            let markdown_height = self.markdown.layout_height().unwrap_or(1).max(1);
-            let key_panel_height = self.key_panel.layout_height().unwrap_or(1).max(1);
+            let markdown_height = crate::widgets::Widget::layout_height(&self.markdown).unwrap_or(1).max(1);
+            let key_panel_height = crate::widgets::Widget::layout_height(&self.key_panel).unwrap_or(1).max(1);
             return Some(markdown_height.saturating_add(key_panel_height));
         }
-        self.key_panel.layout_height().or(Some(1))
+        crate::widgets::Widget::layout_height(&self.key_panel).or(Some(1))
     }
 }
 
