@@ -1,5 +1,6 @@
-use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
+use rich_rs::{Console, ConsoleOptions, Segment, Segments};
 use std::sync::atomic::{AtomicUsize, Ordering};
+use textual_macros::widget;
 
 use crate::compose::ComposeResult;
 use crate::css;
@@ -18,6 +19,7 @@ use super::{
 };
 use crate::style::{BoxSizing, Dock as StyleDock, Margin, Scalar};
 
+#[widget(Interactive, StyleIdentity)]
 pub struct Row {
     children: Vec<Box<dyn Widget>>,
     children_extracted: bool,
@@ -204,7 +206,197 @@ pub enum RowAlign {
     Bottom,
 }
 
-impl Widget for Row {
+impl crate::widgets::Interactive for Row {
+    fn on_mount(&mut self, ctx: &mut crate::event::WidgetCtx) {
+        if !self.is_tree_mode() {
+            for child in &mut self.children {
+                child.on_mount(ctx);
+            }
+        }
+    }
+
+    fn on_unmount(&mut self) {
+        if !self.is_tree_mode() {
+            for child in &mut self.children {
+                child.on_unmount();
+            }
+        }
+    }
+
+    fn on_tick(&mut self, tick: u64) {
+        if !self.is_tree_mode() {
+            for child in &mut self.children {
+                child.on_tick(tick);
+            }
+        }
+    }
+
+    fn on_resize(&mut self, width: u16, height: u16) {
+        self.last_layout_width = width;
+        if !self.is_tree_mode() {
+            for child in &mut self.children {
+                child.on_resize(width, height);
+            }
+        }
+    }
+
+    fn on_layout(&mut self, width: u16, height: u16) {
+        self.last_layout_width = width;
+        if !self.is_tree_mode() {
+            for child in &mut self.children {
+                child.on_layout(width, height);
+            }
+        }
+    }
+
+    fn on_event_capture(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
+        if self.is_tree_mode() {
+            return;
+        }
+        for child in &mut self.children {
+            child.on_event_capture(event, ctx);
+            if ctx.handled() {
+                break;
+            }
+        }
+    }
+
+    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
+        if self.is_tree_mode() {
+            return;
+        }
+        match event {
+            Event::Action(Action::FocusNext) | Event::Action(Action::FocusPrev) => {
+                if let Event::Action(action) = event {
+                    if self.cycle_focus(*action) {
+                        ctx.request_repaint();
+                        ctx.set_handled();
+                    }
+                }
+                return;
+            }
+            Event::MouseDown(mouse) => {
+                if let Some((idx, local_x)) = self.child_at_x(mouse.x) {
+                    let child_event = Event::MouseDown(crate::event::MouseDownEvent {
+                        target: NodeId::default(),
+                        screen_x: mouse.screen_x,
+                        screen_y: mouse.screen_y,
+                        x: local_x,
+                        y: mouse.y,
+                    });
+                    if let Some(child) = self.children.get_mut(idx) {
+                        child.on_event(&child_event, ctx);
+                    }
+                }
+                return;
+            }
+            Event::MouseUp(mouse) => {
+                if let Some((idx, local_x)) = self.child_at_x(mouse.x) {
+                    let child_event = Event::MouseUp(crate::event::MouseUpEvent {
+                        target: Some(NodeId::default()),
+                        screen_x: mouse.screen_x,
+                        screen_y: mouse.screen_y,
+                        x: local_x,
+                        y: mouse.y,
+                    });
+                    if let Some(child) = self.children.get_mut(idx) {
+                        child.on_event(&child_event, ctx);
+                    }
+                }
+                return;
+            }
+            Event::MouseScroll(mouse) => {
+                if let Some((idx, local_x)) = self.child_at_x(mouse.x) {
+                    let child_event = Event::MouseScroll(crate::event::MouseScrollEvent {
+                        target: Some(NodeId::default()),
+                        screen_x: mouse.screen_x,
+                        screen_y: mouse.screen_y,
+                        x: local_x,
+                        y: mouse.y,
+                        delta_x: mouse.delta_x,
+                        delta_y: mouse.delta_y,
+                        modifiers: mouse.modifiers,
+                    });
+                    if let Some(child) = self.children.get_mut(idx) {
+                        child.on_event(&child_event, ctx);
+                    }
+                }
+                return;
+            }
+            _ => {}
+        }
+        for child in &mut self.children {
+            child.on_event(event, ctx);
+            if ctx.handled() {
+                break;
+            }
+        }
+    }
+
+    fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {
+        if self.is_tree_mode() {
+            return false;
+        }
+        let hit = self.child_at_x(x);
+        let new_hovered = hit.map(|(idx, _)| idx);
+        let mut changed = false;
+        debug_input(&format!(
+            "[hover][row] x={} y={} hit={:?}",
+            x,
+            y,
+            hit
+        ));
+
+        // Dispatch Enter/Leave events when the hovered child changes.
+        if new_hovered != self.hovered_child {
+            if let Some(prev_idx) = self.hovered_child {
+                let leave = Event::Leave(MouseLeaveEvent {
+                    screen_x: x,
+                    screen_y: y,
+                    x,
+                    y,
+                });
+                let mut ectx = EventCtx::default();
+                if let Some(child) = self.children.get_mut(prev_idx) {
+                    let mut ctx = crate::event::WidgetCtx::__from_dispatch(
+                        crate::node_id::NodeId::default(),
+                        &mut ectx,
+                    );
+                    child.on_event(&leave, &mut ctx);
+                }
+                changed = true;
+            }
+            self.hovered_child = new_hovered;
+            if let Some(new_idx) = new_hovered {
+                let enter = Event::Enter(MouseEnterEvent {
+                    screen_x: x,
+                    screen_y: y,
+                    x,
+                    y,
+                });
+                let mut ectx = EventCtx::default();
+                if let Some(child) = self.children.get_mut(new_idx) {
+                    let mut ctx = crate::event::WidgetCtx::__from_dispatch(
+                        crate::node_id::NodeId::default(),
+                        &mut ectx,
+                    );
+                    child.on_event(&enter, &mut ctx);
+                }
+                changed = true;
+            }
+        }
+
+        if let Some((idx, local_x)) = hit {
+            if let Some(child) = self.children.get_mut(idx) {
+                changed |= child.on_mouse_move(local_x, y);
+            }
+        }
+
+        changed
+    }
+}
+
+impl crate::widgets::Render for Row {
     fn compose(&mut self) -> ComposeResult {
         self.children_extracted = true;
         crate::compose::zip_child_decls(
@@ -437,16 +629,6 @@ impl Widget for Row {
         out
     }
 
-    fn set_inline_style(&mut self, style: crate::style::Style) {
-        self.seed.styles.style = style;
-    }
-
-    fn take_node_seed(&mut self) -> NodeSeed {
-        std::mem::take(&mut self.seed)
-    }
-
-    crate::seed_style_identity_methods!();
-
     fn render_with_debug(
         &self,
         console: &Console,
@@ -644,199 +826,17 @@ impl Widget for Row {
         }
         out
     }
-
-    fn on_mount(&mut self, ctx: &mut crate::event::WidgetCtx) {
-        if !self.is_tree_mode() {
-            for child in &mut self.children {
-                child.on_mount(ctx);
-            }
-        }
-    }
-
-    fn on_unmount(&mut self) {
-        if !self.is_tree_mode() {
-            for child in &mut self.children {
-                child.on_unmount();
-            }
-        }
-    }
-
-    fn on_tick(&mut self, tick: u64) {
-        if !self.is_tree_mode() {
-            for child in &mut self.children {
-                child.on_tick(tick);
-            }
-        }
-    }
-
-    fn on_resize(&mut self, width: u16, height: u16) {
-        self.last_layout_width = width;
-        if !self.is_tree_mode() {
-            for child in &mut self.children {
-                child.on_resize(width, height);
-            }
-        }
-    }
-
-    fn on_layout(&mut self, width: u16, height: u16) {
-        self.last_layout_width = width;
-        if !self.is_tree_mode() {
-            for child in &mut self.children {
-                child.on_layout(width, height);
-            }
-        }
-    }
-
-    fn on_event_capture(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
-        if self.is_tree_mode() {
-            return;
-        }
-        for child in &mut self.children {
-            child.on_event_capture(event, ctx);
-            if ctx.handled() {
-                break;
-            }
-        }
-    }
-
-    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
-        if self.is_tree_mode() {
-            return;
-        }
-        match event {
-            Event::Action(Action::FocusNext) | Event::Action(Action::FocusPrev) => {
-                if let Event::Action(action) = event {
-                    if self.cycle_focus(*action) {
-                        ctx.request_repaint();
-                        ctx.set_handled();
-                    }
-                }
-                return;
-            }
-            Event::MouseDown(mouse) => {
-                if let Some((idx, local_x)) = self.child_at_x(mouse.x) {
-                    let child_event = Event::MouseDown(crate::event::MouseDownEvent {
-                        target: NodeId::default(),
-                        screen_x: mouse.screen_x,
-                        screen_y: mouse.screen_y,
-                        x: local_x,
-                        y: mouse.y,
-                    });
-                    if let Some(child) = self.children.get_mut(idx) {
-                        child.on_event(&child_event, ctx);
-                    }
-                }
-                return;
-            }
-            Event::MouseUp(mouse) => {
-                if let Some((idx, local_x)) = self.child_at_x(mouse.x) {
-                    let child_event = Event::MouseUp(crate::event::MouseUpEvent {
-                        target: Some(NodeId::default()),
-                        screen_x: mouse.screen_x,
-                        screen_y: mouse.screen_y,
-                        x: local_x,
-                        y: mouse.y,
-                    });
-                    if let Some(child) = self.children.get_mut(idx) {
-                        child.on_event(&child_event, ctx);
-                    }
-                }
-                return;
-            }
-            Event::MouseScroll(mouse) => {
-                if let Some((idx, local_x)) = self.child_at_x(mouse.x) {
-                    let child_event = Event::MouseScroll(crate::event::MouseScrollEvent {
-                        target: Some(NodeId::default()),
-                        screen_x: mouse.screen_x,
-                        screen_y: mouse.screen_y,
-                        x: local_x,
-                        y: mouse.y,
-                        delta_x: mouse.delta_x,
-                        delta_y: mouse.delta_y,
-                        modifiers: mouse.modifiers,
-                    });
-                    if let Some(child) = self.children.get_mut(idx) {
-                        child.on_event(&child_event, ctx);
-                    }
-                }
-                return;
-            }
-            _ => {}
-        }
-        for child in &mut self.children {
-            child.on_event(event, ctx);
-            if ctx.handled() {
-                break;
-            }
-        }
-    }
-
-    fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {
-        if self.is_tree_mode() {
-            return false;
-        }
-        let hit = self.child_at_x(x);
-        let new_hovered = hit.map(|(idx, _)| idx);
-        let mut changed = false;
-        debug_input(&format!(
-            "[hover][row] x={} y={} hit={:?}",
-            x,
-            y,
-            hit
-        ));
-
-        // Dispatch Enter/Leave events when the hovered child changes.
-        if new_hovered != self.hovered_child {
-            if let Some(prev_idx) = self.hovered_child {
-                let leave = Event::Leave(MouseLeaveEvent {
-                    screen_x: x,
-                    screen_y: y,
-                    x,
-                    y,
-                });
-                let mut ectx = EventCtx::default();
-                if let Some(child) = self.children.get_mut(prev_idx) {
-                    let mut ctx = crate::event::WidgetCtx::__from_dispatch(
-                        crate::node_id::NodeId::default(),
-                        &mut ectx,
-                    );
-                    child.on_event(&leave, &mut ctx);
-                }
-                changed = true;
-            }
-            self.hovered_child = new_hovered;
-            if let Some(new_idx) = new_hovered {
-                let enter = Event::Enter(MouseEnterEvent {
-                    screen_x: x,
-                    screen_y: y,
-                    x,
-                    y,
-                });
-                let mut ectx = EventCtx::default();
-                if let Some(child) = self.children.get_mut(new_idx) {
-                    let mut ctx = crate::event::WidgetCtx::__from_dispatch(
-                        crate::node_id::NodeId::default(),
-                        &mut ectx,
-                    );
-                    child.on_event(&enter, &mut ctx);
-                }
-                changed = true;
-            }
-        }
-
-        if let Some((idx, local_x)) = hit {
-            if let Some(child) = self.children.get_mut(idx) {
-                changed |= child.on_mouse_move(local_x, y);
-            }
-        }
-
-        changed
-    }
 }
 
-impl Renderable for Row {
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        Widget::render(self, console, options)
+impl crate::widgets::StyleIdentity for Row {
+    crate::seed_style_identity_methods!();
+
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
+    }
+
+    fn take_node_seed(&mut self) -> NodeSeed {
+        std::mem::take(&mut self.seed)
     }
 }
 
@@ -855,6 +855,7 @@ pub struct DockItem {
     child: Box<dyn Widget>,
 }
 
+#[widget(Focus, Interactive, Layout, StyleIdentity)]
 pub struct Dock {
     items: Vec<DockItem>,
     items_extracted: bool,
@@ -1067,7 +1068,164 @@ impl Dock {
     }
 }
 
-impl Widget for Dock {
+impl crate::widgets::Focus for Dock {
+    fn focusable(&self) -> bool {
+        if self.is_tree_mode() {
+            return false;
+        }
+        self.items.iter().any(|item| item.child.focusable())
+    }
+}
+
+impl crate::widgets::Interactive for Dock {
+    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
+        if self.is_tree_mode() {
+            return;
+        }
+        match event {
+            Event::Action(Action::FocusNext) | Event::Action(Action::FocusPrev) => {
+                return;
+            }
+            Event::MouseDown(mouse) => {
+                if let Some((idx, local_x, local_y, w, h)) = self.child_at_xy(mouse.x, mouse.y) {
+                    if let Some(item) = self.items.get_mut(idx) {
+                        item.child.on_layout(w, h);
+                    }
+                    let child_event = Event::MouseDown(crate::event::MouseDownEvent {
+                        target: NodeId::default(),
+                        screen_x: mouse.screen_x,
+                        screen_y: mouse.screen_y,
+                        x: local_x,
+                        y: local_y,
+                    });
+                    if let Some(item) = self.items.get_mut(idx) {
+                        item.child.on_event(&child_event, ctx);
+                        if ctx.handled() {
+                            return;
+                        }
+                    }
+                }
+            }
+            Event::MouseUp(mouse) => {
+                if let Some((idx, local_x, local_y, w, h)) = self.child_at_xy(mouse.x, mouse.y) {
+                    if let Some(item) = self.items.get_mut(idx) {
+                        item.child.on_layout(w, h);
+                    }
+                    let child_event = Event::MouseUp(crate::event::MouseUpEvent {
+                        target: Some(NodeId::default()),
+                        screen_x: mouse.screen_x,
+                        screen_y: mouse.screen_y,
+                        x: local_x,
+                        y: local_y,
+                    });
+                    if let Some(item) = self.items.get_mut(idx) {
+                        item.child.on_event(&child_event, ctx);
+                        if ctx.handled() {
+                            return;
+                        }
+                    }
+                }
+            }
+            Event::MouseScroll(mouse) => {
+                if let Some((idx, local_x, local_y, w, h)) = self.child_at_xy(mouse.x, mouse.y) {
+                    if let Some(item) = self.items.get_mut(idx) {
+                        item.child.on_layout(w, h);
+                    }
+                    let child_event = Event::MouseScroll(crate::event::MouseScrollEvent {
+                        target: Some(NodeId::default()),
+                        screen_x: mouse.screen_x,
+                        screen_y: mouse.screen_y,
+                        x: local_x,
+                        y: local_y,
+                        delta_x: mouse.delta_x,
+                        delta_y: mouse.delta_y,
+                        modifiers: mouse.modifiers,
+                    });
+                    if let Some(item) = self.items.get_mut(idx) {
+                        item.child.on_event(&child_event, ctx);
+                        if ctx.handled() {
+                            return;
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+        for item in &mut self.items {
+            item.child.on_event(event, ctx);
+            if ctx.handled() {
+                break;
+            }
+        }
+    }
+
+    fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {
+        if self.is_tree_mode() {
+            return false;
+        }
+        let mut changed = false;
+        let hit = self.child_at_xy(x, y);
+        if let Some((idx, local_x, local_y, w, h)) = hit
+            && let Some(item) = self.items.get_mut(idx)
+        {
+            item.child.on_layout(w, h);
+            changed |= item.child.on_mouse_move(local_x, local_y);
+        }
+        changed
+    }
+
+    fn on_mount(&mut self, ctx: &mut crate::event::WidgetCtx) {
+        if !self.is_tree_mode() {
+            for item in &mut self.items {
+                item.child.on_mount(ctx);
+            }
+        }
+    }
+
+    fn on_unmount(&mut self) {
+        if !self.is_tree_mode() {
+            for item in &mut self.items {
+                item.child.on_unmount();
+            }
+        }
+    }
+
+    fn on_tick(&mut self, tick: u64) {
+        if !self.is_tree_mode() {
+            for item in &mut self.items {
+                item.child.on_tick(tick);
+            }
+        }
+    }
+
+    fn on_resize(&mut self, width: u16, height: u16) {
+        if !self.is_tree_mode() {
+            for item in &mut self.items {
+                item.child.on_resize(width, height);
+            }
+        }
+    }
+
+    fn on_event_capture(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
+        if self.is_tree_mode() {
+            return;
+        }
+        for item in &mut self.items {
+            item.child.on_event_capture(event, ctx);
+            if ctx.handled() {
+                break;
+            }
+        }
+    }
+}
+
+impl crate::widgets::Layout for Dock {
+    fn layout_height(&self) -> Option<usize> {
+        self.fixed_height
+    }
+}
+
+impl crate::widgets::Render for Dock {
     fn compose(&mut self) -> ComposeResult {
         self.items_extracted = true;
         let mut children: ComposeResult = Vec::with_capacity(self.items.len());
@@ -1076,13 +1234,6 @@ impl Widget for Dock {
             children.push(crate::compose::ChildDecl::new(item.child));
         }
         children
-    }
-
-    fn focusable(&self) -> bool {
-        if self.is_tree_mode() {
-            return false;
-        }
-        self.items.iter().any(|item| item.child.focusable())
     }
 
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
@@ -1346,112 +1497,6 @@ impl Widget for Dock {
         }
         out
     }
-
-    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
-        if self.is_tree_mode() {
-            return;
-        }
-        match event {
-            Event::Action(Action::FocusNext) | Event::Action(Action::FocusPrev) => {
-                return;
-            }
-            Event::MouseDown(mouse) => {
-                if let Some((idx, local_x, local_y, w, h)) = self.child_at_xy(mouse.x, mouse.y) {
-                    if let Some(item) = self.items.get_mut(idx) {
-                        item.child.on_layout(w, h);
-                    }
-                    let child_event = Event::MouseDown(crate::event::MouseDownEvent {
-                        target: NodeId::default(),
-                        screen_x: mouse.screen_x,
-                        screen_y: mouse.screen_y,
-                        x: local_x,
-                        y: local_y,
-                    });
-                    if let Some(item) = self.items.get_mut(idx) {
-                        item.child.on_event(&child_event, ctx);
-                        if ctx.handled() {
-                            return;
-                        }
-                    }
-                }
-            }
-            Event::MouseUp(mouse) => {
-                if let Some((idx, local_x, local_y, w, h)) = self.child_at_xy(mouse.x, mouse.y) {
-                    if let Some(item) = self.items.get_mut(idx) {
-                        item.child.on_layout(w, h);
-                    }
-                    let child_event = Event::MouseUp(crate::event::MouseUpEvent {
-                        target: Some(NodeId::default()),
-                        screen_x: mouse.screen_x,
-                        screen_y: mouse.screen_y,
-                        x: local_x,
-                        y: local_y,
-                    });
-                    if let Some(item) = self.items.get_mut(idx) {
-                        item.child.on_event(&child_event, ctx);
-                        if ctx.handled() {
-                            return;
-                        }
-                    }
-                }
-            }
-            Event::MouseScroll(mouse) => {
-                if let Some((idx, local_x, local_y, w, h)) = self.child_at_xy(mouse.x, mouse.y) {
-                    if let Some(item) = self.items.get_mut(idx) {
-                        item.child.on_layout(w, h);
-                    }
-                    let child_event = Event::MouseScroll(crate::event::MouseScrollEvent {
-                        target: Some(NodeId::default()),
-                        screen_x: mouse.screen_x,
-                        screen_y: mouse.screen_y,
-                        x: local_x,
-                        y: local_y,
-                        delta_x: mouse.delta_x,
-                        delta_y: mouse.delta_y,
-                        modifiers: mouse.modifiers,
-                    });
-                    if let Some(item) = self.items.get_mut(idx) {
-                        item.child.on_event(&child_event, ctx);
-                        if ctx.handled() {
-                            return;
-                        }
-                    }
-                }
-            }
-            _ => {}
-        }
-        for item in &mut self.items {
-            item.child.on_event(event, ctx);
-            if ctx.handled() {
-                break;
-            }
-        }
-    }
-
-    fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {
-        if self.is_tree_mode() {
-            return false;
-        }
-        let mut changed = false;
-        let hit = self.child_at_xy(x, y);
-        if let Some((idx, local_x, local_y, w, h)) = hit
-            && let Some(item) = self.items.get_mut(idx)
-        {
-            item.child.on_layout(w, h);
-            changed |= item.child.on_mouse_move(local_x, local_y);
-        }
-        changed
-    }
-
-    fn set_inline_style(&mut self, style: crate::style::Style) {
-        self.seed.styles.style = style;
-    }
-
-    fn take_node_seed(&mut self) -> NodeSeed {
-        std::mem::take(&mut self.seed)
-    }
-
-    crate::seed_style_identity_methods!();
 
     fn render_with_debug(
         &self,
@@ -1767,62 +1812,21 @@ impl Widget for Dock {
         }
         out
     }
+}
 
-    fn on_mount(&mut self, ctx: &mut crate::event::WidgetCtx) {
-        if !self.is_tree_mode() {
-            for item in &mut self.items {
-                item.child.on_mount(ctx);
-            }
-        }
+impl crate::widgets::StyleIdentity for Dock {
+    crate::seed_style_identity_methods!();
+
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
     }
 
-    fn on_unmount(&mut self) {
-        if !self.is_tree_mode() {
-            for item in &mut self.items {
-                item.child.on_unmount();
-            }
-        }
-    }
-
-    fn on_tick(&mut self, tick: u64) {
-        if !self.is_tree_mode() {
-            for item in &mut self.items {
-                item.child.on_tick(tick);
-            }
-        }
-    }
-
-    fn on_resize(&mut self, width: u16, height: u16) {
-        if !self.is_tree_mode() {
-            for item in &mut self.items {
-                item.child.on_resize(width, height);
-            }
-        }
-    }
-
-    fn on_event_capture(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
-        if self.is_tree_mode() {
-            return;
-        }
-        for item in &mut self.items {
-            item.child.on_event_capture(event, ctx);
-            if ctx.handled() {
-                break;
-            }
-        }
-    }
-
-    fn layout_height(&self) -> Option<usize> {
-        self.fixed_height
+    fn take_node_seed(&mut self) -> NodeSeed {
+        std::mem::take(&mut self.seed)
     }
 }
 
-impl Renderable for Dock {
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        Widget::render(self, console, options)
-    }
-}
-
+#[widget(Interactive, StyleIdentity)]
 pub struct Grid {
     rows: usize,
     cols: usize,
@@ -1964,7 +1968,65 @@ impl Grid {
     }
 }
 
-impl Widget for Grid {
+impl crate::widgets::Interactive for Grid {
+    fn on_mount(&mut self, ctx: &mut crate::event::WidgetCtx) {
+        if !self.is_tree_mode() {
+            for child in self.cells.iter_mut().flatten() {
+                child.on_mount(ctx);
+            }
+        }
+    }
+
+    fn on_unmount(&mut self) {
+        if !self.is_tree_mode() {
+            for child in self.cells.iter_mut().flatten() {
+                child.on_unmount();
+            }
+        }
+    }
+
+    fn on_tick(&mut self, tick: u64) {
+        if !self.is_tree_mode() {
+            for child in self.cells.iter_mut().flatten() {
+                child.on_tick(tick);
+            }
+        }
+    }
+
+    fn on_resize(&mut self, width: u16, height: u16) {
+        if !self.is_tree_mode() {
+            for child in self.cells.iter_mut().flatten() {
+                child.on_resize(width, height);
+            }
+        }
+    }
+
+    fn on_event_capture(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
+        if self.is_tree_mode() {
+            return;
+        }
+        for child in self.cells.iter_mut().flatten() {
+            child.on_event_capture(event, ctx);
+            if ctx.handled() {
+                break;
+            }
+        }
+    }
+
+    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
+        if self.is_tree_mode() {
+            return;
+        }
+        for child in self.cells.iter_mut().flatten() {
+            child.on_event(event, ctx);
+            if ctx.handled() {
+                break;
+            }
+        }
+    }
+}
+
+impl crate::widgets::Render for Grid {
     fn compose(&mut self) -> ComposeResult {
         self.cells_extracted = true;
         let children: Vec<Box<dyn Widget>> =
@@ -2259,62 +2321,10 @@ impl Widget for Grid {
         }
         out
     }
+}
 
-    fn on_mount(&mut self, ctx: &mut crate::event::WidgetCtx) {
-        if !self.is_tree_mode() {
-            for child in self.cells.iter_mut().flatten() {
-                child.on_mount(ctx);
-            }
-        }
-    }
-
-    fn on_unmount(&mut self) {
-        if !self.is_tree_mode() {
-            for child in self.cells.iter_mut().flatten() {
-                child.on_unmount();
-            }
-        }
-    }
-
-    fn on_tick(&mut self, tick: u64) {
-        if !self.is_tree_mode() {
-            for child in self.cells.iter_mut().flatten() {
-                child.on_tick(tick);
-            }
-        }
-    }
-
-    fn on_resize(&mut self, width: u16, height: u16) {
-        if !self.is_tree_mode() {
-            for child in self.cells.iter_mut().flatten() {
-                child.on_resize(width, height);
-            }
-        }
-    }
-
-    fn on_event_capture(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
-        if self.is_tree_mode() {
-            return;
-        }
-        for child in self.cells.iter_mut().flatten() {
-            child.on_event_capture(event, ctx);
-            if ctx.handled() {
-                break;
-            }
-        }
-    }
-
-    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
-        if self.is_tree_mode() {
-            return;
-        }
-        for child in self.cells.iter_mut().flatten() {
-            child.on_event(event, ctx);
-            if ctx.handled() {
-                break;
-            }
-        }
-    }
+impl crate::widgets::StyleIdentity for Grid {
+    crate::seed_style_identity_methods!();
 
     fn set_inline_style(&mut self, style: crate::style::Style) {
         self.seed.styles.style = style;
@@ -2322,14 +2332,6 @@ impl Widget for Grid {
 
     fn take_node_seed(&mut self) -> NodeSeed {
         std::mem::take(&mut self.seed)
-    }
-
-    crate::seed_style_identity_methods!();
-}
-
-impl Renderable for Grid {
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        Widget::render(self, console, options)
     }
 }
 

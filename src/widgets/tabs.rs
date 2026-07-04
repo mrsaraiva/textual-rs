@@ -1,5 +1,6 @@
 use crossterm::event::KeyCode;
 use rich_rs::{Console, ConsoleOptions, MetaValue, Renderable, Segment, Segments};
+use textual_macros::widget;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -38,6 +39,7 @@ fn tag_segment_no_text_style(seg: &mut Segment) {
 }
 
 #[derive(Debug, Clone)]
+#[widget(Focus, Interactive, Layout)]
 pub struct Tab {
     id: Option<String>,
     label: String,
@@ -96,7 +98,7 @@ impl Tab {
     }
 }
 
-impl Widget for Tab {
+impl crate::widgets::Focus for Tab {
     fn focusable(&self) -> bool {
         false
     }
@@ -104,7 +106,9 @@ impl Widget for Tab {
     fn mouse_interactive(&self) -> bool {
         true
     }
+}
 
+impl crate::widgets::Interactive for Tab {
     fn on_node_state_changed(
         &mut self,
         _old: crate::widgets::NodeState,
@@ -112,22 +116,6 @@ impl Widget for Tab {
     ) {
         self.hovered = new.hovered;
         self.disabled = new.disabled;
-    }
-
-    fn set_inline_style(&mut self, style: crate::style::Style) {
-        self.seed.styles.style = style;
-    }
-
-    fn take_node_seed(&mut self) -> NodeSeed {
-        std::mem::take(&mut self.seed)
-    }
-
-    fn content_width(&self) -> Option<usize> {
-        // Return only the label's cell width (without padding). The layout
-        // layer adds CSS padding on top of content_width() automatically, so
-        // including it here would double-count and misalign the rendered tab
-        // positions relative to what tab_spans() computes.
-        Some(rich_rs::cell_len(self.label.as_str()).max(1))
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
@@ -144,7 +132,19 @@ impl Widget for Tab {
             }
         }
     }
+}
 
+impl crate::widgets::Layout for Tab {
+    fn content_width(&self) -> Option<usize> {
+        // Return only the label's cell width (without padding). The layout
+        // layer adds CSS padding on top of content_width() automatically, so
+        // including it here would double-count and misalign the rendered tab
+        // positions relative to what tab_spans() computes.
+        Some(rich_rs::cell_len(self.label.as_str()).max(1))
+    }
+}
+
+impl crate::widgets::Render for Tab {
     fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
 
@@ -194,13 +194,6 @@ impl Widget for Tab {
         out
     }
 }
-
-impl Renderable for Tab {
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        Widget::render(self, console, options)
-    }
-}
-
 #[derive(Debug, Clone)]
 struct TabEntry {
     tab_id: String,
@@ -223,6 +216,7 @@ pub(crate) struct UnderlineState {
 }
 
 #[derive(Clone)]
+#[widget()]
 pub struct Underline {
     state: Arc<Mutex<UnderlineState>>,
     seed: NodeSeed,
@@ -237,17 +231,9 @@ impl Underline {
     }
 }
 
-impl Widget for Underline {
+impl crate::widgets::Render for Underline {
     fn style_type(&self) -> &'static str {
         "Underline"
-    }
-
-    fn set_inline_style(&mut self, style: crate::style::Style) {
-        self.seed.styles.style = style;
-    }
-
-    fn take_node_seed(&mut self) -> NodeSeed {
-        std::mem::take(&mut self.seed)
     }
 
     fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
@@ -275,15 +261,9 @@ impl Widget for Underline {
         bar.render(_console, options)
     }
 }
-
-impl Renderable for Underline {
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        Widget::render(self, console, options)
-    }
-}
-
 static NEXT_TABS_SCOPE_ID: AtomicU64 = AtomicU64::new(1);
 
+#[widget(Focus, Interactive, Layout)]
 pub struct Tabs {
     state: Arc<Mutex<TabsState>>,
     focused: bool,
@@ -1113,71 +1093,13 @@ impl Tabs {
     }
 }
 
-impl Widget for Tabs {
+impl crate::widgets::Focus for Tabs {
     fn focusable(&self) -> bool {
         true
     }
 
-    fn on_node_state_changed(
-        &mut self,
-        _old: crate::widgets::NodeState,
-        new: crate::widgets::NodeState,
-    ) {
-        self.focused = new.focused;
-        self.hovered = new.hovered;
-        if !new.hovered {
-            self.hovered_tab = None;
-        }
-    }
-
     fn is_initially_focused(&self) -> bool {
         self.focused
-    }
-
-    fn on_mount(&mut self, _ctx: &mut crate::event::WidgetCtx) {
-        let mut state = self.state.lock().expect("tabs state lock");
-        self.ensure_active_exists(&mut state);
-        drop(state);
-        self.sync_underline_to_active();
-    }
-
-    fn set_inline_style(&mut self, style: crate::style::Style) {
-        self.seed.styles.style = style;
-    }
-
-    fn take_node_seed(&mut self) -> NodeSeed {
-        std::mem::take(&mut self.seed)
-    }
-
-    fn style(&self) -> Option<crate::style::Style> {
-        self.dock.map(|dock| crate::style::Style {
-            dock: Some(dock),
-            ..crate::style::Style::default()
-        })
-    }
-
-    fn on_unmount(&mut self) {
-        self.focused = false;
-        self.hovered = false;
-        self.hovered_tab = None;
-        self.last_size = None;
-    }
-
-    fn on_tick(&mut self, _tick: u64) {}
-
-    fn on_resize(&mut self, width: u16, height: u16) {
-        self.last_size = Some((width, height));
-    }
-
-    fn on_layout(&mut self, width: u16, _height: u16) {
-        self.last_size = Some((width, _height));
-        let next_layout_width = usize::from(width).max(1);
-        if next_layout_width != self.layout_width {
-            self.layout_width = next_layout_width;
-            self.sync_underline_to_active();
-        } else {
-            self.layout_width = next_layout_width;
-        }
     }
 
     fn action_namespace(&self) -> &str {
@@ -1206,6 +1128,66 @@ impl Widget for Tabs {
                 true
             }
             _ => false,
+        }
+    }
+
+    fn binding_hints(&self) -> Vec<BindingHint> {
+        let state = self.state.lock().expect("tabs state lock");
+        if self.potential_active_indices(&state).len() <= 1 {
+            return Vec::new();
+        }
+        vec![
+            BindingHint::new("left", "Previous tab")
+                .with_key_display("←")
+                .hidden(true),
+            BindingHint::new("right", "Next tab")
+                .with_key_display("→")
+                .hidden(true),
+        ]
+    }
+}
+
+impl crate::widgets::Interactive for Tabs {
+    fn on_node_state_changed(
+        &mut self,
+        _old: crate::widgets::NodeState,
+        new: crate::widgets::NodeState,
+    ) {
+        self.focused = new.focused;
+        self.hovered = new.hovered;
+        if !new.hovered {
+            self.hovered_tab = None;
+        }
+    }
+
+    fn on_mount(&mut self, _ctx: &mut crate::event::WidgetCtx) {
+        let mut state = self.state.lock().expect("tabs state lock");
+        self.ensure_active_exists(&mut state);
+        drop(state);
+        self.sync_underline_to_active();
+    }
+
+    fn on_unmount(&mut self) {
+        self.focused = false;
+        self.hovered = false;
+        self.hovered_tab = None;
+        self.last_size = None;
+    }
+
+    fn on_tick(&mut self, _tick: u64) {}
+
+    fn on_resize(&mut self, width: u16, height: u16) {
+        self.last_size = Some((width, height));
+    }
+
+    fn on_layout(&mut self, width: u16, _height: u16) {
+        self.last_size = Some((width, _height));
+        let next_layout_width = usize::from(width).max(1);
+        if next_layout_width != self.layout_width {
+            self.layout_width = next_layout_width;
+            self.sync_underline_to_active();
+        } else {
+            self.layout_width = next_layout_width;
         }
     }
 
@@ -1301,21 +1283,6 @@ impl Widget for Tabs {
         }
     }
 
-    fn binding_hints(&self) -> Vec<BindingHint> {
-        let state = self.state.lock().expect("tabs state lock");
-        if self.potential_active_indices(&state).len() <= 1 {
-            return Vec::new();
-        }
-        vec![
-            BindingHint::new("left", "Previous tab")
-                .with_key_display("←")
-                .hidden(true),
-            BindingHint::new("right", "Next tab")
-                .with_key_display("→")
-                .hidden(true),
-        ]
-    }
-
     fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {
         let hovered = self.hit_tab(x as usize, y as usize);
         if hovered != self.hovered_tab {
@@ -1324,7 +1291,22 @@ impl Widget for Tabs {
         }
         false
     }
+}
 
+impl crate::widgets::Layout for Tabs {
+    fn style(&self) -> Option<crate::style::Style> {
+        self.dock.map(|dock| crate::style::Style {
+            dock: Some(dock),
+            ..crate::style::Style::default()
+        })
+    }
+
+    fn layout_height(&self) -> Option<usize> {
+        Some(2)
+    }
+}
+
+impl crate::widgets::Render for Tabs {
     fn compose(&mut self) -> ComposeResult {
         let underline = Underline::new(self.underline.clone());
         let tabs_list = ChildDecl::from(Horizontal::new())
@@ -1342,18 +1324,7 @@ impl Widget for Tabs {
     fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
         Segments::new()
     }
-
-    fn layout_height(&self) -> Option<usize> {
-        Some(2)
-    }
 }
-
-impl Renderable for Tabs {
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        Widget::render(self, console, options)
-    }
-}
-
 impl ReactiveWidget for Tabs {
     fn reactive_dispatch(&mut self, changes: &[ReactiveChange], _ctx: &mut ReactiveCtx) {
         for change in changes {

@@ -8,7 +8,7 @@ use crate::event::Event;
 use crate::message::*;
 use crate::renderables::Styled;
 
-use super::{NodeSeed, Widget};
+use super::NodeSeed;
 use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
 
 fn set_class_flag(classes: &mut Vec<String>, class: &str, enabled: bool) {
@@ -254,6 +254,7 @@ impl crate::widgets::Render for FooterKey {
     }
 }
 #[derive(Debug, Clone)]
+#[widget()]
 pub struct FooterLabel {
     text: String,
     seed: NodeSeed,
@@ -279,27 +280,13 @@ impl FooterLabel {
     }
 }
 
-impl Widget for FooterLabel {
+impl crate::widgets::Render for FooterLabel {
     fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
         self.render_segments()
     }
-
-    fn set_inline_style(&mut self, style: crate::style::Style) {
-        self.seed.styles.style = style;
-    }
-
-    fn take_node_seed(&mut self) -> NodeSeed {
-        std::mem::take(&mut self.seed)
-    }
 }
-
-impl Renderable for FooterLabel {
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        Widget::render(self, console, options)
-    }
-}
-
 #[derive(Debug, Clone)]
+#[widget(Interactive, Layout, HasTooltip)]
 pub struct Footer {
     bindings: Vec<FooterBinding>,
     compact: bool,
@@ -781,77 +768,7 @@ enum HoveredFooterItem {
     CommandPalette,
 }
 
-impl Widget for Footer {
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        let width = options.size.0.max(1);
-        let base_style = self.base_style();
-        let palette_separator_style = self.palette_separator_style();
-
-        let mut line_segments = self.left_segments_for_render(base_style);
-        if let Some(palette_binding) = self.command_palette_binding() {
-            let mut right_segments = self.render_binding(palette_binding, None, false, true, false);
-            // Keep command palette hint docked at the right with a subtle visible separator.
-            right_segments.insert(0, Segment::styled("▏".to_string(), palette_separator_style));
-
-            let left_width = Segment::get_line_length(&line_segments);
-            let right_width = Segment::get_line_length(&right_segments);
-            if left_width + right_width < width {
-                line_segments.push(Segment::styled(
-                    " ".repeat(width - left_width - right_width),
-                    base_style,
-                ));
-                line_segments.extend(right_segments);
-            } else {
-                line_segments.extend(right_segments);
-            }
-        }
-
-        // Ensure the footer row always carries the footer base style. This keeps
-        // row background stable while preserving per-segment overrides (key colors,
-        // command-palette separator, etc.).
-        let line_segments: Vec<Segment> = line_segments
-            .into_iter()
-            .map(|mut seg| {
-                if seg.control.is_none() {
-                    let merged = match seg.style {
-                        Some(style) => base_style.combine(&style),
-                        None => base_style,
-                    };
-                    seg.style = Some(merged);
-                }
-                seg
-            })
-            .collect();
-
-        let rendered = if line_segments.is_empty() {
-            Text::plain(String::new()).render(console, options)
-        } else {
-            let mut out = Segments::new();
-            out.extend(line_segments);
-            out
-        };
-        let split = Segment::split_and_crop_lines(rendered, width, None, true, false);
-        let mut out = Segments::new();
-        if let Some(line) = split.first() {
-            // Footer should always paint a full-width background row. Padding with
-            // the footer base style avoids transient "black bar" artifacts when
-            // binding sets shrink/expand between frames.
-            out.extend(Segment::adjust_line_length(
-                line,
-                width,
-                Some(base_style),
-                false,
-            ));
-        } else {
-            out.push(Segment::styled(" ".repeat(width), base_style));
-        }
-        out
-    }
-
-    fn layout_height(&self) -> Option<usize> {
-        Some(1)
-    }
-
+impl crate::widgets::Interactive for Footer {
     fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         match event {
             Event::AppFocus(active) => {
@@ -921,16 +838,6 @@ impl Widget for Footer {
         }
     }
 
-    fn tooltip(&self) -> Option<String> {
-        self.hovered_binding()
-            .and_then(|binding| binding.tooltip.clone())
-            .filter(|text| !text.trim().is_empty())
-    }
-
-    fn tooltip_anchor(&self) -> Option<(u16, u16)> {
-        self.hovered_anchor_local()
-    }
-
     fn on_layout(&mut self, width: u16, _height: u16) {
         self.layout_width = width.max(1) as usize;
     }
@@ -940,22 +847,93 @@ impl Widget for Footer {
         self.deferred_bindings = None;
         self.hovered_item = None;
     }
+}
 
-    fn set_inline_style(&mut self, style: crate::style::Style) {
-        self.seed.styles.style = style;
-    }
-
-    fn take_node_seed(&mut self) -> NodeSeed {
-        std::mem::take(&mut self.seed)
+impl crate::widgets::Layout for Footer {
+    fn layout_height(&self) -> Option<usize> {
+        Some(1)
     }
 }
 
-impl Renderable for Footer {
+impl crate::widgets::HasTooltip for Footer {
+    fn tooltip(&self) -> Option<String> {
+        self.hovered_binding()
+            .and_then(|binding| binding.tooltip.clone())
+            .filter(|text| !text.trim().is_empty())
+    }
+
+    fn tooltip_anchor(&self) -> Option<(u16, u16)> {
+        self.hovered_anchor_local()
+    }
+}
+
+impl crate::widgets::Render for Footer {
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        Widget::render(self, console, options)
+        let width = options.size.0.max(1);
+        let base_style = self.base_style();
+        let palette_separator_style = self.palette_separator_style();
+
+        let mut line_segments = self.left_segments_for_render(base_style);
+        if let Some(palette_binding) = self.command_palette_binding() {
+            let mut right_segments = self.render_binding(palette_binding, None, false, true, false);
+            // Keep command palette hint docked at the right with a subtle visible separator.
+            right_segments.insert(0, Segment::styled("▏".to_string(), palette_separator_style));
+
+            let left_width = Segment::get_line_length(&line_segments);
+            let right_width = Segment::get_line_length(&right_segments);
+            if left_width + right_width < width {
+                line_segments.push(Segment::styled(
+                    " ".repeat(width - left_width - right_width),
+                    base_style,
+                ));
+                line_segments.extend(right_segments);
+            } else {
+                line_segments.extend(right_segments);
+            }
+        }
+
+        // Ensure the footer row always carries the footer base style. This keeps
+        // row background stable while preserving per-segment overrides (key colors,
+        // command-palette separator, etc.).
+        let line_segments: Vec<Segment> = line_segments
+            .into_iter()
+            .map(|mut seg| {
+                if seg.control.is_none() {
+                    let merged = match seg.style {
+                        Some(style) => base_style.combine(&style),
+                        None => base_style,
+                    };
+                    seg.style = Some(merged);
+                }
+                seg
+            })
+            .collect();
+
+        let rendered = if line_segments.is_empty() {
+            Text::plain(String::new()).render(console, options)
+        } else {
+            let mut out = Segments::new();
+            out.extend(line_segments);
+            out
+        };
+        let split = Segment::split_and_crop_lines(rendered, width, None, true, false);
+        let mut out = Segments::new();
+        if let Some(line) = split.first() {
+            // Footer should always paint a full-width background row. Padding with
+            // the footer base style avoids transient "black bar" artifacts when
+            // binding sets shrink/expand between frames.
+            out.extend(Segment::adjust_line_length(
+                line,
+                width,
+                Some(base_style),
+                false,
+            ));
+        } else {
+            out.push(Segment::styled(" ".repeat(width), base_style));
+        }
+        out
     }
 }
-
 impl ReactiveWidget for Footer {
     fn reactive_dispatch(&mut self, changes: &[ReactiveChange], ctx: &mut ReactiveCtx) {
         for change in changes {

@@ -2,7 +2,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
+use rich_rs::{Console, ConsoleOptions, Segment, Segments};
+use textual_macros::widget;
 
 use crate::compose::ComposeResult;
 use crate::event::{BindingHint, Event};
@@ -16,6 +17,7 @@ const DEFAULT_COMMAND_PALETTE_KEY: &str = "ctrl+p";
 const DEFAULT_COMMAND_PALETTE_TOOLTIP: &str = "Open command palette";
 
 #[derive(Debug, Clone)]
+#[widget(Focus, Interactive, HasTooltip)]
 pub struct HeaderIcon {
     icon: String,
     hovered: bool,
@@ -73,15 +75,17 @@ impl HeaderIcon {
     }
 }
 
-impl Widget for HeaderIcon {
-    fn style_type(&self) -> &'static str {
-        "HeaderIcon"
-    }
-
+impl crate::widgets::Focus for HeaderIcon {
     fn mouse_interactive(&self) -> bool {
         true
     }
 
+    fn is_active(&self) -> bool {
+        self.pressed
+    }
+}
+
+impl crate::widgets::Interactive for HeaderIcon {
     fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         match event {
             Event::BindingsChanged(bindings)
@@ -114,10 +118,6 @@ impl Widget for HeaderIcon {
         }
     }
 
-    fn is_active(&self) -> bool {
-        self.pressed
-    }
-
     fn on_node_state_changed(
         &mut self,
         _old: crate::widgets::NodeState,
@@ -126,6 +126,13 @@ impl Widget for HeaderIcon {
         self.hovered = new.hovered;
     }
 
+    fn on_layout(&mut self, width: u16, height: u16) {
+        self.layout_width = width.max(1);
+        self.layout_height = height.max(1);
+    }
+}
+
+impl crate::widgets::HasTooltip for HeaderIcon {
     fn tooltip(&self) -> Option<String> {
         Self::normalize_tooltip(self.command_palette_tooltip.as_deref())
     }
@@ -135,10 +142,11 @@ impl Widget for HeaderIcon {
         let height = self.layout_height.max(1);
         Some((width / 2, height.saturating_sub(1)))
     }
+}
 
-    fn on_layout(&mut self, width: u16, height: u16) {
-        self.layout_width = width.max(1);
-        self.layout_height = height.max(1);
+impl crate::widgets::Render for HeaderIcon {
+    fn style_type(&self) -> &'static str {
+        "HeaderIcon"
     }
 
     fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
@@ -146,23 +154,9 @@ impl Widget for HeaderIcon {
         out.push(Segment::new(self.icon.clone()));
         out
     }
-
-    fn set_inline_style(&mut self, style: crate::style::Style) {
-        self.seed.styles.style = style;
-    }
-
-    fn take_node_seed(&mut self) -> NodeSeed {
-        std::mem::take(&mut self.seed)
-    }
 }
-
-impl Renderable for HeaderIcon {
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        Widget::render(self, console, options)
-    }
-}
-
 #[derive(Debug, Clone)]
+#[widget(Interactive)]
 pub struct HeaderTitle {
     title: String,
     subtitle: Option<String>,
@@ -197,11 +191,7 @@ impl HeaderTitle {
     }
 }
 
-impl Widget for HeaderTitle {
-    fn style_type(&self) -> &'static str {
-        "HeaderTitle"
-    }
-
+impl crate::widgets::Interactive for HeaderTitle {
     fn on_message(&mut self, message: &crate::message::MessageEvent, ctx: &mut crate::event::WidgetCtx) {
         if let Some(m) = message.downcast_ref::<ScreenTitleChanged>() {
             self.title = m
@@ -217,29 +207,21 @@ impl Widget for HeaderTitle {
             ctx.request_repaint();
         }
     }
+}
+
+impl crate::widgets::Render for HeaderTitle {
+    fn style_type(&self) -> &'static str {
+        "HeaderTitle"
+    }
 
     fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
         let mut out = Segments::new();
         out.push(Segment::new(self.line_text()));
         out
     }
-
-    fn set_inline_style(&mut self, style: crate::style::Style) {
-        self.seed.styles.style = style;
-    }
-
-    fn take_node_seed(&mut self) -> NodeSeed {
-        std::mem::take(&mut self.seed)
-    }
 }
-
-impl Renderable for HeaderTitle {
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        Widget::render(self, console, options)
-    }
-}
-
 #[derive(Debug, Clone)]
+#[widget()]
 pub struct HeaderClockSpace {
     seed: NodeSeed,
 }
@@ -260,7 +242,7 @@ impl Default for HeaderClockSpace {
     }
 }
 
-impl Widget for HeaderClockSpace {
+impl crate::widgets::Render for HeaderClockSpace {
     fn style_type(&self) -> &'static str {
         "HeaderClockSpace"
     }
@@ -268,23 +250,9 @@ impl Widget for HeaderClockSpace {
     fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
         Segments::new()
     }
-
-    fn set_inline_style(&mut self, style: crate::style::Style) {
-        self.seed.styles.style = style;
-    }
-
-    fn take_node_seed(&mut self) -> NodeSeed {
-        std::mem::take(&mut self.seed)
-    }
 }
-
-impl Renderable for HeaderClockSpace {
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        Widget::render(self, console, options)
-    }
-}
-
 #[derive(Debug, Clone)]
+#[widget(Focus)]
 pub struct HeaderClock {
     time_format: String,
     last_clock_second: Arc<AtomicU64>,
@@ -334,7 +302,14 @@ impl HeaderClock {
     }
 }
 
-impl Widget for HeaderClock {
+impl crate::widgets::Focus for HeaderClock {
+    fn is_active(&self) -> bool {
+        let current = Self::current_clock_seconds();
+        current != self.last_clock_second.load(Ordering::Relaxed)
+    }
+}
+
+impl crate::widgets::Render for HeaderClock {
     fn style_type(&self) -> &'static str {
         "HeaderClock"
     }
@@ -346,28 +321,9 @@ impl Widget for HeaderClock {
         out.push(Segment::new(self.format_clock(seconds)));
         out
     }
-
-    fn is_active(&self) -> bool {
-        let current = Self::current_clock_seconds();
-        current != self.last_clock_second.load(Ordering::Relaxed)
-    }
-
-    fn set_inline_style(&mut self, style: crate::style::Style) {
-        self.seed.styles.style = style;
-    }
-
-    fn take_node_seed(&mut self) -> NodeSeed {
-        std::mem::take(&mut self.seed)
-    }
 }
-
-impl Renderable for HeaderClock {
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        Widget::render(self, console, options)
-    }
-}
-
 #[derive(Debug, Clone)]
+#[widget(Focus, Interactive, Layout, StyleIdentity)]
 pub struct Header {
     title: String,
     subtitle: Option<String>,
@@ -553,42 +509,13 @@ impl Header {
     }
 }
 
-impl Widget for Header {
-    fn compose(&mut self) -> ComposeResult {
-        if self.children_extracted {
-            return Vec::new();
-        }
-        self.children_extracted = true;
-        let mut children: ComposeResult = Vec::with_capacity(3);
-        children.push(crate::compose::ChildDecl::new(Box::new(HeaderIcon::new(
-            self.icon.clone(),
-        ))));
-        children.push(crate::compose::ChildDecl::new(Box::new(HeaderTitle::new(
-            self.default_title.clone(),
-            self.default_subtitle.clone(),
-            self.title.clone(),
-            self.subtitle.clone(),
-        ))));
-        if self.show_clock {
-            children.push(crate::compose::ChildDecl::new(Box::new(HeaderClock::new(
-                self.time_format.clone(),
-            ))));
-        } else {
-            children.push(crate::compose::ChildDecl::new(Box::new(
-                HeaderClockSpace::new(),
-            )));
-        }
-        children
-    }
-
-    fn style_type(&self) -> &'static str {
-        "Header"
-    }
-
+impl crate::widgets::Focus for Header {
     fn mouse_interactive(&self) -> bool {
         true
     }
+}
 
+impl crate::widgets::Interactive for Header {
     fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         match event {
             Event::MouseDown(mouse) => {
@@ -648,6 +575,45 @@ impl Widget for Header {
             ctx.request_repaint();
         }
     }
+}
+
+impl crate::widgets::Layout for Header {
+    fn layout_height(&self) -> Option<usize> {
+        Some(if self.tall { 3 } else { 1 })
+    }
+}
+
+impl crate::widgets::Render for Header {
+    fn compose(&mut self) -> ComposeResult {
+        if self.children_extracted {
+            return Vec::new();
+        }
+        self.children_extracted = true;
+        let mut children: ComposeResult = Vec::with_capacity(3);
+        children.push(crate::compose::ChildDecl::new(Box::new(HeaderIcon::new(
+            self.icon.clone(),
+        ))));
+        children.push(crate::compose::ChildDecl::new(Box::new(HeaderTitle::new(
+            self.default_title.clone(),
+            self.default_subtitle.clone(),
+            self.title.clone(),
+            self.subtitle.clone(),
+        ))));
+        if self.show_clock {
+            children.push(crate::compose::ChildDecl::new(Box::new(HeaderClock::new(
+                self.time_format.clone(),
+            ))));
+        } else {
+            children.push(crate::compose::ChildDecl::new(Box::new(
+                HeaderClockSpace::new(),
+            )));
+        }
+        children
+    }
+
+    fn style_type(&self) -> &'static str {
+        "Header"
+    }
 
     fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
         // Composition-only header surface; children render icon/title/clock.
@@ -662,11 +628,9 @@ impl Widget for Header {
         }
         out
     }
+}
 
-    fn layout_height(&self) -> Option<usize> {
-        Some(if self.tall { 3 } else { 1 })
-    }
-
+impl crate::widgets::StyleIdentity for Header {
     fn set_inline_style(&mut self, style: crate::style::Style) {
         self.seed.styles.style = style;
     }
@@ -677,12 +641,6 @@ impl Widget for Header {
             seed.classes.push("-tall".to_string());
         }
         seed
-    }
-}
-
-impl Renderable for Header {
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        Widget::render(self, console, options)
     }
 }
 
