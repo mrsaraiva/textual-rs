@@ -1,7 +1,8 @@
 use rich_rs::{Console, ConsoleOptions, MetaValue, Renderable, Segment, Segments, Text};
+use textual_macros::widget;
 use std::sync::Arc;
 
-use crate::widgets::{NodeSeed, Widget};
+use crate::widgets::NodeSeed;
 
 /// Tag a segment with `textual:no_text_style = true` so `apply_style_to_segments`
 /// skips re-applying widget CSS text attributes (bold, italic, etc.) that have
@@ -35,6 +36,7 @@ enum StaticContent {
 /// Mirrors Python Textual's `Static` widget.  Compose with plain text or use
 /// [`Static::update()`] / [`Static::update_rich()`] to change content at
 /// runtime, matching Python's `Static.update(content)` API.
+#[widget(Interactive, Layout, StyleIdentity)]
 pub struct Static {
     text: String,
     markup: bool,
@@ -331,6 +333,7 @@ impl Static {
 
 #[cfg(test)]
 mod tests {
+    use crate::widgets::Widget;
     use super::*;
 
     #[test]
@@ -395,28 +398,7 @@ mod tests {
     }
 }
 
-impl Widget for Static {
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        match &self.content {
-            StaticContent::Plain => {
-                // Build Content from the static text (markup or plain), then render
-                // through the shared Content path.
-                let content = if self.markup {
-                    crate::content::Content::from_markup(&self.text)
-                } else {
-                    crate::content::Content::from_text(&self.text)
-                };
-                self.render_content(&content, options, self.markup)
-            }
-            StaticContent::Content(content) => {
-                // Pre-built Content (e.g. with template variables substituted).
-                // Treat it like markup output for link styling/resolution purposes.
-                self.render_content(content, options, true)
-            }
-            StaticContent::Rich(text) => text.render(console, options),
-        }
-    }
-
+impl crate::widgets::Interactive for Static {
     fn on_layout(&mut self, width: u16, _height: u16) {
         // Hidden/disconnected nodes can transiently receive width=0/1 during
         // tree display toggles. Keep the last stable width (>1) so wrapped-height
@@ -425,7 +407,9 @@ impl Widget for Static {
             self.layout_width = usize::from(width);
         }
     }
+}
 
+impl crate::widgets::Layout for Static {
     fn layout_height(&self) -> Option<usize> {
         // `layout_height()` returns PURE content height (no own padding/border/
         // margin). The flow layout adds the CSS-resolved vertical chrome
@@ -473,13 +457,25 @@ impl Widget for Static {
             Some(self.intrinsic_content_width())
         }
     }
+}
 
-    fn border_title(&self) -> Option<&str> {
-        self.border_title.as_deref()
+impl crate::widgets::StyleIdentity for Static {
+    fn style_id(&self) -> Option<&str> {
+        // Pre-mount: seed has the id. Post-mount: seed is empty, use the cache.
+        if self.seed.css_id.is_some() {
+            self.seed.css_id.as_deref()
+        } else {
+            self.css_id_cache.as_deref()
+        }
     }
 
-    fn border_subtitle(&self) -> Option<&str> {
-        self.border_subtitle.as_deref()
+    fn style_classes(&self) -> &[String] {
+        // Pre-mount: seed has the classes. Post-mount: use the cache.
+        if !self.seed.classes.is_empty() {
+            &self.seed.classes
+        } else {
+            &self.classes_cache
+        }
     }
 
     fn set_inline_style(&mut self, style: crate::style::Style) {
@@ -499,22 +495,35 @@ impl Widget for Static {
         self.classes_cache = seed.classes.clone();
         seed
     }
+}
 
-    fn style_id(&self) -> Option<&str> {
-        // Pre-mount: seed has the id. Post-mount: seed is empty, use the cache.
-        if self.seed.css_id.is_some() {
-            self.seed.css_id.as_deref()
-        } else {
-            self.css_id_cache.as_deref()
+impl crate::widgets::Render for Static {
+    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
+        match &self.content {
+            StaticContent::Plain => {
+                // Build Content from the static text (markup or plain), then render
+                // through the shared Content path.
+                let content = if self.markup {
+                    crate::content::Content::from_markup(&self.text)
+                } else {
+                    crate::content::Content::from_text(&self.text)
+                };
+                self.render_content(&content, options, self.markup)
+            }
+            StaticContent::Content(content) => {
+                // Pre-built Content (e.g. with template variables substituted).
+                // Treat it like markup output for link styling/resolution purposes.
+                self.render_content(content, options, true)
+            }
+            StaticContent::Rich(text) => text.render(console, options),
         }
     }
 
-    fn style_classes(&self) -> &[String] {
-        // Pre-mount: seed has the classes. Post-mount: use the cache.
-        if !self.seed.classes.is_empty() {
-            &self.seed.classes
-        } else {
-            &self.classes_cache
-        }
+    fn border_title(&self) -> Option<&str> {
+        self.border_title.as_deref()
+    }
+
+    fn border_subtitle(&self) -> Option<&str> {
+        self.border_subtitle.as_deref()
     }
 }

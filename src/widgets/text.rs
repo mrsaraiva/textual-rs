@@ -2,6 +2,7 @@ use pulldown_cmark::{
     Event as MdEvent, Options as MdOptions, Parser as MdParser, Tag as MdTag, TagEnd as MdTagEnd,
 };
 use rich_rs::{Console, ConsoleOptions, MetaValue, Renderable, Segment, Segments, Text};
+use textual_macros::widget;
 use std::sync::{Arc, RwLock};
 use unicode_width::UnicodeWidthChar;
 
@@ -53,6 +54,7 @@ impl LabelVariant {
 }
 
 #[derive(Debug, Clone)]
+#[widget(Interactive, Layout, StyleIdentity)]
 pub struct Label {
     text: String,
     wrap: bool,
@@ -216,7 +218,94 @@ impl Label {
     }
 }
 
-impl Widget for Label {
+impl crate::widgets::Interactive for Label {
+    fn on_layout(&mut self, width: u16, _height: u16) {
+        // Hidden/disconnected nodes can transiently receive width=0/1 during
+        // tree display toggles. Keep the last stable width (>1) so wrapped-height
+        // calculations remain stable across tab switches.
+        if width > 1 {
+            self.layout_width = usize::from(width);
+        }
+    }
+}
+
+impl crate::widgets::Layout for Label {
+    fn content_width(&self) -> Option<usize> {
+        if self.expand {
+            // No intrinsic width constraint — fill available space.
+            None
+        } else if self.shrink {
+            Some(self.intrinsic_content_width())
+        } else {
+            // Neither expand nor shrink — no width hint. (See `auto_content_width`
+            // for the `width: auto` measurement path, which does report the
+            // rendered text width without affecting the unset-width fill default.)
+            None
+        }
+    }
+
+    fn auto_content_width(&self) -> Option<usize> {
+        if self.expand {
+            None
+        } else {
+            // For `width: auto` sizing, report the rendered text's cell width so
+            // the box shrinks to its content (Python parity). Kept separate from
+            // `content_width()` so an UNSET width (fill default, e.g. a bare
+            // `Static`) is not turned into a content-width hint.
+            Some(self.intrinsic_content_width())
+        }
+    }
+
+    fn layout_height(&self) -> Option<usize> {
+        // `layout_height()` returns PURE content height; the flow layout's
+        // `extract_child_spec` height arm adds the CSS-resolved vertical chrome
+        // (border+padding+margin) with full ancestor context, symmetric with the
+        // width axis. So a styled `Label { padding: 1 2 }` gets its box height
+        // from the layout side, and descendant-selected chrome resolves too.
+        Some(self.intrinsic_height())
+    }
+
+    fn style(&self) -> Option<crate::style::Style> {
+        if self.seed.styles.style != Default::default() {
+            Some(self.seed.styles.style.clone())
+        } else {
+            None
+        }
+    }
+}
+
+impl crate::widgets::StyleIdentity for Label {
+    fn style_id(&self) -> Option<&str> {
+        if self.seed.css_id.is_some() {
+            self.seed.css_id.as_deref()
+        } else {
+            self.css_id_cache.as_deref()
+        }
+    }
+
+    fn style_classes(&self) -> &[String] {
+        if !self.seed.classes.is_empty() {
+            &self.seed.classes
+        } else {
+            &self.classes_cache
+        }
+    }
+
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
+    }
+
+    fn take_node_seed(&mut self) -> NodeSeed {
+        let seed = std::mem::take(&mut self.seed);
+        // Preserve id/classes so off-tree CSS resolution keeps matching after the
+        // seed is taken (see `css_id_cache` field doc).
+        self.css_id_cache = seed.css_id.clone();
+        self.classes_cache = seed.classes.clone();
+        seed
+    }
+}
+
+impl crate::widgets::Render for Label {
     fn border_title(&self) -> Option<&str> {
         self.border_title.as_deref()
     }
@@ -338,95 +427,7 @@ impl Widget for Label {
         }
         segments
     }
-
-    fn on_layout(&mut self, width: u16, _height: u16) {
-        // Hidden/disconnected nodes can transiently receive width=0/1 during
-        // tree display toggles. Keep the last stable width (>1) so wrapped-height
-        // calculations remain stable across tab switches.
-        if width > 1 {
-            self.layout_width = usize::from(width);
-        }
-    }
-
-    fn content_width(&self) -> Option<usize> {
-        if self.expand {
-            // No intrinsic width constraint — fill available space.
-            None
-        } else if self.shrink {
-            Some(self.intrinsic_content_width())
-        } else {
-            // Neither expand nor shrink — no width hint. (See `auto_content_width`
-            // for the `width: auto` measurement path, which does report the
-            // rendered text width without affecting the unset-width fill default.)
-            None
-        }
-    }
-
-    fn auto_content_width(&self) -> Option<usize> {
-        if self.expand {
-            None
-        } else {
-            // For `width: auto` sizing, report the rendered text's cell width so
-            // the box shrinks to its content (Python parity). Kept separate from
-            // `content_width()` so an UNSET width (fill default, e.g. a bare
-            // `Static`) is not turned into a content-width hint.
-            Some(self.intrinsic_content_width())
-        }
-    }
-
-    fn layout_height(&self) -> Option<usize> {
-        // `layout_height()` returns PURE content height; the flow layout's
-        // `extract_child_spec` height arm adds the CSS-resolved vertical chrome
-        // (border+padding+margin) with full ancestor context, symmetric with the
-        // width axis. So a styled `Label { padding: 1 2 }` gets its box height
-        // from the layout side, and descendant-selected chrome resolves too.
-        Some(self.intrinsic_height())
-    }
-
-    fn style(&self) -> Option<crate::style::Style> {
-        if self.seed.styles.style != Default::default() {
-            Some(self.seed.styles.style.clone())
-        } else {
-            None
-        }
-    }
-
-    fn set_inline_style(&mut self, style: crate::style::Style) {
-        self.seed.styles.style = style;
-    }
-
-    fn take_node_seed(&mut self) -> NodeSeed {
-        let seed = std::mem::take(&mut self.seed);
-        // Preserve id/classes so off-tree CSS resolution keeps matching after the
-        // seed is taken (see `css_id_cache` field doc).
-        self.css_id_cache = seed.css_id.clone();
-        self.classes_cache = seed.classes.clone();
-        seed
-    }
-
-    fn style_id(&self) -> Option<&str> {
-        if self.seed.css_id.is_some() {
-            self.seed.css_id.as_deref()
-        } else {
-            self.css_id_cache.as_deref()
-        }
-    }
-
-    fn style_classes(&self) -> &[String] {
-        if !self.seed.classes.is_empty() {
-            &self.seed.classes
-        } else {
-            &self.classes_cache
-        }
-    }
 }
-
-impl Renderable for Label {
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        Widget::render(self, console, options)
-    }
-}
-
 pub struct Markdown {
     markup: String,
     /// Shared content reference for parent-driven content updates (e.g. from MarkdownViewer).

@@ -45,6 +45,20 @@ in the sections below; this is the migration index:
   the struct has a `seed: NodeSeed` field — the seed plumbing
   (`take_node_seed`/`set_inline_style`). LOUD rule: you must BOTH implement a
   capability trait AND list it in `#[widget(..)]` for its methods to run.
+- **`StyleIdentity` capability** (the 10th trait): `style_classes` / `style_id` /
+  `is_hovered` (off-tree CSS identity) + `set_seed_css_id` / `set_seed_classes` +
+  the seed lifecycle (`take_node_seed` / `set_inline_style`), for DYNAMIC-identity
+  widgets that keep a live class list rather than a seed-backed one (`Button`,
+  `Input`, `DataTable`, …). Opting `StyleIdentity` takes full ownership of the
+  widget's seed surface (autowiring is suppressed), so a widget with a
+  side-effecting `take_node_seed` (e.g. `Button` caching its css id) can override
+  it.
+- **The capability traits are NOT in the prelude** (reach them via
+  `textual::widgets::{Render, Layout, …}`). Both they and `Widget` carry the same
+  method names, so exporting both would make every direct `widget.method()` call
+  ambiguous (E0034). `use textual::prelude::*` stays unambiguous for the common
+  `dyn Widget` surface; the `#[widget(..)]` derive needs no capability trait in
+  scope (it uses full paths).
 
 ### Added — container seed-builder unification (Node-removal groundwork)
 

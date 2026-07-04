@@ -1,7 +1,8 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
-use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
+use rich_rs::{Console, ConsoleOptions, Segment, Segments};
+use textual_macros::widget;
 
 use crate::compose::ComposeResult;
 use crate::debug::{DebugLayout, debug_input, debug_layout};
@@ -28,6 +29,7 @@ pub(crate) const SCROLL_VIEW_VSCROLLBAR_ID: &str = "__scrollview_vscrollbar";
 pub(crate) const SCROLL_VIEW_HSCROLLBAR_ID: &str = "__scrollview_hscrollbar";
 pub(crate) const SCROLL_VIEW_SCROLLBAR_CORNER_ID: &str = "__scrollview_scrollbar_corner";
 
+#[widget(Focus, Interactive, Layout, Scrollable, StyleIdentity)]
 pub struct ScrollView {
     child: Box<dyn Widget>,
     child_extracted: bool,
@@ -663,485 +665,9 @@ struct ResolvedScrollbar {
     gutter: ScrollbarGutter,
 }
 
-impl Widget for ScrollView {
-    fn compose(&mut self) -> crate::compose::ComposeResult {
-        if self.child_extracted {
-            return Vec::new();
-        }
-        self.child_extracted = true;
-        let mut children: crate::compose::ComposeResult = Vec::with_capacity(4);
-        let child = std::mem::replace(&mut self.child, Box::new(Spacer::new(1)));
-        children.push(crate::compose::ChildDecl::new(child));
-
-        let mut vbar = ScrollBar::new(true, 2);
-        vbar.seed.css_id = Some(SCROLL_VIEW_VSCROLLBAR_ID.to_string());
-        children.push(crate::compose::ChildDecl::new(Box::new(vbar)));
-
-        let mut hbar = ScrollBar::new(false, 1);
-        hbar.seed.css_id = Some(SCROLL_VIEW_HSCROLLBAR_ID.to_string());
-        children.push(crate::compose::ChildDecl::new(Box::new(hbar)));
-
-        let mut corner = ScrollBarCorner::new();
-        corner.seed.css_id = Some(SCROLL_VIEW_SCROLLBAR_CORNER_ID.to_string());
-        children.push(crate::compose::ChildDecl::new(Box::new(corner)));
-
-        children
-    }
-
+impl crate::widgets::Focus for ScrollView {
     fn focusable(&self) -> bool {
         true
-    }
-
-    fn on_node_state_changed(
-        &mut self,
-        _old: crate::widgets::NodeState,
-        new: crate::widgets::NodeState,
-    ) {
-        if !new.hovered {
-            self.hover_v_thumb = false;
-            self.hover_v_track = false;
-            self.hover_h_thumb = false;
-            self.hover_h_track = false;
-        }
-    }
-
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        let width = options.size.0.max(1);
-        let viewport_height = self.height.unwrap_or_else(|| options.size.1.max(1));
-        self.widget_width.store(width, Ordering::Relaxed);
-        self.widget_height.store(viewport_height, Ordering::Relaxed);
-
-        // Resolve CSS scrollbar config once for this render pass.
-        let sb = self.resolve_scrollbar_css();
-
-        if self.child_extracted {
-            // Do NOT overwrite content_height/content_width — preserve values
-            // set by the tree layout system so scrollbars reflect real content.
-
-            let allow_scrollbars_h = !matches!(sb.visibility, ScrollbarVisibility::Hidden)
-                && !matches!(sb.overflow_x, crate::style::Overflow::Hidden);
-            let allow_scrollbars_v = !matches!(sb.visibility, ScrollbarVisibility::Hidden)
-                && !matches!(sb.overflow_y, crate::style::Overflow::Hidden);
-
-            let content_h = self.content_height.load(Ordering::Relaxed);
-            let content_w = self.content_width.load(Ordering::Relaxed);
-
-            // Iterative scrollbar resolution using CSS-resolved sizes.
-            let v_scrollbar_size = sb.v_size;
-            let h_scrollbar_size = sb.h_size;
-            let force_gutter = matches!(sb.gutter, ScrollbarGutter::Stable);
-            let force_visible_v = matches!(sb.visibility, ScrollbarVisibility::Visible)
-                || matches!(sb.overflow_y, crate::style::Overflow::Scroll);
-            let force_visible_h = matches!(sb.visibility, ScrollbarVisibility::Visible)
-                || matches!(sb.overflow_x, crate::style::Overflow::Scroll);
-            let mut show_v = false;
-            let mut show_h = false;
-            let mut content_viewport_w = width;
-            let mut content_viewport_h = viewport_height;
-            for _ in 0..3 {
-                let reserve_v = show_v || force_gutter;
-                let reserve_h = show_h || (force_gutter && allow_scrollbars_h);
-                let vp_w = width
-                    .saturating_sub(if reserve_v {
-                        v_scrollbar_size.min(width.saturating_sub(1))
-                    } else {
-                        0
-                    })
-                    .max(1);
-                let vp_h = viewport_height
-                    .saturating_sub(if reserve_h { h_scrollbar_size } else { 0 })
-                    .max(1);
-                let next_show_v = allow_scrollbars_v && (content_h > vp_h || force_visible_v);
-                let next_show_h = allow_scrollbars_h && (content_w > vp_w || force_visible_h);
-                content_viewport_w = vp_w;
-                content_viewport_h = vp_h;
-                if next_show_v == show_v && next_show_h == show_h {
-                    break;
-                }
-                show_v = next_show_v;
-                show_h = next_show_h;
-            }
-
-            // Store reduced viewport dimensions.
-            self.viewport_height
-                .store(content_viewport_h, Ordering::Relaxed);
-            self.viewport_width
-                .store(content_viewport_w, Ordering::Relaxed);
-
-            // Background fill for viewport area.
-            let mut slice: Vec<Vec<Segment>> = (0..content_viewport_h)
-                .map(|_| vec![Segment::new(" ".repeat(content_viewport_w))])
-                .collect();
-
-            let track_style = sb.track_style;
-            let track_hover_style = sb.track_hover_style;
-            let track_active_style = sb.track_active_style;
-            let thumb_style = sb.thumb_style;
-            let thumb_hover_style = sb.thumb_hover_style;
-            let thumb_active_style = sb.thumb_active_style;
-            let corner_style = sb.corner_style;
-            // Tree runtime uses dedicated scrollbar child widgets.
-            // Keep these values referenced here to avoid unused warnings; the
-            // pre-extraction widget-local render path below still performs
-            // inline scrollbar painting.
-            let _ = (
-                track_style,
-                track_hover_style,
-                track_active_style,
-                thumb_style,
-                thumb_hover_style,
-                thumb_active_style,
-                corner_style,
-                show_v,
-                show_h,
-                content_h,
-                content_w,
-            );
-
-            slice = Segment::set_shape(&slice, width, Some(viewport_height), None, false);
-            let line_count = slice.len();
-            let mut out = Segments::new();
-            for (idx, line) in slice.into_iter().enumerate() {
-                out.extend(line);
-                if idx + 1 < line_count {
-                    out.push(Segment::line());
-                }
-            }
-            return out;
-        }
-        if std::env::var("TEXTUAL_DEBUG_LAYOUT_FILE").is_ok() {
-            debug_layout(&format!(
-                "[scroll] id={} viewport=({}, {}) offset=({}, {})",
-                0u64, width, viewport_height, self.offset_x, self.offset_y
-            ));
-        }
-        // Use resolved CSS scrollbar config (already computed above).
-        let allow_scrollbars_h = !matches!(sb.visibility, ScrollbarVisibility::Hidden)
-            && !matches!(sb.overflow_x, crate::style::Overflow::Hidden);
-        let allow_scrollbars_v = !matches!(sb.visibility, ScrollbarVisibility::Hidden)
-            && !matches!(sb.overflow_y, crate::style::Overflow::Hidden);
-
-        let constraints = LayoutConstraints::default();
-        let v_scrollbar_size = sb.v_size;
-        let h_scrollbar_size = sb.h_size;
-        let force_gutter = matches!(sb.gutter, ScrollbarGutter::Stable);
-        let force_visible_v = matches!(sb.visibility, ScrollbarVisibility::Visible)
-            || matches!(sb.overflow_y, crate::style::Overflow::Scroll);
-        let force_visible_h = matches!(sb.visibility, ScrollbarVisibility::Visible)
-            || matches!(sb.overflow_x, crate::style::Overflow::Scroll);
-        let mut show_v = false;
-        let mut show_h = false;
-        let mut content_viewport_w = width;
-        let mut content_viewport_h = viewport_height;
-        let mut lines: Vec<Vec<Segment>> = Vec::new();
-        let mut content_width = width;
-        let mut content_height = viewport_height;
-
-        for _ in 0..3 {
-            let reserve_v = show_v || force_gutter;
-            let reserve_h = show_h || (force_gutter && allow_scrollbars_h);
-            let viewport_w = width
-                .saturating_sub(if reserve_v {
-                    v_scrollbar_size.min(width.saturating_sub(1))
-                } else {
-                    0
-                })
-                .max(1);
-            let viewport_h = viewport_height
-                .saturating_sub(if reserve_h { h_scrollbar_size } else { 0 })
-                .max(1);
-
-            let target_height = self
-                .child
-                .layout_height()
-                .unwrap_or_else(|| viewport_h.saturating_add(viewport_h).max(1));
-            let target_width = self
-                .child
-                .content_width()
-                .unwrap_or(viewport_w)
-                .max(viewport_w);
-            let render_width = clamp_with_constraints(
-                target_width,
-                constraints.min_width,
-                constraints.max_width,
-                target_width,
-            )
-            .max(viewport_w);
-            if std::env::var("TEXTUAL_DEBUG_LAYOUT_FILE").is_ok() {
-                debug_layout(&format!(
-                    "[scroll] id={} child render_width={} constraints=({:?},{:?})",
-                    0u64, render_width, constraints.min_width, constraints.max_width
-                ));
-            }
-            let render_height = clamp_with_constraints(
-                target_height,
-                constraints.min_height,
-                constraints.max_height,
-                target_height,
-            );
-            let mut child_options = options.clone();
-            child_options.size = (render_width, render_height);
-            child_options.max_width = render_width;
-            child_options.max_height = render_height;
-
-            let segments = self.child.render_styled(console, &child_options);
-            let mut candidate =
-                Segment::split_and_crop_lines(segments, render_width, None, true, false);
-            let fixed_height = self.child.layout_height();
-            if let Some(height) = fixed_height {
-                candidate =
-                    Segment::set_shape(&candidate, render_width, Some(height.max(1)), None, false);
-            }
-            candidate = pad_lines_to_width(candidate, render_width);
-
-            let candidate_height = if fixed_height.is_some() {
-                candidate.len().max(1)
-            } else {
-                Self::effective_content_height(&candidate)
-            };
-            let candidate_width = candidate
-                .iter()
-                .map(|line| Segment::get_line_length(line))
-                .max()
-                .unwrap_or(viewport_w)
-                .max(viewport_w);
-            let next_show_v =
-                allow_scrollbars_v && (candidate_height > viewport_h || force_visible_v);
-            let next_show_h =
-                allow_scrollbars_h && (candidate_width > viewport_w || force_visible_h);
-
-            lines = candidate;
-            content_width = candidate_width;
-            content_height = candidate_height;
-            content_viewport_w = viewport_w;
-            content_viewport_h = viewport_h;
-
-            if next_show_v == show_v && next_show_h == show_h {
-                break;
-            }
-            show_v = next_show_v;
-            show_h = next_show_h;
-        }
-
-        self.viewport_height
-            .store(content_viewport_h, Ordering::Relaxed);
-        self.viewport_width
-            .store(content_viewport_w, Ordering::Relaxed);
-        self.content_height.store(content_height, Ordering::Relaxed);
-        self.content_width.store(content_width, Ordering::Relaxed);
-
-        let max_offset = content_height.saturating_sub(content_viewport_h);
-        let offset = self.render_offset_y.clamp(0.0, max_offset as f32).round() as usize;
-        let max_offset_x = content_width.saturating_sub(content_viewport_w);
-        let offset_x = self.render_offset_x.clamp(0.0, max_offset_x as f32).round() as usize;
-        let start = offset.min(lines.len());
-        let end = (start + content_viewport_h).min(lines.len());
-        let mut slice = lines[start..end]
-            .iter()
-            .map(|line| {
-                let cropped = crop_line_horizontal(line, offset_x, content_viewport_w);
-                adjust_line_length_no_bg(&cropped, content_viewport_w)
-            })
-            .collect::<Vec<_>>();
-        slice = Segment::set_shape(
-            &slice,
-            content_viewport_w,
-            Some(content_viewport_h),
-            None,
-            false,
-        );
-
-        let track_style = sb.track_style;
-        let track_hover_style = sb.track_hover_style;
-        let track_active_style = sb.track_active_style;
-        let thumb_style = sb.thumb_style;
-        let thumb_hover_style = sb.thumb_hover_style;
-        let thumb_active_style = sb.thumb_active_style;
-        let corner_style = sb.corner_style;
-        let v_scrollbar_size = if show_v {
-            width.saturating_sub(content_viewport_w)
-        } else {
-            0
-        };
-        if show_v {
-            let track_len = content_viewport_h.max(1);
-            let (thumb_start, thumb_len) =
-                Self::line_scrollbar_thumb(track_len, content_height, content_viewport_h, offset);
-            let mut thumb_drawn = false;
-            for (row, line) in slice.iter_mut().enumerate() {
-                let in_track = row < track_len;
-                let style = if in_track && row >= thumb_start && row < thumb_start + thumb_len {
-                    if self.drag_v.is_some() {
-                        thumb_active_style
-                    } else if self.hover_v_thumb {
-                        thumb_hover_style
-                    } else {
-                        thumb_style
-                    }
-                } else if self.drag_v.is_some() {
-                    track_active_style
-                } else if self.hover_v_track {
-                    track_hover_style
-                } else {
-                    track_style
-                };
-                line.extend(Self::blank_run(v_scrollbar_size.max(1), style));
-                thumb_drawn |= in_track && row >= thumb_start && row < thumb_start + thumb_len;
-            }
-            if !thumb_drawn && !slice.is_empty() {
-                let row = track_len.saturating_sub(1).min(slice.len() - 1);
-                let line = &mut slice[row];
-                for _ in 0..v_scrollbar_size.max(1) {
-                    if !line.is_empty() {
-                        line.pop();
-                    }
-                }
-                let active_style = if self.drag_v.is_some() {
-                    thumb_active_style
-                } else if self.hover_v_thumb {
-                    thumb_hover_style
-                } else {
-                    thumb_style
-                };
-                line.extend(Self::blank_run(v_scrollbar_size.max(1), active_style));
-            }
-        }
-        if show_h {
-            let (thumb_start, thumb_len) = Self::line_scrollbar_thumb(
-                content_viewport_w,
-                content_width,
-                content_viewport_w,
-                offset_x,
-            );
-            let mut row = Vec::new();
-            for col in 0..content_viewport_w {
-                let style = if col >= thumb_start && col < thumb_start + thumb_len {
-                    if self.drag_h.is_some() {
-                        thumb_active_style
-                    } else if self.hover_h_thumb {
-                        thumb_hover_style
-                    } else {
-                        thumb_style
-                    }
-                } else if self.drag_h.is_some() {
-                    track_active_style
-                } else if self.hover_h_track {
-                    track_hover_style
-                } else {
-                    track_style
-                };
-                row.extend(Self::blank_run(1, style));
-            }
-            if show_v {
-                row.extend(Self::blank_run(v_scrollbar_size.max(1), corner_style));
-            }
-            slice.push(row);
-        }
-
-        slice = Segment::set_shape(&slice, width, Some(viewport_height), None, false);
-        let line_count = slice.len();
-        let mut out = Segments::new();
-        for (idx, line) in slice.into_iter().enumerate() {
-            out.extend(line);
-            if idx + 1 < line_count {
-                out.push(Segment::line());
-            }
-        }
-        out
-    }
-
-    fn set_inline_style(&mut self, style: crate::style::Style) {
-        self.seed.styles.style = style;
-    }
-
-    fn take_node_seed(&mut self) -> NodeSeed {
-        std::mem::take(&mut self.seed)
-    }
-
-    // Expose the seed-declared id/classes PRE-mount so composed-children readers
-    // (e.g. `ContentSwitcher`) see the id set by `ScrollView::new(..).id(..)`
-    // before the child is drained. Post-mount the node record is authoritative.
-    fn style_id(&self) -> Option<&str> {
-        self.seed.css_id.as_deref()
-    }
-
-    fn style_classes(&self) -> &[String] {
-        &self.seed.classes
-    }
-
-    fn border_title(&self) -> Option<&str> {
-        self.border_title.as_deref()
-    }
-
-    fn border_subtitle(&self) -> Option<&str> {
-        self.border_subtitle.as_deref()
-    }
-
-    fn render_with_debug(
-        &self,
-        console: &Console,
-        options: &ConsoleOptions,
-        debug: &DebugLayout,
-    ) -> Segments {
-        let width = options.size.0.max(1);
-        let height = self.height.unwrap_or_else(|| options.size.1.max(1));
-        let segments = Widget::render(self, console, options);
-        let mut lines = Segment::split_and_crop_lines(segments, width, None, true, false);
-        let label = if debug.show_sizes {
-            Some(format!("{width}x{height}"))
-        } else {
-            None
-        };
-        lines = apply_debug_box(
-            lines,
-            width,
-            height.max(3),
-            label.as_deref(),
-            debug.style_for(0),
-        );
-        let line_count = lines.len();
-        let mut out = Segments::new();
-        for (idx, line) in lines.into_iter().enumerate() {
-            out.extend(line);
-            if idx + 1 < line_count {
-                out.push(Segment::line());
-            }
-        }
-        out
-    }
-
-    fn on_mount(&mut self, ctx: &mut crate::event::WidgetCtx) {
-        if !self.child_extracted {
-            self.child.on_mount(ctx);
-        }
-    }
-
-    fn on_unmount(&mut self) {
-        if !self.child_extracted {
-            self.child.on_unmount();
-        }
-    }
-
-    fn on_tick(&mut self, tick: u64) {
-        if !self.child_extracted {
-            self.child.on_tick(tick);
-        }
-    }
-
-    fn on_resize(&mut self, width: u16, height: u16) {
-        if !self.child_extracted {
-            self.child.on_resize(width, height);
-        }
-    }
-
-    fn set_virtual_content_size(&mut self, width: usize, height: usize) {
-        ScrollView::set_virtual_content_size(self, width, height);
-    }
-
-    fn on_event_capture(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
-        if !self.child_extracted {
-            self.child.on_event_capture(event, ctx);
-        }
     }
 
     fn action_namespace(&self) -> &str {
@@ -1225,6 +751,51 @@ impl Widget for ScrollView {
                 true
             }
             _ => false,
+        }
+    }
+}
+
+impl crate::widgets::Interactive for ScrollView {
+    fn on_node_state_changed(
+        &mut self,
+        _old: crate::widgets::NodeState,
+        new: crate::widgets::NodeState,
+    ) {
+        if !new.hovered {
+            self.hover_v_thumb = false;
+            self.hover_v_track = false;
+            self.hover_h_thumb = false;
+            self.hover_h_track = false;
+        }
+    }
+
+    fn on_mount(&mut self, ctx: &mut crate::event::WidgetCtx) {
+        if !self.child_extracted {
+            self.child.on_mount(ctx);
+        }
+    }
+
+    fn on_unmount(&mut self) {
+        if !self.child_extracted {
+            self.child.on_unmount();
+        }
+    }
+
+    fn on_tick(&mut self, tick: u64) {
+        if !self.child_extracted {
+            self.child.on_tick(tick);
+        }
+    }
+
+    fn on_resize(&mut self, width: u16, height: u16) {
+        if !self.child_extracted {
+            self.child.on_resize(width, height);
+        }
+    }
+
+    fn on_event_capture(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
+        if !self.child_extracted {
+            self.child.on_event_capture(event, ctx);
         }
     }
 
@@ -1595,51 +1166,6 @@ impl Widget for ScrollView {
         ctx.set_handled();
     }
 
-    fn on_mouse_scroll(&mut self, delta_x: i32, delta_y: i32, ctx: &mut crate::event::WidgetCtx) {
-        // Horizontal-only scroll containers use wheel Y deltas to scroll X.
-        let mut resolved_dx = delta_x;
-        let mut resolved_dy = delta_y;
-        let overflow_x = self.seed.styles.style.overflow_x.unwrap_or(Overflow::Auto);
-        let overflow_y = self.seed.styles.style.overflow_y.unwrap_or(Overflow::Auto);
-        if resolved_dx == 0
-            && resolved_dy != 0
-            && matches!(overflow_y, Overflow::Hidden)
-            && !matches!(overflow_x, Overflow::Hidden)
-        {
-            resolved_dx = resolved_dy;
-            resolved_dy = 0;
-        }
-
-        let before_x = self.offset_x;
-        let before_y = self.offset_y;
-
-        if resolved_dy != 0 {
-            self.scroll_by(resolved_dy.saturating_mul(self.scroll_step as i32));
-        }
-        if resolved_dx != 0 {
-            self.scroll_by_x(resolved_dx.saturating_mul(self.scroll_step_x as i32));
-        }
-        debug_input(&format!(
-            "[scrollview] mouse dx={} dy={} before=({}, {}) after=({}, {}) max=({}, {})",
-            resolved_dx,
-            resolved_dy,
-            before_x,
-            before_y,
-            self.offset_x,
-            self.offset_y,
-            self.max_offset_x(),
-            self.max_offset()
-        ));
-
-        if self.offset_x != before_x || self.offset_y != before_y {
-            // Python parity: wheel scrolling is immediate (non-animated).
-            self.render_offset_x = self.offset_x as f32;
-            self.render_offset_y = self.offset_y as f32;
-            ctx.request_repaint();
-            ctx.set_handled();
-        }
-    }
-
     fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {
         self.sync_child_layout();
         let mut changed = self.update_scrollbar_hover_state(x, y);
@@ -1691,6 +1217,67 @@ impl Widget for ScrollView {
         }
         changed
     }
+}
+
+impl crate::widgets::Layout for ScrollView {
+    fn set_virtual_content_size(&mut self, width: usize, height: usize) {
+        ScrollView::set_virtual_content_size(self, width, height);
+    }
+
+    fn clips_descendants_to_content(&self) -> bool {
+        true
+    }
+
+    fn layout_height(&self) -> Option<usize> {
+        self.height
+    }
+}
+
+impl crate::widgets::Scrollable for ScrollView {
+    fn on_mouse_scroll(&mut self, delta_x: i32, delta_y: i32, ctx: &mut crate::event::WidgetCtx) {
+        // Horizontal-only scroll containers use wheel Y deltas to scroll X.
+        let mut resolved_dx = delta_x;
+        let mut resolved_dy = delta_y;
+        let overflow_x = self.seed.styles.style.overflow_x.unwrap_or(Overflow::Auto);
+        let overflow_y = self.seed.styles.style.overflow_y.unwrap_or(Overflow::Auto);
+        if resolved_dx == 0
+            && resolved_dy != 0
+            && matches!(overflow_y, Overflow::Hidden)
+            && !matches!(overflow_x, Overflow::Hidden)
+        {
+            resolved_dx = resolved_dy;
+            resolved_dy = 0;
+        }
+
+        let before_x = self.offset_x;
+        let before_y = self.offset_y;
+
+        if resolved_dy != 0 {
+            self.scroll_by(resolved_dy.saturating_mul(self.scroll_step as i32));
+        }
+        if resolved_dx != 0 {
+            self.scroll_by_x(resolved_dx.saturating_mul(self.scroll_step_x as i32));
+        }
+        debug_input(&format!(
+            "[scrollview] mouse dx={} dy={} before=({}, {}) after=({}, {}) max=({}, {})",
+            resolved_dx,
+            resolved_dy,
+            before_x,
+            before_y,
+            self.offset_x,
+            self.offset_y,
+            self.max_offset_x(),
+            self.max_offset()
+        ));
+
+        if self.offset_x != before_x || self.offset_y != before_y {
+            // Python parity: wheel scrolling is immediate (non-animated).
+            self.render_offset_x = self.offset_x as f32;
+            self.render_offset_y = self.offset_y as f32;
+            ctx.request_repaint();
+            ctx.set_handled();
+        }
+    }
 
     fn scroll_offset(&self) -> (usize, usize) {
         (self.offset_x, self.offset_y)
@@ -1713,10 +1300,6 @@ impl Widget for ScrollView {
         )
     }
 
-    fn clips_descendants_to_content(&self) -> bool {
-        true
-    }
-
     fn scroll_viewport_size(&self) -> Option<(usize, usize)> {
         let vw = self.viewport_width.load(Ordering::Relaxed);
         let vh = self.viewport_height.load(Ordering::Relaxed);
@@ -1736,20 +1319,443 @@ impl Widget for ScrollView {
             Some((cw, ch))
         }
     }
+}
 
-    fn layout_height(&self) -> Option<usize> {
-        self.height
+impl crate::widgets::StyleIdentity for ScrollView {
+    // Expose the seed-declared id/classes PRE-mount so composed-children readers
+    // (e.g. `ContentSwitcher`) see the id set by `ScrollView::new(..).id(..)`
+    // before the child is drained. Post-mount the node record is authoritative.
+    fn style_id(&self) -> Option<&str> {
+        self.seed.css_id.as_deref()
+    }
+
+    fn style_classes(&self) -> &[String] {
+        &self.seed.classes
+    }
+
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
+    }
+
+    fn take_node_seed(&mut self) -> NodeSeed {
+        std::mem::take(&mut self.seed)
     }
 }
 
-impl Renderable for ScrollView {
+impl crate::widgets::Render for ScrollView {
+    fn compose(&mut self) -> crate::compose::ComposeResult {
+        if self.child_extracted {
+            return Vec::new();
+        }
+        self.child_extracted = true;
+        let mut children: crate::compose::ComposeResult = Vec::with_capacity(4);
+        let child = std::mem::replace(&mut self.child, Box::new(Spacer::new(1)));
+        children.push(crate::compose::ChildDecl::new(child));
+
+        let mut vbar = ScrollBar::new(true, 2);
+        vbar.seed.css_id = Some(SCROLL_VIEW_VSCROLLBAR_ID.to_string());
+        children.push(crate::compose::ChildDecl::new(Box::new(vbar)));
+
+        let mut hbar = ScrollBar::new(false, 1);
+        hbar.seed.css_id = Some(SCROLL_VIEW_HSCROLLBAR_ID.to_string());
+        children.push(crate::compose::ChildDecl::new(Box::new(hbar)));
+
+        let mut corner = ScrollBarCorner::new();
+        corner.seed.css_id = Some(SCROLL_VIEW_SCROLLBAR_CORNER_ID.to_string());
+        children.push(crate::compose::ChildDecl::new(Box::new(corner)));
+
+        children
+    }
+
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        Widget::render(self, console, options)
+        let width = options.size.0.max(1);
+        let viewport_height = self.height.unwrap_or_else(|| options.size.1.max(1));
+        self.widget_width.store(width, Ordering::Relaxed);
+        self.widget_height.store(viewport_height, Ordering::Relaxed);
+
+        // Resolve CSS scrollbar config once for this render pass.
+        let sb = self.resolve_scrollbar_css();
+
+        if self.child_extracted {
+            // Do NOT overwrite content_height/content_width — preserve values
+            // set by the tree layout system so scrollbars reflect real content.
+
+            let allow_scrollbars_h = !matches!(sb.visibility, ScrollbarVisibility::Hidden)
+                && !matches!(sb.overflow_x, crate::style::Overflow::Hidden);
+            let allow_scrollbars_v = !matches!(sb.visibility, ScrollbarVisibility::Hidden)
+                && !matches!(sb.overflow_y, crate::style::Overflow::Hidden);
+
+            let content_h = self.content_height.load(Ordering::Relaxed);
+            let content_w = self.content_width.load(Ordering::Relaxed);
+
+            // Iterative scrollbar resolution using CSS-resolved sizes.
+            let v_scrollbar_size = sb.v_size;
+            let h_scrollbar_size = sb.h_size;
+            let force_gutter = matches!(sb.gutter, ScrollbarGutter::Stable);
+            let force_visible_v = matches!(sb.visibility, ScrollbarVisibility::Visible)
+                || matches!(sb.overflow_y, crate::style::Overflow::Scroll);
+            let force_visible_h = matches!(sb.visibility, ScrollbarVisibility::Visible)
+                || matches!(sb.overflow_x, crate::style::Overflow::Scroll);
+            let mut show_v = false;
+            let mut show_h = false;
+            let mut content_viewport_w = width;
+            let mut content_viewport_h = viewport_height;
+            for _ in 0..3 {
+                let reserve_v = show_v || force_gutter;
+                let reserve_h = show_h || (force_gutter && allow_scrollbars_h);
+                let vp_w = width
+                    .saturating_sub(if reserve_v {
+                        v_scrollbar_size.min(width.saturating_sub(1))
+                    } else {
+                        0
+                    })
+                    .max(1);
+                let vp_h = viewport_height
+                    .saturating_sub(if reserve_h { h_scrollbar_size } else { 0 })
+                    .max(1);
+                let next_show_v = allow_scrollbars_v && (content_h > vp_h || force_visible_v);
+                let next_show_h = allow_scrollbars_h && (content_w > vp_w || force_visible_h);
+                content_viewport_w = vp_w;
+                content_viewport_h = vp_h;
+                if next_show_v == show_v && next_show_h == show_h {
+                    break;
+                }
+                show_v = next_show_v;
+                show_h = next_show_h;
+            }
+
+            // Store reduced viewport dimensions.
+            self.viewport_height
+                .store(content_viewport_h, Ordering::Relaxed);
+            self.viewport_width
+                .store(content_viewport_w, Ordering::Relaxed);
+
+            // Background fill for viewport area.
+            let mut slice: Vec<Vec<Segment>> = (0..content_viewport_h)
+                .map(|_| vec![Segment::new(" ".repeat(content_viewport_w))])
+                .collect();
+
+            let track_style = sb.track_style;
+            let track_hover_style = sb.track_hover_style;
+            let track_active_style = sb.track_active_style;
+            let thumb_style = sb.thumb_style;
+            let thumb_hover_style = sb.thumb_hover_style;
+            let thumb_active_style = sb.thumb_active_style;
+            let corner_style = sb.corner_style;
+            // Tree runtime uses dedicated scrollbar child widgets.
+            // Keep these values referenced here to avoid unused warnings; the
+            // pre-extraction widget-local render path below still performs
+            // inline scrollbar painting.
+            let _ = (
+                track_style,
+                track_hover_style,
+                track_active_style,
+                thumb_style,
+                thumb_hover_style,
+                thumb_active_style,
+                corner_style,
+                show_v,
+                show_h,
+                content_h,
+                content_w,
+            );
+
+            slice = Segment::set_shape(&slice, width, Some(viewport_height), None, false);
+            let line_count = slice.len();
+            let mut out = Segments::new();
+            for (idx, line) in slice.into_iter().enumerate() {
+                out.extend(line);
+                if idx + 1 < line_count {
+                    out.push(Segment::line());
+                }
+            }
+            return out;
+        }
+        if std::env::var("TEXTUAL_DEBUG_LAYOUT_FILE").is_ok() {
+            debug_layout(&format!(
+                "[scroll] id={} viewport=({}, {}) offset=({}, {})",
+                0u64, width, viewport_height, self.offset_x, self.offset_y
+            ));
+        }
+        // Use resolved CSS scrollbar config (already computed above).
+        let allow_scrollbars_h = !matches!(sb.visibility, ScrollbarVisibility::Hidden)
+            && !matches!(sb.overflow_x, crate::style::Overflow::Hidden);
+        let allow_scrollbars_v = !matches!(sb.visibility, ScrollbarVisibility::Hidden)
+            && !matches!(sb.overflow_y, crate::style::Overflow::Hidden);
+
+        let constraints = LayoutConstraints::default();
+        let v_scrollbar_size = sb.v_size;
+        let h_scrollbar_size = sb.h_size;
+        let force_gutter = matches!(sb.gutter, ScrollbarGutter::Stable);
+        let force_visible_v = matches!(sb.visibility, ScrollbarVisibility::Visible)
+            || matches!(sb.overflow_y, crate::style::Overflow::Scroll);
+        let force_visible_h = matches!(sb.visibility, ScrollbarVisibility::Visible)
+            || matches!(sb.overflow_x, crate::style::Overflow::Scroll);
+        let mut show_v = false;
+        let mut show_h = false;
+        let mut content_viewport_w = width;
+        let mut content_viewport_h = viewport_height;
+        let mut lines: Vec<Vec<Segment>> = Vec::new();
+        let mut content_width = width;
+        let mut content_height = viewport_height;
+
+        for _ in 0..3 {
+            let reserve_v = show_v || force_gutter;
+            let reserve_h = show_h || (force_gutter && allow_scrollbars_h);
+            let viewport_w = width
+                .saturating_sub(if reserve_v {
+                    v_scrollbar_size.min(width.saturating_sub(1))
+                } else {
+                    0
+                })
+                .max(1);
+            let viewport_h = viewport_height
+                .saturating_sub(if reserve_h { h_scrollbar_size } else { 0 })
+                .max(1);
+
+            let target_height = self
+                .child
+                .layout_height()
+                .unwrap_or_else(|| viewport_h.saturating_add(viewport_h).max(1));
+            let target_width = self
+                .child
+                .content_width()
+                .unwrap_or(viewport_w)
+                .max(viewport_w);
+            let render_width = clamp_with_constraints(
+                target_width,
+                constraints.min_width,
+                constraints.max_width,
+                target_width,
+            )
+            .max(viewport_w);
+            if std::env::var("TEXTUAL_DEBUG_LAYOUT_FILE").is_ok() {
+                debug_layout(&format!(
+                    "[scroll] id={} child render_width={} constraints=({:?},{:?})",
+                    0u64, render_width, constraints.min_width, constraints.max_width
+                ));
+            }
+            let render_height = clamp_with_constraints(
+                target_height,
+                constraints.min_height,
+                constraints.max_height,
+                target_height,
+            );
+            let mut child_options = options.clone();
+            child_options.size = (render_width, render_height);
+            child_options.max_width = render_width;
+            child_options.max_height = render_height;
+
+            let segments = self.child.render_styled(console, &child_options);
+            let mut candidate =
+                Segment::split_and_crop_lines(segments, render_width, None, true, false);
+            let fixed_height = self.child.layout_height();
+            if let Some(height) = fixed_height {
+                candidate =
+                    Segment::set_shape(&candidate, render_width, Some(height.max(1)), None, false);
+            }
+            candidate = pad_lines_to_width(candidate, render_width);
+
+            let candidate_height = if fixed_height.is_some() {
+                candidate.len().max(1)
+            } else {
+                Self::effective_content_height(&candidate)
+            };
+            let candidate_width = candidate
+                .iter()
+                .map(|line| Segment::get_line_length(line))
+                .max()
+                .unwrap_or(viewport_w)
+                .max(viewport_w);
+            let next_show_v =
+                allow_scrollbars_v && (candidate_height > viewport_h || force_visible_v);
+            let next_show_h =
+                allow_scrollbars_h && (candidate_width > viewport_w || force_visible_h);
+
+            lines = candidate;
+            content_width = candidate_width;
+            content_height = candidate_height;
+            content_viewport_w = viewport_w;
+            content_viewport_h = viewport_h;
+
+            if next_show_v == show_v && next_show_h == show_h {
+                break;
+            }
+            show_v = next_show_v;
+            show_h = next_show_h;
+        }
+
+        self.viewport_height
+            .store(content_viewport_h, Ordering::Relaxed);
+        self.viewport_width
+            .store(content_viewport_w, Ordering::Relaxed);
+        self.content_height.store(content_height, Ordering::Relaxed);
+        self.content_width.store(content_width, Ordering::Relaxed);
+
+        let max_offset = content_height.saturating_sub(content_viewport_h);
+        let offset = self.render_offset_y.clamp(0.0, max_offset as f32).round() as usize;
+        let max_offset_x = content_width.saturating_sub(content_viewport_w);
+        let offset_x = self.render_offset_x.clamp(0.0, max_offset_x as f32).round() as usize;
+        let start = offset.min(lines.len());
+        let end = (start + content_viewport_h).min(lines.len());
+        let mut slice = lines[start..end]
+            .iter()
+            .map(|line| {
+                let cropped = crop_line_horizontal(line, offset_x, content_viewport_w);
+                adjust_line_length_no_bg(&cropped, content_viewport_w)
+            })
+            .collect::<Vec<_>>();
+        slice = Segment::set_shape(
+            &slice,
+            content_viewport_w,
+            Some(content_viewport_h),
+            None,
+            false,
+        );
+
+        let track_style = sb.track_style;
+        let track_hover_style = sb.track_hover_style;
+        let track_active_style = sb.track_active_style;
+        let thumb_style = sb.thumb_style;
+        let thumb_hover_style = sb.thumb_hover_style;
+        let thumb_active_style = sb.thumb_active_style;
+        let corner_style = sb.corner_style;
+        let v_scrollbar_size = if show_v {
+            width.saturating_sub(content_viewport_w)
+        } else {
+            0
+        };
+        if show_v {
+            let track_len = content_viewport_h.max(1);
+            let (thumb_start, thumb_len) =
+                Self::line_scrollbar_thumb(track_len, content_height, content_viewport_h, offset);
+            let mut thumb_drawn = false;
+            for (row, line) in slice.iter_mut().enumerate() {
+                let in_track = row < track_len;
+                let style = if in_track && row >= thumb_start && row < thumb_start + thumb_len {
+                    if self.drag_v.is_some() {
+                        thumb_active_style
+                    } else if self.hover_v_thumb {
+                        thumb_hover_style
+                    } else {
+                        thumb_style
+                    }
+                } else if self.drag_v.is_some() {
+                    track_active_style
+                } else if self.hover_v_track {
+                    track_hover_style
+                } else {
+                    track_style
+                };
+                line.extend(Self::blank_run(v_scrollbar_size.max(1), style));
+                thumb_drawn |= in_track && row >= thumb_start && row < thumb_start + thumb_len;
+            }
+            if !thumb_drawn && !slice.is_empty() {
+                let row = track_len.saturating_sub(1).min(slice.len() - 1);
+                let line = &mut slice[row];
+                for _ in 0..v_scrollbar_size.max(1) {
+                    if !line.is_empty() {
+                        line.pop();
+                    }
+                }
+                let active_style = if self.drag_v.is_some() {
+                    thumb_active_style
+                } else if self.hover_v_thumb {
+                    thumb_hover_style
+                } else {
+                    thumb_style
+                };
+                line.extend(Self::blank_run(v_scrollbar_size.max(1), active_style));
+            }
+        }
+        if show_h {
+            let (thumb_start, thumb_len) = Self::line_scrollbar_thumb(
+                content_viewport_w,
+                content_width,
+                content_viewport_w,
+                offset_x,
+            );
+            let mut row = Vec::new();
+            for col in 0..content_viewport_w {
+                let style = if col >= thumb_start && col < thumb_start + thumb_len {
+                    if self.drag_h.is_some() {
+                        thumb_active_style
+                    } else if self.hover_h_thumb {
+                        thumb_hover_style
+                    } else {
+                        thumb_style
+                    }
+                } else if self.drag_h.is_some() {
+                    track_active_style
+                } else if self.hover_h_track {
+                    track_hover_style
+                } else {
+                    track_style
+                };
+                row.extend(Self::blank_run(1, style));
+            }
+            if show_v {
+                row.extend(Self::blank_run(v_scrollbar_size.max(1), corner_style));
+            }
+            slice.push(row);
+        }
+
+        slice = Segment::set_shape(&slice, width, Some(viewport_height), None, false);
+        let line_count = slice.len();
+        let mut out = Segments::new();
+        for (idx, line) in slice.into_iter().enumerate() {
+            out.extend(line);
+            if idx + 1 < line_count {
+                out.push(Segment::line());
+            }
+        }
+        out
+    }
+
+    fn border_title(&self) -> Option<&str> {
+        self.border_title.as_deref()
+    }
+
+    fn border_subtitle(&self) -> Option<&str> {
+        self.border_subtitle.as_deref()
+    }
+
+    fn render_with_debug(
+        &self,
+        console: &Console,
+        options: &ConsoleOptions,
+        debug: &DebugLayout,
+    ) -> Segments {
+        let width = options.size.0.max(1);
+        let height = self.height.unwrap_or_else(|| options.size.1.max(1));
+        let segments = Widget::render(self, console, options);
+        let mut lines = Segment::split_and_crop_lines(segments, width, None, true, false);
+        let label = if debug.show_sizes {
+            Some(format!("{width}x{height}"))
+        } else {
+            None
+        };
+        lines = apply_debug_box(
+            lines,
+            width,
+            height.max(3),
+            label.as_deref(),
+            debug.style_for(0),
+        );
+        let line_count = lines.len();
+        let mut out = Segments::new();
+        for (idx, line) in lines.into_iter().enumerate() {
+            out.extend(line);
+            if idx + 1 < line_count {
+                out.push(Segment::line());
+            }
+        }
+        out
     }
 }
-
 #[cfg(test)]
 mod tests {
+    use rich_rs::Renderable;
     use super::*;
     use crate::action::ParsedAction;
     use crate::event::{AnimationValueEvent, EventCtx};

@@ -1,6 +1,7 @@
 use crossterm::event::{KeyCode, KeyModifiers};
 use regex::Regex;
-use rich_rs::{Console, ConsoleOptions, Renderable, Segments};
+use rich_rs::{Console, ConsoleOptions, Segments};
+use textual_macros::widget;
 use std::time::Instant;
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -134,6 +135,7 @@ impl Selection {
     }
 }
 
+#[widget(Focus, Interactive, Layout, Selectable, StyleIdentity)]
 pub struct Input {
     text: String,
     cursor: usize,
@@ -665,51 +667,13 @@ impl ReactiveWidget for Input {
     }
 }
 
-impl Widget for Input {
-    fn style_type(&self) -> &'static str {
-        self.style_type_name
-    }
-
-    fn style_type_aliases(&self) -> &[&'static str] {
-        self.style_type_aliases.as_slice()
-    }
-
+impl crate::widgets::Focus for Input {
     fn focusable(&self) -> bool {
         true
     }
 
-    fn on_node_state_changed(&mut self, old: NodeState, new: NodeState) {
-        if old.focused != new.focused {
-            let was_focused = old.focused;
-            self.chrome.set_focus(new.focused);
-            if was_focused && !new.focused {
-                self.pending_blur = true;
-            }
-            // Clear suggestion on focus change (matches Python Textual).
-            self.suggestion.clear();
-        }
-    }
-
     fn is_active(&self) -> bool {
         self.chrome.is_active()
-    }
-
-    fn style_classes(&self) -> &[String] {
-        &self.seed.classes
-    }
-
-    fn on_mouse_move(&mut self, x: u16, _y: u16) -> bool {
-        if !self.chrome.is_mouse_down() {
-            return false;
-        }
-        // Groundwork for selection: update selection end (and cursor) while dragging.
-        let next = self.cursor_from_x(x);
-        if next == self.selection.end && next == self.cursor {
-            return false;
-        }
-        self.selection.end = next;
-        self.cursor = next;
-        true
     }
 
     fn action_namespace(&self) -> &str {
@@ -731,6 +695,34 @@ impl Widget for Input {
             }
             _ => false,
         }
+    }
+}
+
+impl crate::widgets::Interactive for Input {
+    fn on_node_state_changed(&mut self, old: NodeState, new: NodeState) {
+        if old.focused != new.focused {
+            let was_focused = old.focused;
+            self.chrome.set_focus(new.focused);
+            if was_focused && !new.focused {
+                self.pending_blur = true;
+            }
+            // Clear suggestion on focus change (matches Python Textual).
+            self.suggestion.clear();
+        }
+    }
+
+    fn on_mouse_move(&mut self, x: u16, _y: u16) -> bool {
+        if !self.chrome.is_mouse_down() {
+            return false;
+        }
+        // Groundwork for selection: update selection end (and cursor) while dragging.
+        let next = self.cursor_from_x(x);
+        if next == self.selection.end && next == self.cursor {
+            return false;
+        }
+        self.selection.end = next;
+        self.cursor = next;
+        true
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
@@ -993,6 +985,44 @@ impl Widget for Input {
             }
         }
     }
+}
+
+impl crate::widgets::Layout for Input {
+    fn layout_height(&self) -> Option<usize> {
+        // PURE content height (1 row). The flow layout adds the CSS-resolved
+        // vertical chrome (Input's default border) with ancestor context.
+        Some(1)
+    }
+}
+
+impl crate::widgets::Selectable for Input {
+    fn get_selection(&self) -> Option<String> {
+        self.selected_text()
+    }
+}
+
+impl crate::widgets::StyleIdentity for Input {
+    fn style_classes(&self) -> &[String] {
+        &self.seed.classes
+    }
+
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
+    }
+
+    fn take_node_seed(&mut self) -> NodeSeed {
+        std::mem::take(&mut self.seed)
+    }
+}
+
+impl crate::widgets::Render for Input {
+    fn style_type(&self) -> &'static str {
+        self.style_type_name
+    }
+
+    fn style_type_aliases(&self) -> &[&'static str] {
+        self.style_type_aliases.as_slice()
+    }
 
     fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
@@ -1231,34 +1261,10 @@ impl Widget for Input {
 
         out
     }
-
-    fn layout_height(&self) -> Option<usize> {
-        // PURE content height (1 row). The flow layout adds the CSS-resolved
-        // vertical chrome (Input's default border) with ancestor context.
-        Some(1)
-    }
-
-    fn set_inline_style(&mut self, style: crate::style::Style) {
-        self.seed.styles.style = style;
-    }
-
-    fn take_node_seed(&mut self) -> NodeSeed {
-        std::mem::take(&mut self.seed)
-    }
-
-    fn get_selection(&self) -> Option<String> {
-        self.selected_text()
-    }
 }
-
-impl Renderable for Input {
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        Widget::render(self, console, options)
-    }
-}
-
 #[cfg(test)]
 mod tests {
+    use rich_rs::Renderable;
     use super::*;
     use crate::event::EventCtx;
     use crate::event::MouseDownEvent;

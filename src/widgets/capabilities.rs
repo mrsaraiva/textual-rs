@@ -97,6 +97,16 @@ pub trait Render {
             .collect()
     }
 
+    /// Render with a debug-layout overlay. Default delegates to `render`.
+    fn render_with_debug(
+        &self,
+        console: &Console,
+        options: &ConsoleOptions,
+        _debug: &crate::debug::DebugLayout,
+    ) -> Segments {
+        self.render(console, options)
+    }
+
     /// CSS type name for this widget (default: concrete type short name).
     fn style_type(&self) -> &'static str {
         std::any::type_name::<Self>()

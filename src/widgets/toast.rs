@@ -1,4 +1,5 @@
-use rich_rs::{Console, ConsoleOptions, MetaValue, Renderable, Segment, Segments, Text};
+use rich_rs::{Console, ConsoleOptions, MetaValue, Segment, Segments, Text};
+use textual_macros::widget;
 
 use crate::content::{Content, ContentPart};
 use crate::event::Event;
@@ -51,6 +52,7 @@ impl ToastSeverity {
 /// [`NotificationExpired`](crate::message::NotificationExpired) so the runtime
 /// removes the notification (a real node unmount). Not focusable.
 #[derive(Debug, Clone)]
+#[widget(Focus, Interactive, Layout, StyleIdentity)]
 pub struct Toast {
     /// Stable notification id (mirrors Python `Notification.identity`). Posted in
     /// `NotificationExpired` on click so the runtime removes the right entry.
@@ -148,7 +150,7 @@ impl Toast {
     }
 }
 
-impl Widget for Toast {
+impl crate::widgets::Focus for Toast {
     fn focusable(&self) -> bool {
         false
     }
@@ -156,7 +158,24 @@ impl Widget for Toast {
     fn mouse_interactive(&self) -> bool {
         true
     }
+}
 
+impl crate::widgets::Interactive for Toast {
+    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
+        // Click-to-dismiss (Python `Toast._on_click`): post `NotificationExpired`
+        // so the runtime removes the notification from the store and re-syncs the
+        // rack (a real node unmount). Auto-dismiss timing is owned by the rack.
+        if let Event::MouseDown(mouse) = event
+            && mouse.target == self.node_id()
+        {
+            ctx.post_message(NotificationExpired { id: self.id });
+            ctx.request_repaint();
+            ctx.set_handled();
+        }
+    }
+}
+
+impl crate::widgets::Layout for Toast {
     fn content_width(&self) -> Option<usize> {
         let msg_width = self
             .message
@@ -179,19 +198,36 @@ impl Widget for Toast {
         Some(msg_width.max(title_width).saturating_add(chrome_lr).max(1))
     }
 
-    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
-        // Click-to-dismiss (Python `Toast._on_click`): post `NotificationExpired`
-        // so the runtime removes the notification from the store and re-syncs the
-        // rack (a real node unmount). Auto-dismiss timing is owned by the rack.
-        if let Event::MouseDown(mouse) = event
-            && mouse.target == self.node_id()
-        {
-            ctx.post_message(NotificationExpired { id: self.id });
-            ctx.request_repaint();
-            ctx.set_handled();
-        }
+    fn layout_height(&self) -> Option<usize> {
+        let title_lines = if self.title.is_some() { 1 } else { 0 };
+        let content_width = self.content_box_width();
+        let message_lines = if self.message.is_empty() {
+            0
+        } else {
+            Self::wrapped_line_count(&self.message, content_width).max(1)
+        };
+        let content_lines = (title_lines + message_lines).max(1);
+        // PURE content height. The flow layout adds the CSS-resolved vertical
+        // chrome (Toast's border/padding) with ancestor context.
+        Some(content_lines)
+    }
+}
+
+impl crate::widgets::StyleIdentity for Toast {
+    fn style_classes(&self) -> &[String] {
+        &self.classes
     }
 
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
+    }
+
+    fn take_node_seed(&mut self) -> NodeSeed {
+        std::mem::take(&mut self.seed)
+    }
+}
+
+impl crate::widgets::Render for Toast {
     fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
 
@@ -271,43 +307,10 @@ impl Widget for Toast {
         out
     }
 
-    fn layout_height(&self) -> Option<usize> {
-        let title_lines = if self.title.is_some() { 1 } else { 0 };
-        let content_width = self.content_box_width();
-        let message_lines = if self.message.is_empty() {
-            0
-        } else {
-            Self::wrapped_line_count(&self.message, content_width).max(1)
-        };
-        let content_lines = (title_lines + message_lines).max(1);
-        // PURE content height. The flow layout adds the CSS-resolved vertical
-        // chrome (Toast's border/padding) with ancestor context.
-        Some(content_lines)
-    }
-
     fn style_type(&self) -> &'static str {
         "Toast"
     }
-
-    fn style_classes(&self) -> &[String] {
-        &self.classes
-    }
-
-    fn set_inline_style(&mut self, style: crate::style::Style) {
-        self.seed.styles.style = style;
-    }
-
-    fn take_node_seed(&mut self) -> NodeSeed {
-        std::mem::take(&mut self.seed)
-    }
 }
-
-impl Renderable for Toast {
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        Widget::render(self, console, options)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -1,5 +1,6 @@
 use crossterm::event::{KeyCode, KeyModifiers};
-use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
+use rich_rs::{Console, ConsoleOptions, Segment, Segments};
+use textual_macros::widget;
 
 use crate::content::Content;
 use crate::event::{Action, Event};
@@ -237,6 +238,7 @@ impl ColumnKey {
 }
 
 #[derive(Debug, Clone)]
+#[widget(Focus, Interactive, Layout, Scrollable, StyleIdentity)]
 pub struct DataTable {
     column_keys: Vec<ColumnKey>,
     headers: Vec<String>,
@@ -1335,57 +1337,13 @@ impl ReactiveWidget for DataTable {
     }
 }
 
-impl Widget for DataTable {
-    fn compose(&mut self) -> crate::compose::ComposeResult {
-        if self.scrollbar_extracted {
-            return Vec::new();
-        }
-        self.scrollbar_extracted = true;
-        let mut hbar = ScrollBar::new(false, 1);
-        hbar.seed.css_id = Some(DATA_TABLE_HSCROLLBAR_ID.to_string());
-        vec![crate::compose::ChildDecl::new(Box::new(hbar))]
-    }
-
+impl crate::widgets::Focus for DataTable {
     fn focusable(&self) -> bool {
         true
     }
 
     fn mouse_interactive(&self) -> bool {
         true
-    }
-
-    fn on_node_state_changed(
-        &mut self,
-        _old: crate::widgets::NodeState,
-        new: crate::widgets::NodeState,
-    ) {
-        if !new.hovered {
-            self.hover_coordinate = None;
-        }
-    }
-
-    fn on_layout(&mut self, width: u16, height: u16) {
-        self.content_width = width;
-        self.content_height = height;
-        let visible_rows = self.visible_rows_for_viewport(height as usize);
-        self.ensure_visible(visible_rows);
-        self.ensure_cursor_column_visible(width as usize);
-    }
-
-    fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {
-        let rendered_columns = self.rendered_column_indices();
-        let col_idx = self.column_at_x_in_rendered_columns(x as usize, &rendered_columns);
-        let visible_rows = self.visible_rows();
-        let next = if self.show_header && y == 0 {
-            // Header row — use usize::MAX as sentinel (mirrors Textual's row_index=-1).
-            Some((usize::MAX, col_idx))
-        } else {
-            self.row_index_from_y(y as usize, visible_rows)
-                .map(|row_idx| (row_idx, col_idx))
-        };
-        let changed = next != self.hover_coordinate;
-        self.hover_coordinate = next;
-        changed
     }
 
     fn action_namespace(&self) -> &str {
@@ -1558,6 +1516,42 @@ impl Widget for DataTable {
             ctx.set_handled();
         }
         handled
+    }
+}
+
+impl crate::widgets::Interactive for DataTable {
+    fn on_node_state_changed(
+        &mut self,
+        _old: crate::widgets::NodeState,
+        new: crate::widgets::NodeState,
+    ) {
+        if !new.hovered {
+            self.hover_coordinate = None;
+        }
+    }
+
+    fn on_layout(&mut self, width: u16, height: u16) {
+        self.content_width = width;
+        self.content_height = height;
+        let visible_rows = self.visible_rows_for_viewport(height as usize);
+        self.ensure_visible(visible_rows);
+        self.ensure_cursor_column_visible(width as usize);
+    }
+
+    fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {
+        let rendered_columns = self.rendered_column_indices();
+        let col_idx = self.column_at_x_in_rendered_columns(x as usize, &rendered_columns);
+        let visible_rows = self.visible_rows();
+        let next = if self.show_header && y == 0 {
+            // Header row — use usize::MAX as sentinel (mirrors Textual's row_index=-1).
+            Some((usize::MAX, col_idx))
+        } else {
+            self.row_index_from_y(y as usize, visible_rows)
+                .map(|row_idx| (row_idx, col_idx))
+        };
+        let changed = next != self.hover_coordinate;
+        self.hover_coordinate = next;
+        changed
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
@@ -1879,6 +1873,74 @@ impl Widget for DataTable {
         }
     }
 
+    fn on_message(&mut self, event: &MessageEvent, ctx: &mut crate::event::WidgetCtx) {
+        let Some(payload) = event.downcast_ref::<ScrollbarScrollTo>() else {
+            return;
+        };
+        if payload.axis != ScrollbarAxis::Horizontal {
+            return;
+        }
+        let width = self.content_width as usize;
+        let Some(state) = self.horizontal_scrollbar_state(width) else {
+            return;
+        };
+        let target_pixels = payload.offset.max(0.0).round() as usize;
+        let clamped_pixels = target_pixels.min(state.max_pixel_offset);
+        let next = self.horizontal_offset_from_pixels(clamped_pixels);
+        if next != self.horizontal_offset {
+            self.horizontal_offset = next;
+            ctx.request_repaint();
+        }
+        ctx.set_handled();
+    }
+}
+
+impl crate::widgets::Layout for DataTable {
+    fn layout_height(&self) -> Option<usize> {
+        let header_rows = if self.show_header { 1 } else { 0 };
+        let intrinsic = header_rows + self.rows.len().max(1);
+        Some(intrinsic)
+    }
+
+    fn content_width(&self) -> Option<usize> {
+        // Python's `DataTable` inherits `width: 1fr` from `ScrollableContainer`
+        // (its DEFAULT_CSS only overrides height), so a `DataTable` with an UNSET
+        // width fills its container horizontally — the column data sits at the left
+        // and the remaining width is surface fill, with the vertical scrollbar in
+        // the right gutter. Reporting `None` here lets layout flex-fill the unset
+        // width (matching that default) instead of shrinking the box to the
+        // intrinsic content width, which would let the scrollbar gutter clip the
+        // rightmost column. An EXPLICIT `width: auto` still shrinks to content via
+        // `auto_content_width()`.
+        None
+    }
+
+    fn auto_content_width(&self) -> Option<usize> {
+        let columns = self.headers.len().max(1);
+        let widths = self.column_widths();
+        let cells_width = widths.iter().copied().sum::<usize>();
+        let gaps_width = columns.saturating_sub(1).saturating_mul(2);
+        // Non-data row-label column (width + its 2-cell gap), when shown.
+        let label_width = self.label_col_width();
+        let label_extra = if label_width > 0 { label_width + 2 } else { 0 };
+        // Add CELL_PADDING for the leading 1-space left pad (matches Python DataTable.cell_padding=1).
+        let content_width = cells_width
+            .saturating_add(gaps_width)
+            .saturating_add(label_extra)
+            .saturating_add(CELL_PADDING)
+            .max(1);
+        let meta = crate::css::selector_meta_generic(self);
+        let resolved = crate::css::resolve_style(self, &meta);
+        let padding = resolved.effective_padding();
+        let (_, _, border_left, border_right) =
+            super::helpers::border_spacing_from_style(&resolved);
+        let chrome_lr =
+            usize::from(padding.left.saturating_add(padding.right)) + border_left + border_right;
+        Some(content_width.saturating_add(chrome_lr).max(1))
+    }
+}
+
+impl crate::widgets::Scrollable for DataTable {
     fn on_mouse_scroll(&mut self, delta_x: i32, _delta_y: i32, ctx: &mut crate::event::WidgetCtx) {
         if delta_x == 0 {
             return;
@@ -1887,6 +1949,70 @@ impl Widget for DataTable {
             ctx.request_repaint();
             ctx.set_handled();
         }
+    }
+
+    fn scroll_offset(&self) -> (usize, usize) {
+        let width = self.content_width as usize;
+        if let Some(state) = self.horizontal_scrollbar_state(width) {
+            (state.pixel_offset, 0)
+        } else {
+            (0, 0)
+        }
+    }
+
+    fn scroll_offset_f32(&self) -> (f32, f32) {
+        let (x, y) = crate::widgets::Scrollable::scroll_offset(self);
+        (x as f32, y as f32)
+    }
+
+    fn scroll_virtual_content_size(&self) -> Option<(usize, usize)> {
+        let width = self.content_width as usize;
+        // Use layout_height() for virtual height so that the scrollbar policy
+        // does not see an inflated height from the seed on_layout call (which uses
+        // the full viewport height) and incorrectly reserve a vertical scrollbar lane.
+        // DataTable manages its own row offset internally; the virtual content height
+        // equals the number of rendered rows (header + data), not the seed viewport.
+        let virtual_h = self.layout_height().unwrap_or(1).max(1);
+        if let Some(state) = self.horizontal_scrollbar_state(width) {
+            Some((state.content_width.max(1), virtual_h))
+        } else {
+            let content_w = self.auto_content_width().unwrap_or(width.max(1)).max(1);
+            Some((content_w, virtual_h))
+        }
+    }
+}
+
+impl crate::widgets::StyleIdentity for DataTable {
+    // Expose the seed-declared id/classes PRE-mount so composed-children readers
+    // (e.g. `ContentSwitcher`, which records each child's id via `style_id()`
+    // before draining) see the id set by `DataTable::new(..).id(..)`. Post-mount
+    // the seed is drained and the node record is authoritative.
+    fn style_id(&self) -> Option<&str> {
+        self.seed.css_id.as_deref()
+    }
+
+    fn style_classes(&self) -> &[String] {
+        &self.seed.classes
+    }
+
+    fn set_inline_style(&mut self, style: crate::style::Style) {
+        self.seed.styles.style = style;
+    }
+
+    fn take_node_seed(&mut self) -> NodeSeed {
+        std::mem::take(&mut self.seed)
+    }
+}
+
+impl crate::widgets::Render for DataTable {
+    fn compose(&mut self) -> crate::compose::ComposeResult {
+        if self.scrollbar_extracted {
+            return Vec::new();
+        }
+        self.scrollbar_extracted = true;
+        let mut hbar = ScrollBar::new(false, 1);
+        hbar.seed.css_id = Some(DATA_TABLE_HSCROLLBAR_ID.to_string());
+        vec![crate::compose::ChildDecl::new(Box::new(hbar))]
     }
 
     fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
@@ -2121,128 +2247,7 @@ impl Widget for DataTable {
 
         out
     }
-
-    fn layout_height(&self) -> Option<usize> {
-        let header_rows = if self.show_header { 1 } else { 0 };
-        let intrinsic = header_rows + self.rows.len().max(1);
-        Some(intrinsic)
-    }
-
-    fn content_width(&self) -> Option<usize> {
-        // Python's `DataTable` inherits `width: 1fr` from `ScrollableContainer`
-        // (its DEFAULT_CSS only overrides height), so a `DataTable` with an UNSET
-        // width fills its container horizontally — the column data sits at the left
-        // and the remaining width is surface fill, with the vertical scrollbar in
-        // the right gutter. Reporting `None` here lets layout flex-fill the unset
-        // width (matching that default) instead of shrinking the box to the
-        // intrinsic content width, which would let the scrollbar gutter clip the
-        // rightmost column. An EXPLICIT `width: auto` still shrinks to content via
-        // `auto_content_width()`.
-        None
-    }
-
-    fn auto_content_width(&self) -> Option<usize> {
-        let columns = self.headers.len().max(1);
-        let widths = self.column_widths();
-        let cells_width = widths.iter().copied().sum::<usize>();
-        let gaps_width = columns.saturating_sub(1).saturating_mul(2);
-        // Non-data row-label column (width + its 2-cell gap), when shown.
-        let label_width = self.label_col_width();
-        let label_extra = if label_width > 0 { label_width + 2 } else { 0 };
-        // Add CELL_PADDING for the leading 1-space left pad (matches Python DataTable.cell_padding=1).
-        let content_width = cells_width
-            .saturating_add(gaps_width)
-            .saturating_add(label_extra)
-            .saturating_add(CELL_PADDING)
-            .max(1);
-        let meta = crate::css::selector_meta_generic(self);
-        let resolved = crate::css::resolve_style(self, &meta);
-        let padding = resolved.effective_padding();
-        let (_, _, border_left, border_right) =
-            super::helpers::border_spacing_from_style(&resolved);
-        let chrome_lr =
-            usize::from(padding.left.saturating_add(padding.right)) + border_left + border_right;
-        Some(content_width.saturating_add(chrome_lr).max(1))
-    }
-
-    fn set_inline_style(&mut self, style: crate::style::Style) {
-        self.seed.styles.style = style;
-    }
-
-    fn take_node_seed(&mut self) -> NodeSeed {
-        std::mem::take(&mut self.seed)
-    }
-
-    // Expose the seed-declared id/classes PRE-mount so composed-children readers
-    // (e.g. `ContentSwitcher`, which records each child's id via `style_id()`
-    // before draining) see the id set by `DataTable::new(..).id(..)`. Post-mount
-    // the seed is drained and the node record is authoritative.
-    fn style_id(&self) -> Option<&str> {
-        self.seed.css_id.as_deref()
-    }
-
-    fn style_classes(&self) -> &[String] {
-        &self.seed.classes
-    }
-
-    fn on_message(&mut self, event: &MessageEvent, ctx: &mut crate::event::WidgetCtx) {
-        let Some(payload) = event.downcast_ref::<ScrollbarScrollTo>() else {
-            return;
-        };
-        if payload.axis != ScrollbarAxis::Horizontal {
-            return;
-        }
-        let width = self.content_width as usize;
-        let Some(state) = self.horizontal_scrollbar_state(width) else {
-            return;
-        };
-        let target_pixels = payload.offset.max(0.0).round() as usize;
-        let clamped_pixels = target_pixels.min(state.max_pixel_offset);
-        let next = self.horizontal_offset_from_pixels(clamped_pixels);
-        if next != self.horizontal_offset {
-            self.horizontal_offset = next;
-            ctx.request_repaint();
-        }
-        ctx.set_handled();
-    }
-
-    fn scroll_offset(&self) -> (usize, usize) {
-        let width = self.content_width as usize;
-        if let Some(state) = self.horizontal_scrollbar_state(width) {
-            (state.pixel_offset, 0)
-        } else {
-            (0, 0)
-        }
-    }
-
-    fn scroll_offset_f32(&self) -> (f32, f32) {
-        let (x, y) = self.scroll_offset();
-        (x as f32, y as f32)
-    }
-
-    fn scroll_virtual_content_size(&self) -> Option<(usize, usize)> {
-        let width = self.content_width as usize;
-        // Use layout_height() for virtual height so that the scrollbar policy
-        // does not see an inflated height from the seed on_layout call (which uses
-        // the full viewport height) and incorrectly reserve a vertical scrollbar lane.
-        // DataTable manages its own row offset internally; the virtual content height
-        // equals the number of rendered rows (header + data), not the seed viewport.
-        let virtual_h = self.layout_height().unwrap_or(1).max(1);
-        if let Some(state) = self.horizontal_scrollbar_state(width) {
-            Some((state.content_width.max(1), virtual_h))
-        } else {
-            let content_w = self.auto_content_width().unwrap_or(width.max(1)).max(1);
-            Some((content_w, virtual_h))
-        }
-    }
 }
-
-impl Renderable for DataTable {
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        Widget::render(self, console, options)
-    }
-}
-
 /// Cell padding: 1 space on each side of each cell, matching Python DataTable.cell_padding = 1.
 /// Visual layout: [1 space][cell][2 spaces][cell][2 spaces]...[cell][fill to total_width]
 const CELL_PADDING: usize = 1;
@@ -2490,6 +2495,7 @@ fn emit_row_per_cell(
 
 #[cfg(test)]
 mod tests {
+    use rich_rs::Renderable;
     use super::*;
     use crate::event::EventCtx;
     use crate::event::MouseDownEvent;

@@ -113,10 +113,15 @@ pub mod prelude {
         Function, Integer, Length, Number, Regex, Url, ValidationResult, Validator, ValidatorRef,
     };
     pub use crate::widget_tree::{LifecycleEvent, QueryError, WidgetNode, WidgetTree};
-    pub use crate::widgets::{
-        AppHooks, Components, Focus, HasTooltip, Interactive, Layout, Render, Scrollable,
-        Selectable, StyleIdentity,
-    };
+    // NOTE (Widget trait split): the authoring capability traits (`Render`,
+    // `Interactive`, `Layout`, `Scrollable`, `Focus`, `Selectable`, `HasTooltip`,
+    // `Components`, `AppHooks`, `StyleIdentity`) are intentionally NOT in the
+    // prelude. Both they and `Widget` carry the same method names; exporting both
+    // makes every direct `widget.method()` call in user code ambiguous (E0034).
+    // The `#[widget(..)]` derive needs none of them in scope (it uses full
+    // paths); a hand-writer of a capability impl imports the one they need from
+    // `crate::widgets::` (e.g. `use textual::widgets::Layout;`). This keeps
+    // `use textual::prelude::*` unambiguous for the common `dyn Widget` surface.
     pub use crate::widgets::{
         AppRoot, BindingDecl, BindingsTable, Button, ButtonVariant,
         Cell as DataTableCell, CellJustify, Center,

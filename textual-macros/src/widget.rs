@@ -622,8 +622,8 @@ enum Group {
 /// Map a `Widget` method name to its own-mode capability group.
 fn method_group(name: &str) -> Group {
     match name {
-        "render" | "compose" | "render_line" | "render_lines" | "style_type"
-        | "style_type_aliases" | "border_title" | "border_subtitle" => Group::Render,
+        "render" | "render_with_debug" | "compose" | "render_line" | "render_lines"
+        | "style_type" | "style_type_aliases" | "border_title" | "border_subtitle" => Group::Render,
         "on_mount" | "on_unmount" | "on_tick" | "on_resize" | "on_layout" | "on_event_capture"
         | "on_event" | "on_message" | "on_mouse_move" | "on_node_state_changed" => {
             Group::Interactive

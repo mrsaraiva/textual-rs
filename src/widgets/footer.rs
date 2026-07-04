@@ -1,6 +1,7 @@
 use std::ops::Range;
 
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments, Text};
+use textual_macros::widget;
 
 use crate::debug::debug_message;
 use crate::event::Event;
@@ -66,6 +67,7 @@ impl FooterBinding {
 }
 
 #[derive(Debug, Clone)]
+#[widget(Interactive, StyleIdentity)]
 pub struct FooterKey {
     key: String,
     description: String,
@@ -212,11 +214,7 @@ impl FooterKey {
     }
 }
 
-impl Widget for FooterKey {
-    fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
-        self.render_segments()
-    }
-
+impl crate::widgets::Interactive for FooterKey {
     fn on_node_state_changed(
         &mut self,
         _old: crate::widgets::NodeState,
@@ -224,7 +222,9 @@ impl Widget for FooterKey {
     ) {
         self.hovered = new.hovered;
     }
+}
 
+impl crate::widgets::StyleIdentity for FooterKey {
     fn style_classes(&self) -> &[String] {
         &self.classes
     }
@@ -248,12 +248,11 @@ impl Widget for FooterKey {
     }
 }
 
-impl Renderable for FooterKey {
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        Widget::render(self, console, options)
+impl crate::widgets::Render for FooterKey {
+    fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+        self.render_segments()
     }
 }
-
 #[derive(Debug, Clone)]
 pub struct FooterLabel {
     text: String,
