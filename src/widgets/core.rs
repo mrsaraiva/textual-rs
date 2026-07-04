@@ -160,22 +160,60 @@ pub struct WidgetSelectionAnchor {
     pub index: usize,
 }
 
-/// Behavior-only widget trait.
+/// The object-safe dispatch trait the runtime calls through `Box<dyn Widget>`.
 ///
-/// Identity (NodeId) comes from the arena-based `WidgetTree`, not from the
-/// widget itself. Structural concerns (parent/child links, CSS classes, display
-/// state) also live on the tree, not here.
+/// # You do not implement this by hand — you implement the capability traits
 ///
-/// The `render_styled_dyn_obj` method receives a `NodeId` from the runtime so
-/// it can tag rendered segments with the correct arena identity. The convenience
-/// wrappers `render_styled` / `render_styled_with_debug` use a null sentinel
-/// NodeId for backward-compatible widget-to-widget rendering during migration.
+/// `Widget` is the frozen dispatch surface; its ~83 methods are `#[doc(hidden)]`
+/// because they are not the authoring contract. To write a widget, implement the
+/// small **authoring capability traits** and derive `Widget` from them with the
+/// `#[widget(..)]` attribute macro:
+///
+/// - Required core: [`Render`](crate::widgets::Render) (`render` **or**
+///   `compose`, plus `style_type`).
+/// - Opt-in capabilities: [`Interactive`](crate::widgets::Interactive),
+///   [`Layout`](crate::widgets::Layout), [`Scrollable`](crate::widgets::Scrollable),
+///   [`Focus`](crate::widgets::Focus), [`Selectable`](crate::widgets::Selectable),
+///   [`HasTooltip`](crate::widgets::HasTooltip),
+///   [`Components`](crate::widgets::Components), [`AppHooks`](crate::widgets::AppHooks),
+///   [`StyleIdentity`](crate::widgets::StyleIdentity).
+///
+/// ```ignore
+/// #[widget(Layout)]            // opt into the Layout capability
+/// struct Spacer { height: usize, seed: NodeSeed }
+/// impl Render for Spacer { fn render(&self, c: &Console, o: &ConsoleOptions) -> Segments { .. } }
+/// impl Layout for Spacer { fn layout_height(&self) -> Option<usize> { Some(self.height) } }
+/// ```
+///
+/// The capability traits are NOT in the prelude (they share method names with
+/// `Widget`; exporting both makes direct `widget.method()` calls ambiguous).
+/// Import the ones you implement from `crate::widgets::` (e.g.
+/// `use textual::widgets::Layout;`).
+///
+/// # Delegation (wrap a container)
+///
+/// A compound widget that wraps a base container uses the delegation form,
+/// `#[widget(base = <Container>, field = <field>, override(..))]`, which forwards
+/// the whole surface to the field and lets you override a handful of methods as
+/// inherent methods.
+///
+/// # Escape hatch
+///
+/// Hand-writing `impl Widget for MyType { .. }` remains fully supported for the
+/// rare widget the derive cannot express (e.g. a delegate-to-a-dynamic-accessor
+/// helper). The methods below are the surface you implement in that case; they
+/// mirror the capability-trait methods one-to-one.
+///
+/// Identity (`NodeId`) comes from the arena `WidgetTree`, delivered through the
+/// dispatch context — widgets receive it, they do not own it.
 pub trait Widget: Send + Sync + Any {
+    #[doc(hidden)]
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments;
 
     /// Render a single visual line (row) at `y` in widget-local coordinates.
     ///
     /// Default implementation renders the full widget and extracts one row.
+    #[doc(hidden)]
     fn render_line(&self, y: usize, console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
         let lines = rich_rs::Segment::split_and_crop_lines(
@@ -191,6 +229,7 @@ pub trait Widget: Send + Sync + Any {
     /// Render a contiguous range of visual lines starting at `start_y`.
     ///
     /// Default implementation delegates to [`Self::render_line`] for each row.
+    #[doc(hidden)]
     fn render_lines(
         &self,
         start_y: usize,
@@ -219,6 +258,7 @@ pub trait Widget: Send + Sync + Any {
     /// self-request recompose — re-draining yields nothing and its arena children
     /// would be silently deleted. See
     /// [`recompose_node_subtree`](crate::runtime::event_loop::recompose_node_subtree).
+    #[doc(hidden)]
     fn compose(&mut self) -> ComposeResult {
         Vec::new()
     }
@@ -233,6 +273,7 @@ pub trait Widget: Send + Sync + Any {
     ///
     /// Aligns with B-06 Identity Principle: widgets receive NodeId through
     /// context, they don't own it.
+    #[doc(hidden)]
     fn node_id(&self) -> NodeId {
         crate::runtime::dispatch_ctx::dispatch_recipient().unwrap_or_default()
     }
@@ -240,15 +281,18 @@ pub trait Widget: Send + Sync + Any {
     /// This node's interaction state, delivered via the dispatch context
     /// (same mechanism as `node_id()`). Outside dispatch it returns
     /// `NodeState::default()`.
+    #[doc(hidden)]
     fn node_state(&self) -> NodeState {
         crate::runtime::dispatch_ctx::dispatch_node_state().unwrap_or_default()
     }
 
     /// Notification hook invoked by the tree's state writers after the node
     /// record changed. Widgets needing side effects override this. Default: no-op.
+    #[doc(hidden)]
     fn on_node_state_changed(&mut self, _old: NodeState, _new: NodeState) {}
 
     /// One-shot mount seed (see NodeSeed).
+    #[doc(hidden)]
     fn take_node_seed(&mut self) -> NodeSeed {
         NodeSeed::default()
     }
@@ -257,6 +301,7 @@ pub trait Widget: Send + Sync + Any {
     ///
     /// `_node_id` is the arena-assigned identity used for metadata tagging so
     /// hit-test lookups remain compatible with `HitTestMap` and `NodeHitTestMap`.
+    #[doc(hidden)]
     fn render_styled_dyn_obj(
         &self,
         console: &Console,
@@ -304,6 +349,7 @@ pub trait Widget: Send + Sync + Any {
             &debug_widget_label,
         )
     }
+    #[doc(hidden)]
     fn render_with_debug(
         &self,
         console: &Console,
@@ -317,24 +363,34 @@ pub trait Widget: Send + Sync + Any {
     /// [`crate::event::WidgetCtx::set_interval`], query descendants, post
     /// messages, or mutate reactive state as part of mount. (RA2.2 merged the
     /// former no-arg `on_mount()` and `on_mount_ctx(ctx)` into this one hook.)
+    #[doc(hidden)]
     fn on_mount(&mut self, _ctx: &mut WidgetCtx) {}
+    #[doc(hidden)]
     fn on_unmount(&mut self) {}
+    #[doc(hidden)]
     fn on_tick(&mut self, _tick: u64) {}
+    #[doc(hidden)]
     fn on_resize(&mut self, _width: u16, _height: u16) {}
+    #[doc(hidden)]
     fn on_layout(&mut self, _width: u16, _height: u16) {}
     /// Set the virtual content size for scroll host widgets.
     ///
     /// Called by the runtime layout pass to inform scroll containers of the total
     /// content extent. Scroll hosts override this to update their internal state
     /// (e.g. scrollbar thumb sizing). The default is a no-op for non-scroll widgets.
+    #[doc(hidden)]
     fn set_virtual_content_size(&mut self, _width: usize, _height: usize) {}
+    #[doc(hidden)]
     fn on_event_capture(&mut self, _event: &Event, _ctx: &mut WidgetCtx) {}
+    #[doc(hidden)]
     fn on_event(&mut self, _event: &Event, _ctx: &mut WidgetCtx) {}
+    #[doc(hidden)]
     fn on_message(&mut self, _message: &MessageEvent, _ctx: &mut WidgetCtx) {}
     /// Optional runtime-level app key hook.
     ///
     /// The runtime calls this before normal widget key dispatch, passing the
     /// active [`crate::App`] handle so app wrappers can query/mutate tree state.
+    #[doc(hidden)]
     fn on_app_key(
         &mut self,
         _app: &mut crate::App,
@@ -346,10 +402,12 @@ pub trait Widget: Send + Sync + Any {
     ///
     /// Called for unhandled actions so app wrappers can run selector/query-based
     /// behavior with mutable runtime access.
+    #[doc(hidden)]
     fn on_app_action(&mut self, _app: &mut crate::App, _action: Action, _ctx: &mut WidgetCtx) {}
     /// Called by the runtime when a declarative binding's action string cannot be
     /// resolved by `resolve_action` and `execute_action`.  Only `TextualAppAdapter`
     /// overrides this.
+    #[doc(hidden)]
     fn on_app_unhandled_action(
         &mut self,
         _app: &mut crate::App,
@@ -360,6 +418,7 @@ pub trait Widget: Send + Sync + Any {
     /// Optional runtime-level app message hook.
     ///
     /// Called after `on_message` when the message remains unhandled.
+    #[doc(hidden)]
     fn on_app_message(
         &mut self,
         _app: &mut crate::App,
@@ -371,6 +430,7 @@ pub trait Widget: Send + Sync + Any {
     ///
     /// Runs once per runtime tick after `on_tick` and before `Event::Tick`
     /// dispatch, allowing app wrappers to use query/mutation APIs.
+    #[doc(hidden)]
     fn on_app_tick(&mut self, _app: &mut crate::App, _tick: u64, _ctx: &mut WidgetCtx) {}
     /// Optional runtime-level app-timer hook.
     ///
@@ -380,17 +440,20 @@ pub trait Widget: Send + Sync + Any {
     /// app-reactive bridge, so a callback that mutates a reactive field (e.g.
     /// `self.time = now`) fires its watcher in the same turn — mirroring Python's
     /// `Timer._tick` invoking the callback in the target's context.
+    #[doc(hidden)]
     fn on_app_timer(&mut self, _app: &mut crate::App, _ctx: &mut WidgetCtx) {}
     /// Optional runtime-level app mount hook.
     ///
     /// Called once after the widget tree is fully built and mounted, passing
     /// the active [`crate::App`] handle. Used by app wrappers to dispatch
     /// init-phase reactive changes after the widget tree is available.
+    #[doc(hidden)]
     fn on_app_mount(&mut self, _app: &mut crate::App, _ctx: &mut WidgetCtx) {}
     /// Optional visibility override for tree child nodes by child index.
     ///
     /// Tree mode can query this every frame and mirror it to child node
     /// `display` flags. Returning `None` leaves display unchanged.
+    #[doc(hidden)]
     fn child_display_for_tree(&self, _child_index: usize) -> Option<bool> {
         None
     }
@@ -403,6 +466,7 @@ pub trait Widget: Send + Sync + Any {
     /// example `ListView`) to drive a child's `-highlight` / `-hovered` state
     /// without owning the child's `NodeId`. Returning an empty list leaves the
     /// child's classes unchanged.
+    #[doc(hidden)]
     fn child_classes_for_tree(&self, _child_index: usize) -> Vec<(&'static str, bool)> {
         Vec::new()
     }
@@ -411,6 +475,7 @@ pub trait Widget: Send + Sync + Any {
     /// Return `(top, right, bottom, left)` in cells. This is useful for
     /// widgets that draw internal chrome (for example tab bars) and need
     /// their children to start within the remaining content area.
+    #[doc(hidden)]
     fn tree_child_content_inset(&self) -> (u16, u16, u16, u16) {
         (0, 0, 0, 0)
     }
@@ -418,12 +483,14 @@ pub trait Widget: Send + Sync + Any {
     ///
     /// Widgets with `ReactiveWidget` implementations should return `Some(self)`
     /// so the runtime can run queued reactive work in deterministic node order.
+    #[doc(hidden)]
     fn reactive_widget(&mut self) -> Option<&mut dyn ReactiveWidget> {
         None
     }
     /// Optional key-binding hints exposed by this widget.
     ///
     /// Runtime dispatch uses focused-path hints as part of active binding lifecycle updates.
+    #[doc(hidden)]
     fn binding_hints(&self) -> Vec<BindingHint> {
         Vec::new()
     }
@@ -431,20 +498,24 @@ pub trait Widget: Send + Sync + Any {
     ///
     /// The runtime collects these along the focused widget chain. Priority bindings
     /// are checked first across the entire chain, then normal bindings (focused→root).
+    #[doc(hidden)]
     fn bindings(&self) -> Vec<BindingDecl> {
         Vec::new()
     }
     /// The namespace this widget owns for action routing (e.g. `"button"`).
     ///
     /// Used by [`crate::action::resolve_action`] to route namespaced actions.
+    #[doc(hidden)]
     fn action_namespace(&self) -> &str {
         ""
     }
     /// List of actions this widget can handle.
+    #[doc(hidden)]
     fn action_registry(&self) -> &[ActionDecl] {
         &[]
     }
     /// Execute a parsed action. Returns `true` if the action was handled.
+    #[doc(hidden)]
     fn execute_action(&mut self, _action: &ParsedAction, _ctx: &mut WidgetCtx) -> bool {
         false
     }
@@ -458,10 +529,12 @@ pub trait Widget: Send + Sync + Any {
     /// The runtime consults this on the *resolved* action target before
     /// dispatch, so a `[@click=...]` span or `run_action(...)` call is gated the
     /// same way a key binding is.
+    #[doc(hidden)]
     fn check_action(&self, _action: &str, _parameters: &[String]) -> Option<bool> {
         Some(true)
     }
     /// Optional focused HELP markup exposed to framework-level help panels.
+    #[doc(hidden)]
     fn help_markup(&self) -> Option<&str> {
         None
     }
@@ -469,6 +542,7 @@ pub trait Widget: Send + Sync + Any {
     ///
     /// Runtime may query this for the currently hovered widget to show a
     /// tooltip popup. Return `None` (or empty text) when no tooltip is active.
+    #[doc(hidden)]
     fn tooltip(&self) -> Option<String> {
         None
     }
@@ -477,23 +551,28 @@ pub trait Widget: Send + Sync + Any {
     /// Widgets may override this to keep tooltip placement stable for a logical
     /// sub-region (for example a hovered footer key) rather than the entire
     /// widget bounds.
+    #[doc(hidden)]
     fn tooltip_anchor(&self) -> Option<(u16, u16)> {
         None
     }
+    #[doc(hidden)]
     fn on_mouse_move(&mut self, _x: u16, _y: u16) -> bool {
         false
     }
     /// Whether this widget participates in screen-level text selection.
+    #[doc(hidden)]
     fn allow_select(&self) -> bool {
         false
     }
     /// Convert widget-local pointer coordinates into a selection anchor.
+    #[doc(hidden)]
     fn selection_at(&self, _x: u16, _y: u16) -> Option<WidgetSelectionAnchor> {
         None
     }
     /// Resolve a word selection range at widget-local pointer coordinates.
     ///
     /// Used by runtime double-click selection behavior.
+    #[doc(hidden)]
     fn selection_word_range_at(
         &self,
         _x: u16,
@@ -504,12 +583,14 @@ pub trait Widget: Send + Sync + Any {
     /// Resolve a full-content selection range.
     ///
     /// Used by runtime triple-click selection behavior.
+    #[doc(hidden)]
     fn selection_all_range(&self) -> Option<(WidgetSelectionAnchor, WidgetSelectionAnchor)> {
         None
     }
     /// Update this widget's current selection.
     ///
     /// Returns `true` when visible selection state changed.
+    #[doc(hidden)]
     fn update_selection(
         &mut self,
         _from: WidgetSelectionAnchor,
@@ -520,19 +601,23 @@ pub trait Widget: Send + Sync + Any {
     /// Clear this widget's selection.
     ///
     /// Returns `true` when visible selection state changed.
+    #[doc(hidden)]
     fn clear_selection(&mut self) -> bool {
         false
     }
     /// Read this widget's selected text as plain text.
+    #[doc(hidden)]
     fn get_selection(&self) -> Option<String> {
         None
     }
     /// Optional callback invoked after runtime updates this widget's selection.
+    #[doc(hidden)]
     fn selection_updated(&mut self, _ctx: &mut WidgetCtx) {}
 
     /// Return content scroll offset applied to descendants during render.
     ///
     /// Default widgets do not offset descendants.
+    #[doc(hidden)]
     fn scroll_offset(&self) -> (usize, usize) {
         (0, 0)
     }
@@ -542,6 +627,7 @@ pub trait Widget: Send + Sync + Any {
     ///
     /// Default implementation preserves compatibility by deriving from
     /// `scroll_offset()`.
+    #[doc(hidden)]
     fn scroll_offset_f32(&self) -> (f32, f32) {
         let (x, y) = self.scroll_offset();
         (x as f32, y as f32)
@@ -551,6 +637,7 @@ pub trait Widget: Send + Sync + Any {
     ///
     /// Widgets that reserve space for scrollbars should override this so tree
     /// rendering can clip scrolled descendants to the real viewport.
+    #[doc(hidden)]
     fn scroll_viewport_size(&self) -> Option<(usize, usize)> {
         None
     }
@@ -561,6 +648,7 @@ pub trait Widget: Send + Sync + Any {
     /// Widgets that render scrollable content directly (without a scrollable
     /// child subtree) should override this so the runtime can size scrollbar
     /// thumbs from real content extents.
+    #[doc(hidden)]
     fn scroll_virtual_content_size(&self) -> Option<(usize, usize)> {
         None
     }
@@ -568,6 +656,7 @@ pub trait Widget: Send + Sync + Any {
     /// Whether descendant rendering should be clipped to this widget's content box.
     ///
     /// Default widgets do not clip descendants.
+    #[doc(hidden)]
     fn clips_descendants_to_content(&self) -> bool {
         false
     }
@@ -575,16 +664,19 @@ pub trait Widget: Send + Sync + Any {
     ///
     /// `delta_y > 0` scrolls down, `delta_y < 0` scrolls up.
     /// `delta_x > 0` scrolls right, `delta_x < 0` scrolls left.
+    #[doc(hidden)]
     fn on_mouse_scroll(&mut self, _delta_x: i32, _delta_y: i32, _ctx: &mut WidgetCtx) {}
     /// Called after a render pass to inform the widget of its content-box size in cells.
     ///
     /// Coordinates for mouse events (`MouseDownEvent` / `MouseUpEvent` / `on_mouse_move`) are
     /// relative to this content box.
+    #[doc(hidden)]
     fn focusable(&self) -> bool {
         false
     }
     /// Whether this widget type can receive focus (inherent capability, ignoring disabled state).
     /// Used for `:can-focus` CSS pseudo-class matching. Defaults to `focusable()`.
+    #[doc(hidden)]
     fn can_focus(&self) -> bool {
         self.focusable()
     }
@@ -593,6 +685,7 @@ pub trait Widget: Send + Sync + Any {
     /// Scrollable containers in Python Textual expose this as a constructor-level
     /// policy (`can_focus_children`). The default keeps existing behavior by
     /// allowing traversal into descendants.
+    #[doc(hidden)]
     fn can_focus_children(&self) -> bool {
         true
     }
@@ -600,10 +693,12 @@ pub trait Widget: Send + Sync + Any {
     ///
     /// This is intentionally distinct from `focusable()`: some widgets (e.g. disabled buttons)
     /// are not focusable but should still provide hover affordances (like a "not-allowed" cursor).
+    #[doc(hidden)]
     fn mouse_interactive(&self) -> bool {
         self.focusable()
     }
     /// Whether the widget is active (e.g. pressed/dragging).
+    #[doc(hidden)]
     fn is_active(&self) -> bool {
         false
     }
@@ -612,6 +707,7 @@ pub trait Widget: Send + Sync + Any {
     /// Widgets that carry their own disabled flag (e.g. `Button`) override this so
     /// that `WidgetTree::make_node_from_seed` can seed `node.state.disabled` correctly
     /// and CSS `:disabled` rules apply from the very first render.
+    #[doc(hidden)]
     fn is_initially_disabled(&self) -> bool {
         false
     }
@@ -624,6 +720,7 @@ pub trait Widget: Send + Sync + Any {
     ///
     /// After mount the canonical source of truth is `WidgetNode.state.focused` in
     /// the tree, set via `WidgetTree::set_focus_state`.
+    #[doc(hidden)]
     fn is_initially_focused(&self) -> bool {
         false
     }
@@ -637,6 +734,7 @@ pub trait Widget: Send + Sync + Any {
     ///
     /// After mount the canonical source of truth is `WidgetNode.classes` in the tree;
     /// this method is ONLY consulted off-tree.
+    #[doc(hidden)]
     fn style_classes(&self) -> &[String] {
         &[]
     }
@@ -645,6 +743,7 @@ pub trait Widget: Send + Sync + Any {
     /// Widgets that carry their own CSS id (e.g. `Node`) override this so that
     /// id-selector rules (`#hero { ... }`) are visible in off-tree renders and
     /// during `build_widget_tree_from_root` identity propagation.
+    #[doc(hidden)]
     fn style_id(&self) -> Option<&str> {
         None
     }
@@ -653,6 +752,7 @@ pub trait Widget: Send + Sync + Any {
     /// Used by `selector_meta_generic` when no dispatch context is active. Widgets
     /// that track hover internally (e.g. `FooterKey`) override this so that
     /// `FooterKey:hover .footer-key--key` rules apply correctly in off-tree renders.
+    #[doc(hidden)]
     fn is_hovered(&self) -> bool {
         false
     }
@@ -663,6 +763,7 @@ pub trait Widget: Send + Sync + Any {
     /// across the full layout rect). Overlay-style widgets can return `true`
     /// to avoid full-rect fills and paint sparse content over existing frame
     /// cells.
+    #[doc(hidden)]
     fn preserve_underlay(&self) -> bool {
         false
     }
@@ -675,6 +776,7 @@ pub trait Widget: Send + Sync + Any {
     /// (shrink-to-content), exactly like the widget it stands in for — rather than
     /// flex-filling the parent. The layout uses this to opt unset dimensions into
     /// the same intrinsic content measurement that explicit `auto` triggers.
+    #[doc(hidden)]
     fn is_transparent_wrapper(&self) -> bool {
         false
     }
@@ -684,6 +786,7 @@ pub trait Widget: Send + Sync + Any {
     /// Optional intrinsic content width hint (in cells), used by layout when `width: auto`.
     ///
     /// This should return the width of the widget's *content* (excluding margins and borders).
+    #[doc(hidden)]
     fn content_width(&self) -> Option<usize> {
         None
     }
@@ -696,12 +799,14 @@ pub trait Widget: Send + Sync + Any {
     /// reporting a `content_width()` hint — so a bare instance (unset width)
     /// fills, while an explicit `width: auto` (or an auto wrapper measuring it)
     /// sizes to content. Example: `Label`/`Static`.
+    #[doc(hidden)]
     fn auto_content_width(&self) -> Option<usize> {
         self.content_width()
     }
     /// Intrinsic content height only. Size constraints from CSS/node styles are
     /// applied by layout callsites (which read `tree.styles(node).layout`) before
     /// falling back to this value.
+    #[doc(hidden)]
     fn layout_height(&self) -> Option<usize> {
         None
     }
@@ -715,11 +820,13 @@ pub trait Widget: Send + Sync + Any {
     /// explicit `height: auto` (or an auto wrapper measuring it) sizes to content.
     /// Example: `Placeholder` (unset height fills the column for the layout05
     /// Tweet stack; `height: auto` shrinks to the label's line count).
+    #[doc(hidden)]
     fn auto_content_height(&self) -> Option<usize> {
         self.layout_height()
     }
     /// Behavior-derived style contribution (e.g. a widget computing `grid_rows`
     /// from its content model). User/inline styles live on the node record.
+    #[doc(hidden)]
     fn style(&self) -> Option<Style> {
         None
     }
@@ -728,6 +835,7 @@ pub trait Widget: Send + Sync + Any {
     /// Used by layout containers (e.g. Dock) to attach dock/size styles to a child
     /// before the child is mounted to the arena tree.  The default is a no-op; widgets
     /// that hold a NodeSeed override this to write into `seed.styles.style`.
+    #[doc(hidden)]
     fn set_inline_style(&mut self, _style: Style) {}
     /// Pre-mount CSS-id injection.
     ///
@@ -740,12 +848,15 @@ pub trait Widget: Send + Sync + Any {
     ///
     /// Default: no-op. Override on widgets that cache their id for id-bearing
     /// messages (currently [`Button`](crate::widgets::Button)).
+    #[doc(hidden)]
     fn set_seed_css_id(&mut self, _id: Option<String>) {}
     /// Pre-mount CSS-class injection (companion to [`Widget::set_seed_css_id`]).
     ///
     /// Appends `ChildDecl`-declared classes into the widget's own `NodeSeed`.
     /// Default: no-op.
+    #[doc(hidden)]
     fn set_seed_classes(&mut self, _classes: Vec<String>) {}
+    #[doc(hidden)]
     fn style_type(&self) -> &'static str {
         std::any::type_name::<Self>()
             .rsplit("::")
@@ -757,14 +868,17 @@ pub trait Widget: Send + Sync + Any {
     /// This enables Python-style subclass selector behavior where a widget can
     /// match both its concrete type and a base type selector (e.g.
     /// `CommandInput` also matching `Input` rules).
+    #[doc(hidden)]
     fn style_type_aliases(&self) -> &[&'static str] {
         &[]
     }
     /// Optional text rendered on the top border when border-title styling is active.
+    #[doc(hidden)]
     fn border_title(&self) -> Option<&str> {
         None
     }
     /// Optional text rendered on the bottom border when border-subtitle styling is active.
+    #[doc(hidden)]
     fn border_subtitle(&self) -> Option<&str> {
         None
     }
@@ -778,6 +892,7 @@ pub trait Widget: Send + Sync + Any {
     ///
     /// The default is empty. Custom widgets that paint sub-elements via
     /// [`Widget::get_component_rich_style`] should override this.
+    #[doc(hidden)]
     fn component_classes(&self) -> &[&'static str] {
         &[]
     }
@@ -790,6 +905,7 @@ pub trait Widget: Send + Sync + Any {
     ///
     /// This is the canonical, public entry point for custom widgets to read
     /// component-class colours/attributes from CSS instead of hardcoding them.
+    #[doc(hidden)]
     fn get_component_styles(&self, name: &str) -> Style {
         crate::css::resolve_component_style(self, &[name])
     }
@@ -805,6 +921,7 @@ pub trait Widget: Send + Sync + Any {
     /// ```ignore
     /// let white = self.get_component_rich_style("checkerboard--white-square");
     /// ```
+    #[doc(hidden)]
     fn get_component_rich_style(&self, name: &str) -> Option<rich_rs::Style> {
         self.get_component_styles(name).to_rich()
     }
@@ -814,10 +931,12 @@ pub trait Widget: Send + Sync + Any {
     /// meta is built from type + dispatch-context state only. Reachable from
     /// container-internal rendering when children were not drained into the
     /// arena (unit-test/snapshot contexts).
+    #[doc(hidden)]
     fn render_styled(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         self.render_styled_dyn_obj(console, options, None, NodeId::default())
     }
     /// Type-meta-only styled render wrapper with debug layout (see `render_styled`).
+    #[doc(hidden)]
     fn render_styled_with_debug(
         &self,
         console: &Console,
