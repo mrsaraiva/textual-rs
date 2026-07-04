@@ -1,14 +1,14 @@
-//! Regression test for the Gap-A root cause (Python how-to `render_compose.py`).
+//! Contract test for `Static::layout_height()` (Python how-to `render_compose.py`
+//! Gap-A area).
 //!
-//! `Static::layout_height()` delegated straight to its inner `Label`, whose
-//! chrome resolves against the *label's* selector — so an app rule like
-//! `Static { padding: 2 4 }` (which targets the `Static`, not the label) was
-//! invisible to the reported outer height. The auto-height box was therefore 4
-//! rows too short, which both clipped it and (because `align: center middle`
-//! measures the resulting `layout_rect`) centered the widget ~2 rows too low.
-//!
-//! This guards the contract at its source: a `Static`'s reported outer height
-//! must include its own (app-CSS) vertical padding/border.
+//! Post height-chrome keystone (symmetric with the width axis), `layout_height()`
+//! reports PURE CONTENT height; the box model (padding/border) is applied by the
+//! LAYOUT pass, not baked into the reported intrinsic height. So a `Static` with
+//! `padding: 2 4` reports its single content row (1), and the layout pass grows
+//! the outer box by the 4 vertical padding rows. The end-to-end Gap-A render
+//! (padded auto-height box centered correctly under `align: center middle`) is
+//! guarded by the `docs_render_compose` PTY parity golden, not by baking chrome
+//! into this intrinsic-height number.
 
 use textual::prelude::*;
 
@@ -20,16 +20,18 @@ fn with_css<T>(css: &str, f: impl FnOnce() -> T) -> T {
 }
 
 #[test]
-fn static_layout_height_includes_app_css_padding() {
-    // One content line + `padding: 2 4` (4 vertical) → outer height 5.
+fn static_layout_height_is_pure_content_chrome_applied_by_layout() {
+    // One content line + `padding: 2 4`. Under the keystone convention
+    // `layout_height()` is pure content (1); the 4 vertical padding rows are
+    // added by the layout pass, not by this intrinsic-height reader.
     let height = with_css("Static { padding: 2 4; }", || {
         let s = Static::new("hello");
         s.layout_height()
     });
     assert_eq!(
         height,
-        Some(5),
-        "Static must report content + its own app-CSS vertical padding"
+        Some(1),
+        "Static reports pure content height; padding is layout-applied (keystone)"
     );
 }
 

@@ -820,19 +820,25 @@ fn p2_34_hatch_opacity_blends_color_over_background() {
 
 #[test]
 fn p2g34_hatch_bordered_node_fills_inner_row_not_border_title() {
-    // Regression: a `.class()` Static is wrapped in a `Node` that carries the
-    // border + hatch, while the raw text is an inner content child. Two bugs:
-    //   1) the inner content child rendered AFTER the wrapper's hatch and
-    //      un-hatched the FIRST inner row (row 1, just below the top border);
+    // Regression: a `.class()` Static carries the border + hatch on its own node
+    // (post-Node-deletion the class is seed-based; pre-deletion it rode a `Node`
+    // wrapper), with the raw text as inner content. Two bugs the hatch fix guards:
+    //   1) the inner content rendered AFTER the hatch and un-hatched the FIRST
+    //      inner row (row 1, just below the top border);
     //   2) deferring the hatch past children then over-filled the blank padding
     //      spaces around a `border_title` on the top border row (` t ` -> `╳t╳`).
-    // The fix defers the hatch AND scopes it to the node content box (inside the
+    // The fix defers the hatch AND scopes it to the content box (inside the
     // border), matching Python `line_post`/`apply_hatch`. Mirrors the
-    // `docs/examples/styles/hatch` panel structure.
+    // `docs/examples/styles/hatch` panel structure (whose full render is guarded
+    // by the `hatch` visual-parity golden).
+    //
+    // An empty `Static` auto-sizes to one content row, so under the height-chrome
+    // keystone (chrome applied by layout, not baked into intrinsic height) the box
+    // is exactly 3 rows: top border+title (row 0), one hatched inner row (row 1),
+    // bottom border (row 2).
     let css = ".hatchbox { border: solid white; hatch: cross #ff0000; }";
     let sheet = StyleSheet::parse(css);
 
-    // Static::new("").class(..) -> Node wrapper (border+hatch); inner empty text.
     let mut root = Container::new().with_child(
         Static::new("")
             .class("hatchbox")
@@ -851,16 +857,21 @@ fn p2g34_hatch_bordered_node_fills_inner_row_not_border_title() {
             "border/title row must not be hatched (x={x})"
         );
     }
-    // The first INNER row (row 1, inside the border) must be hatched — this is
-    // the row the inner content child previously un-hatched.
-    assert_eq!(
-        frame.get(2, 1).text, "╳",
-        "first inner row must be hatched after deferral"
-    );
-    // A deeper inner row is hatched too (sanity).
-    assert_eq!(frame.get(2, 3).text, "╳", "inner rows remain hatched");
+    // The INNER content row (row 1, inside the border) must be hatched across its
+    // full inner width — this is the row the inner content child previously
+    // un-hatched, and the hatch must fill it (not just one cell).
+    for x in 1..11usize {
+        assert_eq!(
+            frame.get(x, 1).text, "╳",
+            "inner content row must be fully hatched (x={x})"
+        );
+    }
+    // The bottom border row closes the box (chrome applied by layout); it is a
+    // border row, not a hatched content row.
+    assert_eq!(frame.get(2, 2).text, "─", "bottom border row closes the box");
     // Border corners survive on the perimeter.
     assert_eq!(frame.get(0, 0).text, "┌", "top-left corner preserved");
+    assert_eq!(frame.get(0, 2).text, "└", "bottom-left corner preserved");
 }
 
 #[test]
