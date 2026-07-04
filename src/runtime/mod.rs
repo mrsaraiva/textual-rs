@@ -5002,6 +5002,43 @@ mod tests {
     }
 
     #[test]
+    fn native_seed_id_on_root_direct_child_resolves_via_query_one() {
+        // F2 contract lock. A widget's OWN seed id — set via the widget's native
+        // `.id()` builder (here `Label::new(..).id(..)`), NOT via a `ChildDecl`
+        // `.with_id(..)` — must survive as a DIRECT child of the app-content root
+        // and resolve through `query_one`. `ChildDecl::from(w)` deliberately leaves
+        // the decl's own id `None`; the id travels inside the widget's `NodeSeed`
+        // and is harvested at mount by `take_node_seed` (widget_tree.rs), exactly
+        // like every other mount path (app root and pushed-screen root share the
+        // `mount_declarations` recursion). The cold-app "id vanishes at a screen
+        // root" report was the F1 headless-modal-reachability artifact (the pushed
+        // modal tree was not queryable in the test flow), NOT a seed drop.
+        use crate::compose::ChildDecl;
+
+        // The `From` conversion carries no decl-channel id (the id is in the seed).
+        let probe = ChildDecl::from(Label::new("x").id("seed-id"));
+        assert!(
+            probe.id().is_none(),
+            "ChildDecl::from leaves the decl id None; the id lives in the widget seed"
+        );
+
+        let mut tree = WidgetTree::new();
+        let adapter_root = tree.set_root(Box::new(AppRoot::new()));
+        let initial = AppRoot::new().with_compose(vec![ChildDecl::from(
+            Label::new("body").id("native-seed-id"),
+        )]);
+        let _content = App::mount_extracted_recursive(&mut tree, adapter_root, Box::new(initial));
+
+        let mut app = App::new().expect("app should initialize");
+        app.widget_tree = Some(tree);
+
+        assert!(
+            app.query_one("#native-seed-id").is_ok(),
+            "a native .id() seed on a root's direct child must resolve via query_one"
+        );
+    }
+
+    #[test]
     fn selection_click_streak_counts_double_and_triple_clicks() {
         let mut app = App::new().expect("app should initialize");
         let target = node_id_from_ffi(42);

@@ -197,6 +197,16 @@ impl std::fmt::Debug for ChildDecl {
 // From<W: Widget> → ChildDecl
 // ---------------------------------------------------------------------------
 
+/// Wrap a live widget in a `ChildDecl` with no decl-channel id/classes.
+///
+/// The resulting decl's own `id`/`classes` are empty **by design**: a widget's
+/// declared identity (set via its native `.id()`/`.class()` builders) lives in
+/// the widget's own [`NodeSeed`](crate::widgets::NodeSeed) and is harvested at
+/// mount by `take_node_seed`, on every mount path (app root and pushed-screen
+/// root share the same `mount_declarations` recursion). So `ChildDecl::from(w)`
+/// leaving `id: None` is not an id drop — the id simply travels inside `w`. Use
+/// [`with_id`](ChildDecl::with_id)/[`with_classes`](ChildDecl::with_classes) only
+/// to attach identity that the widget does not already carry itself.
 impl<W: Widget + 'static> From<W> for ChildDecl {
     fn from(widget: W) -> Self {
         Self::new(Box::new(widget))
