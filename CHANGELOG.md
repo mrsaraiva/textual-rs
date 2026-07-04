@@ -26,6 +26,22 @@ in the sections below; this is the migration index:
 | Notifications are real docked `ToastRack` widgets (Wave 3) | **`App::notify(...)` is unchanged** — no migration needed. Internally, toasts are now real `Toast` nodes mounted in a docked `ToastRack` (a system child of the app root, on the `_toastrack` layer), not a runtime framebuffer blit. `Toast` gains `with_notification_id`; its `with_timeout` builder is removed (auto-dismiss timing is a notification-level concern set via `App::notify`'s `timeout` arg and owned by the rack). New public: `ToastRack`, `ToastHolder`, `NotificationSnapshot`, and the `NotificationExpired` message. |
 | The tooltip is a real `overlay: screen` widget node (Wave 4) | **`.with_tooltip(...)` is unchanged** — no migration needed. The system tooltip's widget-local `FrameBuffer` overlay compositor is retired; the bubble is now a real `position: absolute; overlay: screen` node placed at the hover anchor via the new node `absolute_offset`, centered by CSS `offset-x: -50%` and constrained by the shared overlay:screen paint pass. **BREAKING (minor):** `Tooltip::new(child, text)` (the test-only wrapper constructor) becomes `Tooltip::new(text)` — `Tooltip` no longer wraps a child. |
 
+### Added — container seed-builder unification (Node-removal groundwork)
+
+- **Uniform identity/border builders on the container family.** Completing the
+  `.id()`/`.class()` builders added earlier, every wrappable container now also
+  exposes `.classes()` (plural) and `.with_border_title()` /
+  `.with_border_subtitle()`, matching the full builder surface `Node` provided
+  as a wrapper. `.classes()` is added to both seed macros
+  (`seed_ident_methods!` / `delegate_ident_methods!`); border-title storage
+  lives on the base `Container` (and `ScrollView` for the scroll family) with a
+  new `delegate_border_title_methods!` macro forwarding the builders through the
+  thin wrappers (`Vertical`, `Horizontal`, `VerticalGroup`, `HorizontalGroup`,
+  `VerticalScroll`, `HorizontalScroll`, `Center`, `Middle`, `Right`, `ItemGrid`,
+  `CenterMiddle`). This lets `Vertical::new().id("x").class("y").with_border_title("t")`
+  replace `Node::new(Vertical::new()).id("x").class("y").with_border_title("t")`
+  uniformly, and is the groundwork for the pending `Node` removal.
+
 ### Deprecated
 
 - **`Node` is deprecated (`#[deprecated]` since 1.0.0) and scheduled for

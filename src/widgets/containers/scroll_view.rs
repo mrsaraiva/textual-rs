@@ -51,6 +51,8 @@ pub struct ScrollView {
     hover_h_thumb: bool,
     hover_h_track: bool,
     seed: NodeSeed,
+    border_title: Option<String>,
+    border_subtitle: Option<String>,
 }
 
 impl ScrollView {
@@ -93,7 +95,21 @@ impl ScrollView {
             hover_h_thumb: false,
             hover_h_track: false,
             seed: NodeSeed::default(),
+            border_title: None,
+            border_subtitle: None,
         }
+    }
+
+    /// Set the text rendered on the top border (Python `widget.border_title`).
+    pub fn with_border_title(mut self, title: impl Into<String>) -> Self {
+        self.border_title = Some(title.into());
+        self
+    }
+
+    /// Set the text rendered on the bottom border (Python `widget.border_subtitle`).
+    pub fn with_border_subtitle(mut self, subtitle: impl Into<String>) -> Self {
+        self.border_subtitle = Some(subtitle.into());
+        self
     }
 
     fn child_container_mut(&mut self) -> Option<&mut Container> {
@@ -1040,6 +1056,14 @@ impl Widget for ScrollView {
 
     fn take_node_seed(&mut self) -> NodeSeed {
         std::mem::take(&mut self.seed)
+    }
+
+    fn border_title(&self) -> Option<&str> {
+        self.border_title.as_deref()
+    }
+
+    fn border_subtitle(&self) -> Option<&str> {
+        self.border_subtitle.as_deref()
     }
 
     fn render_with_debug(

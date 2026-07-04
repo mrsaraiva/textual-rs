@@ -30,6 +30,10 @@ pub struct Container {
     children: Vec<Box<dyn Widget>>,
     children_extracted: bool,
     seed: NodeSeed,
+    /// Optional text drawn on the top border (Python `widget.border_title`).
+    border_title: Option<String>,
+    /// Optional text drawn on the bottom border (Python `widget.border_subtitle`).
+    border_subtitle: Option<String>,
     /// (index into `children`, css_id, classes) recorded by `with_compose` so
     /// `.with_id()`/`.with_classes()` metadata on declared children reaches the
     /// mounted node.
@@ -80,6 +84,8 @@ impl Container {
             children: Vec::new(),
             children_extracted: false,
             seed: NodeSeed::default(),
+            border_title: None,
+            border_subtitle: None,
             child_decl_meta: Vec::new(),
             child_handle_sinks: Vec::new(),
             offset_x: 0.0,
@@ -155,6 +161,18 @@ impl Container {
 
     pub fn with_child(mut self, child: impl Widget + 'static) -> Self {
         self.children.push(Box::new(child));
+        self
+    }
+
+    /// Set the text rendered on the top border (Python `widget.border_title`).
+    pub fn with_border_title(mut self, title: impl Into<String>) -> Self {
+        self.border_title = Some(title.into());
+        self
+    }
+
+    /// Set the text rendered on the bottom border (Python `widget.border_subtitle`).
+    pub fn with_border_subtitle(mut self, subtitle: impl Into<String>) -> Self {
+        self.border_subtitle = Some(subtitle.into());
         self
     }
 
@@ -522,6 +540,14 @@ impl Widget for Container {
 
     fn take_node_seed(&mut self) -> NodeSeed {
         std::mem::take(&mut self.seed)
+    }
+
+    fn border_title(&self) -> Option<&str> {
+        self.border_title.as_deref()
+    }
+
+    fn border_subtitle(&self) -> Option<&str> {
+        self.border_subtitle.as_deref()
     }
 }
 

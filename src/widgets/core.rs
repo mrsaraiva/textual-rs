@@ -1355,6 +1355,20 @@ macro_rules! seed_ident_methods {
             }
             self
         }
+        /// Add several CSS classes at once (Python `classes="a b c"`). Each is
+        /// added idempotently, mirroring repeated [`class`](Self::class) calls.
+        pub fn classes(
+            mut self,
+            values: impl ::std::iter::IntoIterator<Item = impl ::std::convert::Into<String>>,
+        ) -> Self {
+            for value in values {
+                let v = value.into();
+                if !self.seed.classes.iter().any(|c| c == &v) {
+                    self.seed.classes.push(v);
+                }
+            }
+            self
+        }
     };
 }
 
@@ -1371,6 +1385,39 @@ macro_rules! delegate_ident_methods {
         /// Add a CSS class (delegated to the inner widget). Idempotent.
         pub fn class(mut self, value: impl ::std::convert::Into<String>) -> Self {
             self.$field = self.$field.class(value);
+            self
+        }
+        /// Add several CSS classes at once (delegated to the inner widget).
+        pub fn classes(
+            mut self,
+            values: impl ::std::iter::IntoIterator<Item = impl ::std::convert::Into<String>>,
+        ) -> Self {
+            self.$field = self.$field.classes(values);
+            self
+        }
+    };
+}
+
+/// Generate `.with_border_title()` / `.with_border_subtitle()` builders for a
+/// thin wrapper container that delegates its border title to an inner field
+/// (which itself exposes those builders — e.g. the base [`Container`]). The
+/// `Widget::border_title()` / `border_subtitle()` *readers* are already forwarded
+/// by [`delegate_widget_to!`](crate::delegate_widget_to); this macro only adds
+/// the inherent builder methods so every wrapper carries `Node`'s full identity
+/// surface uniformly.
+///
+/// [`Container`]: crate::widgets::Container
+#[macro_export]
+macro_rules! delegate_border_title_methods {
+    ($field:ident) => {
+        /// Set the text rendered on the top border (delegated to the inner container).
+        pub fn with_border_title(mut self, title: impl ::std::convert::Into<String>) -> Self {
+            self.$field = self.$field.with_border_title(title);
+            self
+        }
+        /// Set the text rendered on the bottom border (delegated to the inner container).
+        pub fn with_border_subtitle(mut self, subtitle: impl ::std::convert::Into<String>) -> Self {
+            self.$field = self.$field.with_border_subtitle(subtitle);
             self
         }
     };
