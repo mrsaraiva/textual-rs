@@ -47,7 +47,10 @@ fn welcome_renders_title_and_close_button() {
 #[test]
 fn welcome_unmount_does_not_panic() {
     let mut welcome = Welcome::new();
-    welcome.on_unmount();
+    // `on_unmount`/`compose` live on the capability traits (Interactive/Render)
+    // AND on Widget (generated); with the prelude bringing both into scope, a
+    // bare call is E0034-ambiguous — disambiguate to the capability trait.
+    Interactive::on_unmount(&mut welcome);
 }
 
 #[test]
@@ -55,7 +58,7 @@ fn welcome_compose_yields_two_top_level_children() {
     // Cross-check accessible from integration tests: compose() returns non-empty.
     // The concrete id values are tested in the unit tests (src/widgets/welcome.rs).
     let mut welcome = Welcome::new();
-    let children = welcome.compose();
+    let children = Render::compose(&mut welcome);
     assert_eq!(
         children.len(),
         2,

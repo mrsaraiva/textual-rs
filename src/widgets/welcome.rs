@@ -1,10 +1,11 @@
-use rich_rs::{Console, ConsoleOptions, Renderable, Segments};
+use rich_rs::{Console, ConsoleOptions, Segments};
+use textual_macros::widget;
 
 use crate::compose::ComposeResult;
 use crate::event::Event;
 use crate::message::*;
 
-use super::{Button, ButtonVariant, Markdown, NodeSeed, Widget};
+use super::{Button, ButtonVariant, Focus, Interactive, Layout, Markdown, NodeSeed, Render};
 use crate::widgets::containers::Container;
 
 const WELCOME_MD: &str = r#"# Welcome!
@@ -37,6 +38,7 @@ Where the fear has gone there will be nothing. Only I will remain.""#;
 /// Because the Button lives in the arena tree, callers can reach it via
 /// `app.query_one_typed::<Button>()` and update its label.
 #[derive(Clone)]
+#[widget(Focus, Interactive, Layout, style_type = "Welcome")]
 pub struct Welcome {
     /// Initial label for the close button.  Used when composing the Button
     /// into the arena tree.  After mounting, change the label via
@@ -89,7 +91,7 @@ impl Welcome {
     }
 }
 
-impl Widget for Welcome {
+impl Render for Welcome {
     fn compose(&mut self) -> ComposeResult {
         let md = Markdown::new(WELCOME_MD);
         let text_node = crate::compose::ChildDecl::new(Box::new(md)).with_id("text");
@@ -104,10 +106,20 @@ impl Widget for Welcome {
         vec![md_container, close_node]
     }
 
+    fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+        // Children are rendered by the arena tree.  Welcome itself has no
+        // direct visual content beyond what its composed children provide.
+        Segments::new()
+    }
+}
+
+impl Focus for Welcome {
     fn focusable(&self) -> bool {
         true
     }
+}
 
+impl Interactive for Welcome {
     fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         // Welcome itself does not handle key/mouse events directly — the arena
         // tree routes events to its composed children (Button, Markdown).
@@ -129,37 +141,15 @@ impl Widget for Welcome {
             ctx.set_handled();
         }
     }
+}
 
-    fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
-        // Children are rendered by the arena tree.  Welcome itself has no
-        // direct visual content beyond what its composed children provide.
-        Segments::new()
-    }
-
+impl Layout for Welcome {
     fn layout_height(&self) -> Option<usize> {
         None
     }
 
     fn content_width(&self) -> Option<usize> {
         Some(rich_rs::cell_len("Welcome!").max(8))
-    }
-
-    fn style_type(&self) -> &'static str {
-        "Welcome"
-    }
-
-    fn set_inline_style(&mut self, style: crate::style::Style) {
-        self.seed.styles.style = style;
-    }
-
-    fn take_node_seed(&mut self) -> NodeSeed {
-        std::mem::take(&mut self.seed)
-    }
-}
-
-impl Renderable for Welcome {
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        Widget::render(self, console, options)
     }
 }
 

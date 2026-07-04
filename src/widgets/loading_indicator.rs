@@ -1,9 +1,10 @@
-use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
+use rich_rs::{Console, ConsoleOptions, Segment, Segments};
+use textual_macros::widget;
 
 use crate::event::Event;
 use crate::style::{Color, parse_color_like};
 
-use super::{NodeSeed, Widget, helpers::adjust_line_length_no_bg};
+use super::{Focus, Interactive, Layout, NodeSeed, Render, helpers::adjust_line_length_no_bg};
 
 /// An animated loading indicator that displays cycling gradient dots.
 ///
@@ -19,6 +20,7 @@ use super::{NodeSeed, Widget, helpers::adjust_line_length_no_bg};
 /// LoadingIndicator { width: 1fr; height: 1fr; min-height: 1; fg: $primary; }
 /// ```
 #[derive(Debug, Clone)]
+#[widget(Focus, Interactive, Layout, style_type = "LoadingIndicator")]
 pub struct LoadingIndicator {
     /// Tick counter driving the animation cycle.
     tick: u64,
@@ -58,7 +60,7 @@ impl Default for LoadingIndicator {
     }
 }
 
-impl Widget for LoadingIndicator {
+impl Focus for LoadingIndicator {
     fn focusable(&self) -> bool {
         false
     }
@@ -67,7 +69,9 @@ impl Widget for LoadingIndicator {
     fn is_active(&self) -> bool {
         self.animation_enabled
     }
+}
 
+impl Interactive for LoadingIndicator {
     fn on_tick(&mut self, tick: u64) {
         self.tick = tick;
     }
@@ -84,7 +88,9 @@ impl Widget for LoadingIndicator {
             _ => {}
         }
     }
+}
 
+impl Render for LoadingIndicator {
     fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
         let height = options.size.1.max(1);
@@ -185,27 +191,11 @@ impl Widget for LoadingIndicator {
         }
         out
     }
-
-    fn layout_height(&self) -> Option<usize> {
-        None
-    }
-
-    fn style_type(&self) -> &'static str {
-        "LoadingIndicator"
-    }
-
-    fn set_inline_style(&mut self, style: crate::style::Style) {
-        self.seed.styles.style = style;
-    }
-
-    fn take_node_seed(&mut self) -> NodeSeed {
-        std::mem::take(&mut self.seed)
-    }
 }
 
-impl Renderable for LoadingIndicator {
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        Widget::render(self, console, options)
+impl Layout for LoadingIndicator {
+    fn layout_height(&self) -> Option<usize> {
+        None
     }
 }
 

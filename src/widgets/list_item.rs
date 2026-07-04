@@ -7,14 +7,15 @@
 //! class on the item's node, and the highlight is conveyed **by background only**
 //! (no text marker). Hover is tracked via the `-hovered` class.
 
-use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
+use rich_rs::{Console, ConsoleOptions, Segment, Segments};
+use textual_macros::widget;
 
 use crate::compose::ComposeResult;
 use crate::css;
 use crate::event::Event;
 use crate::message::*;
 
-use super::{NodeSeed, Widget};
+use super::{Focus, Interactive, Layout, NodeSeed, Render};
 
 /// A widget that is a single item within a [`ListView`](crate::widgets::ListView).
 ///
@@ -31,8 +32,9 @@ use super::{NodeSeed, Widget};
 /// let item = ListItem::new(Label::new("One"));
 /// assert_eq!(item.text(), "One");
 /// ```
+#[widget(Focus, Interactive, Layout, style_type = "ListItem")]
 pub struct ListItem {
-    children: Vec<Box<dyn Widget>>,
+    children: Vec<Box<dyn crate::widgets::Widget>>,
     children_extracted: bool,
     /// Cached text of the first label-like child, used by `ListView` for its
     /// headless state API (`items()`, message payloads). Empty when the child
@@ -52,7 +54,7 @@ impl ListItem {
     /// Create a new `ListItem` wrapping a single child widget.
     ///
     /// Python: `ListItem(Label("One"))`.
-    pub fn new(child: impl Widget + 'static) -> Self {
+    pub fn new(child: impl crate::widgets::Widget + 'static) -> Self {
         let text = widget_text(&child);
         Self {
             children: vec![Box::new(child)],
@@ -88,7 +90,7 @@ impl ListItem {
     }
 
     /// Builder: append another child widget to this item.
-    pub fn with_child(mut self, child: impl Widget + 'static) -> Self {
+    pub fn with_child(mut self, child: impl crate::widgets::Widget + 'static) -> Self {
         if self.text.is_empty() {
             self.text = widget_text(&child);
         }
@@ -97,7 +99,7 @@ impl ListItem {
     }
 
     /// Append another child widget to this item.
-    pub fn push(&mut self, child: impl Widget + 'static) {
+    pub fn push(&mut self, child: impl crate::widgets::Widget + 'static) {
         if self.text.is_empty() {
             self.text = widget_text(&child);
         }
@@ -143,13 +145,13 @@ impl ListItem {
     }
 
     /// Read-only access to the item's (not-yet-extracted) children.
-    pub fn children(&self) -> &[Box<dyn Widget>] {
+    pub fn children(&self) -> &[Box<dyn crate::widgets::Widget>] {
         &self.children
     }
 }
 
 /// Best-effort recovery of a child's text for the headless `ListView` API.
-fn widget_text(child: &(impl Widget + 'static)) -> String {
+fn widget_text(child: &(impl crate::widgets::Widget + 'static)) -> String {
     let any = child as &dyn std::any::Any;
     if let Some(label) = any.downcast_ref::<crate::widgets::Label>() {
         return label.text().to_string();
@@ -157,36 +159,13 @@ fn widget_text(child: &(impl Widget + 'static)) -> String {
     String::new()
 }
 
-impl Widget for ListItem {
+impl Render for ListItem {
     fn compose(&mut self) -> ComposeResult {
         self.children_extracted = true;
         std::mem::take(&mut self.children)
             .into_iter()
             .map(crate::compose::ChildDecl::new)
             .collect()
-    }
-
-    fn focusable(&self) -> bool {
-        // Python: `ListItem(Widget, can_focus=False)`.
-        false
-    }
-
-    fn style_type(&self) -> &'static str {
-        "ListItem"
-    }
-
-    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
-        if let Event::MouseDown(mouse) = event {
-            if mouse.target == self.node_id() && !self.disabled {
-                // Inform the parent ListView so it can highlight + select this
-                // item (Python: `ListItem._on_click` posts `_ChildClicked`).
-                ctx.post_message(ListItemChildClicked {
-                    ordinal: self.ordinal,
-                    item: self.text.clone(),
-                });
-                ctx.set_handled();
-            }
-        }
     }
 
     /// Chrome-only render: paints the resolved surface (highlight/hover
@@ -213,7 +192,32 @@ impl Widget for ListItem {
         }
         out
     }
+}
 
+impl Focus for ListItem {
+    fn focusable(&self) -> bool {
+        // Python: `ListItem(Widget, can_focus=False)`.
+        false
+    }
+}
+
+impl Interactive for ListItem {
+    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
+        if let Event::MouseDown(mouse) = event {
+            if mouse.target == crate::widgets::Widget::node_id(self) && !self.disabled {
+                // Inform the parent ListView so it can highlight + select this
+                // item (Python: `ListItem._on_click` posts `_ChildClicked`).
+                ctx.post_message(ListItemChildClicked {
+                    ordinal: self.ordinal,
+                    item: self.text.clone(),
+                });
+                ctx.set_handled();
+            }
+        }
+    }
+}
+
+impl Layout for ListItem {
     fn layout_height(&self) -> Option<usize> {
         // height: auto — sum the children's heights. After extraction the arena
         // owns the children and computes layout, so return None.
@@ -241,20 +245,6 @@ impl Widget for ListItem {
             }
         }
         if saw { Some(max_width.max(1)) } else { None }
-    }
-
-    fn set_inline_style(&mut self, style: crate::style::Style) {
-        self.seed.styles.style = style;
-    }
-
-    fn take_node_seed(&mut self) -> NodeSeed {
-        std::mem::take(&mut self.seed)
-    }
-}
-
-impl Renderable for ListItem {
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        Widget::render(self, console, options)
     }
 }
 

@@ -1,16 +1,18 @@
 use crossterm::event::KeyCode;
-use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments, StyleMeta};
+use rich_rs::{Console, ConsoleOptions, Segment, Segments, StyleMeta};
+use textual_macros::widget;
 
 use crate::event::{Action, Event};
 use crate::message::*;
 
-use super::{NodeSeed, Widget};
+use super::{Focus, Interactive, Layout, NodeSeed, Render};
 
 /// A simple clickable text widget that posts a message with a URL when activated.
 ///
 /// Renders as a single line of text; CSS provides underline/color styling.
 /// Activated via click or Enter key when focused.
 #[derive(Debug, Clone)]
+#[widget(Focus, Interactive, Layout, style_type = "Link")]
 pub struct Link {
     text: String,
     url: String,
@@ -111,15 +113,17 @@ fn apply_text_style_flags(style: &mut rich_rs::Style, flags: &crate::style::Text
     }
 }
 
-impl Widget for Link {
+impl Focus for Link {
     fn focusable(&self) -> bool {
         true
     }
 
     fn is_active(&self) -> bool {
-        self.pressed && self.node_state().hovered
+        self.pressed && crate::widgets::Widget::node_state(self).hovered
     }
+}
 
+impl Layout for Link {
     fn content_width(&self) -> Option<usize> {
         let meta = crate::css::selector_meta_generic(self);
         let resolved = crate::css::resolve_style(self, &meta);
@@ -135,10 +139,16 @@ impl Widget for Link {
         )
     }
 
+    fn layout_height(&self) -> Option<usize> {
+        Some(1)
+    }
+}
+
+impl Interactive for Link {
     fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
-        let focused = self.node_state().focused;
+        let focused = crate::widgets::Widget::node_state(self).focused;
         match event {
-            Event::MouseDown(mouse) if mouse.target == self.node_id() => {
+            Event::MouseDown(mouse) if mouse.target == crate::widgets::Widget::node_id(self) => {
                 self.pressed = true;
                 ctx.request_repaint();
                 ctx.set_handled();
@@ -147,7 +157,7 @@ impl Widget for Link {
                 if self.pressed => {
                     self.pressed = false;
                     ctx.request_repaint();
-                    if mouse.target.is_some_and(|t| t == self.node_id()) {
+                    if mouse.target.is_some_and(|t| t == crate::widgets::Widget::node_id(self)) {
                         self.activate(ctx);
                     }
                 }
@@ -168,11 +178,13 @@ impl Widget for Link {
             _ => {}
         }
     }
+}
 
+impl Render for Link {
     fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
         let line = rich_rs::set_cell_size(&self.text, width);
-        let state = self.node_state();
+        let state = crate::widgets::Widget::node_state(self);
 
         // Start with component-resolved base style.
         let mut style = crate::css::resolve_component_style(self, &["link"])
@@ -220,28 +232,6 @@ impl Widget for Link {
         }
         out.push(segment);
         out
-    }
-
-    fn layout_height(&self) -> Option<usize> {
-        Some(1)
-    }
-
-    fn style_type(&self) -> &'static str {
-        "Link"
-    }
-
-    fn set_inline_style(&mut self, style: crate::style::Style) {
-        self.seed.styles.style = style;
-    }
-
-    fn take_node_seed(&mut self) -> NodeSeed {
-        std::mem::take(&mut self.seed)
-    }
-}
-
-impl Renderable for Link {
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        Widget::render(self, console, options)
     }
 }
 
@@ -306,14 +296,14 @@ mod tests {
         // Focus state is now managed by the tree node record via node_state().
         // Outside dispatch, node_state() returns default (all false).
         let link = Link::new("text");
-        assert!(!link.node_state().focused);
+        assert!(!crate::widgets::Widget::node_state(&link).focused);
     }
 
     #[test]
     fn hover_state() {
         // Hover state is now managed by the tree node record via node_state().
         let link = Link::new("text");
-        assert!(!link.node_state().hovered);
+        assert!(!crate::widgets::Widget::node_state(&link).hovered);
     }
 
     #[test]
@@ -349,7 +339,7 @@ mod tests {
         options.max_width = 20;
         options.max_height = 1;
 
-        let rendered = Widget::render(&link, &console, &options);
+        let rendered = crate::widgets::Widget::render(&link, &console, &options);
         let first = rendered
             .iter()
             .find(|segment| segment.control.is_none())
