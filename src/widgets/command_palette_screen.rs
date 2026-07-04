@@ -194,6 +194,7 @@ impl PaletteCommandList {
 /// `PaletteCommandList` options via a cross-node deferred command on each
 /// keystroke. `style_type = "CommandPalette"` so the screen CSS (`CommandPalette
 /// #--input`, `CommandPalette #--results`, …) resolves against its descendants.
+#[textual::widget(Interactive)]
 pub(crate) struct CommandPaletteBody {
     commands: Vec<CommandPaletteCommand>,
     placeholder: String,
@@ -229,43 +230,7 @@ impl CommandPaletteBody {
     }
 }
 
-impl Widget for CommandPaletteBody {
-    fn style_type(&self) -> &'static str {
-        "CommandPalette"
-    }
-
-    fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
-        Segments::new()
-    }
-
-    fn compose(&mut self) -> ComposeResult {
-        // State-pure: rebuilt identically from `commands` / current results, so a
-        // recompose regenerates rather than clears (Select discipline). Keystroke
-        // search does NOT recompose this subtree — it updates the list options via
-        // a cross-node deferred command, leaving the CommandInput untouched.
-        let input_row = Horizontal::new()
-            .id("--input")
-            .with_child(SearchIcon::new())
-            .with_child(CommandInput::new(self.placeholder.clone()));
-        let results = Vertical::new()
-            .id("--results")
-            .with_child(PaletteCommandList::from_rows(&self.results))
-            .with_child(LoadingIndicator::new());
-        let container = Vertical::new()
-            .id("--container")
-            .with_child(input_row)
-            .with_child(results);
-        vec![ChildDecl::new(Box::new(container))]
-    }
-
-    fn set_inline_style(&mut self, style: crate::style::Style) {
-        self.seed.styles.style = style;
-    }
-
-    fn take_node_seed(&mut self) -> NodeSeed {
-        std::mem::take(&mut self.seed)
-    }
-
+impl crate::widgets::Interactive for CommandPaletteBody {
     fn on_message(&mut self, message: &MessageEvent, ctx: &mut WidgetCtx) {
         if let Some(changed) = message.downcast_ref::<InputChanged>() {
             // Re-run the fuzzy search over the provider snapshot and push the new
@@ -298,6 +263,36 @@ impl Widget for CommandPaletteBody {
             let index = self.highlighted.min(self.results.len().saturating_sub(1));
             self.execute(index, ctx);
         }
+    }
+}
+
+impl crate::widgets::Render for CommandPaletteBody {
+    fn style_type(&self) -> &'static str {
+        "CommandPalette"
+    }
+
+    fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+        Segments::new()
+    }
+
+    fn compose(&mut self) -> ComposeResult {
+        // State-pure: rebuilt identically from `commands` / current results, so a
+        // recompose regenerates rather than clears (Select discipline). Keystroke
+        // search does NOT recompose this subtree — it updates the list options via
+        // a cross-node deferred command, leaving the CommandInput untouched.
+        let input_row = Horizontal::new()
+            .id("--input")
+            .with_child(SearchIcon::new())
+            .with_child(CommandInput::new(self.placeholder.clone()));
+        let results = Vertical::new()
+            .id("--results")
+            .with_child(PaletteCommandList::from_rows(&self.results))
+            .with_child(LoadingIndicator::new());
+        let container = Vertical::new()
+            .id("--container")
+            .with_child(input_row)
+            .with_child(results);
+        vec![ChildDecl::new(Box::new(container))]
     }
 }
 

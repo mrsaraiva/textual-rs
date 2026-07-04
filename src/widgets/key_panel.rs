@@ -1,6 +1,7 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
+use rich_rs::{Console, ConsoleOptions, Segment, Segments};
+use textual_macros::widget;
 
 use crate::event::{Action, BindingHint, Event};
 use crate::keys::format_key_display;
@@ -10,11 +11,12 @@ use crate::style::parse_color_like;
 use super::footer::FooterBinding;
 use super::helpers::{adjust_line_length_no_bg, pad_lines_to_width};
 
-use super::{NodeSeed, ScrollBar, ScrollView, Widget};
+use super::{NodeSeed, ScrollBar, ScrollView};
 
 pub(crate) const KEY_PANEL_VSCROLLBAR_ID: &str = "__key_panel_vscrollbar";
 
 #[derive(Debug, Clone)]
+#[widget(Layout)]
 pub struct BindingsTable {
     bindings: Vec<FooterBinding>,
     seed: NodeSeed,
@@ -249,7 +251,13 @@ fn format_binding_key_display(binding_key: &str) -> String {
         .join(" ")
 }
 
-impl Widget for BindingsTable {
+impl crate::widgets::Layout for BindingsTable {
+    fn layout_height(&self) -> Option<usize> {
+        Some(self.line_count())
+    }
+}
+
+impl crate::widgets::Render for BindingsTable {
     fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
         let mut lines = self.lines(width);
@@ -264,27 +272,9 @@ impl Widget for BindingsTable {
         }
         out
     }
-
-    fn layout_height(&self) -> Option<usize> {
-        Some(self.line_count())
-    }
-
-    fn set_inline_style(&mut self, style: crate::style::Style) {
-        self.seed.styles.style = style;
-    }
-
-    fn take_node_seed(&mut self) -> NodeSeed {
-        std::mem::take(&mut self.seed)
-    }
 }
-
-impl Renderable for BindingsTable {
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        Widget::render(self, console, options)
-    }
-}
-
 #[derive(Debug)]
+#[widget(Interactive, Layout, Scrollable)]
 pub struct KeyPanel {
     title: String,
     table: BindingsTable,
@@ -410,7 +400,108 @@ impl KeyPanel {
     }
 }
 
-impl Widget for KeyPanel {
+impl crate::widgets::Interactive for KeyPanel {
+    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
+        if let Event::BindingsChanged(bindings) = event {
+            let previous = self.table.bindings.clone();
+            self.set_binding_hints(bindings);
+            if self.table.bindings != previous {
+                ctx.post_message(KeyPanelBindingsUpdated {
+                    count: self.table.bindings.len(),
+                });
+                ctx.request_repaint();
+            }
+            return;
+        }
+        if let Event::Action(action) = event {
+            if !self.can_scroll() {
+                return;
+            }
+            let before = self.offset_y;
+            match action {
+                Action::ScrollUp => self.scroll_by(-(self.scroll_step as i32)),
+                Action::ScrollDown => self.scroll_by(self.scroll_step as i32),
+                Action::ScrollPageUp => {
+                    let page = self.viewport_height.load(Ordering::Relaxed).max(1);
+                    self.scroll_by(-(page as i32));
+                }
+                Action::ScrollPageDown => {
+                    let page = self.viewport_height.load(Ordering::Relaxed).max(1);
+                    self.scroll_by(page as i32);
+                }
+                _ => return,
+            }
+            if self.offset_y != before {
+                ctx.request_repaint();
+                self.emit_scroll_changed_message(ctx);
+                ctx.set_handled();
+            }
+        }
+    }
+
+    fn on_mouse_move(&mut self, _x: u16, _y: u16) -> bool {
+        false
+    }
+
+    fn on_message(&mut self, event: &MessageEvent, ctx: &mut crate::event::WidgetCtx) {
+        let Some(payload) = event.downcast_ref::<ScrollbarScrollTo>() else {
+            return;
+        };
+        if payload.axis != ScrollbarAxis::Vertical {
+            return;
+        }
+        let body_viewport = self.viewport_height.load(Ordering::Relaxed).max(1);
+        let content_height = self.content_height.load(Ordering::Relaxed).max(1);
+        let next = ScrollView::line_clamp_offset(
+            payload.offset.max(0.0).round() as usize,
+            content_height,
+            body_viewport,
+        );
+        if next != self.offset_y {
+            self.offset_y = next;
+            ctx.request_repaint();
+            self.emit_scroll_changed_message(ctx);
+        }
+        ctx.set_handled();
+    }
+}
+
+impl crate::widgets::Layout for KeyPanel {
+    fn layout_height(&self) -> Option<usize> {
+        None
+    }
+}
+
+impl crate::widgets::Scrollable for KeyPanel {
+    fn on_mouse_scroll(&mut self, _delta_x: i32, delta_y: i32, ctx: &mut crate::event::WidgetCtx) {
+        if delta_y == 0 || !self.can_scroll() {
+            return;
+        }
+        let before = self.offset_y;
+        self.scroll_by(delta_y.saturating_mul(self.scroll_step as i32));
+        if self.offset_y != before {
+            ctx.request_repaint();
+            self.emit_scroll_changed_message(ctx);
+            ctx.set_handled();
+        }
+    }
+
+    fn scroll_offset(&self) -> (usize, usize) {
+        (0, self.offset_y)
+    }
+
+    fn scroll_offset_f32(&self) -> (f32, f32) {
+        (0.0, self.offset_y as f32)
+    }
+
+    fn scroll_virtual_content_size(&self) -> Option<(usize, usize)> {
+        let width = self.widget_width.load(Ordering::Relaxed).max(1);
+        let height = self.table.line_count().max(1);
+        Some((width, height))
+    }
+}
+
+impl crate::widgets::Render for KeyPanel {
     fn compose(&mut self) -> crate::compose::ComposeResult {
         if self.scrollbar_extracted {
             return Vec::new();
@@ -452,117 +543,7 @@ impl Widget for KeyPanel {
         }
         out
     }
-
-    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
-        if let Event::BindingsChanged(bindings) = event {
-            let previous = self.table.bindings.clone();
-            self.set_binding_hints(bindings);
-            if self.table.bindings != previous {
-                ctx.post_message(KeyPanelBindingsUpdated {
-                    count: self.table.bindings.len(),
-                });
-                ctx.request_repaint();
-            }
-            return;
-        }
-        if let Event::Action(action) = event {
-            if !self.can_scroll() {
-                return;
-            }
-            let before = self.offset_y;
-            match action {
-                Action::ScrollUp => self.scroll_by(-(self.scroll_step as i32)),
-                Action::ScrollDown => self.scroll_by(self.scroll_step as i32),
-                Action::ScrollPageUp => {
-                    let page = self.viewport_height.load(Ordering::Relaxed).max(1);
-                    self.scroll_by(-(page as i32));
-                }
-                Action::ScrollPageDown => {
-                    let page = self.viewport_height.load(Ordering::Relaxed).max(1);
-                    self.scroll_by(page as i32);
-                }
-                _ => return,
-            }
-            if self.offset_y != before {
-                ctx.request_repaint();
-                self.emit_scroll_changed_message(ctx);
-                ctx.set_handled();
-            }
-        }
-    }
-
-    fn on_mouse_scroll(&mut self, _delta_x: i32, delta_y: i32, ctx: &mut crate::event::WidgetCtx) {
-        if delta_y == 0 || !self.can_scroll() {
-            return;
-        }
-        let before = self.offset_y;
-        self.scroll_by(delta_y.saturating_mul(self.scroll_step as i32));
-        if self.offset_y != before {
-            ctx.request_repaint();
-            self.emit_scroll_changed_message(ctx);
-            ctx.set_handled();
-        }
-    }
-
-    fn on_mouse_move(&mut self, _x: u16, _y: u16) -> bool {
-        false
-    }
-
-    fn layout_height(&self) -> Option<usize> {
-        None
-    }
-
-    fn set_inline_style(&mut self, style: crate::style::Style) {
-        self.seed.styles.style = style;
-    }
-
-    fn take_node_seed(&mut self) -> NodeSeed {
-        std::mem::take(&mut self.seed)
-    }
-
-    fn on_message(&mut self, event: &MessageEvent, ctx: &mut crate::event::WidgetCtx) {
-        let Some(payload) = event.downcast_ref::<ScrollbarScrollTo>() else {
-            return;
-        };
-        if payload.axis != ScrollbarAxis::Vertical {
-            return;
-        }
-        let body_viewport = self.viewport_height.load(Ordering::Relaxed).max(1);
-        let content_height = self.content_height.load(Ordering::Relaxed).max(1);
-        let next = ScrollView::line_clamp_offset(
-            payload.offset.max(0.0).round() as usize,
-            content_height,
-            body_viewport,
-        );
-        if next != self.offset_y {
-            self.offset_y = next;
-            ctx.request_repaint();
-            self.emit_scroll_changed_message(ctx);
-        }
-        ctx.set_handled();
-    }
-
-    fn scroll_offset(&self) -> (usize, usize) {
-        (0, self.offset_y)
-    }
-
-    fn scroll_offset_f32(&self) -> (f32, f32) {
-        (0.0, self.offset_y as f32)
-    }
-
-    fn scroll_virtual_content_size(&self) -> Option<(usize, usize)> {
-        let width = self.widget_width.load(Ordering::Relaxed).max(1);
-        let height = self.table.line_count().max(1);
-        Some((width, height))
-    }
 }
-
-impl Renderable for KeyPanel {
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        Widget::render(self, console, options)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::{KEY_PANEL_VSCROLLBAR_ID, KeyPanel};

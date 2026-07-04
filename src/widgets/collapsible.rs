@@ -1,5 +1,6 @@
 use crossterm::event::KeyCode;
-use rich_rs::{Console, ConsoleOptions, MetaValue, Renderable, Segment, Segments};
+use rich_rs::{Console, ConsoleOptions, MetaValue, Segment, Segments};
+use textual_macros::widget;
 
 use crate::compose::ComposeResult;
 use crate::content::Content;
@@ -50,6 +51,7 @@ fn tag_segment_no_text_style(seg: &mut Segment) {
 /// `Static`). The runtime renders it as a child of `Collapsible`; CSS selectors
 /// like `CollapsibleTitle { ... }` resolve against this node directly and the
 /// arena renderer applies the resolved style (color / text-style / padding).
+#[widget(Focus, Interactive, Layout)]
 pub struct CollapsibleTitle {
     title: String,
     collapsed_symbol: String,
@@ -110,15 +112,17 @@ impl CollapsibleTitle {
     }
 }
 
-impl Widget for CollapsibleTitle {
-    fn compose(&mut self) -> ComposeResult {
-        Vec::new()
-    }
-
+impl crate::widgets::Focus for CollapsibleTitle {
     fn focusable(&self) -> bool {
         true
     }
 
+    fn is_active(&self) -> bool {
+        self.pressed && self.hovered
+    }
+}
+
+impl crate::widgets::Interactive for CollapsibleTitle {
     fn on_node_state_changed(
         &mut self,
         _old: crate::widgets::NodeState,
@@ -126,10 +130,6 @@ impl Widget for CollapsibleTitle {
     ) {
         self.focused = new.focused;
         self.hovered = new.hovered;
-    }
-
-    fn is_active(&self) -> bool {
-        self.pressed && self.hovered
     }
 
     /// The title is the focusable node (Python `CollapsibleTitle`), so it owns
@@ -163,11 +163,9 @@ impl Widget for CollapsibleTitle {
             _ => {}
         }
     }
+}
 
-    fn style_type(&self) -> &'static str {
-        "CollapsibleTitle"
-    }
-
+impl crate::widgets::Layout for CollapsibleTitle {
     /// `width: auto` — report the intrinsic label width so the box shrinks to
     /// its content (Python parity). The arena renderer adds CSS padding.
     fn auto_content_width(&self) -> Option<usize> {
@@ -176,6 +174,16 @@ impl Widget for CollapsibleTitle {
 
     fn layout_height(&self) -> Option<usize> {
         Some(1)
+    }
+}
+
+impl crate::widgets::Render for CollapsibleTitle {
+    fn compose(&mut self) -> ComposeResult {
+        Vec::new()
+    }
+
+    fn style_type(&self) -> &'static str {
+        "CollapsibleTitle"
     }
 
     /// Render the symbol + label via Content::render_strips.
@@ -229,22 +237,7 @@ impl Widget for CollapsibleTitle {
         }
         out
     }
-
-    fn set_inline_style(&mut self, style: crate::style::Style) {
-        self.seed.styles.style = style;
-    }
-
-    fn take_node_seed(&mut self) -> NodeSeed {
-        std::mem::take(&mut self.seed)
-    }
 }
-
-impl Renderable for CollapsibleTitle {
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        Widget::render(self, console, options)
-    }
-}
-
 // ── CollapsibleContents ─────────────────────────────────────────────────
 
 /// Inner container for a `Collapsible`'s expandable content.
@@ -253,6 +246,7 @@ impl Renderable for CollapsibleTitle {
 /// CSS rule `Collapsible.-collapsed > Contents { display: none }` and the
 /// `Contents { padding: 1 0 0 3 }` indentation both apply via the standard CSS
 /// path. Children are real arena nodes drained via `compose`.
+#[widget(Layout)]
 pub struct CollapsibleContents {
     children: Vec<Box<dyn Widget>>,
     children_extracted: bool,
@@ -269,7 +263,36 @@ impl CollapsibleContents {
     }
 }
 
-impl Widget for CollapsibleContents {
+impl crate::widgets::Layout for CollapsibleContents {
+    fn content_width(&self) -> Option<usize> {
+        if self.children_extracted {
+            return None;
+        }
+        let mut max_width = 0usize;
+        let mut saw = false;
+        for child in &self.children {
+            if let Some(width) = child.content_width() {
+                max_width = max_width.max(width.max(1));
+                saw = true;
+            }
+        }
+        if saw { Some(max_width.max(1)) } else { None }
+    }
+
+    fn layout_height(&self) -> Option<usize> {
+        if self.children_extracted {
+            return None;
+        }
+        let mut total = 0usize;
+        for child in &self.children {
+            let child_height = child.layout_height()?;
+            total = total.saturating_add(child_height.max(1));
+        }
+        if total == 0 { None } else { Some(total) }
+    }
+}
+
+impl crate::widgets::Render for CollapsibleContents {
     fn compose(&mut self) -> ComposeResult {
         self.children_extracted = true;
         std::mem::take(&mut self.children)
@@ -305,51 +328,10 @@ impl Widget for CollapsibleContents {
         }
         out
     }
-
-    fn content_width(&self) -> Option<usize> {
-        if self.children_extracted {
-            return None;
-        }
-        let mut max_width = 0usize;
-        let mut saw = false;
-        for child in &self.children {
-            if let Some(width) = child.content_width() {
-                max_width = max_width.max(width.max(1));
-                saw = true;
-            }
-        }
-        if saw { Some(max_width.max(1)) } else { None }
-    }
-
-    fn layout_height(&self) -> Option<usize> {
-        if self.children_extracted {
-            return None;
-        }
-        let mut total = 0usize;
-        for child in &self.children {
-            let child_height = child.layout_height()?;
-            total = total.saturating_add(child_height.max(1));
-        }
-        if total == 0 { None } else { Some(total) }
-    }
-
-    fn set_inline_style(&mut self, style: crate::style::Style) {
-        self.seed.styles.style = style;
-    }
-
-    fn take_node_seed(&mut self) -> NodeSeed {
-        std::mem::take(&mut self.seed)
-    }
 }
-
-impl Renderable for CollapsibleContents {
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        Widget::render(self, console, options)
-    }
-}
-
 // ── Collapsible ─────────────────────────────────────────────────────────
 
+#[widget(Focus, Interactive, Layout)]
 pub struct Collapsible {
     title: String,
     collapsed_symbol: String,
@@ -505,7 +487,83 @@ impl Collapsible {
     }
 }
 
-impl Widget for Collapsible {
+impl crate::widgets::Focus for Collapsible {
+    fn is_active(&self) -> bool {
+        self.pressed && self.hovered
+    }
+}
+
+impl crate::widgets::Interactive for Collapsible {
+    // NOTE: `Collapsible` is intentionally NOT focusable (Python parity —
+    // `class Collapsible(Widget)` has `can_focus=False`). The focusable node is
+    // the child `CollapsibleTitle`, so `:focus` lands on the title and its
+    // `&:focus { background: $block-cursor-background }` rule applies to the
+    // header surface. `can_focus_children()` (default `true`) still lets focus
+    // traversal descend into the title.
+    fn on_node_state_changed(
+        &mut self,
+        _old: crate::widgets::NodeState,
+        new: crate::widgets::NodeState,
+    ) {
+        self.hovered = new.hovered;
+    }
+
+    /// Handle the toggle request bubbled up from our `CollapsibleTitle`.
+    ///
+    /// Mirrors Python `Collapsible._on_collapsible_title_toggle`: the title
+    /// (the focusable node) posts a toggle message on `enter`/click, and the
+    /// enclosing `Collapsible` flips its `collapsed` state and stops
+    /// propagation (so a nested outer `Collapsible` is not also toggled).
+    fn on_message(&mut self, message: &crate::message::MessageEvent, ctx: &mut crate::event::WidgetCtx) {
+        if message.is::<CollapsibleTitleToggle>() {
+            self.toggle_with_ctx(ctx);
+        }
+    }
+}
+
+impl crate::widgets::Layout for Collapsible {
+    /// Intrinsic content width for `width: auto` measurement only.
+    ///
+    /// Python's `Collapsible` is `width: 1fr` (a fill), so this does NOT affect
+    /// the default rendering. But when a `Collapsible` is given `width: auto`, it
+    /// should size to its title's content (symbol + label) plus the title
+    /// component's own padding (`CollapsibleTitle { padding: 0 1 }`). The layout
+    /// adds the `Collapsible`'s own box chrome on top of this value, so it must
+    /// be padding-independent here. Returning `None` from the default
+    /// `content_width()` keeps the unset-width fill behaviour intact.
+    fn auto_content_width(&self) -> Option<usize> {
+        let symbol = if self.collapsed {
+            &self.collapsed_symbol
+        } else {
+            &self.expanded_symbol
+        };
+        let label_width = rich_rs::cell_len(symbol)
+            .saturating_add(1)
+            .saturating_add(rich_rs::cell_len(&self.title));
+        // CollapsibleTitle component padding (0 1 => left 1 + right 1).
+        Some(label_width.saturating_add(2).max(1))
+    }
+
+    fn layout_height(&self) -> Option<usize> {
+        // height: auto — computed from the (now extracted) child nodes.
+        if self.children_extracted {
+            return None;
+        }
+        // Pre-extraction estimate: title line + (children when expanded).
+        let mut total = 1usize;
+        if !self.collapsed {
+            for child in &self.children {
+                match child.layout_height() {
+                    Some(height) => total = total.saturating_add(height.max(1)),
+                    None => return None,
+                }
+            }
+        }
+        Some(total.max(1))
+    }
+}
+
+impl crate::widgets::Render for Collapsible {
     /// Mirror Python's `compose()`: yield the `CollapsibleTitle`, then a
     /// `Contents` container holding the user children. Both become real arena
     /// nodes so the title glyph + label render and (when expanded) the children
@@ -528,49 +586,8 @@ impl Widget for Collapsible {
         ]
     }
 
-    // NOTE: `Collapsible` is intentionally NOT focusable (Python parity —
-    // `class Collapsible(Widget)` has `can_focus=False`). The focusable node is
-    // the child `CollapsibleTitle`, so `:focus` lands on the title and its
-    // `&:focus { background: $block-cursor-background }` rule applies to the
-    // header surface. `can_focus_children()` (default `true`) still lets focus
-    // traversal descend into the title.
-
-    fn on_node_state_changed(
-        &mut self,
-        _old: crate::widgets::NodeState,
-        new: crate::widgets::NodeState,
-    ) {
-        self.hovered = new.hovered;
-    }
-
-    fn is_active(&self) -> bool {
-        self.pressed && self.hovered
-    }
-
     fn style_type(&self) -> &'static str {
         "Collapsible"
-    }
-
-    /// Intrinsic content width for `width: auto` measurement only.
-    ///
-    /// Python's `Collapsible` is `width: 1fr` (a fill), so this does NOT affect
-    /// the default rendering. But when a `Collapsible` is given `width: auto`, it
-    /// should size to its title's content (symbol + label) plus the title
-    /// component's own padding (`CollapsibleTitle { padding: 0 1 }`). The layout
-    /// adds the `Collapsible`'s own box chrome on top of this value, so it must
-    /// be padding-independent here. Returning `None` from the default
-    /// `content_width()` keeps the unset-width fill behaviour intact.
-    fn auto_content_width(&self) -> Option<usize> {
-        let symbol = if self.collapsed {
-            &self.collapsed_symbol
-        } else {
-            &self.expanded_symbol
-        };
-        let label_width = rich_rs::cell_len(symbol)
-            .saturating_add(1)
-            .saturating_add(rich_rs::cell_len(&self.title));
-        // CollapsibleTitle component padding (0 1 => left 1 + right 1).
-        Some(label_width.saturating_add(2).max(1))
     }
 
     /// Chrome-only render. The title and contents render through the arena tree.
@@ -596,52 +613,7 @@ impl Widget for Collapsible {
         }
         out
     }
-
-    /// Handle the toggle request bubbled up from our `CollapsibleTitle`.
-    ///
-    /// Mirrors Python `Collapsible._on_collapsible_title_toggle`: the title
-    /// (the focusable node) posts a toggle message on `enter`/click, and the
-    /// enclosing `Collapsible` flips its `collapsed` state and stops
-    /// propagation (so a nested outer `Collapsible` is not also toggled).
-    fn on_message(&mut self, message: &crate::message::MessageEvent, ctx: &mut crate::event::WidgetCtx) {
-        if message.is::<CollapsibleTitleToggle>() {
-            self.toggle_with_ctx(ctx);
-        }
-    }
-
-    fn layout_height(&self) -> Option<usize> {
-        // height: auto — computed from the (now extracted) child nodes.
-        if self.children_extracted {
-            return None;
-        }
-        // Pre-extraction estimate: title line + (children when expanded).
-        let mut total = 1usize;
-        if !self.collapsed {
-            for child in &self.children {
-                match child.layout_height() {
-                    Some(height) => total = total.saturating_add(height.max(1)),
-                    None => return None,
-                }
-            }
-        }
-        Some(total.max(1))
-    }
-
-    fn set_inline_style(&mut self, style: crate::style::Style) {
-        self.seed.styles.style = style;
-    }
-
-    fn take_node_seed(&mut self) -> NodeSeed {
-        std::mem::take(&mut self.seed)
-    }
 }
-
-impl Renderable for Collapsible {
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        Widget::render(self, console, options)
-    }
-}
-
 impl ReactiveWidget for Collapsible {
     fn reactive_dispatch(&mut self, changes: &[ReactiveChange], ctx: &mut ReactiveCtx) {
         for change in changes {

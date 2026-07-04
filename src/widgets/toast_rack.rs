@@ -19,14 +19,15 @@
 
 use std::collections::HashMap;
 
-use rich_rs::{Console, ConsoleOptions, Renderable, Segments};
+use rich_rs::{Console, ConsoleOptions, Segments};
+use textual_macros::widget;
 
 use crate::compose::{ChildDecl, ComposeResult};
 use crate::message::NotificationExpired;
 use crate::runtime::TimerHandle;
 
 use super::toast::{Toast, ToastSeverity};
-use super::{NodeSeed, Widget};
+use super::NodeSeed;
 
 /// Immutable description of one notification, pushed from the app's notification
 /// store into [`ToastRack::sync`]. Off-tree widgets cannot read `App`, so the
@@ -63,6 +64,7 @@ fn toast_holder_id(id: u64) -> String {
 /// A container that holds a single toast, controlling its right-alignment within
 /// the rack (Python `ToastHolder`). Rebuilt fresh on every rack recompose.
 #[derive(Debug, Clone)]
+#[widget(Focus)]
 pub struct ToastHolder {
     toast: Toast,
     seed: NodeSeed,
@@ -79,11 +81,13 @@ impl ToastHolder {
     }
 }
 
-impl Widget for ToastHolder {
+impl crate::widgets::Focus for ToastHolder {
     fn focusable(&self) -> bool {
         false
     }
+}
 
+impl crate::widgets::Render for ToastHolder {
     fn compose(&mut self) -> ComposeResult {
         vec![ChildDecl::new(Box::new(self.toast.clone()))]
     }
@@ -97,20 +101,10 @@ impl Widget for ToastHolder {
     fn style_type(&self) -> &'static str {
         "ToastHolder"
     }
-
-    fn take_node_seed(&mut self) -> NodeSeed {
-        std::mem::take(&mut self.seed)
-    }
 }
-
-impl Renderable for ToastHolder {
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        Widget::render(self, console, options)
-    }
-}
-
 /// The docked notification stack. See the module docs for the ownership model.
 #[derive(Debug)]
+#[widget(Focus)]
 pub struct ToastRack {
     entries: Vec<RackEntry>,
     seed: NodeSeed,
@@ -215,11 +209,13 @@ impl ToastRack {
     }
 }
 
-impl Widget for ToastRack {
+impl crate::widgets::Focus for ToastRack {
     fn focusable(&self) -> bool {
         false
     }
+}
 
+impl crate::widgets::Render for ToastRack {
     fn compose(&mut self) -> ComposeResult {
         self.entries
             .iter()
@@ -243,15 +239,5 @@ impl Widget for ToastRack {
 
     fn style_type(&self) -> &'static str {
         "ToastRack"
-    }
-
-    fn take_node_seed(&mut self) -> NodeSeed {
-        std::mem::take(&mut self.seed)
-    }
-}
-
-impl Renderable for ToastRack {
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        Widget::render(self, console, options)
     }
 }

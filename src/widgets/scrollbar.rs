@@ -1,4 +1,5 @@
 use rich_rs::{Segment, Segments};
+use textual_macros::widget;
 
 use crate::event::{Event, MouseDownEvent, MouseMoveEvent};
 use crate::message::ScrollbarScrollTo;
@@ -638,6 +639,7 @@ pub fn drag_to_offset(
         .clamp(0.0, max_offset as f64) as usize
 }
 
+#[widget(Focus, Interactive)]
 pub struct ScrollBar {
     vertical: bool,
     thickness: usize,
@@ -721,7 +723,7 @@ impl ScrollBar {
     }
 }
 
-impl Widget for ScrollBar {
+impl crate::widgets::Focus for ScrollBar {
     fn focusable(&self) -> bool {
         false
     }
@@ -729,103 +731,9 @@ impl Widget for ScrollBar {
     fn can_focus_children(&self) -> bool {
         false
     }
+}
 
-    fn render(&self, _console: &rich_rs::Console, options: &rich_rs::ConsoleOptions) -> Segments {
-        let length = if self.vertical {
-            options.size.1.max(1)
-        } else {
-            options.size.0.max(1)
-        };
-
-        // Scrollbar color/background tokens are read from the HOST widget's
-        // resolved styles, not the scrollbar's own. Mirrors Python `ScrollBar`
-        // (textual/src/textual/scrollbar.py:282-294): `styles = self.parent.styles`
-        // and `base_background, _ = self.parent.background_colors`. These tokens
-        // are NOT inherited, so a dedicated scrollbar must read its host's styles.
-        // Fall back to the scrollbar's own resolved style only if there is no host
-        // (e.g. off-tree rendering).
-        let resolved = crate::css::current_host_style()
-            .or_else(crate::css::current_self_style)
-            .unwrap_or_default();
-        let style = &resolved;
-        let base_bg = style
-            .bg
-            .or_else(crate::css::current_composited_background)
-            .or_else(|| crate::style::parse_color_like("$background"))
-            .unwrap_or_else(|| Color::rgb(0, 0, 0));
-        let bg_raw = if self.grabbed {
-            style
-                .scrollbar_background_active
-                .or(style.scrollbar_background)
-                .or_else(|| crate::style::parse_color_like("$scrollbar-background-active"))
-                .or_else(|| crate::style::parse_color_like("$scrollbar-background"))
-        } else if self.mouse_over {
-            style
-                .scrollbar_background_hover
-                .or(style.scrollbar_background)
-                .or_else(|| crate::style::parse_color_like("$scrollbar-background-hover"))
-                .or_else(|| crate::style::parse_color_like("$scrollbar-background"))
-        } else {
-            style
-                .scrollbar_background
-                .or_else(|| crate::style::parse_color_like("$scrollbar-background"))
-        }
-        .unwrap_or_else(|| Color::rgb(40, 40, 40));
-        let bg = bg_raw.flatten_over(base_bg);
-
-        let thumb_raw = if self.grabbed {
-            style
-                .scrollbar_color_active
-                .or_else(|| crate::style::parse_color_like("$scrollbar-active"))
-        } else if self.mouse_over {
-            style
-                .scrollbar_color_hover
-                .or(style.scrollbar_color)
-                .or_else(|| crate::style::parse_color_like("$scrollbar-hover"))
-                .or_else(|| crate::style::parse_color_like("$scrollbar"))
-        } else {
-            style
-                .scrollbar_color
-                .or_else(|| crate::style::parse_color_like("$scrollbar"))
-        }
-        .unwrap_or_else(|| Color::rgb(48, 156, 255));
-        let thumb = thumb_raw.flatten_over(bg);
-        let renderer = ScrollBarRender {
-            virtual_size: self.window_virtual_size,
-            window_size: self.window_size,
-            position: self.position,
-            thickness: self.thickness,
-            vertical: self.vertical,
-        };
-        // Python `_Styled(renderable, rich_style)` applies the host widget's
-        // `color` (fg) to ALL segments from the scrollbar render, including track
-        // whitespace. Bake it into the track style so `apply_style_to_segments`
-        // sees s.color.is_some() and does not overwrite it.
-        //
-        // The host `color` (e.g. `color: blue 80%`) is composited over the host's
-        // BASE BACKGROUND surface (Python `background_colors[0]`), NOT over the
-        // scrollbar's own track background. Flatten it here over `base_bg` so a
-        // semi-transparent host color resolves against the real surface (white in
-        // `scrollbar_size`'s `background: white`) rather than the dark scrollbar
-        // track (`#0000cc` regression). Already-opaque colors are unchanged.
-        let track_fg = resolved.fg.map(|fg| fg.flatten_over(base_bg));
-        let lines = renderer.render_bar(length, bg, thumb, track_fg);
-        // NOTE: line-break between ROWS, so the bound is the number of rendered
-        // rows — NOT `length`. For a vertical bar rows == `length` (track_len),
-        // but for a horizontal bar rows == `thickness` while `length` is the
-        // track width, so using `length` here emitted a spurious trailing line
-        // break (and would skip breaks if thickness > length).
-        let row_count = lines.len();
-        let mut out = Segments::new();
-        for (idx, line) in lines.into_iter().enumerate() {
-            out.extend(line);
-            if idx + 1 < row_count {
-                out.push(Segment::line());
-            }
-        }
-        out
-    }
-
+impl crate::widgets::Interactive for ScrollBar {
     fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         match event {
             Event::MouseDown(MouseDownEvent {
@@ -959,16 +867,107 @@ impl Widget for ScrollBar {
     ) {
         self.mouse_over = new.hovered;
     }
+}
 
-    fn set_inline_style(&mut self, style: crate::style::Style) {
-        self.seed.styles.style = style;
-    }
+impl crate::widgets::Render for ScrollBar {
+    fn render(&self, _console: &rich_rs::Console, options: &rich_rs::ConsoleOptions) -> Segments {
+        let length = if self.vertical {
+            options.size.1.max(1)
+        } else {
+            options.size.0.max(1)
+        };
 
-    fn take_node_seed(&mut self) -> NodeSeed {
-        std::mem::take(&mut self.seed)
+        // Scrollbar color/background tokens are read from the HOST widget's
+        // resolved styles, not the scrollbar's own. Mirrors Python `ScrollBar`
+        // (textual/src/textual/scrollbar.py:282-294): `styles = self.parent.styles`
+        // and `base_background, _ = self.parent.background_colors`. These tokens
+        // are NOT inherited, so a dedicated scrollbar must read its host's styles.
+        // Fall back to the scrollbar's own resolved style only if there is no host
+        // (e.g. off-tree rendering).
+        let resolved = crate::css::current_host_style()
+            .or_else(crate::css::current_self_style)
+            .unwrap_or_default();
+        let style = &resolved;
+        let base_bg = style
+            .bg
+            .or_else(crate::css::current_composited_background)
+            .or_else(|| crate::style::parse_color_like("$background"))
+            .unwrap_or_else(|| Color::rgb(0, 0, 0));
+        let bg_raw = if self.grabbed {
+            style
+                .scrollbar_background_active
+                .or(style.scrollbar_background)
+                .or_else(|| crate::style::parse_color_like("$scrollbar-background-active"))
+                .or_else(|| crate::style::parse_color_like("$scrollbar-background"))
+        } else if self.mouse_over {
+            style
+                .scrollbar_background_hover
+                .or(style.scrollbar_background)
+                .or_else(|| crate::style::parse_color_like("$scrollbar-background-hover"))
+                .or_else(|| crate::style::parse_color_like("$scrollbar-background"))
+        } else {
+            style
+                .scrollbar_background
+                .or_else(|| crate::style::parse_color_like("$scrollbar-background"))
+        }
+        .unwrap_or_else(|| Color::rgb(40, 40, 40));
+        let bg = bg_raw.flatten_over(base_bg);
+
+        let thumb_raw = if self.grabbed {
+            style
+                .scrollbar_color_active
+                .or_else(|| crate::style::parse_color_like("$scrollbar-active"))
+        } else if self.mouse_over {
+            style
+                .scrollbar_color_hover
+                .or(style.scrollbar_color)
+                .or_else(|| crate::style::parse_color_like("$scrollbar-hover"))
+                .or_else(|| crate::style::parse_color_like("$scrollbar"))
+        } else {
+            style
+                .scrollbar_color
+                .or_else(|| crate::style::parse_color_like("$scrollbar"))
+        }
+        .unwrap_or_else(|| Color::rgb(48, 156, 255));
+        let thumb = thumb_raw.flatten_over(bg);
+        let renderer = ScrollBarRender {
+            virtual_size: self.window_virtual_size,
+            window_size: self.window_size,
+            position: self.position,
+            thickness: self.thickness,
+            vertical: self.vertical,
+        };
+        // Python `_Styled(renderable, rich_style)` applies the host widget's
+        // `color` (fg) to ALL segments from the scrollbar render, including track
+        // whitespace. Bake it into the track style so `apply_style_to_segments`
+        // sees s.color.is_some() and does not overwrite it.
+        //
+        // The host `color` (e.g. `color: blue 80%`) is composited over the host's
+        // BASE BACKGROUND surface (Python `background_colors[0]`), NOT over the
+        // scrollbar's own track background. Flatten it here over `base_bg` so a
+        // semi-transparent host color resolves against the real surface (white in
+        // `scrollbar_size`'s `background: white`) rather than the dark scrollbar
+        // track (`#0000cc` regression). Already-opaque colors are unchanged.
+        let track_fg = resolved.fg.map(|fg| fg.flatten_over(base_bg));
+        let lines = renderer.render_bar(length, bg, thumb, track_fg);
+        // NOTE: line-break between ROWS, so the bound is the number of rendered
+        // rows — NOT `length`. For a vertical bar rows == `length` (track_len),
+        // but for a horizontal bar rows == `thickness` while `length` is the
+        // track width, so using `length` here emitted a spurious trailing line
+        // break (and would skip breaks if thickness > length).
+        let row_count = lines.len();
+        let mut out = Segments::new();
+        for (idx, line) in lines.into_iter().enumerate() {
+            out.extend(line);
+            if idx + 1 < row_count {
+                out.push(Segment::line());
+            }
+        }
+        out
     }
 }
 
+#[widget(Focus)]
 pub struct ScrollBarCorner {
     pub(crate) seed: NodeSeed,
 }
@@ -989,7 +988,7 @@ impl Default for ScrollBarCorner {
     }
 }
 
-impl Widget for ScrollBarCorner {
+impl crate::widgets::Focus for ScrollBarCorner {
     fn focusable(&self) -> bool {
         false
     }
@@ -997,7 +996,9 @@ impl Widget for ScrollBarCorner {
     fn can_focus_children(&self) -> bool {
         false
     }
+}
 
+impl crate::widgets::Render for ScrollBarCorner {
     fn render(&self, _console: &rich_rs::Console, options: &rich_rs::ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
         let height = options.size.1.max(1);
@@ -1027,14 +1028,6 @@ impl Widget for ScrollBarCorner {
             }
         }
         out
-    }
-
-    fn set_inline_style(&mut self, style: crate::style::Style) {
-        self.seed.styles.style = style;
-    }
-
-    fn take_node_seed(&mut self) -> NodeSeed {
-        std::mem::take(&mut self.seed)
     }
 }
 

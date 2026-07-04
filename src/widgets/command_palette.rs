@@ -9,7 +9,8 @@
 //! `SystemModalScreen` marker trait. The legacy always-mounted hand-drawn
 //! `CommandPalette` host widget and its routing/host bypass were removed in Wave 2.
 
-use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
+use rich_rs::{Console, ConsoleOptions, Segment, Segments};
+use textual_macros::widget;
 
 use crate::event::Event;
 use crate::message::MessageEvent;
@@ -332,6 +333,7 @@ impl PaletteCommand {
 
 /// Widget for displaying a search icon before the command input.
 #[derive(Debug, Clone)]
+#[widget()]
 pub struct SearchIcon {
     icon: String,
     seed: NodeSeed,
@@ -358,7 +360,7 @@ impl Default for SearchIcon {
     }
 }
 
-impl Widget for SearchIcon {
+impl crate::widgets::Render for SearchIcon {
     fn style_type(&self) -> &'static str {
         "SearchIcon"
     }
@@ -371,27 +373,13 @@ impl Widget for SearchIcon {
         );
         line.into_iter().collect()
     }
-
-    fn set_inline_style(&mut self, style: crate::style::Style) {
-        self.seed.styles.style = style;
-    }
-
-    fn take_node_seed(&mut self) -> NodeSeed {
-        std::mem::take(&mut self.seed)
-    }
 }
-
-impl Renderable for SearchIcon {
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        Widget::render(self, console, options)
-    }
-}
-
 // ---------------------------------------------------------------------------
 // CommandInput
 // ---------------------------------------------------------------------------
 
 /// Command palette input control (`CommandInput` in Python Textual).
+#[widget(Focus, Interactive, Scrollable)]
 pub struct CommandInput {
     input: Input,
     seed: NodeSeed,
@@ -425,33 +413,31 @@ impl CommandInput {
     }
 }
 
-impl Widget for CommandInput {
-    fn style_type(&self) -> &'static str {
-        "CommandInput"
+impl crate::widgets::Focus for CommandInput {
+    fn focusable(&self) -> bool {
+        Widget::focusable(&self.input)
     }
+}
 
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        Widget::render(&self.input, console, options)
-    }
-
+impl crate::widgets::Interactive for CommandInput {
     fn on_mount(&mut self, ctx: &mut crate::event::WidgetCtx) {
-        self.input.on_mount(ctx);
+        Widget::on_mount(&mut self.input, ctx);
     }
 
     fn on_unmount(&mut self) {
-        self.input.on_unmount();
+        Widget::on_unmount(&mut self.input);
     }
 
     fn on_tick(&mut self, tick: u64) {
-        self.input.on_tick(tick);
+        Widget::on_tick(&mut self.input, tick);
     }
 
     fn on_resize(&mut self, width: u16, height: u16) {
-        self.input.on_resize(width, height);
+        Widget::on_resize(&mut self.input, width, height);
     }
 
     fn on_layout(&mut self, width: u16, height: u16) {
-        self.input.on_layout(width, height);
+        Widget::on_layout(&mut self.input, width, height);
     }
 
     fn on_event_capture(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
@@ -460,7 +446,7 @@ impl Widget for CommandInput {
             ..Default::default()
         };
         let _guard = set_dispatch_recipient(self.input.node_id(), state);
-        self.input.on_event_capture(event, ctx);
+        Widget::on_event_capture(&mut self.input, event, ctx);
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
@@ -469,23 +455,15 @@ impl Widget for CommandInput {
             ..Default::default()
         };
         let _guard = set_dispatch_recipient(self.input.node_id(), state);
-        self.input.on_event(event, ctx);
+        Widget::on_event(&mut self.input, event, ctx);
     }
 
     fn on_message(&mut self, message: &MessageEvent, ctx: &mut crate::event::WidgetCtx) {
-        self.input.on_message(message, ctx);
+        Widget::on_message(&mut self.input, message, ctx);
     }
 
     fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {
-        self.input.on_mouse_move(x, y)
-    }
-
-    fn on_mouse_scroll(&mut self, delta_x: i32, delta_y: i32, ctx: &mut crate::event::WidgetCtx) {
-        self.input.on_mouse_scroll(delta_x, delta_y, ctx);
-    }
-
-    fn focusable(&self) -> bool {
-        self.input.focusable()
+        Widget::on_mouse_move(&mut self.input, x, y)
     }
 
     fn on_node_state_changed(
@@ -494,24 +472,25 @@ impl Widget for CommandInput {
         new: crate::widgets::NodeState,
     ) {
         self.focused = new.focused;
-        self.input.on_node_state_changed(old, new);
-    }
-
-    fn set_inline_style(&mut self, style: crate::style::Style) {
-        self.seed.styles.style = style;
-    }
-
-    fn take_node_seed(&mut self) -> NodeSeed {
-        std::mem::take(&mut self.seed)
+        Widget::on_node_state_changed(&mut self.input, old, new);
     }
 }
 
-impl Renderable for CommandInput {
+impl crate::widgets::Scrollable for CommandInput {
+    fn on_mouse_scroll(&mut self, delta_x: i32, delta_y: i32, ctx: &mut crate::event::WidgetCtx) {
+        self.input.on_mouse_scroll(delta_x, delta_y, ctx);
+    }
+}
+
+impl crate::widgets::Render for CommandInput {
+    fn style_type(&self) -> &'static str {
+        "CommandInput"
+    }
+
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        Widget::render(self, console, options)
+        Widget::render(&self.input, console, options)
     }
 }
-
 // ---------------------------------------------------------------------------
 // SystemModalScreen — marker trait for system-level modal screens
 // ---------------------------------------------------------------------------
