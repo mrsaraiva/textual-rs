@@ -209,12 +209,24 @@ impl Label {
     }
 
     fn intrinsic_content_width(&self) -> usize {
-        self.text
-            .lines()
-            .map(rich_rs::cell_len)
-            .max()
-            .unwrap_or(0)
-            .max(1)
+        // Measure the RENDERED width (markup stripped), matching the render path
+        // (`Content::from_markup`). Measuring the raw text counted markup tags
+        // like `[b]` toward the width (e.g. `[b]Example switches` → 19 instead of
+        // 16), over-reporting the intrinsic width and shifting `align: center`
+        // placement by a column or two.
+        let measured = |text: &str| {
+            text.lines()
+                .map(rich_rs::cell_len)
+                .max()
+                .unwrap_or(0)
+                .max(1)
+        };
+        if self.markup {
+            let content = crate::content::Content::from_markup(&self.text);
+            measured(content.plain())
+        } else {
+            measured(&self.text)
+        }
     }
 }
 
@@ -2876,6 +2888,27 @@ I must not fear. Fear is the mind-killer. Fear is the little-death that brings t
         assert_eq!(
             Widget::auto_content_width(&label),
             Some(rich_rs::cell_len(text))
+        );
+    }
+
+    #[test]
+    fn label_intrinsic_width_strips_markup() {
+        // Markup tags must NOT count toward the intrinsic/auto width (they are
+        // stripped at render time). Regression for the `switch` demo's
+        // `[b]Example switches\n` title being measured 3 cols too wide, which
+        // shifted its `align: center middle` placement.
+        let label = Label::new("[b]Example switches\n");
+        assert_eq!(
+            Widget::auto_content_width(&label),
+            Some(rich_rs::cell_len("Example switches")),
+            "markup tags must not inflate the measured width"
+        );
+        // A label with markup DISABLED measures the literal text (tags included).
+        let literal = Label::new("[b]Example switches\n").with_markup(false);
+        assert_eq!(
+            Widget::auto_content_width(&literal),
+            Some(rich_rs::cell_len("[b]Example switches")),
+            "with markup disabled the tags are literal and DO count"
         );
     }
 
