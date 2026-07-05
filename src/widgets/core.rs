@@ -1282,8 +1282,9 @@ fn apply_content_alignment(
     // background-only padding.
     let pad_segment =
         |width: usize| rich_rs::Segment::styled(" ".repeat(width), pad_style);
-    let mut aligned: Vec<Vec<rich_rs::Segment>> = Vec::with_capacity(lines.len());
-    for mut line in lines {
+    // Per-line rendered width (trimmed cell width, or the synthetic-padding
+    // length), clamped to the content box.
+    let line_width_of = |line: &[rich_rs::Segment]| -> usize {
         let has_synthetic_padding = line.iter().any(|segment| {
             segment
                 .meta
@@ -1292,20 +1293,34 @@ fn apply_content_alignment(
                 .and_then(|meta| meta.get("textual:no_text_style"))
                 .is_some_and(|value| matches!(value, MetaValue::Bool(true)))
         });
-        let line_width = if has_synthetic_padding {
-            rich_rs::Segment::get_line_length(&line).min(content_width)
+        if has_synthetic_padding {
+            rich_rs::Segment::get_line_length(line).min(content_width)
         } else {
             let line_text = line
                 .iter()
                 .map(|segment| segment.text.as_ref())
                 .collect::<String>();
             rich_rs::cell_len(line_text.trim_end()).min(content_width)
-        };
-        let left_pad = match horizontal {
-            HorizontalAlign::Left => 0,
-            HorizontalAlign::Center => content_width.saturating_sub(line_width) / 2,
-            HorizontalAlign::Right => content_width.saturating_sub(line_width),
-        };
+        }
+    };
+
+    // `content-align` centers/right-aligns the content BLOCK as a unit (Python
+    // parity: `_segment_tools.align_lines` offsets every line by the same amount
+    // based on the widest line), NOT each line to its own width. Compute one
+    // block offset and apply it uniformly so multi-line content (e.g. a wrapped
+    // paragraph) stays left-aligned within a centered block instead of raggedly
+    // centering each line. For single-line content `block_width == line_width`,
+    // so this is a no-op.
+    let block_width = lines.iter().map(|l| line_width_of(l)).max().unwrap_or(0);
+    let block_left_pad = match horizontal {
+        HorizontalAlign::Left => 0,
+        HorizontalAlign::Center => content_width.saturating_sub(block_width) / 2,
+        HorizontalAlign::Right => content_width.saturating_sub(block_width),
+    };
+
+    let mut aligned: Vec<Vec<rich_rs::Segment>> = Vec::with_capacity(lines.len());
+    for mut line in lines {
+        let left_pad = block_left_pad;
         if left_pad > 0 {
             line.insert(0, pad_segment(left_pad));
         }
@@ -1675,6 +1690,38 @@ mod tests {
     use crate::style::{Display, Layout, Overflow, Visibility};
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[test]
+    fn content_align_center_offsets_the_block_uniformly() {
+        // `content-align: center` offsets the whole block by one amount (based on
+        // the widest line), leaving lines left-aligned within the block — it does
+        // NOT ragged-center each line to its own width. Regression for the
+        // Placeholder lorem-text paragraph.
+        let s = rich_rs::Style::new();
+        let lines = vec![
+            vec![rich_rs::Segment::styled("aaaa".to_string(), s)], // width 4 (widest)
+            vec![rich_rs::Segment::styled("aa".to_string(), s)],   // width 2
+        ];
+        let out = apply_content_alignment(
+            lines,
+            10,
+            2,
+            HorizontalAlign::Center,
+            VerticalAlign::Top,
+            s,
+        );
+        let leading = |line: &Vec<rich_rs::Segment>| -> usize {
+            let text: String = line.iter().map(|seg| seg.text.as_ref()).collect();
+            text.len() - text.trim_start().len()
+        };
+        // block_width = 4 → uniform left pad = (10 - 4) / 2 = 3 for BOTH lines.
+        assert_eq!(leading(&out[0]), 3, "widest line offset by the block pad");
+        assert_eq!(
+            leading(&out[1]),
+            3,
+            "narrow line gets the SAME block offset, not its own per-line center (would be 4)"
+        );
+    }
 
     #[test]
     fn classify_identical_styles_returns_none() {

@@ -104,6 +104,18 @@ hand-implemented on the common path.
   field-wrapped / container-internal children (e.g. `Constrained`, `Panel`,
   `#[widget(base=…, field=…)]` delegation), which are not separate arena nodes.
 
+### Fixed — render-parity: content-align block-centering + markup width
+
+- **`content-align: center`/`right` now offsets the content BLOCK uniformly**
+  (Python `_segment_tools.align_lines` parity), leaving lines left-aligned within
+  a centered block — instead of ragged-centering each line to its own width. Only
+  multi-line content changes (single-line is `block_width == line_width`, a
+  no-op); fixes the `Placeholder` lorem-text paragraph parity.
+- **`Label`/`Static` intrinsic width strips markup** before measuring, so tags
+  like `[b]` no longer inflate the auto/intrinsic width and shift `align: center`
+  placement (the `switch` demo's bold title). `with_markup(false)` still measures
+  literal tags.
+
 ### Fixed — `ButtonPressed.description` is the button label, not a debug repr
 
 - `ButtonPressed.description` (and the `on_button_pressed(description, …)` app
