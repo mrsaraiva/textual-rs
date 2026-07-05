@@ -275,90 +275,12 @@ impl App {
             nocolor: self.app_nocolor,
         });
 
-        // Tree-driven render path: walk the arena tree depth-first,
-        // rendering each widget at its layout_rect position.
-        if self.active_widget_tree().is_some() {
-            return self.render_tree_composed(widget, dirty_regions, layout_invalidation);
-        }
-
-        let mut sheet = self.default_stylesheet.clone();
-        sheet.extend(&self.stylesheet);
-        if let Some(screen_sheet) = self.active_screen_stylesheet() {
-            sheet.extend(screen_sheet);
-        }
-        let _guard = set_style_context(sheet);
-        begin_style_render_pass();
-
-        // Legacy render path: recursive widget.render_styled() from root.
-        let segments = if self.debug_layout.enabled {
-            widget.render_styled_with_debug(&self.console, &self.options, &self.debug_layout)
-        } else {
-            widget.render_styled(&self.console, &self.options)
-        };
-        let layout_affected_style_change = take_layout_affected_style_changes();
-        let (width, height) = self.options.size;
-        let lines = rich_rs::Segment::split_and_crop_lines(segments, width, None, true, false);
-        let base_style = self.theme.base.to_rich();
-        let next = FrameBuffer::from_lines(&lines, width, height, base_style);
-        let now = std::time::Instant::now();
-        let dt_ms = now.duration_since(self.last_render_at).as_millis();
-        self.last_render_at = now;
-        let clear_before_draw = self.clear_on_next_render;
-        let diff_body = diff_body_for_draw(
-            &next,
-            &self.frame,
-            clear_before_draw,
-            dirty_regions,
-            self.theme.base.to_rich(),
-        );
-        let diff = prepend_clear_if_needed(diff_body, clear_before_draw);
-        let stream_stats = analyze_segment_stream(&diff, next.width);
-        debug_render(&format!(
-            "[render_widget] dt={}ms resized={} clear={} size={}x{} prev={}x{} diff.segments={} (control={} text_segments={} text_bytes={})",
-            dt_ms,
-            self.resized_since_last_render,
-            clear_before_draw,
-            next.width,
-            next.height,
-            self.frame.width,
-            self.frame.height,
-            diff.len(),
-            stream_stats.controls,
-            stream_stats.text_segments,
-            stream_stats.text_bytes
-        ));
-        if resize_trace_enabled() && (self.resized_since_last_render || clear_before_draw) {
-            debug_render(&format!(
-                "[render_trace] kind=widget size={}x{} controls={} home={} clear={} cr={} move_to={} cursor_moves={} text_segments={} text_bytes={} newlines={} touch_last_col={} overflow_right={} max_cursor=({}, {}) control_head=[{}]",
-                next.width,
-                next.height,
-                stream_stats.controls,
-                stream_stats.home,
-                stream_stats.clear,
-                stream_stats.carriage_return,
-                stream_stats.move_to,
-                stream_stats.cursor_moves,
-                stream_stats.text_segments,
-                stream_stats.text_bytes,
-                stream_stats.newline_text,
-                stream_stats.touch_last_col,
-                stream_stats.overflow_right,
-                stream_stats.max_cursor_x,
-                stream_stats.max_cursor_y,
-                control_head(&diff, 12)
-            ));
-        }
-        self.print_segments(&diff)?;
-        self.resized_since_last_render = false;
-        self.clear_on_next_render = false;
-        let next_hit_test = HitTestMap::from_frame(&next);
-        let geometry_changed = self.hit_test != next_hit_test;
-        self.hit_test = next_hit_test;
-        if layout_invalidation || geometry_changed || layout_affected_style_change {
-            self.apply_layout_info(widget, &self.hit_test);
-        }
-        self.frame = next;
-        Ok(())
+        // Arena-tree rendering is the ONLY render path: walk the arena tree
+        // depth-first, rendering each widget at its layout_rect position. The
+        // legacy recursive `render_styled()`-from-root fallback was retired
+        // (AI_GUIDANCE: fallback rendering was removed); every caller builds the
+        // widget tree before rendering, so the active tree is always populated.
+        self.render_tree_composed(widget, dirty_regions, layout_invalidation)
     }
 
     /// Tree-driven render path: walk the arena tree depth-first, rendering

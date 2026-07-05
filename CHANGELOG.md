@@ -91,6 +91,19 @@ hand-implemented on the common path.
   replace `Node::new(Vertical::new()).id("x").class("y").with_border_title("t")`
   uniformly, and is the groundwork for the pending `Node` removal.
 
+### Removed — the retired legacy root render path (dead-code trace)
+
+- Deleted the legacy recursive `render_styled()`-from-root fallback branch in
+  `render_widget_with_regions` and the now-orphaned `Widget::render_styled_with_debug`
+  (doc-hidden) trait method. Arena-tree rendering (`render_tree_composed`) has
+  been the sole render path for some time — the fallback branch was gated behind
+  "no active widget tree", which never occurs (every caller builds the tree
+  first), so this is dead-code removal with no behavioral change (debug-layout
+  rendering already flows through the arena path via `render_styled_dyn_obj`).
+  `Widget::render_styled` stays — it is the active path for rendering
+  field-wrapped / container-internal children (e.g. `Constrained`, `Panel`,
+  `#[widget(base=…, field=…)]` delegation), which are not separate arena nodes.
+
 ### Fixed — `ButtonPressed.description` is the button label, not a debug repr
 
 - `ButtonPressed.description` (and the `on_button_pressed(description, …)` app

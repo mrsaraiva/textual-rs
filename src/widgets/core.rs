@@ -935,16 +935,6 @@ pub trait Widget: Send + Sync + Any {
     fn render_styled(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         self.render_styled_dyn_obj(console, options, None, NodeId::default())
     }
-    /// Type-meta-only styled render wrapper with debug layout (see `render_styled`).
-    #[doc(hidden)]
-    fn render_styled_with_debug(
-        &self,
-        console: &Console,
-        options: &ConsoleOptions,
-        debug: &DebugLayout,
-    ) -> Segments {
-        self.render_styled_dyn_obj(console, options, Some(debug), NodeId::default())
-    }
 }
 
 /// Tag all segments that lack a `textual:widget_id` metadata entry with the
