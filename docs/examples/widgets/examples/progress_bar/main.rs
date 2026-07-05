@@ -73,16 +73,13 @@ impl TextualApp for FundingProgressApp {
             .with_compose(vec![history])
     }
 
-    fn on_mount_with_app(&mut self, app: &mut App, ctx: &mut textual::event::WidgetCtx) {
+    fn on_mount_with_app(&mut self, app: &mut App, _ctx: &mut textual::event::WidgetCtx) {
         // Mirror Python: ProgressBar(total=100, show_eta=False)
-        // Use a dummy ReactiveCtx; show_eta field is set directly, ctx just records watchers.
-        if let Ok(node_id) = app.query_one("ProgressBar") {
-            let mut rctx = ReactiveCtx::new(node_id);
-            let _ = app.with_query_one_mut_as::<ProgressBar, _>("ProgressBar", |bar| {
-                bar.set_show_eta(false, &mut rctx);
+        if let Ok(handle) = app.query_one_typed::<ProgressBar>("ProgressBar") {
+            let _ = handle.update(app, |bar, rctx| {
+                bar.set_show_eta(false, rctx);
             });
         }
-        ctx.request_repaint();
     }
 
     fn on_message_with_app(

@@ -45,17 +45,15 @@ impl TextualApp for CheckboxApp {
 
     fn on_mount_with_app(&mut self, app: &mut App, ctx: &mut textual::event::WidgetCtx) {
         // Set "Grumman" initially checked.
-        if let Ok(nid) = app.query_one("#grumman") {
-            let mut rctx = ReactiveCtx::new(nid);
-            let _ = app.with_query_one_mut_as::<Checkbox, _>("#grumman", |cb| {
-                cb.set_checked(true, &mut rctx);
+        if let Ok(handle) = app.query_one_typed::<Checkbox>("#grumman") {
+            let _ = handle.update(app, |cb, rctx| {
+                cb.set_checked(true, rctx);
             });
         }
         // Set "Novebruns" initially checked.
-        if let Ok(nid) = app.query_one("#novebruns") {
-            let mut rctx = ReactiveCtx::new(nid);
-            let _ = app.with_query_one_mut_as::<Checkbox, _>("#novebruns", |cb| {
-                cb.set_checked(true, &mut rctx);
+        if let Ok(handle) = app.query_one_typed::<Checkbox>("#novebruns") {
+            let _ = handle.update(app, |cb, rctx| {
+                cb.set_checked(true, rctx);
             });
         }
         // Focus "Kaitain" on mount.

@@ -71,12 +71,12 @@ impl TextualApp for SelectApp {
                 .iter()
                 .map(|line| (line.to_string(), line.to_string()))
                 .collect();
-            let _ = app.with_query_one_mut_as::<Select<String>, _>("Select", |select| {
-                let mut rctx = ReactiveCtx::new(select.node_id());
-                select.set_options(new_options, &mut rctx);
-            });
+            if let Ok(handle) = app.query_one_typed::<Select<String>>("Select") {
+                let _ = handle.update(app, |select, rctx| {
+                    select.set_options(new_options, rctx);
+                });
+            }
             ctx.set_handled();
-            ctx.request_repaint();
         }
     }
 
