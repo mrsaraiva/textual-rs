@@ -1865,6 +1865,20 @@ fn table_cell_content_width(markup: &str) -> usize {
     rich_rs::cell_len(&InlineTextDoc::parse(markup).plain).max(1)
 }
 
+/// Minimal (wrap) width of a table cell: the widest single word (the
+/// `padding: 0 1` cell gutter is added by the caller). Mirrors Python's
+/// `visualize(...).get_minimal_width` plus `styles.gutter.width` used for the
+/// grid `auto_minimum` column minimums (textual/src/textual/layouts/grid.py:256-271).
+fn table_cell_minimal_width(markup: &str) -> usize {
+    InlineTextDoc::parse(markup)
+        .plain
+        .split_whitespace()
+        .map(rich_rs::cell_len)
+        .max()
+        .unwrap_or(1)
+        .max(1)
+}
+
 fn compute_markdown_table_column_fractions(
     header_markups: &[String],
     row_markups: &[Vec<String>],
@@ -1873,32 +1887,38 @@ fn compute_markdown_table_column_fractions(
     let columns = column_count.max(1);
     (0..columns)
         .map(|column| {
-            let header_width = header_markups
+            let mut max_content = header_markups
                 .get(column)
                 .map(|cell| table_cell_content_width(cell))
                 .unwrap_or(1);
-            let mut max_content = header_width;
             for row in row_markups {
                 if let Some(cell) = row.get(column) {
                     max_content = max_content.max(table_cell_content_width(cell));
                 }
             }
-            let growth = max_content.saturating_sub(header_width);
-            // Python's grid-auto behavior keeps narrow semantic columns readable
-            // while allowing content-heavy columns to grow. Approximate this by
-            // smoothing row-driven growth so a single long token doesn't dominate.
-            let smoothed = header_width as f32 + (growth as f32).sqrt();
-            let weight = (smoothed.ceil() as usize)
-                .max(header_width)
-                .saturating_add(2)
-                .max(1);
-            // Include left/right padding from default CSS (`padding: 0 1`).
-            crate::style::Scalar::Fraction(weight as f32)
+            // Python resolves each `grid-columns: auto` track to the column's
+            // max content width + the cell's `padding: 0 1` gutter
+            // (textual/src/textual/layouts/grid.py:234-254), then
+            // `GridLayout.expand` scales those widths PROPORTIONALLY to fill
+            // the table (textual/src/textual/_resolve.py:74-81). Proportional
+            // scaling of fixed weights is exactly `fr` track resolution, so
+            // handing the auto widths as fraction weights reproduces Python's
+            // expand path bit-for-bit (both use exact rationals + cumulative
+            // floor over gutter-interleaved offsets).
+            crate::style::Scalar::Fraction(max_content.saturating_add(2) as f32)
         })
         .collect()
 }
 
-#[allow(clippy::needless_range_loop)] // `col` used as index key stored in best_col
+/// Estimate final integer column widths for a Markdown table.
+///
+/// Port of Python's grid track resolution for this widget's configuration
+/// (`grid-columns: auto` + `expand`/`shrink`/`auto_minimum`, gutter 1):
+/// `textual/src/textual/_resolve.py::resolve` (lines 18-120) as invoked from
+/// `textual/src/textual/layouts/grid.py:273-283`.
+///
+/// Only feeds row-height estimation; the real column layout is the fraction
+/// weights above resolved by `crate::layout::grid`.
 fn compute_markdown_table_column_widths(
     header_markups: &[String],
     row_markups: &[Vec<String>],
@@ -1906,88 +1926,77 @@ fn compute_markdown_table_column_widths(
     column_count: usize,
 ) -> Vec<usize> {
     let columns = column_count.max(1);
-    let horizontal_gutter = columns.saturating_sub(1); // `grid-gutter: 1 1`
-    let budget = table_width.saturating_sub(horizontal_gutter).max(columns);
+    let gutter = 1usize; // `grid-gutter: 1 1`
+    let total_gutter = gutter * columns.saturating_sub(1);
 
-    let mut desired = vec![3usize; columns];
-    let mut minimum = vec![3usize; columns];
-
+    // Auto track widths and `auto_minimum` minimums (content + `padding: 0 1`).
+    let mut widths: Vec<f64> = Vec::with_capacity(columns);
+    let mut minimums: Vec<f64> = Vec::with_capacity(columns);
     for column in 0..columns {
-        let header_content = header_markups
+        let mut max_content = header_markups
             .get(column)
             .map(|cell| table_cell_content_width(cell))
             .unwrap_or(1);
-        let mut max_content = header_content;
-
+        let mut minimal = header_markups
+            .get(column)
+            .map(|cell| table_cell_minimal_width(cell))
+            .unwrap_or(1);
         for row in row_markups {
             if let Some(cell) = row.get(column) {
                 max_content = max_content.max(table_cell_content_width(cell));
+                minimal = minimal.max(table_cell_minimal_width(cell));
             }
         }
-
-        // Cell padding is `0 1` in default CSS.
-        desired[column] = max_content.saturating_add(2).max(3);
-        // Keep headers readable under compaction; row values may wrap/crop.
-        minimum[column] = header_content.saturating_add(2).max(3);
-        if desired[column] < minimum[column] {
-            desired[column] = minimum[column];
-        }
+        widths.push(max_content.saturating_add(2) as f64);
+        minimums.push(minimal.saturating_add(2) as f64);
     }
 
-    let mut widths = desired;
-    let mut total = widths.iter().sum::<usize>();
+    let total_space = table_width.saturating_sub(total_gutter) as f64;
+    let mut used_space: f64 = widths.iter().sum();
 
-    if total < budget {
-        let grow_col = columns.saturating_sub(1);
-        widths[grow_col] = widths[grow_col].saturating_add(budget - total);
-        return widths;
-    }
-
-    while total > budget {
-        let mut best_col = None;
-        let mut best_slack = 0usize;
-        for col in (0..columns).rev() {
-            let slack = widths[col].saturating_sub(minimum[col]);
-            if slack > best_slack {
-                best_slack = slack;
-                best_col = Some(col);
-            }
+    // Python `_resolve.py:74-81` (expand): grow proportionally to fill.
+    if used_space > 0.0 && total_space > used_space {
+        let remaining = total_space - used_space;
+        for width in widths.iter_mut() {
+            *width += (*width / used_space) * remaining;
         }
-        if let Some(col) = best_col {
-            widths[col] = widths[col].saturating_sub(1);
-            total = total.saturating_sub(1);
-        } else {
-            break;
-        }
-    }
-
-    if total > budget {
-        // If the hard minimum sum still exceeds the budget, shrink the widest
-        // columns first (typically the description column) instead of shrinking
-        // round-robin. This preserves narrow semantic columns (`Type`, `Default`)
-        // and better matches Python's table readability under tight widths.
-        const HARD_FLOOR: usize = 3;
-        while total > budget {
-            let mut best_col = None;
-            let mut best_width = 0usize;
-            for col in 0..columns {
-                if widths[col] > HARD_FLOOR
-                    && (widths[col] > best_width
-                        || (widths[col] == best_width && best_col.is_some_and(|idx| col > idx)))
-                {
-                    best_width = widths[col];
-                    best_col = Some(col);
-                }
-            }
-            let Some(col) = best_col else {
+    } else if used_space > total_space {
+        // Python `_resolve.py:82-100` (shrink): first pull columns toward their
+        // minimums in order, then shrink proportionally if still over budget.
+        let mut excess = used_space - total_space;
+        for index in 0..columns {
+            let width = widths[index];
+            let remove = (width / used_space).max(1.0) * excess;
+            let updated = minimums[index].max(width - remove);
+            widths[index] = updated;
+            used_space = used_space - width + updated;
+            excess = used_space - total_space;
+            if excess <= 0.0 {
                 break;
-            };
-            widths[col] -= 1;
-            total -= 1;
+            }
+        }
+        used_space = widths.iter().sum();
+        excess = used_space - total_space;
+        if excess > 0.0 && used_space > 0.0 {
+            for width in widths.iter_mut() {
+                *width -= (*width / used_space) * excess;
+            }
         }
     }
 
-    widths
+    // Python `_resolve.py:102-115`: integerize via cumulative floor over
+    // gutter-interleaved offsets.
+    let mut result = Vec::with_capacity(columns);
+    let mut acc = 0.0f64;
+    let mut prev_offset = 0i64;
+    for width in &widths {
+        acc += width;
+        let offset = acc.floor() as i64;
+        result.push((offset - prev_offset).max(0) as usize);
+        acc += gutter as f64;
+        prev_offset = acc.floor() as i64;
+    }
+    result
 }
 
 fn estimate_markdown_table_row_heights(
@@ -2475,7 +2484,7 @@ impl Markdown {
             let margin_top = margin.top as usize;
             let margin_bottom = margin.bottom as usize;
             let padding = child_style.effective_padding();
-            let (_border_top, _border_bottom, border_left, border_right) =
+            let (border_top, border_bottom, border_left, border_right) =
                 border_spacing_from_style(&child_style);
             let horizontal_inset = margin.left as usize
                 + margin.right as usize
@@ -2488,7 +2497,23 @@ impl Markdown {
                 .max(1)
                 .min(u16::MAX as usize) as u16;
             child.on_layout(child_content_width, 1);
-            let child_height = child.layout_height().unwrap_or(1).max(1);
+            // Mirror `extract_child_spec` box heights: an explicit cells height
+            // is border-box; auto/unset heights are PURE content from
+            // `layout_height()` plus the child's own vertical padding+border
+            // (the layout side owns chrome). Without the chrome this measure
+            // under-reports scroll height for padded blocks (e.g. MarkdownFence
+            // `padding: 1 2`).
+            let child_height = match child_style.height.as_ref() {
+                Some(crate::style::Scalar::Cells(cells)) => usize::from(*cells).max(1),
+                _ => child
+                    .layout_height()
+                    .unwrap_or(1)
+                    .max(1)
+                    .saturating_add(padding.top as usize)
+                    .saturating_add(padding.bottom as usize)
+                    .saturating_add(border_top)
+                    .saturating_add(border_bottom),
+            };
 
             if idx == 0 {
                 total = total.saturating_add(margin_top);

@@ -104,6 +104,25 @@ hand-implemented on the common path.
   field-wrapped / container-internal children (e.g. `Constrained`, `Panel`,
   `#[widget(base=…, field=…)]` delegation), which are not separate arena nodes.
 
+### Fixed — render-parity: markdown tables + code-fence height (scrollbar thumb)
+
+- **Markdown table column widths** now match Python. The column-fraction weight
+  was an ad-hoc `header_width + sqrt(row_growth) + 2` heuristic that crushed
+  content-heavy columns and inflated short ones; replaced with `max_content + 2`
+  (proportional `fr` resolution over these weights is identical to Python's grid
+  `expand` path). The row-height width estimator is now a faithful port of
+  Textual's `_resolve.resolve` including shrink-toward per-column minimums. (The
+  table is NOT rendered via rich's `Table` — Python uses Textual's GridLayout;
+  the fix is entirely textual-side.)
+- **Code-fence blocks now carry `padding: 1 2`** (the `MarkdownFence > Label`
+  default rule never matched because Rust's fence is a leaf, not a Label-wrapping
+  container). This restored 2 document rows, which in turn fixed a **missing
+  scrollbar-thumb glyph**: the short virtual height made `thumb_size` land
+  exactly on a cell boundary, degenerating the partial-cell tail glyph to blank.
+  `Markdown`'s intrinsic-height measurement now also accounts for child vertical
+  padding/border (mirroring `extract_child_spec`), so the scroll virtual height
+  matches the rendered layout.
+
 ### Fixed — render-parity: content-align block-centering + markup width
 
 - **`content-align: center`/`right` now offsets the content BLOCK uniformly**

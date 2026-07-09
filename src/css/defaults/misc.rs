@@ -223,8 +223,12 @@ MarkdownBullet:light {
     fg: $text-secondary;
 }
 
+/* Python puts this `padding: 1 2` on the fence's composed Label child
+   (`MarkdownFence > Label`, textual/_markdown.py:878-880). The Rust fence is a
+   leaf widget (no Label child), so carry the same box metrics on the fence
+   itself; move it back to the child rule if the fence ever composes a Label. */
 MarkdownFence {
-    padding: 0;
+    padding: 1 2;
     margin: 1 0;
     overflow: scroll hidden;
     scrollbar-size-horizontal: 0;
@@ -237,10 +241,6 @@ MarkdownFence {
 
 MarkdownFence:light {
     background: white 30%;
-}
-
-MarkdownFence > Label {
-    padding: 1 2;
 }
 
 MarkdownTableContent {
