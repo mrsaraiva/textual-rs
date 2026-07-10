@@ -104,6 +104,18 @@ hand-implemented on the common path.
   field-wrapped / container-internal children (e.g. `Constrained`, `Panel`,
   `#[widget(base=…, field=…)]` delegation), which are not separate arena nodes.
 
+### Fixed — Select dropdown 2 rows too tall (height-chrome keystone double-count)
+
+- `SelectOverlay::layout_height` manually added `+ 2` for its `border: tall`
+  chrome — correct BEFORE the height-chrome keystone, but the keystone made the
+  flow layout add that chrome (`full_v_chrome`) itself, so the border was counted
+  twice and the open dropdown rendered 2 rows too tall with a malformed top
+  border. Now delegates the pure content height to the inner `OptionList` and
+  lets the layout add the chrome (same fix class as the `Constrained` keystone
+  follow-up). Regressed `select_open_overlay` / `select_from_values_open`
+  (interactive-only, so the static harnesses didn't catch it — the real-app
+  `pty_interactive` suite did).
+
 ### Fixed — layout-parity: scroll-container CSS identity + unset-width box model
 
 - **`ScrollableContainer` reports its own CSS type** instead of delegating

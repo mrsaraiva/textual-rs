@@ -63,15 +63,15 @@ impl SelectOverlay {
         &["OptionList"]
     }
 
-    /// Auto-height must include the `border: tall` chrome (2 rows). The inner
-    /// [`OptionList::layout_height`] reports CONTENT lines only, and the layout
-    /// engine's auto-HEIGHT edge does not add CSS chrome (unlike the width edge),
-    /// so a `height: auto` overlay would otherwise clip its top+bottom border
-    /// into the option rows. The overlay always carries `border: tall`
-    /// (`OptionList { border: tall }` / `Select > SelectOverlay { border: tall }`)
-    /// with `padding: 0 1` (no vertical padding), so the vertical chrome is 2.
+    /// PURE content height (the inner [`OptionList`] reports content lines only).
+    /// The `border: tall` chrome (2 rows) is added by the flow layout's height
+    /// arm (`full_v_chrome`, the height-chrome keystone) with full ancestor CSS
+    /// context — NOT manually here. A manual `+ 2` was needed BEFORE the keystone
+    /// (when the auto-HEIGHT edge added no chrome); post-keystone it double-counts
+    /// and pushes the overlay 2 rows too tall (regressed `select_open_overlay` /
+    /// `select_from_values_open` until removed).
     fn layout_height(&self) -> Option<usize> {
-        self.inner.layout_height().map(|h| h + 2)
+        self.inner.layout_height()
     }
 
     /// A simple case-insensitive substring search that favours options whose
