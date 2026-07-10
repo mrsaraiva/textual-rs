@@ -319,6 +319,10 @@ const PASSING: &[&str] = &[
     //    `position: relative; offset: x y` child is centered THEN shifted (the
     //    offset is no longer cancelled by re-centering).
     "position",
+    // Promoted: content-align now centers a wrapped multi-line block as a UNIT
+    // (left-aligned within a centered block), matching Python `align_lines` —
+    // was the last `offset` residual (apply_content_alignment block-centering).
+    "offset",
     // Promoted after the scrollbar-visibility paint/reservation split
     // (c17-scrollvis2): `scrollbar-visibility` no longer gates lane RESERVATION
     // or forces the bar to show. Python's `_refresh_scrollbars` keys `show_*`

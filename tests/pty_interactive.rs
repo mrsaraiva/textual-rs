@@ -1284,15 +1284,6 @@ fn parity_select_open_overlay() {
 
 /// select_widget_no_blank: 's' swaps the option set; first value differs.
 #[test]
-#[ignore = "BUG (out of scope): the previously-documented arrow-fg COLOUR cell is FIXED \
-            (colour_diffs=0), but the `s` swap itself does not render in the LIVE loop: the demo \
-            mutates the Select via `with_query_one_mut_as` + a hand-made local `ReactiveCtx`, whose \
-            recorded recompose request is dropped (ctx-less mutation path), so the bar keeps the old \
-            first option (27 glyph diffs on the bar row: 'I must not fear.' vs 'Twinkle, twinkle, \
-            little star,'). Pre-existing on 767e891 (verified via a base-worktree PTY probe); the \
-            example's own headless `liveness_swap_changes_options` test fails the same way. Fix \
-            belongs in the demo (route the swap through a ctx path) and/or a fundamentals task for \
-            reactive flushes from `with_query_one_mut_as`."]
 fn parity_select_no_blank_swap() {
     let script = [Step::Key(Key::Char('s')), Step::Wait(300)];
     let (rf, pf) = widgets_both("select_widget_no_blank", &script, 400);
