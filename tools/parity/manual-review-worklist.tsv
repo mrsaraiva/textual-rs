@@ -1,0 +1,51 @@
+# Manual parity-review worklist — demos the static plain-text scoreboard can't
+# fairly judge (animation / interactivity / timing / cwd / missing-dep).
+# Walk it:  tools/parity/manual-verify.sh --from tools/parity/manual-review-worklist.tsv
+# Each line: <group> <name>   # class — what to look for
+# (The 3 CONFIRMED render gaps — switch, guide/layout/layers,
+#  guide/layout/horizontal_layout_overflow — are being FIXED, not reviewed here.)
+
+# ── ANIMATION / TIMING (frame differs; judge whether the BEHAVIOR matches) ──
+widgets            progress_bar_isolated    # pulsing indeterminate bar — does the pulse animate/sweep like Python?
+widgets            progress_bar_isolated_   # same
+widgets            progress_bar_styled      # same, styled
+widgets            progress_bar_styled_     # same
+tutorial           stopwatch                # running timers — do they tick/format the same?
+tutorial           stopwatch05              # same
+tutorial           stopwatch06              # same
+guide/reactivity   world_clock01            # live clocks — same times/format/update?
+guide/reactivity   world_clock02            # same
+guide/reactivity   world_clock03            # same
+guide/widgets      loading01                # loading spinner animation — equivalent?
+
+# ── INTERACTIVE (scoreboard only sees the initial frame; drive it to compare) ──
+guide/actions      actions05                # press the bound keys — same actions/feedback?
+guide/actions      actions06                # same
+guide/actions      actions07                # same
+guide/compound     byte03                   # the byte/bit input compound widget — toggle bits, compare
+guide/content      playground               # content playground — interact, compare rendering
+guide/content      renderables              # custom renderables — compare output
+guide/input        mouse01                  # move/click the mouse — same coord/hover behavior?
+guide/reactivity   computed01               # change inputs — computed value updates the same?
+guide/reactivity   recompose01              # trigger recompose — same result?
+guide/reactivity   recompose02              # same
+guide/reactivity   set_reactive01           # same
+guide/testing      rgb                      # the RGB button demo — press, compare
+guide/testing      test_rgb                 # same
+guide/widgets      checker02                # checkerboard widget — interact, compare
+guide/widgets      checker04                # same
+guide/widgets      counter02                # counter — increment, compare
+app                widgets01                # app-guide widgets — compare (may need interaction)
+events             dictionary               # type a word — same lookup/results?
+themes             todo_app                 # add/toggle todos — compare
+getting_started    console                  # compare (may need interaction)
+
+# ── INLINE RENDER MODE (app.run(inline=True) — documented 1.1-deferred) ──
+widgets            clock                    # inline mode — expected to differ until 1.1; eyeball the gap
+how-to             inline01                 # same
+how-to             inline02                 # same
+
+# ── HARNESS ARTIFACTS (believed false-FAILs — confirm Rust renders correctly) ──
+widgets            directory_tree           # cwd mismatch (Py & Rust list different real dirs) — is the TREE rendering itself equivalent?
+widgets            directory_tree_filtered  # same
+widgets            text_area_custom_language # Python side needs tree_sitter_languages; confirm Rust highlights correctly
