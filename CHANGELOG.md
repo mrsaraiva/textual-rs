@@ -104,6 +104,26 @@ hand-implemented on the common path.
   field-wrapped / container-internal children (e.g. `Constrained`, `Panel`,
   `#[widget(base=…, field=…)]` delegation), which are not separate arena nodes.
 
+### Fixed — colour-parity: translucent fg composes over the real surface; theme-shade hardcodes retired
+
+- `Digits` pre-flattened a translucent foreground (e.g. `color:
+  $foreground-muted`) over `$background` via `Style::to_rich()` instead of
+  letting the segment-composition pass flatten it over the widget's REAL
+  composited ancestor surface. A `Digits` inside a `background: $boost`
+  container rendered `#8d8d8d` where Python renders `#919191` — the whole
+  stopwatch03 201-cell colour gap (previously misdiagnosed as a Button-border
+  shade issue). `Digits` now stamps attributes only
+  (`to_rich_without_colors`); colours are owned by `apply_style_to_segments`.
+  `parity_stopwatch03_layout` is un-ignored (glyph_diffs=0 colour_diffs=0);
+  new regression `tests/translucent_fg_surface_composition.rs`.
+- The hardcoded textual-dark shade block in the theme token map
+  (`surface-lighten-1`, `primary-darken-2`, the `-muted` family, 19 tokens) is
+  DELETED: the generic LAB lighten/darken (verified bit-identical to Python's
+  `rgb_to_lab`/`lab_to_rgb` over a 196k-case sweep + exhaustive grays) and the
+  `-muted` blend derivation reproduce every one of them exactly.
+  `dark_design_tokens_match_python_generate` extended (+28 tokens incl. panel
+  shades and the muted family) to lock the derived values.
+
 ### Fixed — Select dropdown 2 rows too tall (height-chrome keystone double-count)
 
 - `SelectOverlay::layout_height` manually added `+ 2` for its `border: tall`

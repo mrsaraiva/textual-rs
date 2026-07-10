@@ -369,7 +369,13 @@ impl crate::widgets::Render for Digits {
         let meta = crate::css::selector_meta_generic(self);
         let resolved = crate::css::resolve_style(self, &meta);
         let bold = resolved.bold == Some(true);
-        let rich_style = resolved.to_rich().unwrap_or_default();
+        // Attributes only — NO fg/bg. Colors are owned by the generic segment
+        // composition pass (`apply_style_to_segments`), which flattens a
+        // translucent fg (e.g. `$foreground-muted`) over the widget's REAL
+        // composed ancestor surface. Pre-flattening here via `to_rich()` used
+        // `$background` as the base, so a Digits inside a `$boost` container
+        // rendered #8d8d8d instead of Python's #919191 (stopwatch03 cluster).
+        let rich_style = resolved.to_rich_without_colors().unwrap_or_default();
         // Alignment precedence: honor a `justify` forwarded by the parent render
         // context (engine fundamental #19 — `render_widget_with_meta` maps a
         // node's resolved `text-align` to `options.justify`). When a typed

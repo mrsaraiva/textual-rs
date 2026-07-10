@@ -575,26 +575,11 @@ fn resolve_textual_dark_token(name: &str) -> Option<Color> {
         m.insert("button-foreground", foreground);
         m.insert("button-color-foreground", contrast.with_alpha(0.87));
 
-        // Exact textual-dark shades used by Button and related widgets.
-        m.insert("surface-lighten-1", Color::parse("#2D2D2D").unwrap());
-        m.insert("surface-darken-1", Color::parse("#0D0D0D").unwrap());
-        m.insert("primary-lighten-3", Color::parse("#6DB2FF").unwrap());
-        m.insert("primary-darken-3", Color::parse("#004295").unwrap());
-        m.insert("primary-darken-2", Color::parse("#0053AA").unwrap());
-        m.insert("primary-muted", Color::parse("#0C304C").unwrap());
-        m.insert("success-lighten-2", Color::parse("#7AE998").unwrap());
-        m.insert("success-darken-3", Color::parse("#008139").unwrap());
-        m.insert("success-darken-2", Color::parse("#18954B").unwrap());
-        m.insert("success-muted", Color::parse("#24452E").unwrap());
-        m.insert("warning-lighten-2", Color::parse("#FFCF56").unwrap());
-        m.insert("warning-darken-3", Color::parse("#B86B00").unwrap());
-        m.insert("warning-darken-2", Color::parse("#CF7E00").unwrap());
-        m.insert("warning-muted", Color::parse("#593E19").unwrap());
-        m.insert("error-lighten-2", Color::parse("#E76580").unwrap());
-        m.insert("error-darken-3", Color::parse("#780028").unwrap());
-        m.insert("error-darken-2", Color::parse("#8D0638").unwrap());
-        m.insert("error-darken-1", Color::parse("#A32549").unwrap());
-        m.insert("error-muted", Color::parse("#441E27").unwrap());
+        // NOTE: no hardcoded lighten/darken/muted shades here. The generic
+        // derivation below (LAB lighten/darken with step 0.075, muted =
+        // blend-towards-background 0.7) is byte-exact to Python's
+        // `ColorSystem.generate()`; `dark_design_tokens_match_python_generate`
+        // locks the derived values against the Python reference.
 
         // Footer and link color tokens used by builtin styles.
         m.insert("footer-foreground", foreground);
@@ -3451,6 +3436,38 @@ mod tests {
             ("success-lighten-1", "#64D484"),
             ("surface-lighten-1", "#2D2D2D"),
             ("surface-darken-1", "#0D0D0D"),
+            // Previously hardcoded in the token map; now derived by the generic
+            // LAB shade path (proven bit-exact to Python's darken/lighten).
+            ("success-lighten-2", "#7AE998"),
+            ("success-lighten-3", "#8FFFAC"),
+            ("success-darken-2", "#18954B"),
+            ("success-darken-3", "#008139"),
+            ("warning-lighten-1", "#FFBA41"),
+            ("warning-lighten-2", "#FFCF56"),
+            ("warning-lighten-3", "#FFE46B"),
+            ("warning-darken-2", "#CF7E00"),
+            ("warning-darken-3", "#B86B00"),
+            ("surface-lighten-2", "#3E3E3E"),
+            ("surface-lighten-3", "#4F4F4F"),
+            ("surface-darken-2", "#000000"),
+            ("surface-darken-3", "#000000"),
+            ("secondary-darken-2", "#002452"),
+            ("secondary-darken-3", "#001541"),
+            ("secondary-lighten-2", "#3B689F"),
+            ("secondary-lighten-3", "#507BB3"),
+            // Muted family: `base.blend(background, 0.7)` (design.py), derived
+            // by the generic `-muted` path.
+            ("primary-muted", "#0C304C"),
+            ("secondary-muted", "#0C2130"),
+            ("accent-muted", "#593E19"),
+            ("warning-muted", "#593E19"),
+            ("error-muted", "#441E27"),
+            ("success-muted", "#24452E"),
+            // Computed bases (panel = surface+primary 10% with dark boost) and
+            // panel shades derived from that computed base.
+            ("panel", "#242F38"),
+            ("panel-lighten-1", "#343F49"),
+            ("panel-darken-1", "#141F27"),
         ];
         for (name, expected) in cases {
             assert_eq!(tok(name), *expected, "design token ${name}");

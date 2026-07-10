@@ -44,9 +44,14 @@ Each class is tagged **[1.0-candidate]** (a real gap Fable's breadth makes reali
 1.0 — leverage-ordered), **[1.x]** (deferred), or **[divergence]** (an intentional/permanent difference
 we will not "fix"). Counts are measured glyph/colour cell diffs; the point is the *class*.
 
-- **[1.0-candidate] `Color.a` u8-vs-float alpha blend rounding** *(keystone; HIGHEST leverage)* —
-  blended colours round ~1–4/channel off because `Color.a` is a `u8`, not Python's float alpha.
-  Collapses a whole class. Tests: `stopwatch04` (182c), `stopwatch03` (201c).
+- **[1.0-candidate] `#stop` button surface not tinted after `#start` hides (`stopwatch04`, 182c)** —
+  Python moves focus to `#stop` when `#start` goes `display:none`, so `#stop` gets
+  `Button:focus background-tint: $foreground 5%` (surface `#ba4461`); Rust renders it untinted
+  (`#b93c5b`) — focus doesn't transfer on hide (or the `:focus` tint isn't applied post-reveal). NOT a
+  colour-math gap. *(The old "Color.a u8-vs-float / LAB rounding" framing here was wrong: `Color.a` is
+  already `f32`, and rgb_to_lab/lab_to_rgb are bit-exact to Python (196k-case sweep). `stopwatch03` is
+  FIXED — it was `Digits` pre-flattening its fg over `$background` instead of the composited surface;
+  the 19 hardcoded-shade workarounds were removed as the LAB math was always correct.)*
 - **[1.0-candidate] Markdown block / vertical spacing (framework `Welcome` widget)** — Rust inserts
   extra blank lines between Markdown blocks, shifting the Welcome body down. Tests: `widgets01`,
   `widgets03`, `widgets04`.

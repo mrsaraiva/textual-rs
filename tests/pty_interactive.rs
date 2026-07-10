@@ -1647,8 +1647,14 @@ fn parity_stopwatch02_layout() {
 }
 
 /// stopwatch03: same as 02 with the tutorial CSS applied. Layout parity.
+///
+/// The former 201-cell colour gap (#8d8d8d vs #919191) was NOT the button
+/// border (misdiagnosis) — it was the TimeDisplay clock digits: `Digits`
+/// pre-flattened its translucent `$foreground-muted` fg over `$background`
+/// via `Style::to_rich()` instead of over the Stopwatch's `$boost`-composited
+/// surface (#1b1b1b). Fixed by letting the generic segment-composition pass
+/// own colors (see `tests/translucent_fg_surface_composition.rs`).
 #[test]
-#[ignore = "BUG: glyph-perfect but the Button border fg is #8d8d8d (Rust) vs #919191 (Python) — a ~4/channel grey-shade difference on every button border. 201 colour cells. Root: button border colour token/shade rounding."]
 fn parity_stopwatch03_layout() {
     let script = [Step::Wait(300)];
     let (rf, pf) = cat_both("stopwatch03", "tutorial", &script, 400);
@@ -1658,7 +1664,7 @@ fn parity_stopwatch03_layout() {
 /// stopwatch04: clicking the first Start button adds the `started` class
 /// (purely a styling change — no clock yet). Click Start, compare.
 #[test]
-#[ignore = "BUG: clicking Start adds `.started` and the display/visibility descendant CSS re-resolves + relays out — both apps now show only \"Stop\" (glyph_diffs=0). Residual is colour-only (182 cells): the revealed error `#stop` button surface rounds #b93c5b (rust) vs #ba4461 (py) — the `Color.a` u8-vs-float alpha blend keystone (see KNOWN_GAPS)."]
+#[ignore = "BUG: clicking Start adds `.started` — both apps show only \"Stop\" (glyph_diffs=0). Residual is colour-only: Python's revealed `#stop` surface is #ba4461 = $error (#B93C5B) with the `Button:focus` `background-tint: $foreground 5%` applied (all 3 channels match int(bg+(fg-bg)*0.05) exactly), i.e. Python moves focus to #stop when #start goes display:none. Rust renders untinted #b93c5b — either focus does not transfer to the revealed #stop, or :focus background-tint is not applied after the reveal. NOT the alpha keystone (that shipped), NOT LAB shade math (bit-exact, see lab_shade_parity_with_python). Follow-up: focus-transfer-on-hide + :focus tint. Digits fg cells were fixed with stopwatch03."]
 fn parity_stopwatch04_start_class() {
     let script = [Step::Click(8, 4), Step::Wait(300)];
     let (rf, pf) = cat_both("stopwatch04", "tutorial", &script, 400);
