@@ -614,6 +614,22 @@ impl Content {
         Content::new_uncached(self.text.clone(), spans)
     }
 
+    /// Apply a style over a range `[start, end)` (byte offsets) **under** any
+    /// existing spans: the new span is inserted first, so spans already present
+    /// (e.g. markup spans) layer on top of it at render time.
+    ///
+    /// Mirrors Python `Content.stylize_before(style, start, end)`.
+    pub fn stylize_before(&self, style: Style, start: usize, end: usize) -> Content {
+        let end = end.min(self.text.len());
+        if start >= end {
+            return self.clone();
+        }
+        let mut spans = Vec::with_capacity(self.spans.len() + 1);
+        spans.push(Span::new(start, end, style));
+        spans.extend(self.spans.iter().cloned());
+        Content::new_uncached(self.text.clone(), spans)
+    }
+
     // -----------------------------------------------------------------------
     // Phase B — span trimming helper
     // -----------------------------------------------------------------------
@@ -2071,6 +2087,32 @@ mod tests {
         // offset 3..8 is "there" — bold span
         let s2 = c.get_style_at_offset(3);
         assert_eq!(s2.bold, Some(true));
+    }
+
+    // --- stylize_before ---
+
+    /// `stylize_before` inserts its span UNDER existing (markup) spans: the
+    /// markup colour must win over the base style at render/offset resolution.
+    /// Regression for toggle-button labels (`Checkbox("[magenta]Ginaz[/]")`):
+    /// the `toggle--label` component style is layered under the label markup.
+    #[test]
+    fn test_stylize_before_markup_spans_win() {
+        let c = Content::from_markup("[#ff00ff]hi[/]").pad(1, 1);
+        let end = c.len();
+        let base = Style::new()
+            .fg(crate::style::Color::rgb(10, 20, 30))
+            .bg(crate::style::Color::rgb(1, 2, 3));
+        let styled = c.stylize_before(base, 0, end);
+        // The base span covers the whole padded range and sits FIRST.
+        assert_eq!(styled.spans()[0].start, 0);
+        assert_eq!(styled.spans()[0].end, end);
+        // Padding cell (offset 0): base style only.
+        let pad = styled.get_style_at_offset(0);
+        assert_eq!(pad.fg, Some(crate::style::Color::rgb(10, 20, 30)));
+        // Label glyph (offset 1): markup fg overrides the base fg; base bg holds.
+        let glyph = styled.get_style_at_offset(1);
+        assert_eq!(glyph.fg, Some(crate::style::Color::rgb(255, 0, 255)));
+        assert_eq!(glyph.bg, Some(crate::style::Color::rgb(1, 2, 3)));
     }
 
     // --- append / stylize ---

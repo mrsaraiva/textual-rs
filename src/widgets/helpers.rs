@@ -34,6 +34,29 @@ pub(crate) fn clamp_with_constraints(
     out.min(limit.max(1))
 }
 
+/// Build the padded, styled label [`Content`](crate::content::Content) for a
+/// toggle button (`Checkbox` / `RadioButton`).
+///
+/// Mirrors Python `ToggleButton.render`:
+/// `self._label.pad(1, 1).stylize_before(label_style)` — the label text is
+/// parsed as Textual markup (so `[magenta]Ginaz[/]` colourises) and the
+/// resulting spans layer OVER the `toggle--label` component style.
+pub(crate) fn toggle_label_content(label: &str, label_style: Style) -> crate::content::Content {
+    let padded = crate::content::Content::from_markup(label).pad(1, 1);
+    let end = padded.len();
+    padded.stylize_before(label_style, 0, end)
+}
+
+/// Resolver for raw markup span tags used by toggle-button label rendering:
+/// theme tokens (`$primary`) and colour/style keywords (`magenta`, `bold`)
+/// become concrete styles via `parse_tag_style` — the same resolution
+/// `Static`/`Label` use in their `render_strips` path.
+pub(crate) fn markup_tag_resolve(raw: &str) -> Style {
+    crate::content::markup::parse_tag_style(raw)
+        .map(|t| t.style)
+        .unwrap_or_default()
+}
+
 pub(crate) fn adjust_line_length_no_bg(line: &[Segment], width: usize) -> Vec<Segment> {
     let width = width.max(1);
     // Crop to width, but do not pad with the end-style background. We'll add an explicit

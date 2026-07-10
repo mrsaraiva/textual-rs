@@ -159,8 +159,11 @@ impl crate::widgets::Layout for RadioButton {
             super::helpers::border_spacing_from_style(&resolved);
         let chrome_lr =
             usize::from(padding.left.saturating_add(padding.right)) + border_left + border_right;
-        // Rendered content is "▐●▌ " + label.
-        let content = rich_rs::cell_len(&self.label).saturating_add(4);
+        // Rendered content is "▐●▌ " + label. Markup tags are stripped first so
+        // `[bold italic red]…[/]` doesn't inflate the width (Python measures the
+        // parsed `Content`, not the raw markup).
+        let label_width = crate::content::Content::from_markup(&self.label).cell_length();
+        let content = label_width.saturating_add(4);
         Some(content.saturating_add(chrome_lr).max(1))
     }
 
@@ -200,15 +203,25 @@ impl crate::widgets::Render for RadioButton {
                 "",
                 &["toggle--label"],
             ));
-        let mut label_rich = label_style.to_rich().unwrap_or_else(rich_rs::Style::new);
 
         // Flatten a (possibly semi-transparent) selected-label background over
         // the composited ancestor surface — the same `background_colors`
         // compositing Python performs. `current_composited_background()` here is
         // the `RadioSet` surface (including its `:focus` `background-tint`).
         let surface_bg = crate::css::current_composited_background();
+        let mut label_effective = label_style.clone();
         if let (Some(bg), Some(surf)) = (label_style.bg, surface_bg) {
-            label_rich.bgcolor = Some(bg.flatten_over(surf).to_simple_opaque());
+            label_effective.bg = Some(bg.flatten_over(surf));
+        } else if let Some(bg) = label_style.bg {
+            // No composited surface known: flatten over the theme background,
+            // matching the previous `Style::to_rich()` conversion.
+            if bg.a > 0.0 && bg.a < 1.0 {
+                let under = crate::style::parse_color_like("$background")
+                    .unwrap_or(crate::style::Color::rgb(0, 0, 0));
+                label_effective.bg = Some(bg.flatten_over(under));
+            } else if bg.a <= 0.0 {
+                label_effective.bg = None;
+            }
         }
 
         // The side half-blocks take the button's *background* as their
@@ -221,13 +234,21 @@ impl crate::widgets::Render for RadioButton {
         let side_fg = button_rich.bgcolor.unwrap_or(panel_bg);
         let side_style = rich_rs::Style::new().with_color(side_fg);
 
-        // Label is padded (1, 1) like Python's `self._label.pad(1, 1)`.
-        let segments = vec![
+        // Label: markup-parsed, padded (1, 1), with the `toggle--label` style
+        // layered UNDER the markup spans — Python's
+        // `self._label.pad(1, 1).stylize_before(label_style)` — so
+        // `[bold italic red]…[/]` colourises like any `Static` label.
+        let label_content =
+            super::helpers::toggle_label_content(&self.label, label_effective);
+        let mut segments = vec![
             Segment::styled("▐".to_string(), side_style),
             Segment::styled(glyph.to_string(), button_rich),
             Segment::styled("▌".to_string(), side_style),
-            Segment::styled(format!(" {} ", self.label), label_rich),
         ];
+        segments.extend(label_content.render_label_segments(
+            &crate::style::Style::new(),
+            super::helpers::markup_tag_resolve,
+        ));
 
         // Pad/crop to width.
         let line = super::helpers::adjust_line_length_no_bg(&segments, width);

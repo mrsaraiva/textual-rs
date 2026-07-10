@@ -59,13 +59,12 @@ impl Checkbox {
         }
     }
 
-    /// The label with Rich markup applied (tags stripped to plain text), matching
-    /// Python `ToggleButton._make_label` (`Content.from_markup`). Emoji shortcodes
-    /// are left literal (`:sweat:`) to match Python's rendering, so `emoji=false`.
-    fn label_plain(&self) -> String {
-        rich_rs::Text::from_markup(&self.label, false)
-            .map(|t| t.plain_text().to_string())
-            .unwrap_or_else(|_| self.label.clone())
+    /// The label parsed as Textual markup, matching Python
+    /// `ToggleButton._make_label` (`Content.from_markup`): tags become styled
+    /// spans (`[magenta]Ginaz[/]` colourises at render), emoji shortcodes are
+    /// left literal (`:sweat:`) to match Python `Content` semantics.
+    fn label_content(&self) -> crate::content::Content {
+        crate::content::Content::from_markup(&self.label)
     }
 
     // ── Reactive getters ─────────────────────────────────────────────────
@@ -94,8 +93,8 @@ impl Checkbox {
     // ── Watchers ─────────────────────────────────────────────────────────
 
     fn watch_checked(&mut self, _old: &bool, _new: &bool, ctx: &mut ReactiveCtx) {
-        // Keep the detached seed classes in sync (off-tree CSS resolution in
-        // `render` reads them) AND queue a class op so the arena node toggles
+        // Keep the detached seed classes in sync (pre-mount identity — the node
+        // inherits them at mount) AND queue a class op so the arena node toggles
         // `-on` too. The node's classes drive `&.-on > .toggle--button` matching
         // and the repaint that recolors the button glyph. Mirrors Python
         // `ToggleButton.watch_value` → `self.set_class(self.value, "-on")`.
@@ -194,7 +193,7 @@ impl Layout for Checkbox {
         // contract). Python ToggleButton.get_content_width: 3 (the `▐X▌` button)
         // + 2 (the label's 1-cell left/right pad) + the label's own width. Markup
         // tags are stripped first so `[b]…[/b]` doesn't inflate the width.
-        Some(rich_rs::cell_len(&self.label_plain()).saturating_add(3 + 2).max(1))
+        Some(self.label_content().cell_length().saturating_add(3 + 2).max(1))
     }
 
     fn layout_height(&self) -> Option<usize> {
@@ -271,10 +270,21 @@ impl Render for Checkbox {
         // Python's `ToggleButton` renders `▐X▌` — the `X` is ALWAYS present; the
         // checked state is conveyed by the button color (`.toggle--button`, which
         // brightens via `&.-on > .toggle--button` since `self` carries `-on` when
-        // checked), not by swapping the glyph. `self` exposes its `-on` class to
-        // off-tree resolution via its seed classes.
-        let button_style = crate::css::resolve_component_style(self, &["toggle--button"]);
-        let label_style = crate::css::resolve_component_style(self, &["toggle--label"]);
+        // checked), not by swapping the glyph.
+        //
+        // Resolve the component styles against the LIVE CSS context (this node's
+        // meta — real classes like `-on` plus interaction states — is already the
+        // top of the selector stack, pushed by `render_widget_with_meta`), the
+        // same way `RadioButton` does. `resolve_component_style(self, …)` would
+        // re-push a meta built from `Widget::style_classes()`, which is EMPTY for
+        // `Checkbox` (no `StyleIdentity` capability), so `&.-on > .toggle--button`
+        // never matched and the checked mark kept the unchecked colour.
+        let button_style = crate::css::resolve_style_for_meta(
+            &crate::css::selector_meta_component("", &["toggle--button"]),
+        );
+        let label_style = crate::css::resolve_style_for_meta(
+            &crate::css::selector_meta_component("", &["toggle--label"]),
+        );
 
         // Side half-blocks use the button background as their foreground.
         // Python: `side_style = Style(foreground=button_style.background, background=self.background_colors[1])`
@@ -283,19 +293,17 @@ impl Render for Checkbox {
 
         // Build Content via assemble, mirroring Python `Content.assemble(button, label)`:
         //   button  = ▐ (side_style) + X (button_style) + ▌ (side_style)
-        //   label   = " label " (label_style, padded 1 cell each side)
+        //   label   = " label " — markup-parsed label, padded 1 cell each side,
+        //             with `label_style` layered UNDER the markup spans
+        //             (Python: `self._label.pad(1, 1).stylize_before(label_style)`).
         let content = Content::assemble([
             ContentPart::from(("▐", side_style.clone())),
             ContentPart::from(("X", button_style)),
             ContentPart::from(("▌", side_style)),
-            ContentPart::from((format!(" {} ", self.label_plain()), label_style)),
+            ContentPart::from(super::helpers::toggle_label_content(&self.label, label_style)),
         ]);
 
-        let resolve_fn = |raw: &str| {
-            crate::content::markup::parse_tag_style(raw)
-                .map(|t| t.style)
-                .unwrap_or_default()
-        };
+        let resolve_fn = super::helpers::markup_tag_resolve;
 
         // Render via Content::render_strips.
         // - width: content width as received (borders/padding excluded by caller).

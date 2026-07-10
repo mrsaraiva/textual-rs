@@ -104,6 +104,27 @@ hand-implemented on the common path.
   field-wrapped / container-internal children (e.g. `Constrained`, `Panel`,
   `#[widget(base=…, field=…)]` delegation), which are not separate arena nodes.
 
+### Fixed — colour-parity: toggle-button label markup colourises; checked-mark component colour
+
+- `Checkbox` / `RadioButton` labels now render inline Rich/Textual markup with
+  its span styles applied (`Checkbox("[magenta]Ginaz[/]")` renders "Ginaz" in
+  magenta; `RadioButton("Kurgan, [bold italic red]The[/]")` colourises), like
+  Python's `ToggleButton` (which routes the label through the same
+  `Content.from_markup` path as any `Static`). Both widgets build the label via
+  a shared helper (`Content::from_markup(..).pad(1, 1).stylize_before(label_style)`)
+  and resolve span tags with the same `parse_tag_style` resolution `Static`/
+  `Label` use. New `Content::stylize_before` mirrors Python (base component
+  style layers UNDER the markup spans). Intrinsic widths strip markup tags.
+- `Checkbox`'s checked mark (`X`) now takes the `&.-on > .toggle--button`
+  colour (`$text-success`): the component styles are resolved against the LIVE
+  selector stack (as `RadioButton` already did) instead of
+  `resolve_component_style(self, ..)`, whose re-pushed parent meta read
+  `Widget::style_classes()` — EMPTY for `Checkbox` (no `StyleIdentity`
+  capability) — so the `-on` rule never matched.
+- `parity_checkbox_toggle` and `parity_radio_set_navigate` are un-ignored
+  (glyph_diffs=0 colour_diffs=0); the `radio_set` demo restores Python's
+  `"Kurgan, [bold italic red]The[/]"` label.
+
 ### Fixed — colour-parity: translucent fg composes over the real surface; theme-shade hardcodes retired
 
 - `Digits` pre-flattened a translucent foreground (e.g. `color:

@@ -1168,7 +1168,6 @@ fn parity_masked_input_typing() {
 /// checkbox: the focused checkbox toggles on Space. Initial focus is
 /// "#initial_focus" (Kaitain) per the demo.
 #[test]
-#[ignore = "BUG: `#initial_focus` (the Kaitain checkbox) is focused and its `:focus` border+tint match Python (glyph_diffs=0). Residual = 8 colour cells, two roots: 5 cells `[magenta]Ginaz` label markup fg (#ff00ff vs #e0e0e0 — Checkbox label BBCode markup not colourised) + 3 cells the `.-on` checked-mark `X` fg (#8ad4a1 vs #000f18 — `&.-on > .toggle--button` checked component colour). See KNOWN_GAPS (widget-label markup + widget-local component colours)."]
 fn parity_checkbox_toggle() {
     let script = [Step::Key(Key::Space), Step::Wait(250)];
     let (rf, pf) = widgets_both("checkbox", &script, 400);
@@ -1200,11 +1199,6 @@ fn parity_radio_button_select() {
 
 /// radio_set: two RadioSets; Down arrow within the focused set.
 #[test]
-#[ignore = "BUG (NOT a demo fix — verified in the 1.0 sweep): focus tint + selection colours match \
-            Python; residual = 3 cells where Python renders 'Kurgan, [bold italic red]The[/]' in red. \
-            Putting the Rich markup in the Rust demo makes it WORSE — RadioButton labels render BBCode \
-            LITERALLY in Rust (the `[bold italic red]The[/]` text shows verbatim, 21 glyph cells). Root: \
-            widget-label markup not parsed/colourised (shared class with the Checkbox `[magenta]` label)."]
 fn parity_radio_set_navigate() {
     let script = [
         Step::SendKeys("\x1b[B"),
