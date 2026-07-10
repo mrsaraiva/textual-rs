@@ -1264,6 +1264,10 @@ pub(crate) fn render_widget_with_meta<W: Widget + ?Sized>(
     } else {
         segments
     };
+    // Python's always-on `ANSIToTruecolor` line filter runs LAST on every
+    // rendered widget line (`_styles_cache.render_line`): ANSI-indexed colors
+    // (e.g. from rich renderables) become their truecolor theme equivalents.
+    let segments = crate::css::apply_ansi_truecolor_to_segments(segments);
     tag_widget_meta(node_id, segments)
 }
 

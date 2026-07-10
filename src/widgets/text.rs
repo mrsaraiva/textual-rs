@@ -480,7 +480,7 @@ impl Clone for Markdown {
     }
 }
 
-fn count_rendered_lines(segments: Segments) -> usize {
+pub(crate) fn count_rendered_lines(segments: Segments) -> usize {
     let mut lines = Segment::split_lines(segments);
     while lines
         .last()

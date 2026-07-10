@@ -238,6 +238,149 @@ pub(crate) fn apply_style_to_segments(
         .collect()
 }
 
+/// Rust analog of Python's always-on `ANSIToTruecolor` line filter
+/// (textual/filter.py, applied to every rendered widget line in
+/// `_styles_cache.render_line`): replace ANSI-indexed segment colors
+/// (`Standard`/`EightBit`) with their truecolor equivalents so indexed
+/// content — e.g. rich renderables such as `rich_rs::markdown::Markdown` —
+/// paints the exact same RGB cells as Python. Standard colors map through the
+/// active ANSI terminal theme (MONOKAI when dark, ALABASTER when light);
+/// 8-bit colors map through rich's fixed 256-color palette.
+///
+/// Mirroring Python's `enabled=not app.ansi_color`, the pass is skipped when
+/// the app runs in native-ANSI mode (`:ansi` runtime pseudo).
+///
+/// NOTE: the dim pre-blend half of Python's filter (`dim_color` + strip dim)
+/// is NOT ported here — that is the tracked global-dim follow-up; widgets that
+/// need it today pre-blend locally (see `option_list.rs`).
+pub(crate) fn apply_ansi_truecolor_to_segments(segments: Segments) -> Segments {
+    let pseudos = super::context::app_runtime_pseudos();
+    if pseudos.ansi {
+        return segments;
+    }
+    let dark = pseudos.dark;
+    segments
+        .into_iter()
+        .map(|mut seg| {
+            if seg.control.is_some() {
+                return seg;
+            }
+            let Some(mut style) = seg.style else {
+                return seg;
+            };
+            let mut changed = false;
+            if let Some(color) = style.color {
+                if let Some(rgb) = crate::style::ansi_simple_to_truecolor(color, dark) {
+                    style.color = Some(rgb);
+                    changed = true;
+                }
+            }
+            if let Some(bgcolor) = style.bgcolor {
+                if let Some(rgb) = crate::style::ansi_simple_to_truecolor(bgcolor, dark) {
+                    style.bgcolor = Some(rgb);
+                    changed = true;
+                }
+            }
+            if changed {
+                seg.style = Some(style);
+            }
+            seg
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod ansi_truecolor_tests {
+    use super::apply_ansi_truecolor_to_segments;
+    use rich_rs::{Segment, Segments, SimpleColor};
+
+    fn styled(color: Option<SimpleColor>, bg: Option<SimpleColor>) -> Segments {
+        let mut style = rich_rs::Style::new();
+        style.color = color;
+        style.bgcolor = bg;
+        let mut segs = Segments::new();
+        segs.push(Segment::styled("x", style));
+        segs
+    }
+
+    fn first_style(segments: Segments) -> rich_rs::Style {
+        segments.into_iter().next().unwrap().style.unwrap()
+    }
+
+    /// Python `ANSIToTruecolor` with the MONOKAI dark theme: ANSI magenta
+    /// (Standard 5, e.g. rich markdown blockquote/h2) must paint #f4005f —
+    /// exactly what Python Textual outputs for the same content.
+    #[test]
+    fn standard_ansi_color_maps_through_monokai_when_dark() {
+        let _guard = super::super::context::set_app_runtime_pseudos(
+            super::super::context::AppRuntimePseudos {
+                dark: true,
+                ..Default::default()
+            },
+        );
+        let out = first_style(apply_ansi_truecolor_to_segments(styled(
+            Some(SimpleColor::Standard(5)),
+            None,
+        )));
+        assert_eq!(out.color, Some(SimpleColor::Rgb { r: 244, g: 0, b: 95 }));
+    }
+
+    /// Light theme (ALABASTER): magenta slot 5 is rgb(122, 62, 157).
+    #[test]
+    fn standard_ansi_color_maps_through_alabaster_when_light() {
+        let _guard = super::super::context::set_app_runtime_pseudos(
+            super::super::context::AppRuntimePseudos {
+                dark: false,
+                ..Default::default()
+            },
+        );
+        let out = first_style(apply_ansi_truecolor_to_segments(styled(
+            Some(SimpleColor::Standard(5)),
+            None,
+        )));
+        assert_eq!(
+            out.color,
+            Some(SimpleColor::Rgb {
+                r: 122,
+                g: 62,
+                b: 157
+            })
+        );
+    }
+
+    /// Truecolor and Default colors pass through untouched; the `:ansi`
+    /// native-ANSI mode disables the filter (Python `enabled=not ansi_color`).
+    #[test]
+    fn rgb_default_and_native_ansi_are_untouched() {
+        let _guard = super::super::context::set_app_runtime_pseudos(
+            super::super::context::AppRuntimePseudos {
+                dark: true,
+                ..Default::default()
+            },
+        );
+        let rgb = SimpleColor::Rgb { r: 1, g: 2, b: 3 };
+        let out = first_style(apply_ansi_truecolor_to_segments(styled(
+            Some(rgb),
+            Some(SimpleColor::Default),
+        )));
+        assert_eq!(out.color, Some(rgb));
+        assert_eq!(out.bgcolor, Some(SimpleColor::Default));
+
+        let _guard = super::super::context::set_app_runtime_pseudos(
+            super::super::context::AppRuntimePseudos {
+                dark: true,
+                ansi: true,
+                ..Default::default()
+            },
+        );
+        let out = first_style(apply_ansi_truecolor_to_segments(styled(
+            Some(SimpleColor::Standard(5)),
+            None,
+        )));
+        assert_eq!(out.color, Some(SimpleColor::Standard(5)));
+    }
+}
+
 pub(crate) fn apply_widget_opacity_to_segments(
     segments: Segments,
     opacity_percent: u8,

@@ -29,6 +29,11 @@ enum StaticContent {
     Content(crate::content::Content),
     /// Pre-rendered rich text (e.g. syntax-highlighted code).
     Rich(Text),
+    /// An arbitrary rich renderable (e.g. `rich_rs::markdown::Markdown`).
+    /// Mirrors Python `Static(renderable)` / `Static.update(renderable)` where
+    /// the renderable is any Rich object — it is re-rendered at the widget's
+    /// current content width on every paint.
+    Renderable(Arc<dyn Renderable>),
 }
 
 /// A static text widget with optional rich-text content.
@@ -165,6 +170,28 @@ impl Static {
     /// Mirrors Python `Static.update(syntax_renderable)`.
     pub fn update_rich(&mut self, text: Text) {
         self.content = StaticContent::Rich(text);
+    }
+
+    /// Create a Static that displays an arbitrary rich renderable.
+    ///
+    /// Mirrors Python `Static(renderable)` with a non-string renderable, e.g.
+    /// `Static(Markdown(WELCOME_MD))` in Python's `Welcome` widget:
+    /// ```ignore
+    /// let md = Static::from_renderable(rich_rs::markdown::Markdown::new(source));
+    /// ```
+    /// The renderable is rendered at the widget's laid-out content width, so
+    /// wrapping/centering follow the widget's box like Python's `Static`.
+    pub fn from_renderable(renderable: impl Renderable + 'static) -> Self {
+        let mut widget = Self::new("");
+        widget.content = StaticContent::Renderable(Arc::new(renderable));
+        widget
+    }
+
+    /// Replace content with an arbitrary rich renderable.
+    ///
+    /// Mirrors Python `Static.update(renderable)` for non-string renderables.
+    pub fn update_renderable(&mut self, renderable: impl Renderable + 'static) {
+        self.content = StaticContent::Renderable(Arc::new(renderable));
     }
 
     /// Replace content with a pre-built [`Content`] value.
@@ -409,6 +436,20 @@ mod tests {
         );
     }
 
+    /// A `Static` displaying a rich renderable (Python `Static(Markdown(...))`,
+    /// the framework `Welcome` body) must report its height as the RENDERED
+    /// line count at the laid-out width — rich markdown spacing, NOT the
+    /// Textual `Markdown` block-widget margins.
+    #[test]
+    fn static_from_renderable_height_counts_rendered_markdown_lines() {
+        let mut widget = Static::from_renderable(rich_rs::markdown::Markdown::new(
+            "# Title\n\nbody text",
+        ));
+        Widget::on_layout(&mut widget, 40, 0);
+        // rich markdown: centered H1 line, blank separator, body line.
+        assert_eq!(widget.layout_height(), Some(3));
+    }
+
     /// `intrinsic_content_width` must measure the RENDERED width (markup
     /// stripped), like `Label`. Counting the raw text sized the auto-width box
     /// to 19 for "[b]Example switches\n" (16 + the "[b]" tag), which
@@ -459,6 +500,20 @@ impl crate::widgets::Layout for Static {
             StaticContent::Rich(text) => {
                 let line_count = text.plain_text().lines().count().max(1);
                 Some(line_count)
+            }
+            StaticContent::Renderable(renderable) => {
+                // Render at the laid-out content width and count lines — the
+                // analog of Python `Static.get_content_height`, which renders
+                // the visual at the given width. Trailing blank lines are
+                // trimmed (they carry no visible content).
+                let console = Console::new();
+                let mut options = console.options().clone();
+                let width = self.layout_width.max(1);
+                options.size = (width, 1);
+                options.max_width = width;
+                options.max_height = 1;
+                let segments = renderable.render(&console, &options);
+                Some(crate::widgets::text::count_rendered_lines(segments))
             }
         }
     }
@@ -542,6 +597,7 @@ impl crate::widgets::Render for Static {
                 self.render_content(content, options, true)
             }
             StaticContent::Rich(text) => text.render(console, options),
+            StaticContent::Renderable(renderable) => renderable.render(console, options),
         }
     }
 

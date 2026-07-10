@@ -1077,9 +1077,14 @@ fn animation01_opacity_progression_over_time() {
     );
 }
 
-/// app/widgets02: press a key to mount the Welcome widget; Python centers a red
-/// "Dune" quote with a red rule; Rust (per report) left-aligns, white text + blue
-/// rule. Catch: the quote text alignment AND the rule colour differ.
+/// app/widgets02: press a key to mount the `Welcome` widget. Python centers a
+/// red-magenta "Dune" quote block (rich-markdown's ANSI magenta blockquote via
+/// the `ANSIToTruecolor` filter). This was previously a "catch" test asserting
+/// Rust DIVERGED (blue rule / white text) — that divergence was the misported
+/// `Welcome` (Textual `Markdown` block widget + no ANSI→truecolor filter).
+/// With `Welcome` composing `Static(rich.markdown.Markdown)` and the global
+/// ANSI→truecolor filter in place, Rust now matches Python glyph- and
+/// colour-exact, so this is a real `Rust == Python` parity assertion.
 #[test]
 fn widgets02_welcome_alignment_and_rule_colour() {
     // widgets02 mounts Welcome on any key. Send a key, settle, capture.
@@ -1088,30 +1093,7 @@ fn widgets02_welcome_alignment_and_rule_colour() {
     let (rf, pf) = (rust.last().unwrap(), py.last().unwrap());
     dump("widgets02 RUST", rf);
     dump("widgets02 PY", pf);
-
-    // Find the row containing the "Dune"/quote-ish content and the rule row.
-    // The Welcome widget shows a Markdown blurb; we detect a red colour anywhere
-    // (the rule + quote) on Python.
-    let py_red = pf.any_red();
-    let rust_red = rf.any_red();
-    let py_blue = pf.any_blue();
-    let rust_blue = rf.any_blue();
-    eprintln!(
-        "widgets02: py_red={py_red} rust_red={rust_red} py_blue={py_blue} rust_blue={rust_blue}"
-    );
-
-    // The flagged axis is colour (red rule/text vs blue rule/white text). The
-    // harness must see a colour divergence between the two.
-    assert!(
-        py_red != rust_red || py_blue != rust_blue,
-        "HARNESS BLIND: widgets02 colour (red vs blue rule/text) looks identical.\n{}\n\
-         per-cell colour diff (rows 0..ROWS):\n{}\n\
-         BG palette (py): {:?}\nBG palette (rust): {:?}",
-        text_diff(pf, rf),
-        cell_diff_rows(pf, rf, 0..ROWS as usize),
-        pf.bg_palette(),
-        rf.bg_palette(),
-    );
+    assert_glyph_parity("widgets02", pf, rf, &[]);
 }
 
 // ===========================================================================
@@ -1960,8 +1942,12 @@ fn parity_question_title02_title_update() {
 }
 
 /// widgets01: the framework `Welcome` widget rendered on its own.
+///
+/// Welcome mirrors Python's composition exactly (`Container > Static` with a
+/// RICH markdown renderable — not the Textual `Markdown` block widget), so the
+/// body spacing, ANSI->truecolor colours, and the auto-focused OK button all
+/// match.
 #[test]
-#[ignore = "BUG: the Welcome widget's Markdown body renders with different vertical spacing — Python keeps it compact (\"Welcome!\" row 2, no blank gaps between blocks); Rust inserts extra blank lines (\"Welcome!\" row 3, gaps before \"Dune quote\"/blockquote), shifting the whole body down. 669 glyph + 456 colour cells. Shared root with the widgets02 catch case (Welcome/Markdown block spacing + rule/quote colour)."]
 fn parity_widgets01_welcome() {
     let script = [Step::Wait(300)];
     let (rf, pf) = cat_both("widgets01", "app", &script, 400);
@@ -1970,7 +1956,6 @@ fn parity_widgets01_welcome() {
 
 /// widgets03: pressing a key mounts `Welcome` and relabels its Button "YES!".
 #[test]
-#[ignore = "BUG: after key-mount of Welcome (+ relabel \"YES!\"), the same Markdown vertical-spacing divergence as widgets01 shifts the body. 673 glyph + 96 colour cells. Shared root: Welcome/Markdown block spacing (widgets02 family)."]
 fn parity_widgets03_mount_welcome() {
     let script = [Step::SendKeys("x"), Step::Wait(400)];
     let (rf, pf) = cat_both("widgets03", "app", &script, 500);
@@ -1979,7 +1964,6 @@ fn parity_widgets03_mount_welcome() {
 
 /// widgets04: same as widgets03 but mounts asynchronously.
 #[test]
-#[ignore = "BUG: same Welcome/Markdown vertical-spacing divergence as widgets01/03 after async key-mount. 669 glyph + 96 colour cells. Shared root: Welcome/Markdown block spacing (widgets02 family)."]
 fn parity_widgets04_mount_welcome() {
     let script = [Step::SendKeys("x"), Step::Wait(400)];
     let (rf, pf) = cat_both("widgets04", "app", &script, 500);

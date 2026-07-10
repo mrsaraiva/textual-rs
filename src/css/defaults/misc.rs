@@ -453,22 +453,27 @@ BindingsTable {
     height: auto;
 }
 
+/* Python `_welcome.py` DEFAULT_CSS (verbatim): the markdown body is a Static
+   with a rich renderable inside a padded Container; the OK button docks to the
+   bottom of the Welcome itself. */
 Welcome {
     width: 100%;
     height: 100%;
     bg: $surface;
-    fg: $foreground;
-    line-pad: 1;
 }
 
-Welcome > Markdown {
-    bg: $surface;
+Welcome Container {
+    padding: 1;
     fg: $foreground;
 }
 
-Welcome > Button {
-    width: 100%;
+Welcome #text {
+    margin: 0 1;
+}
+
+Welcome #close {
     dock: bottom;
+    width: 100%;
 }
 
 Tooltip > .tooltip--bubble {

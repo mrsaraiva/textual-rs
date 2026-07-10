@@ -30,7 +30,9 @@ pub(crate) use resolver::{
     resolve_node_style, resolve_style, resolve_style_for_meta, selector_meta_component,
     selector_meta_generic, take_layout_affected_style_changes, with_style_stack,
 };
-pub(crate) use segments::{apply_style_to_segments, apply_widget_opacity_to_segments};
+pub(crate) use segments::{
+    apply_ansi_truecolor_to_segments, apply_style_to_segments, apply_widget_opacity_to_segments,
+};
 
 #[cfg(test)]
 mod tests {

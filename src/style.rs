@@ -235,6 +235,82 @@ pub(crate) fn color_from_simple(color: rich_rs::SimpleColor) -> Color {
     }
 }
 
+/// Textual's ANSI terminal themes (`textual/_ansi_theme.py`): the 16-slot
+/// truecolor palettes used by the always-on `ANSIToTruecolor` line filter to
+/// give ANSI-indexed colors concrete truecolor values. MONOKAI is the dark
+/// theme (`App.ansi_theme_dark`), ALABASTER the light one
+/// (`App.ansi_theme_light`).
+const MONOKAI_ANSI: [(u8, u8, u8); 16] = [
+    (26, 26, 26),
+    (244, 0, 95),
+    (152, 224, 36),
+    (253, 151, 31),
+    (157, 101, 255),
+    (244, 0, 95),
+    (88, 209, 235),
+    (196, 197, 181),
+    (98, 94, 76),
+    (244, 0, 95),
+    (152, 224, 36),
+    (224, 213, 97),
+    (157, 101, 255),
+    (244, 0, 95),
+    (88, 209, 235),
+    (246, 246, 239),
+];
+const ALABASTER_ANSI: [(u8, u8, u8); 16] = [
+    (0, 0, 0),
+    (170, 55, 49),
+    (68, 140, 39),
+    (203, 144, 0),
+    (50, 92, 192),
+    (122, 62, 157),
+    (0, 131, 178),
+    (247, 247, 247),
+    (119, 119, 119),
+    (240, 80, 80),
+    (96, 203, 0),
+    (255, 188, 93),
+    (0, 122, 204),
+    (230, 76, 230),
+    (0, 170, 203),
+    (247, 247, 247),
+];
+
+/// Convert an ANSI-indexed rich color to its truecolor equivalent — the color
+/// half of Python's `ANSIToTruecolor.truecolor_style` (textual/filter.py) via
+/// rich's `Color.get_truecolor`:
+/// - `Standard(0-15)` (SGR 30-37/90-97) maps through the ANSI terminal theme
+///   (`theme.ansi_colors[n]`),
+/// - `EightBit(n)` maps through rich's fixed 256-color palette
+///   (`EIGHT_BIT_PALETTE[n]`),
+/// - `Rgb` is already truecolor and `Default` is left alone (in this pipeline
+///   `SimpleColor::Default` carries transparent/terminal-default composition
+///   semantics; surviving defaults are intended terminal defaults).
+///
+/// Returns `None` when no conversion applies.
+pub(crate) fn ansi_simple_to_truecolor(
+    color: rich_rs::SimpleColor,
+    dark: bool,
+) -> Option<rich_rs::SimpleColor> {
+    match color {
+        rich_rs::SimpleColor::Standard(n) if (n as usize) < 16 => {
+            let theme = if dark { &MONOKAI_ANSI } else { &ALABASTER_ANSI };
+            let (r, g, b) = theme[n as usize];
+            Some(rich_rs::SimpleColor::Rgb { r, g, b })
+        }
+        rich_rs::SimpleColor::EightBit(_) => {
+            // Fixed 256-color palette lookup (theme-independent, like rich).
+            let hex = color.get_hex();
+            match rich_rs::SimpleColor::parse(&hex) {
+                Some(rgb @ rich_rs::SimpleColor::Rgb { .. }) => Some(rgb),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
 pub fn parse_color_like(value: &str) -> Option<Color> {
     let value = value.trim();
     if value.eq_ignore_ascii_case("transparent") {

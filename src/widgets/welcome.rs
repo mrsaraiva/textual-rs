@@ -5,7 +5,7 @@ use crate::compose::ComposeResult;
 use crate::event::Event;
 use crate::message::*;
 
-use super::{Button, ButtonVariant, Focus, Interactive, Layout, Markdown, NodeSeed, Render};
+use super::{Button, ButtonVariant, Focus, Interactive, Layout, NodeSeed, Render, Static};
 use crate::widgets::containers::Container;
 
 const WELCOME_MD: &str = r#"# Welcome!
@@ -25,7 +25,10 @@ Where the fear has gone there will be nothing. Only I will remain.""#;
 /// Textual welcome widget.
 ///
 /// Composes:
-/// - A `Container` (id `"md"`) containing a `Markdown` widget (id `"text"`).
+/// - A `Container` (id `"md"`) containing a `Static` (id `"text"`) that
+///   displays the welcome text as a RICH markdown renderable
+///   (`rich_rs::markdown::Markdown`), matching Python's
+///   `Static(Markdown(WELCOME_MD), id="text")`.
 /// - A `Button` (id `"close"`, variant `Success`) docked to the bottom.
 ///
 /// Mirrors Python `textual.widgets.Welcome`:
@@ -93,7 +96,11 @@ impl Welcome {
 
 impl Render for Welcome {
     fn compose(&mut self) -> ComposeResult {
-        let md = Markdown::new(WELCOME_MD);
+        // Python: `Static(Markdown(WELCOME_MD), id="text")` — the markdown is a
+        // RICH renderable displayed by a Static, NOT the Textual `Markdown`
+        // block widget (whose header/paragraph CSS margins produce different
+        // vertical spacing). Mirror that exactly.
+        let md = Static::from_renderable(rich_rs::markdown::Markdown::new(WELCOME_MD));
         let text_node = crate::compose::ChildDecl::new(Box::new(md)).with_id("text");
 
         let container = Container::new();
@@ -115,7 +122,11 @@ impl Render for Welcome {
 
 impl Focus for Welcome {
     fn focusable(&self) -> bool {
-        true
+        // Python `Welcome` is a `Static` subclass (can_focus=False): initial
+        // auto-focus must land on the composed `#close` Button (whose `:focus`
+        // background-tint is part of the widgets01 parity surface), not on the
+        // Welcome wrapper itself.
+        false
     }
 }
 

@@ -124,6 +124,37 @@ hand-implemented on the common path.
 - `parity_checkbox_toggle` and `parity_radio_set_navigate` are un-ignored
   (glyph_diffs=0 colour_diffs=0); the `radio_set` demo restores Python's
   `"Kurgan, [bold italic red]The[/]"` label.
+### Fixed — Welcome mirrors Python's Static+rich-markdown composition; ANSI colours map to truecolor
+
+- The framework `Welcome` widget was an architectural misport: Python's
+  `Welcome` renders `rich.markdown.Markdown` inside a `Static`
+  (`Static(Markdown(WELCOME_MD), id="text")`), but the Rust port composed the
+  Textual `Markdown` BLOCK widget, whose header/paragraph CSS margins
+  (`margin: 2 0 1 0` etc.) produce entirely different vertical spacing — the
+  body shifted down with an accumulating offset (H1 two rows late, blockquote
+  four). `Welcome` now composes `Container#md > Static#text` with a rich
+  markdown renderable and carries Python's exact DEFAULT_CSS
+  (`Welcome Container { padding: 1 }`, `#text { margin: 0 1 }`,
+  `#close { dock: bottom }`); it is also no longer focusable (Python `Static`
+  semantics), so initial auto-focus lands on the OK button like Python.
+- New `Static::from_renderable(...)` / `Static::update_renderable(...)`:
+  a `Static` can display an arbitrary rich renderable (Python
+  `Static(renderable)` / `Static.update(renderable)`), re-rendered at the
+  laid-out content width; its auto height is the rendered line count.
+- Rust analog of Python's always-on `ANSIToTruecolor` line filter
+  (`textual/filter.py`): ANSI-indexed segment colours are converted to
+  truecolor at the end of every widget render — `Standard(0-15)` through the
+  ANSI terminal theme (MONOKAI dark / ALABASTER light, ported from
+  `textual/_ansi_theme.py`), `EightBit` through rich's fixed 256 palette.
+  Skipped in native-ANSI mode, mirroring `enabled=not app.ansi_color`. (The
+  dim pre-blend half of the Python filter remains a tracked follow-up.)
+- `widgets03`/`widgets04` doc examples now perform Python's
+  `query_one(Button).label = "YES!"` relabel (the arena-tree `#close` Button is
+  queryable since RA2).
+- PTY parity: `parity_widgets01_welcome`, `parity_widgets03_mount_welcome`,
+  `parity_widgets04_mount_welcome` are un-ignored (glyph_diffs=0
+  colour_diffs=0); `markdown`/`markdown_viewer` scoreboard stays green (the
+  Textual `Markdown` block widget is untouched).
 
 ### Fixed — colour-parity: translucent fg composes over the real surface; theme-shade hardcodes retired
 
