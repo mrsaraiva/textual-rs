@@ -445,18 +445,43 @@ pub fn resolve_layout(
                     }
                     get_node_style(tree, parent).align
                 });
-            match strategy {
-                Layout::Vertical => {
-                    layout_vertical(tree, &flow, inner, viewport, allow_h_overflow);
-                    apply_parent_align(tree, &flow, inner, Layout::Vertical, effective_align);
+            // Python parity (`_arrange.py::arrange` + `_build_layers`): flow
+            // children are grouped by CSS `layer` and each layer is arranged
+            // INDEPENDENTLY — its own flow-layout pass over the full flow region
+            // and its own container alignment. A single combined pass would
+            // stack widgets on different layers into one flow and align their
+            // UNION: in guide/layout/layers two 28x8 Statics on `below`/`above`
+            // under `align: center middle` must EACH center to the same spot
+            // (y=11 in 30 rows), not center a 16-row two-box stack (y=7). The
+            // unset layer is Python's implicit "default" layer (`Widget.layer`:
+            // `styles.layer or "default"`); grouping preserves child order, and
+            // paint z-order stays a render-side concern (`sort_children_by_layer`).
+            let mut layer_groups: Vec<(String, Vec<NodeId>)> = Vec::new();
+            for &child in &flow {
+                let layer = get_node_style(tree, child)
+                    .layer
+                    .unwrap_or_else(|| "default".to_string());
+                if let Some((_, group)) = layer_groups.iter_mut().find(|(name, _)| *name == layer)
+                {
+                    group.push(child);
+                } else {
+                    layer_groups.push((layer, vec![child]));
                 }
-                Layout::Grid => {
-                    layout_grid(tree, &flow, inner, viewport, &style);
-                    apply_parent_align(tree, &flow, inner, Layout::Grid, effective_align);
-                }
-                Layout::Horizontal => {
-                    layout_horizontal(tree, &flow, inner, viewport, allow_v_overflow);
-                    apply_parent_align(tree, &flow, inner, Layout::Horizontal, effective_align);
+            }
+            for (_, group) in &layer_groups {
+                match strategy {
+                    Layout::Vertical => {
+                        layout_vertical(tree, group, inner, viewport, allow_h_overflow);
+                        apply_parent_align(tree, group, inner, Layout::Vertical, effective_align);
+                    }
+                    Layout::Grid => {
+                        layout_grid(tree, group, inner, viewport, &style);
+                        apply_parent_align(tree, group, inner, Layout::Grid, effective_align);
+                    }
+                    Layout::Horizontal => {
+                        layout_horizontal(tree, group, inner, viewport, allow_v_overflow);
+                        apply_parent_align(tree, group, inner, Layout::Horizontal, effective_align);
+                    }
                 }
             }
             // CSS `offset` is applied AFTER alignment (Python WidgetPlacement
@@ -2075,6 +2100,46 @@ mod tests {
             "explicit visibility:visible overrides inherited hidden"
         );
         assert_eq!(tree.get(sibling).unwrap().visibility, Visibility::Visible);
+    }
+
+    // Python parity (`_arrange.py::arrange` + `_build_layers`): flow children on
+    // DIFFERENT layers are arranged independently — each layer gets its own flow
+    // pass and its own container alignment. Two 28x8 Statics on `above`/`below`
+    // under `align: center middle` must EACH center to (46, 11) in 120x30
+    // (guide/layout/layers), not be stacked into a 16-row flow whose union
+    // centers at y=7.
+    #[test]
+    fn resolve_layout_arranges_and_aligns_each_layer_independently() {
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(LayoutTestWidget::boxed_with_style("Screen", {
+            let mut s = Style::new();
+            s.align = Some(crate::style::Align {
+                horizontal: crate::style::HorizontalAlign::Center,
+                vertical: crate::style::VerticalAlign::Middle,
+            });
+            s.layers = Some(vec!["below".to_string(), "above".to_string()]);
+            s
+        }));
+        let box1 = tree.mount(root, LayoutTestWidget::boxed_with_style("Box1", {
+            let mut s = Style::new()
+                .width(Scalar::Cells(28))
+                .height(Scalar::Cells(8));
+            s.layer = Some("above".to_string());
+            s
+        }));
+        let box2 = tree.mount(root, LayoutTestWidget::boxed_with_style("Box2", {
+            let mut s = Style::new()
+                .width(Scalar::Cells(28))
+                .height(Scalar::Cells(8));
+            s.layer = Some("below".to_string());
+            s
+        }));
+
+        resolve_layout(&mut tree, root, Region::new(0, 0, 120, 30), (120, 30));
+
+        // Each layer centers independently: x = (120-28)/2 = 46, y = (30-8)/2 = 11.
+        assert_layout_rect(&tree, box1, 46, 11, 74, 19);
+        assert_layout_rect(&tree, box2, 46, 11, 74, 19);
     }
 
     #[test]

@@ -219,12 +219,24 @@ impl Static {
     }
 
     fn intrinsic_content_width(&self) -> usize {
-        self.text
-            .lines()
-            .map(rich_rs::cell_len)
-            .max()
-            .unwrap_or(0)
-            .max(1)
+        // Measure the RENDERED width (markup stripped), matching the render path
+        // (`Content::from_markup`) — same as `Label` (widgets/text.rs). Measuring
+        // the raw text counted markup tags toward the width (e.g.
+        // "[b]Example switches" → 19 instead of 16), over-sizing the auto-width
+        // box, which `content-align: center` then offset by the excess // 2.
+        let measured = |text: &str| {
+            text.lines()
+                .map(rich_rs::cell_len)
+                .max()
+                .unwrap_or(0)
+                .max(1)
+        };
+        if self.markup {
+            let content = crate::content::Content::from_markup(&self.text);
+            measured(content.plain())
+        } else {
+            measured(&self.text)
+        }
     }
 
     /// Render a `Content` value to `Segments`, shared by the `Plain` (string)
@@ -395,6 +407,20 @@ mod tests {
             "word-wrapped height should be >= 4 lines, got {h} (char-count \
              estimate would under-count to 3)"
         );
+    }
+
+    /// `intrinsic_content_width` must measure the RENDERED width (markup
+    /// stripped), like `Label`. Counting the raw text sized the auto-width box
+    /// to 19 for "[b]Example switches\n" (16 + the "[b]" tag), which
+    /// `content-align: center` then offset by (19-16)/2 = 1 column
+    /// (docs/examples/widgets/switch title).
+    #[test]
+    fn static_intrinsic_width_strips_markup() {
+        let widget = Static::new("[b]Example switches\n");
+        assert_eq!(widget.intrinsic_content_width(), 16);
+        // With markup disabled the tags render as-is and DO count.
+        let raw = Static::new("[b]Example switches\n").without_markup();
+        assert_eq!(raw.intrinsic_content_width(), 19);
     }
 }
 

@@ -104,6 +104,25 @@ hand-implemented on the common path.
   field-wrapped / container-internal children (e.g. `Constrained`, `Panel`,
   `#[widget(base=…, field=…)]` delegation), which are not separate arena nodes.
 
+### Fixed — layout-parity: per-layer arrangement + paint z-order, Static markup width
+
+- **Flow children are arranged per CSS `layer`** (Python `_arrange.py` +
+  `_build_layers`): each layer now gets its own flow-layout pass and its own
+  container alignment over the full flow region. Previously all layers were
+  stacked into ONE flow and the union was aligned — in `guide/layout/layers`,
+  two 28x8 layered Statics under `align: center middle` centered as a 16-row
+  stack (box1 four rows too high) instead of each centering to the same spot.
+- **The recursive paint walk now honors the parent's `layers` z-order**
+  (`sort_children_by_layer` was only applied in `collect_render_nodes`, not in
+  `render_tree_node`), so a child on a later layer paints on top of an earlier
+  layer regardless of compose order (`#box1` on `above` now correctly covers
+  `#box2` on `below` at their overlap).
+- **`Static::intrinsic_content_width` strips markup** before measuring, like
+  `Label` (the previous markup-width fix covered `Label` only; `Static` has
+  its own implementation). `Static("[b]Example switches\n")` measured 19
+  instead of 16, so `content-align: center` offset the `switch` demo title by
+  one column. `without_markup()` still measures literal tags.
+
 ### Fixed — render-parity: markdown tables + code-fence height (scrollbar thumb)
 
 - **Markdown table column widths** now match Python. The column-fraction weight

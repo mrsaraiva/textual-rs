@@ -1090,6 +1090,7 @@ fn render_tree_node(
     // separate inline-style read is needed.
     let node_keyline = resolved.keyline.clone();
     let node_layout = resolved.layout;
+    let node_declares_layers = resolved.layers.as_ref().is_some_and(|l| !l.is_empty());
     push_style_context(meta, resolved);
 
     // Keyline background canvas (Python `layout.py::render_keyline` ->
@@ -1153,7 +1154,19 @@ fn render_tree_node(
             return;
         }
     }
-    let child_ids: Vec<NodeId> = tree.children(node_id).to_vec();
+    // Paint children in CSS-layer order (Python `_compositor.py`: the parent's
+    // `layers` declaration orders its layers bottom→top, so a child on a later
+    // layer paints on top). The recursive paint walk previously used raw DOM
+    // order, so overlapping widgets on DIFFERENT layers stacked by compose
+    // order instead — in guide/layout/layers `#box2` (`layer: below`, composed
+    // second) painted OVER `#box1` (`layer: above`). Gated on the node's
+    // resolved `layers` so layer-less parents keep the plain DOM walk
+    // (`sort_children_by_layer` is DOM-stable within a layer).
+    let child_ids: Vec<NodeId> = if node_declares_layers {
+        sort_children_by_layer(tree, node_id, tree.children(node_id))
+    } else {
+        tree.children(node_id).to_vec()
+    };
     let (scroll_x, scroll_y) = node.widget.scroll_offset_f32();
     let base_child_ctx = child_ctx;
     let mut scrolled_child_ctx = child_ctx;
@@ -4023,6 +4036,67 @@ mod tests {
         assert!(
             sibling_rect.x0 >= 6,
             "sibling must be occluded by the overlay across cols 0..6 (got {sibling_rect:?})"
+        );
+    }
+
+    #[test]
+    fn paint_walk_orders_overlapping_children_by_css_layer() {
+        // Python `_compositor.py`: a parent's `layers` declaration orders its
+        // layers bottom→top, so a child on a LATER layer paints on top of a
+        // child on an earlier layer — regardless of compose (DOM) order. The
+        // recursive paint walk previously iterated raw DOM order, so in
+        // guide/layout/layers `#box2` (`layer: below`, composed second) painted
+        // OVER `#box1` (`layer: above`).
+        use crate::widget_tree::{Rect, WidgetTree};
+        use crate::widgets::{AppRoot, Label};
+
+        let sheet = crate::css::default_widget_stylesheet();
+        let _guard = crate::css::set_style_context(sheet);
+
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(Box::new(AppRoot::new()));
+        // DOM order: the `above` child FIRST, the `below` child SECOND. A raw
+        // DOM walk paints the `below` child last (wrongly on top).
+        let above = tree.mount(root, Box::new(Label::new("AAAAAA")));
+        let below = tree.mount(root, Box::new(Label::new("BBBBBB")));
+
+        tree.update_styles(root, |s| {
+            s.style.layers = Some(vec!["below".to_string(), "above".to_string()]);
+        });
+        tree.update_styles(above, |s| {
+            s.style.layer = Some("above".to_string());
+        });
+        tree.update_styles(below, |s| {
+            s.style.layer = Some("below".to_string());
+        });
+
+        // Both children fully overlap on row 0; manual rects keep the geometry
+        // deterministic (this test is about PAINT order, not layout).
+        if let Some(n) = tree.get_mut(root) {
+            n.layout_rect = Rect { x0: 0, y0: 0, x1: 20, y1: 1 };
+        }
+        for id in [above, below] {
+            if let Some(n) = tree.get_mut(id) {
+                n.layout_rect = Rect { x0: 0, y0: 0, x1: 6, y1: 1 };
+            }
+        }
+
+        let console = rich_rs::Console::new();
+        let mut frame = FrameBuffer::new(20, 1, None);
+        let ctx = TreeRenderCtx {
+            origin_x: 0,
+            origin_y: 0,
+            clip: ClipRect::for_frame(&frame),
+            overlay_root_exempt: None,
+        };
+        let mut overlays: Vec<QueuedOverlay> = Vec::new();
+        render_tree_node(&tree, root, ctx, &mut frame, &console, None, &mut overlays);
+
+        assert_eq!(
+            frame.get(0, 0).text,
+            "A",
+            "the `above`-layer child must paint on top of the `below`-layer \
+             child, regardless of DOM order"
         );
     }
 
