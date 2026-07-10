@@ -1,13 +1,22 @@
 use crate::compose::ComposeResult;
 use crate::widgets::{ScrollableContainer, Widget};
+use textual_macros::widget;
 
-use crate::widgets::delegate::delegate_widget_to;
-
+// `style_type` keeps the trait default ("VerticalScroll"); the alias mirrors
+// Python's MRO — `VerticalScroll(ScrollableContainer)` — so this node matches
+// BOTH `VerticalScroll` and `ScrollableContainer` type selectors (and thereby
+// inherits the `ScrollableContainer { width: 1fr; height: 1fr; ... }` defaults,
+// exactly as Python's DEFAULT_CSS inheritance does).
+#[widget(base = ScrollableContainer, field = inner, override(style_type_aliases))]
 pub struct VerticalScroll {
     inner: ScrollableContainer,
 }
 
 impl VerticalScroll {
+    fn style_type_aliases(&self) -> &[&'static str] {
+        &["ScrollableContainer"]
+    }
+
     crate::delegate_ident_methods!(inner);
     crate::delegate_border_title_methods!(inner);
 
@@ -71,8 +80,6 @@ impl Default for VerticalScroll {
         Self::new()
     }
 }
-
-delegate_widget_to!(VerticalScroll, inner);
 
 #[cfg(test)]
 mod tests {

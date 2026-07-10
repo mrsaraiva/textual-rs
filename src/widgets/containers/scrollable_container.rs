@@ -6,9 +6,12 @@ use super::ScrollView;
 
 // Delegation container: `#[widget(base = ScrollView, field = inner)]` forwards the
 // full Widget surface to `inner`; the `override(..)` list below is supplied by the
-// inherent methods. `style_type`/`style_type_aliases` are delegated explicitly
-// (base= keeps the own type name by default, but this container's CSS identity is
-// the inner ScrollView's — preserving the prior `delegate_widget_method!` behavior).
+// inherent methods. `style_type` keeps the trait default so this node reports its
+// OWN CSS identity, "ScrollableContainer" — matching Python, where
+// `ScrollableContainer(Widget)` matches `ScrollableContainer` (and the universal
+// `Widget`) type selectors. The inner ScrollView is an implementation detail, NOT
+// a CSS supertype (in Python the subclass relation is the reverse:
+// `ScrollView(ScrollableContainer)`), so no `ScrollView` alias is carried.
 #[widget(
     base = ScrollView,
     field = inner,
@@ -18,9 +21,7 @@ use super::ScrollView;
         can_focus,
         can_focus_children,
         bindings,
-        execute_action,
-        style_type,
-        style_type_aliases
+        execute_action
     )
 )]
 pub struct ScrollableContainer {
@@ -205,14 +206,6 @@ impl ScrollableContainer {
             _ => self.inner.execute_action(action, ctx),
         }
     }
-
-    fn style_type(&self) -> &'static str {
-        self.inner.style_type()
-    }
-
-    fn style_type_aliases(&self) -> &[&'static str] {
-        self.inner.style_type_aliases()
-    }
 }
 
 impl Default for ScrollableContainer {
@@ -233,6 +226,58 @@ mod tests {
         assert!(sc.focusable());
         assert!(sc.can_focus_children());
         assert!(!sc.can_maximize());
+    }
+
+    // Python MRO parity: `ScrollableContainer(Widget)` matches the
+    // `ScrollableContainer` type selector (its own name, NOT the inner
+    // ScrollView's); `VerticalScroll(ScrollableContainer)` and
+    // `HorizontalScroll(ScrollableContainer)` match BOTH their own name and
+    // `ScrollableContainer` (via alias).
+    #[test]
+    fn scroll_family_css_identity_matches_python_mro() {
+        let sc = ScrollableContainer::new();
+        assert_eq!(sc.style_type(), "ScrollableContainer");
+        assert!(sc.style_type_aliases().is_empty());
+
+        let vs = crate::widgets::VerticalScroll::new();
+        assert_eq!(vs.style_type(), "VerticalScroll");
+        assert_eq!(vs.style_type_aliases(), ["ScrollableContainer"]);
+
+        let hs = crate::widgets::HorizontalScroll::new();
+        assert_eq!(hs.style_type(), "HorizontalScroll");
+        assert_eq!(hs.style_type_aliases(), ["ScrollableContainer"]);
+    }
+
+    // Python `containers.py` DEFAULT_CSS parity: the whole scroll family
+    // resolves `width: 1fr; height: 1fr` (VerticalScroll/HorizontalScroll
+    // inherit it from the ScrollableContainer rule via the alias), while each
+    // subclass's own later rule overrides the overflow axes.
+    #[test]
+    fn scroll_family_defaults_resolve_width_height_1fr() {
+        use crate::style::{Overflow, Scalar};
+        let sheet = crate::css::default_widget_stylesheet();
+        let _guard = crate::css::set_style_context(sheet);
+
+        let sc = ScrollableContainer::new();
+        let style = crate::css::resolve_style_for_meta(&crate::css::selector_meta_generic(&sc));
+        assert_eq!(style.width, Some(Scalar::Fraction(1.0)));
+        assert_eq!(style.height, Some(Scalar::Fraction(1.0)));
+        assert_eq!(style.overflow_x, Some(Overflow::Auto));
+        assert_eq!(style.overflow_y, Some(Overflow::Auto));
+
+        let vs = crate::widgets::VerticalScroll::new();
+        let style = crate::css::resolve_style_for_meta(&crate::css::selector_meta_generic(&vs));
+        assert_eq!(style.width, Some(Scalar::Fraction(1.0)));
+        assert_eq!(style.height, Some(Scalar::Fraction(1.0)));
+        assert_eq!(style.overflow_x, Some(Overflow::Hidden));
+        assert_eq!(style.overflow_y, Some(Overflow::Auto));
+
+        let hs = crate::widgets::HorizontalScroll::new();
+        let style = crate::css::resolve_style_for_meta(&crate::css::selector_meta_generic(&hs));
+        assert_eq!(style.width, Some(Scalar::Fraction(1.0)));
+        assert_eq!(style.height, Some(Scalar::Fraction(1.0)));
+        assert_eq!(style.overflow_x, Some(Overflow::Auto));
+        assert_eq!(style.overflow_y, Some(Overflow::Hidden));
     }
 
     #[test]

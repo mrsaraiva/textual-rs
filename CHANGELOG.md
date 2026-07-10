@@ -104,6 +104,31 @@ hand-implemented on the common path.
   field-wrapped / container-internal children (e.g. `Constrained`, `Panel`,
   `#[widget(base=…, field=…)]` delegation), which are not separate arena nodes.
 
+### Fixed — layout-parity: scroll-container CSS identity + unset-width box model
+
+- **`ScrollableContainer` reports its own CSS type** instead of delegating
+  `style_type()` to the inner `ScrollView` wrapper. Its nodes now match
+  `ScrollableContainer` type selectors — including the default
+  `ScrollableContainer { width: 1fr; height: 1fr; ... }` rule and demo CSS like
+  `Horizontal > ScrollableContainer { width: 50% }` (`styles/scrollbars`,
+  `styles/scrollbar_size2`) — matching Python, where
+  `ScrollableContainer(Widget)` is not a `ScrollView` subtype.
+- **`VerticalScroll`/`HorizontalScroll` carry a `ScrollableContainer`
+  style-type alias** mirroring Python's MRO (both subclass
+  `ScrollableContainer`), so they inherit the `width: 1fr; height: 1fr`
+  defaults from the single `ScrollableContainer` rule while their own later
+  rules override the overflow axes — exactly Python's DEFAULT_CSS inheritance
+  (fixes `how-to/layout05`, whose bare `VerticalScroll` columns had UNSET
+  width/height). Both wrappers moved from the deprecated `delegate_widget_to!`
+  macro to the first-class `#[widget(base = ScrollableContainer)]` attribute.
+- **An UNSET `width` with no intrinsic content fills the FULL container
+  width** (Python `Widget._get_box_model`:
+  `content_container.width - margin.width`) instead of flexing into a `1fr`
+  share — symmetric with the existing unset-HEIGHT rule. Multiple bare
+  unset-width children in a horizontal row each receive the container width
+  and overflow/scroll rather than splitting the viewport
+  (`guide/layout/horizontal_layout_overflow`).
+
 ### Fixed — layout-parity: per-layer arrangement + paint z-order, Static markup width
 
 - **Flow children are arranged per CSS `layer`** (Python `_arrange.py` +

@@ -481,10 +481,9 @@ pub(crate) fn extract_child_spec(
     // to compute the outer edge size (see `full_h_chrome` note above). The arena
     // flow layouts decide WHICH widgets contribute an `intrinsic_width` for the
     // unset case (only `width: auto` widgets and measured auto containers — never
-    // a fill leaf like a bare `Static`), so passing `None` here means "no hint →
-    // flex-fill", matching Python's `1fr` default for an unset width.
+    // a fill leaf like a bare `Static`).
     let mut width_edge = match style.width.as_ref() {
-        None | Some(Scalar::Auto) => {
+        Some(Scalar::Auto) => {
             if let Some(intrinsic) = intrinsic_width {
                 let min_size = min_w_cells.saturating_add(h_chrome);
                 let auto_size = intrinsic.saturating_add(full_h_chrome).max(min_size);
@@ -494,6 +493,8 @@ pub(crate) fn extract_child_spec(
                     min_size,
                 }
             } else {
+                // `width: auto` with no measurable content: flex-fill (existing
+                // behavior — distinct from an UNSET width, handled below).
                 scalar_to_edge(
                     None,
                     parent_width,
@@ -503,6 +504,39 @@ pub(crate) fn extract_child_spec(
                     min_w_cells,
                     h_chrome,
                 )
+            }
+        }
+        None => {
+            if let Some(intrinsic) = intrinsic_width {
+                // A widget that reports an intrinsic width despite an unset CSS
+                // width still sizes to its content (preserves auto-content leaves
+                // that omit an explicit `width: auto`).
+                let min_size = min_w_cells.saturating_add(h_chrome);
+                let auto_size = intrinsic.saturating_add(full_h_chrome).max(min_size);
+                Edge {
+                    size: Some(auto_size),
+                    fraction: 1,
+                    min_size,
+                }
+            } else {
+                // Python parity (`Widget._get_box_model`): an UNSET width with no
+                // intrinsic content fills the FULL container width
+                // (`content_container.width - margin.width`), it is NOT a `1fr`
+                // share. Each unset-width sibling independently receives the
+                // container width, so multiple bare unset children in a horizontal
+                // row overflow and scroll rather than splitting the viewport.
+                // A single unset child still fills the container (identical to the
+                // old flex-fill). Emitting a FIXED edge of the full container
+                // width (margin included; the horizontal layout subtracts margin
+                // from the resolved total) reproduces that — unlike a `1fr` edge,
+                // which `layout_resolve_1d` would divide among siblings.
+                // Mirrors the unset-HEIGHT arm above.
+                let min_size = min_w_cells.saturating_add(h_chrome);
+                Edge {
+                    size: Some(parent_width.max(min_size)),
+                    fraction: 1,
+                    min_size,
+                }
             }
         }
         // Explicit width. Like the height arm above, a percentage resolves against

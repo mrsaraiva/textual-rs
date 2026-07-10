@@ -1530,22 +1530,47 @@ mod tests {
         assert_layout_rect(&tree, b, 20, 0, 50, 50);
     }
 
+    // Python parity (`Widget._get_box_model`): an UNSET width with no intrinsic
+    // content resolves to the FULL container width — it does NOT shrink to the
+    // remaining space like a `1fr` share would. So after a fixed 20-cell
+    // sibling, the unset child spans the full 80 cells and overflows the row.
     #[test]
-    fn horizontal_fixed_plus_flex() {
+    fn horizontal_fixed_plus_unset_width() {
         let mut tree = WidgetTree::new();
         let root = tree.set_root(LayoutTestWidget::boxed("Container"));
         let fixed = tree.mount(
             root,
             LayoutTestWidget::boxed_with_style("Fixed", Style::new().width(Scalar::Cells(20))),
         );
-        let flex = tree.mount(root, LayoutTestWidget::boxed("Flex"));
+        let unset = tree.mount(root, LayoutTestWidget::boxed("Unset"));
 
         let available = Region::new(0, 0, 80, 50);
-        layout_horizontal(&mut tree, &[fixed, flex], available, (80, 50), false);
+        layout_horizontal(&mut tree, &[fixed, unset], available, (80, 50), false);
 
         assert_layout_rect(&tree, fixed, 0, 0, 20, 50);
-        // Flex: remaining = 80 - 20 = 60.
-        assert_layout_rect(&tree, flex, 20, 0, 80, 50);
+        // Unset width = full container width (80), placed after the fixed
+        // sibling → overflows the 80-cell row (Python: content is scrollable).
+        assert_layout_rect(&tree, unset, 20, 0, 100, 50);
+    }
+
+    // Python parity: EACH unset-width sibling independently receives the full
+    // container width; the row overflows to `n * container_width` instead of
+    // splitting the viewport into `1fr` shares (guide/layout
+    // horizontal_layout_overflow).
+    #[test]
+    fn horizontal_unset_width_children_each_fill_container_and_overflow() {
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(LayoutTestWidget::boxed("Container"));
+        let a = tree.mount(root, LayoutTestWidget::boxed("A"));
+        let b = tree.mount(root, LayoutTestWidget::boxed("B"));
+        let c = tree.mount(root, LayoutTestWidget::boxed("C"));
+
+        let available = Region::new(0, 0, 80, 50);
+        layout_horizontal(&mut tree, &[a, b, c], available, (80, 50), false);
+
+        assert_layout_rect(&tree, a, 0, 0, 80, 50);
+        assert_layout_rect(&tree, b, 80, 0, 160, 50);
+        assert_layout_rect(&tree, c, 160, 0, 240, 50);
     }
 
     #[test]

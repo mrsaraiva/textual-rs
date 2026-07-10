@@ -12,6 +12,12 @@ Container {
     overflow: hidden;
 }
 
+/* Python `containers.py::ScrollableContainer` DEFAULT_CSS. This single rule also
+   covers `VerticalScroll` / `HorizontalScroll`: those widgets carry
+   `style_type_aliases() == ["ScrollableContainer"]` (mirroring Python's MRO,
+   where both subclass ScrollableContainer), so they match this rule for the
+   `width: 1fr; height: 1fr` sizing and then their own later type rules override
+   layout/overflow — exactly Python's DEFAULT_CSS inheritance order. */
 ScrollableContainer {
     width: 1fr;
     height: 1fr;

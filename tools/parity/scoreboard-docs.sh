@@ -22,7 +22,9 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 PYTHON="${PYTHON:-/tmp/textual-venv/bin/python}"
 GROUP="${1:-widgets}"
 shift || true
-PY_DIR="$REPO_ROOT/../textual/docs/examples/$GROUP"
+# PY_ROOT: optional override for the Python Textual checkout (worktrees whose
+# parent dir does not contain ../textual). PY_DIR overrides the full group dir.
+PY_DIR="${PY_DIR:-${PY_ROOT:-$REPO_ROOT/../textual}/docs/examples/$GROUP}"
 RS_EX_DIR="$REPO_ROOT/docs/examples/$GROUP/examples"
 RS_BIN_DIR="$REPO_ROOT/docs/examples/target/debug/examples"
 OUT_DIR="$REPO_ROOT/target/parity-scoreboard/$GROUP"
