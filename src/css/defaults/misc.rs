@@ -634,21 +634,32 @@ ProgressBar {
     fg: $foreground;
 }
 
-Bar {
+/* Python's `Bar`/`PercentageStatus`/`ETAStatus` DEFAULT_CSS is SCOPED
+ * (textual scoped-CSS): those bare type selectors only ever match inside the
+ * declaring widget's subtree, and are lazily registered only when a
+ * ProgressBar is actually used. The Rust default sheet is global, so a bare
+ * `Bar { width: 32; height: 1 }` leaked onto any USER widget type named
+ * `Bar` (guide/input/binding01's `Bar(Static)` shrank to 32x1). Scope the
+ * selectors under `ProgressBar` to reproduce Python's scoping. (The Rust
+ * ProgressBar is monolithic — it hardcodes the 32-cell bar and suffix widths
+ * in `content_width()` and resolves `bar--*` component styles against its own
+ * node — so these scoped rules are parity documentation for a future
+ * sub-widget split, not live layout inputs.) */
+ProgressBar Bar {
     width: 32;
     height: 1;
 }
 
-Bar > .bar--bar { fg: $primary; bg: $surface; }
-Bar > .bar--complete { fg: $success; bg: $surface; }
-Bar > .bar--indeterminate { fg: $error; bg: $surface; }
+ProgressBar Bar > .bar--bar { fg: $primary; bg: $surface; }
+ProgressBar Bar > .bar--complete { fg: $success; bg: $surface; }
+ProgressBar Bar > .bar--indeterminate { fg: $error; bg: $surface; }
 
-PercentageStatus {
+ProgressBar PercentageStatus {
     width: 5;
     content-align-horizontal: right;
 }
 
-ETAStatus {
+ProgressBar ETAStatus {
     width: 9;
     content-align-horizontal: right;
 }

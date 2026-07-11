@@ -239,15 +239,20 @@ impl ScrollbarPolicy {
                 .scrollbar_visibility
                 .unwrap_or(ScrollbarVisibility::Auto),
             gutter: style.scrollbar_gutter.unwrap_or(ScrollbarGutter::Auto),
+            // Python accepts `scrollbar-size: 0` (`_styles_builder.py`
+            // `process_scrollbar_size` validates `isdigit()` only): a 0-size
+            // lane reserves no gutter and paints no bar while the host stays
+            // scrollable — e.g. `guide/actions` `#page-container
+            // { scrollbar-size: 0 0; }`. Do NOT clamp the CSS value up to 1.
             vertical_size: style
                 .scrollbar_size_vertical
                 .or(style.scrollbar_size)
-                .map(|size| size.max(1) as usize)
+                .map(|size| size as usize)
                 .unwrap_or(default_vertical_size.max(1)),
             horizontal_size: style
                 .scrollbar_size_horizontal
                 .or(style.scrollbar_size)
-                .map(|size| size.max(1) as usize)
+                .map(|size| size as usize)
                 .unwrap_or(default_horizontal_size.max(1)),
         }
     }

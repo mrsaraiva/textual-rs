@@ -1584,8 +1584,14 @@ fn parity_set_reactive01_greeting() {
 }
 
 /// set_reactive02: same interaction; greeting initialised via `set_reactive`.
+///
+/// FIXED (the residual 5 cells were NOT a placement margin-collapse bug — the
+/// horizontal arrange already collapsed): (1) `measure_intrinsic_content_width`
+/// SUMMED adjacent child margins where the arrange collapses them, so the auto
+/// Greeter measured 1 wide per interior gap and mis-centered; (2) the demo's
+/// watchers only set the Label text — Python `Label.update()` refreshes with
+/// `layout=True`, so the watchers now `ctx.request_layout()` to re-measure.
 #[test]
-#[ignore = "PORT/LAYOUT root, not reactive. The compose-time `who` value WAS already visible (compose reads self.who=\"Textual\" correctly); the `who` Label was missing because the Rust `Greeter` (a port of Python `class Greeter(Horizontal)`) lacked `layout: horizontal`, so its two Labels stacked vertically and the second was clipped by height:1. Added `layout: horizontal` to the Greeter CSS (matching the established Stopwatch-subclasses-Horizontal port pattern) — \"Hola Textual\" now renders side by side. Residual: 5 cells — Python collapses the two adjacent 1-cell horizontal Label margins to 1 (max), Rust sums them to 2. Horizontal margin-collapse is a layout fundamental (src/widgets/layout.rs), out of reactive scope."]
 fn parity_set_reactive02_greeting() {
     let script = [Step::Key(Key::Space), Step::Wait(300)];
     let (rf, pf) = cat_both("set_reactive02", "guide/reactivity", &script, 400);
@@ -2058,8 +2064,13 @@ fn parity_input_key03_grid() {
 /// binding01: Footer with r/g/b bindings; each press mounts a coloured Bar with
 /// a 50%-alpha background. Press r, g, b; compare the three stacked bars + the
 /// Footer.
+/// FIXED (was mis-diagnosed as a vertical-margin bug — margins were honoured):
+/// the real roots were (1) the framework default stylesheet's UNSCOPED
+/// `Bar { width: 32; height: 1 }` (ProgressBar's inner widget CSS; Python
+/// scopes DEFAULT_CSS) leaking onto the demo's custom `Bar` type, and (2) the
+/// demo CSS using `rgba(.., 128)` u8 alpha where CSS/Python alpha is 0-1
+/// (clamped to opaque, losing the 50% blend).
 #[test]
-#[ignore = "BUG: the bars are coloured + the Footer matches, but the per-Bar top margin (`margin: 1 2`, height 5) is not applied — Rust packs the stacked Bars one row higher than Python (red at row2 vs row3, etc.). 24 glyph cells. Root: vertical (top) margin on stacked mounted widgets not honoured."]
 fn parity_input_binding01_bars() {
     let script = [
         Step::SendKeys("r"),
@@ -2148,8 +2159,14 @@ fn parity_actions05_red_bg() {
 /// actions06: five Placeholder pages in a HorizontalScroll + Footer; `n`
 /// advances. Press `n` twice; the third page scrolls into view and the Footer
 /// reflects available bindings.
+/// FIXED (was: blank page after `n`): three real roots — (1) the scroll-host
+/// child clip in `render_tree_node` translated by the UNSCROLLED origin, so
+/// any offset != 0 culled the on-screen page (blank viewport); (2)
+/// `App::scroll_visible` added the current offset to the (already virtual)
+/// layout_rect, over-scrolling by the current offset on the second press;
+/// (3) `scrollbar-size: 0 0` was clamped to 1, stealing a row from the pages
+/// (the "content-align middle off-by-one" was really this missing row).
 #[test]
-#[ignore = "BUG (mis-diagnosed root — Placeholder label + per-index palette are CORRECT). Verified: at rest (page 0) Rust renders bg #4d1144 == Python and the `Page 0` label renders; the palette matches Python's `_PLACEHOLDER_BACKGROUND_COLORS`. The real failure is that after `n` → `app.scroll_visible(#page-N)` the HorizontalScroll over-scrolls and the visible page's placeholder area goes blank (#121212) instead of showing the target page (so `Page 2` + its #6f3c3c fill are missing). Secondary: a content-align:middle vertical-centering off-by-one (label lands one row high vs Python). Root: HorizontalScroll scroll_visible offset + content-align centering (layout/runtime), NOT placeholder.rs."]
 fn parity_actions06_next_page() {
     let script = [
         Step::SendKeys("n"),
@@ -2163,8 +2180,9 @@ fn parity_actions06_next_page() {
 
 /// actions07: same pages, bindings=True reactive (disabled bindings dim in the
 /// Footer rather than disappearing). Press `n` once.
+/// FIXED: same three roots as actions06 (scrolled-child clip origin,
+/// scroll_visible offset double-count, scrollbar-size 0 clamp).
 #[test]
-#[ignore = "BUG (mis-diagnosed root — Placeholder label + palette are CORRECT, verified at rest). Same real root as actions06: after `n` → `scroll_visible` the HorizontalScroll over-scrolls and the visible placeholder area goes blank (#121212) instead of the target page + its fill, plus a content-align:middle centering off-by-one. Root: HorizontalScroll scroll_visible offset + content-align centering (layout/runtime), NOT placeholder.rs."]
 fn parity_actions07_next_page() {
     let script = [Step::SendKeys("n"), Step::Wait(400)];
     let (rf, pf) = cat_both("actions07", "guide/actions", &script, 500);

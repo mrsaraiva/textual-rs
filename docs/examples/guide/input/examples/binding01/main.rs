@@ -25,15 +25,15 @@ Bar {
 }
 
 .red {
-    background: rgba(255, 0, 0, 128);
+    background: rgba(255, 0, 0, 0.5);
 }
 
 .green {
-    background: rgba(0, 128, 0, 128);
+    background: rgba(0, 128, 0, 0.5);
 }
 
 .blue {
-    background: rgba(0, 0, 255, 128);
+    background: rgba(0, 0, 255, 0.5);
 }
 
 #bars {

@@ -1228,11 +1228,19 @@ fn render_tree_node(
         if use_scroll_ctx {
             if let Some(child) = tree.get(child_id) {
                 let rect = child.layout_rect;
+                // The child's layout_rect is in the host's VIRTUAL (unscrolled)
+                // space; the child paints at the SCROLLED origin
+                // (`next_ctx.origin == base - scroll_offset`). The clip must
+                // bound where the child actually paints, so translate the rect
+                // by the scrolled origin. Using the unscrolled origin here made
+                // every child's clip miss its painted position as soon as the
+                // host scrolled (offset != 0): the on-screen child was culled
+                // (empty clip intersection) and the viewport went blank.
                 let child_clip = ClipRect {
-                    x0: i32::from(rect.x0) + base_child_ctx.origin_x,
-                    y0: i32::from(rect.y0) + base_child_ctx.origin_y,
-                    x1: i32::from(rect.x1) + base_child_ctx.origin_x,
-                    y1: i32::from(rect.y1) + base_child_ctx.origin_y,
+                    x0: i32::from(rect.x0) + next_ctx.origin_x,
+                    y0: i32::from(rect.y0) + next_ctx.origin_y,
+                    x1: i32::from(rect.x1) + next_ctx.origin_x,
+                    y1: i32::from(rect.y1) + next_ctx.origin_y,
                 };
                 if let Some(intersection) = next_ctx.clip.intersect(child_clip) {
                     next_ctx.clip = intersection;
@@ -3031,6 +3039,11 @@ fn apply_host_scrollbar_layout(tree: &mut WidgetTree, viewport: (u16, u16)) {
             // hidden (`paint`). Python: the compositor adds the chrome widget
             // only when `show_vertical_scrollbar` AND
             // `scrollbar_visibility == "visible"`.
+            // A `scrollbar-size: .. 0` lane reserves nothing and paints nothing
+            // (Python: a 0-size scrollbar region is empty), so also gate on the
+            // resolved lane width — otherwise the zero-rect bar would inherit
+            // the host clip and paint its `thickness.max(1)` glyphs over content.
+            let show = show && geometry.vertical_lane_width > 0;
             set_runtime_display(tree, v_id, show && geometry.paint_vertical);
             // The lane RECT is driven by lane RESERVATION
             // (`vertical_lane_width > 0`), NOT by `show`. Under
@@ -3072,10 +3085,12 @@ fn apply_host_scrollbar_layout(tree: &mut WidgetTree, viewport: (u16, u16)) {
         if let Some(h_id) = scrollbar_children.horizontal {
             // Fix B: same as vertical — use show_horizontal not horizontal_lane_height > 0.
             let show = geometry.show_horizontal;
-            // See the vertical block: display gated on `show && paint`; the lane
+            // See the vertical block: display gated on `show && paint` (and a
+            // non-zero lane — `scrollbar-size: 0 ..` paints nothing); the lane
             // RECT is driven by lane reservation (`horizontal_lane_height > 0`),
             // so a stable-gutter reserved lane keeps its rect even with no
             // overflow or hidden visibility.
+            let show = show && geometry.horizontal_lane_height > 0;
             set_runtime_display(tree, h_id, show && geometry.paint_horizontal);
             let rect = if geometry.horizontal_lane_height > 0 {
                 crate::widget_tree::Rect {
@@ -3108,7 +3123,10 @@ fn apply_host_scrollbar_layout(tree: &mut WidgetTree, viewport: (u16, u16)) {
             // Corner is PAINTED only when BOTH scrollbar widgets are shown AND
             // painted. Under `scrollbar-visibility: hidden` the lanes stay
             // reserved but neither bar (nor the corner) is painted.
-            let show = geometry.show_vertical && geometry.show_horizontal;
+            let show = geometry.show_vertical
+                && geometry.show_horizontal
+                && geometry.vertical_lane_width > 0
+                && geometry.horizontal_lane_height > 0;
             let paint = geometry.paint_vertical && geometry.paint_horizontal;
             set_runtime_display(tree, c_id, show && paint);
             // Corner RECT is driven by lane reservation (both lanes reserved),

@@ -2717,7 +2717,10 @@ impl App {
                 };
                 if let Some(vp) = anc_node.widget.scroll_viewport_size() {
                     let scroll_off = anc_node.widget.scroll_offset();
-                    let anc_rect = anc_node.layout_rect;
+                    // Virtual child positions originate at the host's CONTENT
+                    // box (resolve_layout lays flow children from
+                    // `content_rect`), not its outer layout rect.
+                    let anc_rect = anc_node.content_rect;
                     found = Some((anc_id, widget_rect, anc_rect, scroll_off, vp));
                     break;
                 }
@@ -2733,14 +2736,18 @@ impl App {
         // --- Compute target offsets ---
 
         // Widget position in the virtual content coordinate space of the
-        // scroll container: screen_pos − container_origin + current_offset.
+        // scroll container. Tree `layout_rect`s are VIRTUAL (the layout pass
+        // never subtracts the host's scroll offset; the render walk translates
+        // at paint time), so the virtual position is simply
+        // `widget_rect − container_content_origin`. Adding the current scroll
+        // offset here would count it twice and over-scroll by exactly the
+        // current offset on every call after the first (Python parity:
+        // `Widget.virtual_region` is likewise scroll-independent).
         let virt_x = (widget_rect.x0 as i64)
             .saturating_sub(anc_rect.x0 as i64)
-            .saturating_add(offset_x as i64)
             .max(0) as usize;
         let virt_y = (widget_rect.y0 as i64)
             .saturating_sub(anc_rect.y0 as i64)
-            .saturating_add(offset_y as i64)
             .max(0) as usize;
         let widget_w = widget_rect.x1.saturating_sub(widget_rect.x0) as usize;
         let widget_h = widget_rect.y1.saturating_sub(widget_rect.y0) as usize;

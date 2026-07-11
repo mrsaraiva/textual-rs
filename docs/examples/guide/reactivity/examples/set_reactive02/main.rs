@@ -67,18 +67,23 @@ impl Greeter {
         }
     }
 
-    fn watch_greeting(&mut self, app: &mut App, _old: &String, new: &String, _ctx: &mut ReactiveCtx) {
+    fn watch_greeting(&mut self, app: &mut App, _old: &String, new: &String, ctx: &mut ReactiveCtx) {
         let new = new.clone();
         let _ = app.with_query_one_mut_as::<Label, _>("#greeting", |label| {
             label.set_text(new);
         });
+        // Python `Label.update()` refreshes with `layout=True`: the new text may
+        // change the Label's auto width, so the Greeter re-measures/re-centers.
+        ctx.request_layout();
     }
 
-    fn watch_who(&mut self, app: &mut App, _old: &String, new: &String, _ctx: &mut ReactiveCtx) {
+    fn watch_who(&mut self, app: &mut App, _old: &String, new: &String, ctx: &mut ReactiveCtx) {
         let new = new.clone();
         let _ = app.with_query_one_mut_as::<Label, _>("#who", |label| {
             label.set_text(new);
         });
+        // See `watch_greeting`: `Label.update()` implies a layout refresh.
+        ctx.request_layout();
     }
 }
 

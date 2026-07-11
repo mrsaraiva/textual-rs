@@ -795,6 +795,16 @@ pub(crate) fn measure_intrinsic_content_width(
     let mut horizontal_sum: u16 = 0;
     let mut vertical_max: u16 = 0;
     let mut any = false;
+    // Adjacent horizontal margins COLLAPSE in the horizontal arrange (the gap is
+    // `max(prev.right, next.left)`, Python `layouts/horizontal.py`), so the
+    // intrinsic width of an auto container must count each interior gap ONCE.
+    // `measure_child_outer_width` folds each child's FULL left+right margin into
+    // `outer`; subtract the per-pair overlap `min(prev.right, next.left)` so the
+    // measured width matches the arranged width (Python `get_content_width`
+    // measures via the arrangement itself). Without this an auto `Horizontal`
+    // with margined children (e.g. `Greeter > Label { margin: 0 1 }`) measured
+    // 1 cell too wide per interior gap and mis-centered under `align: center`.
+    let mut prev_margin_right: Option<u16> = None;
     for child in children {
         let Some(child_ref) = tree.get(child) else {
             continue;
@@ -808,7 +818,12 @@ pub(crate) fn measure_intrinsic_content_width(
         }
         let outer = measure_child_outer_width(tree, child, &child_style, viewport);
         any = true;
-        horizontal_sum = horizontal_sum.saturating_add(outer);
+        let margin = child_style.effective_margin();
+        let overlap = prev_margin_right
+            .map(|prev_right| prev_right.min(margin.left))
+            .unwrap_or(0);
+        horizontal_sum = horizontal_sum.saturating_add(outer).saturating_sub(overlap);
+        prev_margin_right = Some(margin.right);
         vertical_max = vertical_max.max(outer);
     }
     if !any {
@@ -899,12 +914,22 @@ pub(crate) fn measure_intrinsic_content_height(
 
     let mut vertical_sum: u16 = 0;
     let mut horizontal_max: u16 = 0;
+    // Adjacent vertical margins COLLAPSE in the vertical arrange (the gap is
+    // `max(prev.bottom, next.top)`, Python `layouts/vertical.py`), so the
+    // intrinsic height of an auto container counts each interior gap once —
+    // symmetric with `measure_intrinsic_content_width`'s horizontal arm.
+    let mut prev_margin_bottom: Option<u16> = None;
     for (child, child_style) in &displayed {
         // Recursive measurement keeps the existing "arrange at 0" behaviour
         // (pass 0) — only a directly-laid-out auto container gets the real
         // available height from the layout call sites.
         let outer = measure_child_outer_height(tree, *child, child_style, viewport);
-        vertical_sum = vertical_sum.saturating_add(outer);
+        let margin = child_style.effective_margin();
+        let overlap = prev_margin_bottom
+            .map(|prev_bottom| prev_bottom.min(margin.top))
+            .unwrap_or(0);
+        vertical_sum = vertical_sum.saturating_add(outer).saturating_sub(overlap);
+        prev_margin_bottom = Some(margin.bottom);
         horizontal_max = horizontal_max.max(outer);
     }
     Some(match layout {
