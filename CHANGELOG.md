@@ -7,6 +7,47 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### Fixed — runtime focus parity: focus-on-click + focus transfer when the focused widget hides
+
+Two missing focus fundamentals (tutorial `stopwatch04` now passes glyph+colour
+in the interactive parity harness):
+
+- **Focus follows mouse-down** (Python `Screen._forward_event`): pressing the
+  mouse focuses the nearest focusable widget under the pointer (self or
+  ancestor) before the event is forwarded. System widgets (`-textual-system`,
+  dedicated scrollbar lanes) never take click focus. Wired in both the live
+  loop and the headless/Pilot click path.
+- **Focus transfers when the focused widget stops being shown** (Python
+  `Widget._on_hide` → `Screen._reset_focus`): when a class op/style change
+  makes the focused widget `display: none` (or `visibility: hidden`), focus
+  hands off to its first shown focusable sibling, else clears. Previously the
+  hidden widget kept a stale focus flag (invisible to `:focus` styling, and it
+  would silently steal focus back when re-shown). Regression tests:
+  `src/runtime/hidden_focus_reset_regression.rs`.
+- `Button`'s `press` binding is now hidden from footer/help hints
+  (Python: `Binding("enter", "press", …, show=False)`).
+
+### Fixed — runtime style mutations that affect layout now relayout
+
+`query_mut(..).set_styles(..)` diff-detects the mutation: layout-affecting
+changes (width/margin/`offset`/…, mirroring Python's `refresh(layout=True)`
+style properties) request a relayout, and any change requests a repaint —
+previously the new style was recorded but the widget kept its stale rect
+(guide/input `mouse01`'s mouse-following Ball never moved). CSS `offset` is
+also now correctly classed as layout-affecting in the computed-style cache.
+Regression tests: `tests/set_styles_relayout.rs`.
+
+### Fixed — Markdown code fences highlight with THEME-token styles (Python parity)
+
+Fenced code blocks in `Markdown`/`MarkdownViewer` are now lexed (syntect) and
+styled from the app THEME tokens exactly like Python's `textual/highlight.py`
+pygments mapping (`Token.Keyword -> $text-accent`, `Token.Name.Function ->
+$text-warning underline`, docstrings `$text-success 80% italic` flattened over
+the fence surface, bare identifiers `$text-primary`, …) — instead of rich-rs'
+built-in syntect colour scheme, which painted a foreign monokai theme including
+its own background. The widgets/markdown demo's python fence now renders
+byte-identical SGR to Python. New module: `src/highlight.rs`.
+
 ### BREAKING — the RA-2 batch (one pre-1.0 breaking wave; migration index)
 
 This release lands the RA-2 breaking batch in full. After it, the `Widget`

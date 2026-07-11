@@ -465,7 +465,7 @@ pub(crate) fn pop_style_context() {
     STYLE_STACK.with(|stack| stack.borrow_mut().pop());
 }
 
-fn layout_fields_equal(a: &Style, b: &Style) -> bool {
+pub(crate) fn layout_fields_equal(a: &Style, b: &Style) -> bool {
     a.margin == b.margin
         && a.padding == b.padding
         && a.border_top == b.border_top
@@ -515,6 +515,9 @@ fn layout_fields_equal(a: &Style, b: &Style) -> bool {
         && a.constrain_x == b.constrain_x
         && a.constrain_y == b.constrain_y
         && a.expand == b.expand
+        // `offset` moves the widget's placement (Python `OffsetProperty` is
+        // `refresh(layout=True)`): a change must count as layout-affecting.
+        && a.offset == b.offset
 }
 
 pub(crate) fn begin_style_render_pass() {

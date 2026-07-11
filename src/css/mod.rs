@@ -21,6 +21,7 @@ pub(crate) use selectors::{
     apply_style_to_segments, apply_widget_opacity_to_segments, begin_style_render_pass,
     current_ancestor_composited_background, current_composited_background, current_host_style,
     cover_selector_meta, current_parent_style, current_self_style,
+    layout_fields_equal,
     node_selector_meta, node_selector_meta_from_node, parse_selector_list, pop_style_context,
     push_style_context,
     resolve_node_style, resolve_style, resolve_style_for_meta,

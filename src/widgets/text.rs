@@ -491,16 +491,6 @@ pub(crate) fn count_rendered_lines(segments: Segments) -> usize {
     lines.len().max(1)
 }
 
-fn rendered_markdown_height(markup: &str, width: usize) -> usize {
-    let console = Console::new();
-    let mut options = console.options().clone();
-    options.size = (width.max(1), 1);
-    options.max_width = width.max(1);
-    options.max_height = 1;
-    let rendered = rich_rs::markdown::Markdown::new(markup.to_string()).render(&console, &options);
-    count_rendered_lines(rendered)
-}
-
 pub(crate) fn rendered_plain_height(text: &str, width: usize) -> usize {
     let console = Console::new();
     let mut options = console.options().clone();
@@ -1166,16 +1156,22 @@ impl crate::widgets::Render for MarkdownParagraphBlock {
 #[derive(Debug)]
 #[widget(Interactive, Layout)]
 struct MarkdownFenceBlock {
-    raw: String,
+    language: String,
+    code: String,
     layout_width: usize,
 }
 
 impl MarkdownFenceBlock {
-    fn new(raw: String) -> Self {
+    fn new(language: String, code: String) -> Self {
         Self {
-            raw,
+            language,
+            code,
             layout_width: 0,
         }
+    }
+
+    fn code_line_count(&self) -> usize {
+        self.code.trim_end_matches('\n').split('\n').count().max(1)
     }
 }
 
@@ -1189,16 +1185,68 @@ impl crate::widgets::Interactive for MarkdownFenceBlock {
 
 impl crate::widgets::Layout for MarkdownFenceBlock {
     fn layout_height(&self) -> Option<usize> {
-        Some(rendered_markdown_height(
-            &self.raw,
-            self.layout_width.max(1),
-        ))
+        // Python: the fence Label holds one row per code line; `overflow:
+        // scroll hidden` means long lines clip instead of wrapping.
+        Some(self.code_line_count())
     }
 }
 
 impl crate::widgets::Render for MarkdownFenceBlock {
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        rich_rs::markdown::Markdown::new(self.raw.clone()).render(console, options)
+    /// Python parity (`MarkdownFence` + `textual/highlight.py`): lex the code
+    /// and style tokens from THEME tokens ($text-accent, $text-warning, …) —
+    /// not a highlighter colour scheme — over the fence's own CSS surface.
+    /// (rich-rs' Markdown/Syntax renderable would paint a foreign syntect
+    /// theme, including its own background.)
+    fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+        // The fence surface: its own `background: black 10%` composited over
+        // the ancestor surface (STYLE_STACK top is this widget's style during
+        // render). Fractional-alpha token styles flatten over it, matching
+        // Python's Content flattening.
+        let surface = crate::css::current_composited_background()
+            .or_else(|| crate::style::parse_color_like("$background"))
+            .unwrap_or(crate::style::Color::rgb(0, 0, 0));
+        let resolve = |color: crate::highlight::HighlightColor, alpha: f32| {
+            let token = crate::style::parse_color_like(&format!("${}", color.token()))?;
+            // Token colours apply their STYLE's alpha, not the token's own
+            // (e.g. `$text` = contrast at 87%, but the base code style renders
+            // it opaque — measured against Python).
+            let opaque = crate::style::Color::rgb(token.r, token.g, token.b);
+            Some(if alpha < 1.0 {
+                opaque.blend_over_float(surface, alpha)
+            } else {
+                opaque
+            })
+        };
+
+        let lines = crate::highlight::highlight_lines(&self.code, &self.language);
+        let line_count = lines.len();
+        let mut segments: Vec<Segment> = Vec::new();
+        for (idx, spans) in lines.into_iter().enumerate() {
+            for span in spans {
+                let mut style = rich_rs::Style::new();
+                // Python's `highlight()` lays a base `$text` span under the
+                // whole code, so unstyled runs are $text — not the fence CSS
+                // `color`.
+                let color = span.style.color.unwrap_or(crate::highlight::HighlightColor::Text);
+                if let Some(resolved) = resolve(color, span.style.alpha) {
+                    style = style.with_color(resolved.to_simple_opaque());
+                }
+                if span.style.bold {
+                    style = style.with_bold(true);
+                }
+                if span.style.italic {
+                    style = style.with_italic(true);
+                }
+                if span.style.underline {
+                    style = style.with_underline(true);
+                }
+                segments.push(Segment::styled(span.text, style));
+            }
+            if idx + 1 < line_count {
+                segments.push(Segment::line());
+            }
+        }
+        Segments::from(segments)
     }
 
     fn style_type(&self) -> &'static str {
@@ -2451,8 +2499,8 @@ fn push_block_widget(children: &mut Vec<Box<dyn Widget>>, block: MarkdownBlock) 
                 row_markups,
             )));
         }
-        MarkdownBlock::CodeFence { raw, .. } => {
-            children.push(Box::new(MarkdownFenceBlock::new(raw)));
+        MarkdownBlock::CodeFence { language, code, .. } => {
+            children.push(Box::new(MarkdownFenceBlock::new(language, code)));
         }
         MarkdownBlock::HorizontalRule => {
             children.push(Box::new(MarkdownHorizontalRuleBlock::new()));

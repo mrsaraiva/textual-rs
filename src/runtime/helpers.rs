@@ -165,6 +165,100 @@ pub(crate) fn collect_focus_chain_tree(tree: &WidgetTree) -> Vec<NodeId> {
     focus_chain
 }
 
+/// Find the node carrying raw focus state, IGNORING display/visibility.
+///
+/// [`focused_node_id_tree`] deliberately filters out hidden nodes (a hidden
+/// widget must not receive input or match `:focus`), so once the focused
+/// widget goes `display: none` its stale `state.focused` flag is invisible to
+/// that finder — but it is exactly the node the hide-reset must blur (else it
+/// silently steals focus back when re-shown).
+pub(crate) fn raw_focused_node_id(tree: &WidgetTree) -> Option<NodeId> {
+    let root = tree.root()?;
+    tree.walk_depth_first(root)
+        .into_iter()
+        .find(|&node_id| tree.get(node_id).is_some_and(|node| node.state.focused))
+}
+
+/// Whether a node's OWN flags allow it to be shown: effective `display`
+/// (css && runtime, as merged by `WidgetTree::recompute_display`) and
+/// `visibility: visible`.
+fn node_self_shown(tree: &WidgetTree, node_id: NodeId) -> bool {
+    tree.get(node_id)
+        .map(|node| node.display && node.visibility == crate::style::Visibility::Visible)
+        .unwrap_or(false)
+}
+
+/// Python `Screen.get_focusable_widget_at` (`screen.py`): the widget under
+/// the pointer, or its nearest focusable ancestor. System widgets
+/// (`-textual-system` — scrollbars, tooltips, toasts) never take focus from a
+/// click; Rust's dedicated scrollbar lanes are checked explicitly as well
+/// (Python's `ScrollBar.DEFAULT_CLASSES` carries `-textual-system`).
+pub(crate) fn focusable_node_for_click(tree: &WidgetTree, target: NodeId) -> Option<NodeId> {
+    if tree.has_class(target, "-textual-system") || node_is_dedicated_scrollbar(tree, target) {
+        return None;
+    }
+    std::iter::once(target)
+        .chain(tree.ancestors(target))
+        .find(|&id| {
+            tree.get(id).is_some_and(|node| {
+                node.widget.focusable() && !node.state.disabled && node_self_shown(tree, id)
+            })
+        })
+}
+
+/// Reset focus when the focused widget is no longer shown.
+///
+/// Python parity: when a widget stops being displayed the compositor sends it
+/// `events.Hide`; `Widget._on_hide` calls `self.blur()` which runs
+/// `Screen._reset_focus` (`screen.py`). The hidden widget is no longer in the
+/// focus chain, so `_reset_focus` falls to its sibling branch: focus the first
+/// focusable widget in `visible_siblings`, else clear focus entirely.
+/// (Tutorial stopwatch: clicking `#start` sets it `display: none` and reveals
+/// `#stop` — Python moves focus to `#stop` so it renders with `Button:focus`
+/// styling.)
+///
+/// Call after CSS display/visibility has been re-resolved onto the tree
+/// (`apply_display_visibility_to_tree`). Returns `true` when the focus state
+/// changed (transferred or cleared).
+pub(crate) fn reset_focus_for_hidden_node(tree: &mut WidgetTree) -> bool {
+    let Some(focused) = raw_focused_node_id(tree) else {
+        return false;
+    };
+    let ancestors_shown = tree
+        .ancestors(focused)
+        .iter()
+        .all(|&ancestor| node_self_shown(tree, ancestor));
+    if ancestors_shown && node_self_shown(tree, focused) {
+        return false;
+    }
+
+    tree.set_focus_state(focused, false);
+
+    // Python `Screen._reset_focus`: "Move to a sibling if possible" — the
+    // first sibling (DOM order) that is shown and focusable. Siblings share
+    // the focused node's ancestors, so this can only succeed when those are
+    // still shown.
+    if ancestors_shown && let Some(parent) = tree.parent(focused) {
+        let siblings = tree.children(parent).to_vec();
+        for sibling in siblings {
+            if sibling == focused {
+                continue;
+            }
+            let focusable = tree
+                .get(sibling)
+                .map(|node| node.widget.focusable() && !node.state.disabled)
+                .unwrap_or(false);
+            if focusable && node_self_shown(tree, sibling) {
+                tree.set_focus_state(sibling, true);
+                return true;
+            }
+        }
+    }
+
+    // No candidate: focus stays cleared (Python `set_focus(None)`).
+    true
+}
+
 /// Forward `on_mouse_move` through the target bubble path (target → root).
 ///
 /// Coordinates are provided in screen space and translated per node to

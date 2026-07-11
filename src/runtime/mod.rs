@@ -14,6 +14,7 @@ mod toast_rack_regression;
 #[cfg(test)]
 mod tooltip_regression;
 #[cfg(test)]
+mod hidden_focus_reset_regression;
 mod overlay_focus_regression;
 mod widget_ctx;
 mod helpers;
@@ -358,10 +359,39 @@ impl<'a> DomQueryMut<'a> {
 
     pub fn set_styles(self, f: impl FnMut(&mut WidgetStyles)) -> Self {
         let mut f = f;
+        let mut layout_changed = false;
+        let mut changed_nodes: Vec<NodeId> = Vec::new();
         if let Some(tree) = self.app.widget_tree.as_mut() {
             for &id in &self.nodes {
+                let before = tree.styles(id).cloned();
                 tree.update_styles(id, |s| f(s));
+                let after = tree.styles(id).cloned();
+                if before == after {
+                    continue;
+                }
+                changed_nodes.push(id);
+                match (&before, &after) {
+                    (Some(before), Some(after)) => {
+                        if before.layout != after.layout
+                            || !crate::css::layout_fields_equal(&before.style, &after.style)
+                        {
+                            layout_changed = true;
+                        }
+                    }
+                    _ => layout_changed = true,
+                }
             }
+        }
+        // Python parity: every style-property setter refreshes the widget, and
+        // layout-affecting properties (width, margin, `offset`, …) refresh with
+        // `layout=True` (`css/_style_properties.py`). Without the relayout, a
+        // runtime `offset` mutation (guide/input `mouse01`'s Ball) repaints
+        // with the STALE layout rect and the widget never moves.
+        if layout_changed {
+            self.app.pending_force_relayout = true;
+        }
+        if !changed_nodes.is_empty() {
+            self.app.request_query_refresh(&changed_nodes);
         }
         self
     }

@@ -33,6 +33,10 @@ tree-sitter-python = "0.23"
 tree-sitter-java = "0.23"
 slotmap = "1.1"
 regex = "1.12"
+# Code-fence lexing for `src/highlight.rs` (Python `textual/highlight.py` uses
+# pygments; syntect is the Rust analogue and is already in the dependency tree
+# via rich-rs with a superset feature set, so this adds no new build cost).
+syntect = { version = "5.3", default-features = false, features = ["default-syntaxes", "regex-onig", "parsing"] }
 open = "5.3"
 textual-macros = { version = "1.0.0-dev", path = "textual-macros" }
 pulldown-cmark = "0.13"

@@ -15,6 +15,7 @@ pub mod driver;
 mod error;
 pub mod event;
 pub mod handle;
+pub(crate) mod highlight;
 pub mod keys;
 pub mod layout;
 pub mod message;

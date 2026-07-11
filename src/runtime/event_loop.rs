@@ -3337,6 +3337,21 @@ impl App {
                                     } else {
                                         self.clear_selection_click_streak();
                                     }
+                                    // Python `Screen._forward_event` (MouseDown):
+                                    // focus the nearest focusable widget under the
+                                    // pointer BEFORE forwarding the event
+                                    // (`get_focusable_widget_at` + `set_focus`).
+                                    let focus_target =
+                                        self.active_widget_tree().and_then(|tree| {
+                                            crate::runtime::helpers::focusable_node_for_click(
+                                                tree, target,
+                                            )
+                                        });
+                                    if let Some(focus_target) = focus_target
+                                        && self.set_focus_node(focus_target)
+                                    {
+                                        pending_invalidation.request_full_content();
+                                    }
                                     let mut outcome = self.dispatch_event_to_target_auto(
                                         root,
                                         target,
@@ -4587,6 +4602,13 @@ impl App {
                 pending.request_full_content();
             }
 
+            // Python parity: focus must leave a widget this pass just hid (see
+            // `reset_focus_on_hidden`). The live loop gets this at the end of
+            // its per-iteration reactive phase; the pump only runs that phase
+            // when queues are non-empty (a class op is applied inline by
+            // `absorb_outcome`), so sweep explicitly.
+            self.reset_focus_on_hidden(pending);
+
             // Render if dirty.
             if pending.is_dirty() || self.resized_since_last_render {
                 progressed = true;
@@ -5064,6 +5086,16 @@ impl App {
             let (x, y) = self.content_local_coords_auto(target, screen_x, screen_y);
             self.click_tracker
                 .on_mouse_down(target, x, y, screen_x, screen_y, 0);
+            // Python `Screen._forward_event` (MouseDown): focus the nearest
+            // focusable widget under the pointer BEFORE forwarding the event.
+            let focus_target = self
+                .active_widget_tree()
+                .and_then(|tree| crate::runtime::helpers::focusable_node_for_click(tree, target));
+            if let Some(focus_target) = focus_target
+                && self.set_focus_node(focus_target)
+            {
+                pending.request_full_content();
+            }
             let down_event = Event::MouseDown(MouseDownEvent {
                 target,
                 screen_x,
@@ -5882,6 +5914,55 @@ impl App {
         // reveals it was flushed above, in this same call). See
         // `retry_pending_focus`.
         self.retry_pending_focus(pending);
+
+        // Python parity (`Widget._on_hide` -> `Screen._reset_focus`): if the
+        // flush hid the focused widget (e.g. a class op flipped its CSS
+        // `display`), hand focus to its first shown focusable sibling — before
+        // the event loop's focus-transition detection so Blur/Focus dispatch
+        // and the `:focus` styling repaint land in the same frame.
+        self.reset_focus_on_hidden(pending);
+    }
+
+    /// Transfer focus away from a widget that the just-flushed reactive phase
+    /// made non-displayed (or `visibility: hidden`). See
+    /// [`crate::runtime::helpers::reset_focus_for_hidden_node`] for the Python
+    /// `Screen._reset_focus` semantics.
+    ///
+    /// Gated on style/layout invalidation from this phase: `display` can only
+    /// flip when styles or layout inputs changed, so idle loops pay nothing.
+    fn reset_focus_on_hidden(&mut self, pending: &mut PendingInvalidation) {
+        if !(pending.flags.style || pending.flags.layout) {
+            return;
+        }
+        {
+            let Some(tree) = self.active_widget_tree() else {
+                return;
+            };
+            // Raw focus state, NOT `focused_node_id_tree` — the latter filters
+            // out hidden nodes, which is precisely the state being repaired.
+            if crate::runtime::helpers::raw_focused_node_id(tree).is_none() {
+                return;
+            }
+        }
+        // CSS display resolution needs the app's style context installed. The
+        // live loop's `set_style_context` guards are scoped to the input/tick
+        // dispatch blocks and are NOT active by the time the reactive phase
+        // runs, so install one here (`with_headless_style_context` is the
+        // general "app stylesheet + runtime pseudo state" installer, despite
+        // the name).
+        let changed = self.with_headless_style_context(|app| {
+            let Some(tree) = app.active_widget_tree_mut() else {
+                return false;
+            };
+            // Refresh cached `display`/`visibility` from the now-applied
+            // classes; the tree values are stale until the next layout pass.
+            crate::css::apply_display_visibility_to_tree(tree);
+            crate::runtime::helpers::reset_focus_for_hidden_node(tree)
+        });
+        if changed {
+            pending.request_flags(crate::event::InvalidationFlags::layout());
+            pending.request_full_content();
+        }
     }
 
     /// Retry a focus request deferred by the `AppFocus` handler because its

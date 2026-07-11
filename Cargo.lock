@@ -991,6 +991,7 @@ dependencies = [
  "rich-rs",
  "serde_json",
  "slotmap",
+ "syntect",
  "textual-macros",
  "thiserror 2.0.18",
  "tokio",

@@ -980,7 +980,7 @@ fn tag_widget_meta_raw(ffi_value: i64, segments: Segments) -> Segments {
     out
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct LayoutConstraints {
     pub min_width: Option<usize>,
     pub max_width: Option<usize>,
@@ -1543,7 +1543,7 @@ macro_rules! delegate_border_title_methods {
     };
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct WidgetStyles {
     pub style: Style,
     pub layout: LayoutConstraints,

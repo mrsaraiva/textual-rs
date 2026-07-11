@@ -1675,8 +1675,17 @@ fn parity_stopwatch03_layout() {
 
 /// stopwatch04: clicking the first Start button adds the `started` class
 /// (purely a styling change — no clock yet). Click Start, compare.
+///
+/// FIXED (was: revealed `#stop` untinted #b93c5b vs Python's focus-tinted
+/// #ba4461). TWO missing fundamentals, both in the runtime focus path:
+/// (1) focus-on-mouse-down — Python `Screen._forward_event` focuses the
+/// nearest focusable widget under the pointer before forwarding MouseDown
+/// (`get_focusable_widget_at` + `set_focus`); Rust never moved focus on click.
+/// (2) focus-transfer-on-hide — Python `Widget._on_hide` -> `Screen.
+/// _reset_focus` hands focus to the first shown focusable sibling when the
+/// focused widget goes `display: none`; see `reset_focus_for_hidden_node`.
+/// Plus Button's `press` binding is `show=False` in Python (footer hint row).
 #[test]
-#[ignore = "BUG: clicking Start adds `.started` — both apps show only \"Stop\" (glyph_diffs=0). Residual is colour-only: Python's revealed `#stop` surface is #ba4461 = $error (#B93C5B) with the `Button:focus` `background-tint: $foreground 5%` applied (all 3 channels match int(bg+(fg-bg)*0.05) exactly), i.e. Python moves focus to #stop when #start goes display:none. Rust renders untinted #b93c5b — either focus does not transfer to the revealed #stop, or :focus background-tint is not applied after the reveal. NOT the alpha keystone (that shipped), NOT LAB shade math (bit-exact, see lab_shade_parity_with_python). Follow-up: focus-transfer-on-hide + :focus tint. Digits fg cells were fixed with stopwatch03."]
 fn parity_stopwatch04_start_class() {
     let script = [Step::Click(8, 4), Step::Wait(300)];
     let (rf, pf) = cat_both("stopwatch04", "tutorial", &script, 400);
@@ -2116,8 +2125,17 @@ fn parity_input_binding01_bars() {
 /// mouse01: a Ball that follows the mouse; a RichLog records every MouseMove
 /// (non-deterministic count/content). STRUCTURAL: move the mouse and assert the
 /// "Textual" ball is rendered and the log became non-empty on BOTH apps.
+/// FIXED (re-diagnosed twice): the per-layer flow isolation had ALREADY fixed
+/// the Ball's base placement (it rendered at the container origin, where it
+/// covered the log's "MouseMove(" prefix — hence the stale `log=false` read).
+/// The real residual was that the runtime `offset` mutation
+/// (`query_mut().set_styles(..)`) never requested a RELAYOUT, so the Ball
+/// repainted at its stale rect and never followed the mouse. Python:
+/// `OffsetProperty.__set__` -> `refresh(layout=True)`. Fixed in
+/// `DomQueryMut::set_styles` (diff-detect layout-affecting changes) +
+/// `layout_fields_equal` (which omitted `offset`). See
+/// tests/set_styles_relayout.rs.
 #[test]
-#[ignore = "BUG (re-diagnosed): mouse-move dispatch NOW works — the RichLog fills with MouseMove events on both apps. Remaining gap is the `Textual` Ball: it never appears on Rust. Root: layers-flow layout isolation. Python `_arrange.py::arrange` groups children by `layer` and lays out EACH layer independently from the full region, so the Ball (layer: ball) sits at the container origin (+offset). Rust `src/layout/mod.rs::resolve_layout` puts ALL flow children in one vertical pass, so the Ball is stacked below the full-height RichLog at y=24 (off-screen). Fix belongs in src/layout (per-layer isolation of flow/layout widgets, mirroring the existing per-layer DOCK isolation) — out of scope for the runtime/mouse-dispatch pass."]
 fn parity_input_mouse01_ball() {
     fn run(kind: &AppKind) -> (bool, bool) {
         let mut app = spawn(kind);

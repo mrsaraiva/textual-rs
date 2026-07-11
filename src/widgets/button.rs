@@ -482,7 +482,9 @@ impl Focus for Button {
     }
 
     fn bindings(&self) -> Vec<BindingDecl> {
-        vec![BindingDecl::new("enter,space", "press", "Press button")]
+        // Python: `Binding("enter", "press", "Press button", show=False)` —
+        // hidden from footer/help hints.
+        vec![BindingDecl::new("enter,space", "press", "Press button").hidden()]
     }
 
     fn execute_action(&mut self, action: &ParsedAction, ctx: &mut crate::event::WidgetCtx) -> bool {
