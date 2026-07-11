@@ -104,6 +104,48 @@ hand-implemented on the common path.
   Un-ignores the `computed01` interactive parity case (its three channel
   inputs now pre-fill `"0"` like Python's `Input("0", ...)`).
 
+### Fixed — layout-parity: scroll_visible, scrolled-child clip, margin-collapse, `scrollbar-size: 0`
+
+- **A scrolled container's children no longer vanish.** The per-child clip in the
+  arena render walk was translated by the child's *unscrolled* origin, so once a
+  scroll host had any offset the clip missed where the child actually painted and
+  the whole viewport went blank. It now translates by the scrolled paint origin.
+- **`App::scroll_visible` no longer over-scrolls.** It double-counted the host's
+  current scroll offset (tree `layout_rect`s are already virtual), landing a page
+  too far on every call after the first; now scroll-independent, matching Python's
+  `Widget.virtual_region`.
+- **`scrollbar-size: 0` is honoured.** The CSS value was clamped up to `1`, so a
+  demo hiding its scrollbar with `scrollbar-size: 0 0` still reserved (and could
+  paint) a 1-cell lane; `0` now reserves nothing and paints nothing (Footer,
+  `Input`'s horizontal bar, and Markdown fences gain the reclaimed cell). The
+  default fallback is still floored at 1.
+- **Intrinsic auto-size collapses adjacent margins.** `width: auto` / `height:
+  auto` containers summed each child's full margin; adjacent margins collapse in
+  the arrange (`gap = max(prev, next)`), so the measured size now subtracts the
+  per-pair overlap on both axes, fixing 1-cell mis-centering under `align`.
+- **A ProgressBar-internal `Bar` default-CSS rule no longer leaks.** The global
+  `Bar { width: 32; height: 1 }` default matched *user* widgets typed `Bar`;
+  scoped under `ProgressBar` to reproduce Python's scoped `DEFAULT_CSS`.
+- Un-ignores the `actions06`, `actions07`, `binding01`, `set_reactive02`
+  interactive parity cases.
+
+### Fixed — `Input`/`MaskedInput` validation state applies live; `Pretty` relayouts on update
+
+- **`-valid`/`-invalid` state now reaches the live node.** `set_class` only
+  mutated the pre-mount `seed.classes`; after mount the arena node record is the
+  single class source, so a focused `Input`/`MaskedInput` with an invalid value
+  never got `&.-invalid:focus` (the `$error` border). Validation state now routes
+  through `ctx.set_class` (the deferred class-op path) in `post_changed` for both.
+- **`MaskedInput` uses the canonical Input chrome resolver.** Its render had a
+  stale fg-only component resolver missing the auto-contrast placeholder colour
+  and the `:focus` background-tint; extracted `Input`'s logic into shared
+  `input_chrome.rs` helpers used by both.
+- **`Pretty.update()` relayouts.** It only requested a repaint, so the node kept
+  its stale `[]`-sized rect and the new repr rendered at width 2 and clipped to
+  `[`; it now requests layout (Python `clear_cached_dimensions` +
+  `refresh(layout=True)`).
+- Un-ignores `masked_input`; `input_validation`'s expansion + border now match.
+
 ### Added — container seed-builder unification (Node-removal groundwork)
 
 - **Uniform identity/border builders on the container family.** Completing the
