@@ -14,7 +14,8 @@ use crate::widget_tree::WidgetTree;
 use crate::widgets::{
     APP_ROOT_HSCROLLBAR_ID, APP_ROOT_SCROLLBAR_CORNER_ID, APP_ROOT_VSCROLLBAR_ID,
     CONTAINER_HSCROLLBAR_ID, CONTAINER_SCROLLBAR_CORNER_ID, CONTAINER_VSCROLLBAR_ID, Container,
-    DATA_TABLE_HSCROLLBAR_ID, KEY_PANEL_VSCROLLBAR_ID, LOG_VSCROLLBAR_ID,
+    DATA_TABLE_HSCROLLBAR_ID, KEY_PANEL_VSCROLLBAR_ID, LOG_HSCROLLBAR_ID,
+    LOG_SCROLLBAR_CORNER_ID, LOG_VSCROLLBAR_ID,
     OPTION_LIST_VSCROLLBAR_ID, OutlineCell, RICH_LOG_VSCROLLBAR_ID,
     SCROLL_VIEW_HSCROLLBAR_ID, SCROLL_VIEW_SCROLLBAR_CORNER_ID, SCROLL_VIEW_VSCROLLBAR_ID,
     ScrollBar, ScrollBarCorner, ScrollbarPolicy, Widget, border_spacing_from_style,
@@ -1776,6 +1777,8 @@ fn node_is_dedicated_scrollbar(tree: &WidgetTree, node_id: NodeId) -> bool {
                 | CONTAINER_HSCROLLBAR_ID
                 | CONTAINER_SCROLLBAR_CORNER_ID
                 | LOG_VSCROLLBAR_ID
+                | LOG_HSCROLLBAR_ID
+                | LOG_SCROLLBAR_CORNER_ID
                 | RICH_LOG_VSCROLLBAR_ID
                 | OPTION_LIST_VSCROLLBAR_ID
                 | KEY_PANEL_VSCROLLBAR_ID
@@ -2787,12 +2790,14 @@ fn host_scrollbar_children(tree: &WidgetTree, parent: NodeId) -> ScrollbarHostCh
                 APP_ROOT_HSCROLLBAR_ID
                 | SCROLL_VIEW_HSCROLLBAR_ID
                 | CONTAINER_HSCROLLBAR_ID
-                | DATA_TABLE_HSCROLLBAR_ID,
+                | DATA_TABLE_HSCROLLBAR_ID
+                | LOG_HSCROLLBAR_ID,
             ) => children.horizontal = Some(child_id),
             Some(
                 APP_ROOT_SCROLLBAR_CORNER_ID
                 | SCROLL_VIEW_SCROLLBAR_CORNER_ID
-                | CONTAINER_SCROLLBAR_CORNER_ID,
+                | CONTAINER_SCROLLBAR_CORNER_ID
+                | LOG_SCROLLBAR_CORNER_ID,
             ) => children.corner = Some(child_id),
             Some(
                 LOG_VSCROLLBAR_ID

@@ -23,9 +23,6 @@ CheckerBoard .checkerboard--white-square {
 CheckerBoard .checkerboard--black-square {
     background: #004578;
 }
-CheckerBoard {
-    height: 32;
-}
 "#;
 
 // ── CheckerBoard widget ───────────────────────────────────────────────────────

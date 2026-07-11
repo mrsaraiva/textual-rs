@@ -56,11 +56,14 @@ impl StyleSheet {
     }
 
     pub(super) fn style_for_meta(&self, meta: &SelectorMeta) -> Style {
-        let mut matches: Vec<(u8, usize, Style)> = Vec::new();
+        // Cascade key mirrors Python `Styles.extract_rules`: user CSS outranks
+        // widget DEFAULT_CSS before specificity is even considered.
+        let mut matches: Vec<((u8, u8, usize), Style)> = Vec::new();
         let debug_style_meta = style_debug_matches(meta);
         for (idx, rule) in self.rules.iter().enumerate() {
             if let Some(score) = rule_specificity(rule, meta) {
-                matches.push((score, idx, rule.style.clone()));
+                let layer = if rule.is_default { 0 } else { 1 };
+                matches.push(((layer, score, idx), rule.style.clone()));
                 if debug_style_meta {
                     crate::debug::debug_style(&format!(
                         "[style] match widget={} selector=\"{}\" score={} rule={}",
@@ -72,9 +75,9 @@ impl StyleSheet {
                 }
             }
         }
-        matches.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+        matches.sort_by(|a, b| a.0.cmp(&b.0));
         let mut out = Style::new();
-        for (_, _, style) in matches {
+        for (_, style) in matches {
             out = out.combine(&style);
         }
         if debug_style_meta {

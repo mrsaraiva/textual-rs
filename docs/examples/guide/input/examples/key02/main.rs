@@ -3,7 +3,6 @@
 /// Displays key events in a RichLog. Each key press writes the event details
 /// (key, character, name, is_printable) to the log. The space key also rings
 /// the terminal bell.
-use rich_rs::{Segment, Style as RichStyle};
 use textual::keys::KeyEventData;
 use textual::prelude::*;
 
@@ -11,15 +10,6 @@ use textual::prelude::*;
 struct InputApp;
 
 fn write_key_event(log: &mut RichLog, key: &KeyEventData) {
-    let key_style = RichStyle::new().with_color(Color::parse("#b73763").unwrap().to_simple_opaque());
-    let field_style =
-        RichStyle::new().with_color(Color::parse("#f5a623").unwrap().to_simple_opaque());
-    let value_style =
-        RichStyle::new().with_color(Color::parse("#98d168").unwrap().to_simple_opaque());
-    let bool_style = RichStyle::new()
-        .with_color(Color::parse("#b73763").unwrap().to_simple_opaque())
-        .with_italic(true);
-
     let key_str = key.name().to_string();
     // Python's Key.name is _key_to_identifier(self.key).lower() — the identifier form.
     let name_str = key.identifier();
@@ -35,27 +25,9 @@ fn write_key_event(log: &mut RichLog, key: &KeyEventData) {
     let aliases = key.aliases();
     let show_aliases = aliases != vec![key.name()];
 
-    let mut segments = vec![
-        Segment::styled("Key".to_string(), key_style),
-        Segment::new("(".to_string()),
-        Segment::styled("key".to_string(), field_style),
-        Segment::new("=".to_string()),
-        Segment::styled(format!("'{key_str}'"), value_style),
-        Segment::new(", ".to_string()),
-        Segment::styled("character".to_string(), field_style),
-        Segment::new("=".to_string()),
-        Segment::styled(character, value_style),
-        Segment::new(", ".to_string()),
-        Segment::styled("name".to_string(), field_style),
-        Segment::new("=".to_string()),
-        Segment::styled(format!("'{name_str}'"), value_style),
-        Segment::new(", ".to_string()),
-        Segment::styled("is_printable".to_string(), field_style),
-        Segment::new("=".to_string()),
-        Segment::styled(printable.to_string(), bool_style),
-    ];
-
-    // Append aliases field when it differs from the default [key].
+    let mut repr = format!(
+        "Key(key='{key_str}', character={character}, name='{name_str}', is_printable={printable}"
+    );
     if show_aliases {
         let aliases_str = format!(
             "[{}]",
@@ -65,14 +37,13 @@ fn write_key_event(log: &mut RichLog, key: &KeyEventData) {
                 .collect::<Vec<_>>()
                 .join(", ")
         );
-        segments.push(Segment::new(", ".to_string()));
-        segments.push(Segment::styled("aliases".to_string(), field_style.clone()));
-        segments.push(Segment::new("=".to_string()));
-        segments.push(Segment::styled(aliases_str, value_style.clone()));
+        repr.push_str(&format!(", aliases={aliases_str}"));
     }
-
-    segments.push(Segment::new(")".to_string()));
-    log.write_segments(segments);
+    repr.push(')');
+    // Python: `RichLog.write(event)` wraps the Key event in `Pretty`, coloured
+    // by rich's `ReprHighlighter` (ANSI-standard colours mapped to the terminal
+    // theme at paint time). Mirror that path — no hardcoded colours.
+    log.write_pretty(repr);
 }
 
 impl TextualApp for InputApp {

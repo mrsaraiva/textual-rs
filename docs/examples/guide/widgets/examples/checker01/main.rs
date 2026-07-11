@@ -5,7 +5,6 @@
 /// `render_line`/`Strip` approach).
 use rich_rs::{Console, ConsoleOptions, Segment, Segments, Style as RichStyle};
 use textual::prelude::*;
-use textual::style::Color;
 
 /// An 8×8 checkerboard widget.
 ///
@@ -22,13 +21,14 @@ impl Widget for CheckerBoard {
     fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1) as usize;
 
-        // "on white" / "on black" — background-only styles (no foreground text).
-        let white_bg = RichStyle::new().with_bgcolor(
-            Color::parse("white").unwrap().to_simple_opaque(),
-        );
-        let black_bg = RichStyle::new().with_bgcolor(
-            Color::parse("black").unwrap().to_simple_opaque(),
-        );
+        // Python: `Style.parse("on white")` / `Style.parse("on black")` —
+        // rich ANSI STANDARD colours (7 / 0), NOT CSS truecolor. Textual's
+        // always-on ANSI→truecolor paint filter then maps them through the
+        // terminal theme (MONOKAI when dark: white→#c4c5b5, black→#1a1a1a).
+        // The Rust runtime applies the same filter at end-of-render, so parse
+        // the same rich style strings.
+        let white_bg = RichStyle::parse("on white").expect("valid style");
+        let black_bg = RichStyle::parse("on black").expect("valid style");
 
         let mut all_segments: Vec<Segment> = Vec::new();
 

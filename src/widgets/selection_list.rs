@@ -87,6 +87,10 @@ pub struct SelectionList<T: Clone + PartialEq + Send + Sync + 'static> {
     values: Vec<T>,
     /// Per-index selection state.
     selected_set: Vec<bool>,
+    /// Selection INSERTION order (Python `_selected` is an ordered dict:
+    /// `selected` reports values in the order they were selected, not in
+    /// option order).
+    selected_order: Vec<usize>,
     hovered_index: Option<usize>,
     border_title_text: Option<String>,
     seed: NodeSeed,
@@ -112,6 +116,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> SelectionList<T> {
             disabled: false,
             values: Vec::new(),
             selected_set: Vec::new(),
+            selected_order: Vec::new(),
             hovered_index: None,
             border_title_text: None,
             seed,
@@ -138,6 +143,11 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> SelectionList<T> {
             .collect();
         list.inner = OptionList::with_items(items);
         list.values = values;
+        list.selected_order = selected
+            .iter()
+            .enumerate()
+            .filter_map(|(i, &sel)| sel.then_some(i))
+            .collect();
         list.selected_set = selected;
         list
     }
@@ -163,6 +173,11 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> SelectionList<T> {
         }
         self.selected_set[index] = !self.selected_set[index];
         let selected = self.selected_set[index];
+        if selected {
+            self.selected_order.push(index);
+        } else {
+            self.selected_order.retain(|&i| i != index);
+        }
         ctx.post_message(SelectionListToggled { index, selected });
         ctx.post_message(SelectionListSelectedChanged);
         ctx.request_repaint();
@@ -177,6 +192,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> SelectionList<T> {
             return;
         }
         self.selected_set[index] = true;
+        self.selected_order.push(index);
         ctx.post_message(SelectionListSelectedChanged);
         ctx.request_repaint();
     }
@@ -190,6 +206,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> SelectionList<T> {
             return;
         }
         self.selected_set[index] = false;
+        self.selected_order.retain(|&i| i != index);
         ctx.post_message(SelectionListSelectedChanged);
         ctx.request_repaint();
     }
@@ -203,6 +220,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> SelectionList<T> {
         for (index, sel) in self.selected_set.iter_mut().enumerate() {
             if selectable[index] && !*sel {
                 *sel = true;
+                self.selected_order.push(index);
                 changed = true;
             }
         }
@@ -221,6 +239,11 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> SelectionList<T> {
         for (index, sel) in self.selected_set.iter_mut().enumerate() {
             if selectable[index] {
                 *sel = !*sel;
+                if *sel {
+                    self.selected_order.push(index);
+                } else {
+                    self.selected_order.retain(|&i| i != index);
+                }
                 changed = true;
             }
         }
@@ -243,18 +266,18 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> SelectionList<T> {
             }
         }
         if changed {
+            self.selected_order.clear();
+        }
+        if changed {
             ctx.post_message(SelectionListSelectedChanged);
             ctx.request_repaint();
         }
     }
 
-    /// Returns a `Vec` of indices that are currently selected.
+    /// Returns a `Vec` of indices that are currently selected, in selection
+    /// (insertion) order — Python `SelectionList.selected` parity.
     pub fn selected(&self) -> Vec<usize> {
-        self.selected_set
-            .iter()
-            .enumerate()
-            .filter_map(|(i, &sel)| if sel { Some(i) } else { None })
-            .collect()
+        self.selected_order.clone()
     }
 
     /// Whether the item at `index` is currently selected.
@@ -262,12 +285,12 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> SelectionList<T> {
         self.selected_set.get(index).copied().unwrap_or(false)
     }
 
-    /// Returns the values of all currently selected items.
+    /// Returns the values of all currently selected items, in selection
+    /// (insertion) order — Python `SelectionList.selected` parity.
     pub fn selected_values(&self) -> Vec<&T> {
-        self.selected_set
+        self.selected_order
             .iter()
-            .enumerate()
-            .filter_map(|(i, &sel)| if sel { self.values.get(i) } else { None })
+            .filter_map(|&i| self.values.get(i))
             .collect()
     }
 
@@ -412,8 +435,21 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for SelectionList<T> {
         let height = options.size.1.max(1);
         let mut out = Segments::new();
 
-        let base_style = crate::css::resolve_component_style(self, &["option-list--option"])
-            .to_rich()
+        // The SelectionList's own composited surface (its `$surface` bg plus
+        // the `:focus` `background-tint`). Mirrors OptionList: all component
+        // colours (highlight backgrounds, auto foregrounds) compose over this
+        // surface, and component styles resolve with an EMPTY-type leaf meta so
+        // the `OptionList { background: $surface }` base rule does not stamp an
+        // opaque surface onto every row. The SelectionList node meta (with its
+        // OptionList alias + :focus state) is already on the selector stack.
+        let surface_flat = crate::css::current_composited_background().unwrap_or_else(|| {
+            crate::style::parse_color_like("$surface").unwrap_or(crate::style::Color::rgb(0, 0, 0))
+        });
+        let resolve_comp = |classes: &[&str]| -> crate::style::Style {
+            crate::css::resolve_style_for_meta(&crate::css::selector_meta_component("", classes))
+        };
+        let base_style = resolve_comp(&["option-list--option"])
+            .to_rich_over(surface_flat)
             .unwrap_or_default();
 
         let btn_width = Self::button_width();
@@ -427,10 +463,9 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for SelectionList<T> {
             if let Some(item) = self.inner.get_option(index) {
                 match item {
                     OptionItem::Separator => {
-                        let sep_style =
-                            crate::css::resolve_component_style(self, &["option-list--separator"])
-                                .to_rich()
-                                .unwrap_or(base_style);
+                        let sep_style = resolve_comp(&["option-list--separator"])
+                            .to_rich_over(surface_flat)
+                            .unwrap_or(base_style);
                         let text = "─".repeat(width);
                         let line =
                             adjust_line_length_no_bg(&[Segment::styled(text, sep_style)], width);
@@ -439,22 +474,40 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for SelectionList<T> {
                     OptionItem::Option {
                         prompt, disabled, ..
                     } => {
-                        // Resolve the option row style (same classes as OptionList).
+                        // Resolve the option row style. Mirror OptionList's
+                        // `_get_option_style`: base + ONE state-specific
+                        // component class (disabled > highlighted > hover); the
+                        // `:focus` variant of the highlighted colours comes from
+                        // the `OptionList:focus > ...` rule matched via the
+                        // focused SelectionList meta on the selector stack.
                         let mut opt_classes = vec!["option-list--option"];
-                        if highlighted {
-                            opt_classes.push("-highlighted");
-                        }
-                        if hovered_row && !highlighted {
-                            opt_classes.push("-hover");
-                        }
                         if *disabled {
-                            opt_classes.push("-disabled");
+                            opt_classes.push("option-list--option-disabled");
+                        } else if highlighted {
+                            opt_classes.push("option-list--option-highlighted");
+                        } else if hovered_row {
+                            opt_classes.push("option-list--option-hover");
                         }
-                        if highlighted && self.node_state().focused {
-                            opt_classes.push("-focus");
+                        let mut opt_crate = resolve_comp(&opt_classes);
+                        // Resolve an auto-contrast foreground against the widget
+                        // surface (same rationale as OptionList).
+                        if opt_crate.fg.is_none() {
+                            if let Some(auto) = opt_crate.fg_auto {
+                                let contrast = crate::style::contrast_text(surface_flat);
+                                opt_crate.fg =
+                                    Some(contrast.blend_over_float(surface_flat, auto.alpha()));
+                                opt_crate.fg_auto = None;
+                            }
                         }
-                        let opt_style = crate::css::resolve_component_style(self, &opt_classes)
-                            .to_rich()
+                        // Compose the highlighted (possibly semi-transparent)
+                        // background over the widget surface.
+                        if highlighted {
+                            if let Some(bg) = opt_crate.bg {
+                                opt_crate.bg = Some(bg.flatten_over(surface_flat));
+                            }
+                        }
+                        let opt_style = opt_crate
+                            .to_rich_over(surface_flat)
                             .unwrap_or(base_style);
 
                         // Resolve button component style.
@@ -465,8 +518,8 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for SelectionList<T> {
                         if highlighted {
                             btn_class.push_str("-highlighted");
                         }
-                        let btn_style = crate::css::resolve_component_style(self, &[&btn_class])
-                            .to_rich()
+                        let btn_style = resolve_comp(&[&btn_class])
+                            .to_rich_over(surface_flat)
                             .unwrap_or(opt_style);
 
                         // Button prefix is always `▐X▌`; `btn_style` color (from
@@ -481,7 +534,12 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for SelectionList<T> {
                             s
                         };
 
-                        let prompt_width = width.saturating_sub(btn_width);
+                        // The button glyphs (`▐X▌`) occupy 3 cells; the 4th
+                        // `button_width` cell is the leading space of the prompt
+                        // text, so the prompt run must span the REMAINING width
+                        // (otherwise the row is one cell short and the highlight
+                        // stops one column early).
+                        let prompt_width = width.saturating_sub(btn_width.saturating_sub(1));
                         let prompt_text =
                             rich_rs::set_cell_size(&format!(" {prompt}"), prompt_width);
 
@@ -534,6 +592,13 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for SelectionList<T> {
 
     fn style_type(&self) -> &'static str {
         "SelectionList"
+    }
+
+    fn style_type_aliases(&self) -> &[&'static str] {
+        // Python MRO: SelectionList(OptionList) — the `OptionList { ... }`
+        // DEFAULT_CSS block (surface bg, tall border, option component styles)
+        // must match a SelectionList node too.
+        &["OptionList"]
     }
 
     fn set_inline_style(&mut self, style: crate::style::Style) {
@@ -616,7 +681,9 @@ mod tests {
         let mut ctx = EventCtx::default();
 
         { let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx); list.select_all(&mut __w) };
-        assert_eq!(list.selected(), vec![0, 1, 2]);
+        // Python parity: `selected` reports SELECTION (insertion) order — "C"
+        // was selected at construction, so select_all appends the others after.
+        assert_eq!(list.selected(), vec![2, 0, 1]);
 
         { let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx); list.deselect_all(&mut __w) };
         assert!(list.selected().is_empty());

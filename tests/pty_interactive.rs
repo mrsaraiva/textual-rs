@@ -1317,7 +1317,6 @@ fn parity_list_view_navigate() {
 
 /// selection_list_selections: Down then Space toggles a selection.
 #[test]
-#[ignore = "BUG: SelectionList surface/row colours differ from Python (2103 colour cells over the focused list body)."]
 fn parity_selection_list_selections_toggle() {
     let script = [
         Step::SendKeys("\x1b[B"),
@@ -1331,7 +1330,6 @@ fn parity_selection_list_selections_toggle() {
 /// selection_list_selected: toggling a selection updates the Pretty panel with
 /// the selected values; both must agree.
 #[test]
-#[ignore = "BUG: SelectionList + Pretty panel differ from Python (153 glyph cells) — selected-values Pretty content/layout and list rendering diverge."]
 fn parity_selection_list_selected_toggle() {
     let script = [
         Step::SendKeys("\x1b[B"),
@@ -1391,7 +1389,6 @@ fn parity_tabbed_content_label_color() {
 
 /// content_switcher: click the Markdown button to switch panes.
 #[test]
-#[ignore = "BUG: ContentSwitcher button/markdown surface colours differ from Python (37 colour cells; re-measured, was 130) after switching to the Markdown pane. See KNOWN_GAPS (widget-local surface colours)."]
 fn parity_content_switcher_switch() {
     // The two buttons sit on row 1; "Markdown" is the second button.
     let script = [Step::Click(20, 1), Step::Wait(350)];
@@ -1454,7 +1451,7 @@ fn parity_data_table_sort() {
 /// rich_log: a key press is echoed into the RichLog as an event; both apps
 /// should render the same content above (Syntax + Table) and append on key.
 #[test]
-#[ignore = "BUG: RichLog content colours differ from Python (1147 cells) — Syntax/Table highlight + log surface bg diverge."]
+#[ignore = "UPSTREAM (rich-rs): 26 residual colour cells, all inside the Syntax block (was 1147 — surface bg, repr-highlight palette, monokai theme + render width all fixed). Remaining: (a) the def-signature colon token class (py plain #f8f8f2 vs syntect operator #ff4689), (b) docstring `\"\"\"` quotes (py string #e6db74 vs plain), (c) indent-guide fg (py dim-comment #6f6c5a vs rust #959077). Root: rich-rs `src/syntax.rs` syntect-vs-pygments token classes + indent-guide colour derivation — fix in rich-rs, not textual-rs."]
 fn parity_rich_log_keypress() {
     let script = [Step::Key(Key::Char('z')), Step::Wait(300)];
     let (rf, pf) = widgets_both("rich_log", &script, 400);
@@ -1463,7 +1460,6 @@ fn parity_rich_log_keypress() {
 
 /// log: static content written on_ready; assert initial parity.
 #[test]
-#[ignore = "BUG (re-measured — the annotation's whole-background claim was misleading): the Log BODY surface already matches (#272727 focus-tinted on both). Residual = the last row (row 29) only, 120 cells: Python paints the Log surface #000000 there while Rust shows the screen default #121212. Root: Log bottom-row vertical-fill/extent, NOT the `$surface` background token (changing the token would break the now-matching body)."]
 fn parity_log_content() {
     let script = [Step::Wait(300)];
     let (rf, pf) = widgets_both("log", &script, 400);
@@ -1566,7 +1562,6 @@ fn parity_watch01_color() {
 /// validate01: the focused +1 button is pressed 3× via Enter; the validated
 /// reactive caps at 10 and each press appends `count = N` to the RichLog.
 #[test]
-#[ignore = "BUG: the focused +1 Button surface matches Python (#55c076 both). Residual = 57 colour cells: (a) 54 RichLog scrollbar-track cells — Python paints the track bg #000000 while Rust leaves the widget surface #1e1e1e; (b) 3 RichLog number-highlight glyphs — Rich renders the repr integer truecolor #58d1eb vs Rust ansi cyan. Both are RichLog/scrollbar rendering (see KNOWN_GAPS: RichLog/Log surface + repr-highlight)."]
 fn parity_validate01_count() {
     let script = [
         Step::Key(Key::Enter),
@@ -1799,7 +1794,6 @@ fn parity_hello06_render() {
 
 /// checker01: an 8x8 black/white checkerboard (Strip render_line).
 #[test]
-#[ignore = "BUG (framework, NOT a Color::parse fix): Python's checker01 uses RICH `Style.parse(\"on white\")`/`(\"on black\")`, which produce ANSI STANDARD colours (number 7 / 0), NOT truecolor. Textual renders those through the app's ANSI terminal theme (MONOKAI, dark), mapping white(7)->#c4c5b5 and black(0)->#1a1a1a. textual-rs has no ANSI-standard-palette -> terminal-theme (MONOKAI) render mapping, and the demo's `Color::parse(\"white\")` correctly returns CSS #ffffff (matches Textual CSS `Color.parse('white')==(255,255,255)`), so it stays pure white. Root fix requires an ANSI-theme render mechanism (rich_rs standard-colour support + MONOKAI/ALABASTER mapping at paint) — NOT changing named-colour resolution in src/style.rs (that would break CSS-white parity). 1920 colour cells."]
 fn parity_checker01_board() {
     let script = [Step::Wait(300)];
     let (rf, pf) = cat_both("checker01", "guide/widgets", &script, 400);
@@ -1808,7 +1802,6 @@ fn parity_checker01_board() {
 
 /// checker02: the board with component-class colours (#A5BAC9 / #004578).
 #[test]
-#[ignore = "BUG: 2 stray cells at the bottom-right corner ([28..29,118..119]) — Rust paints a black square edge (#000000) where Python shows the screen bg (#121212). Minor board-overflow artifact beyond the 64-col board. 2 glyph + 2 colour cells."]
 fn parity_checker02_board() {
     let script = [Step::Wait(300)];
     let (rf, pf) = cat_both("checker02", "guide/widgets", &script, 400);
@@ -1826,7 +1819,6 @@ fn parity_checker03_board() {
 /// checker04: same board with a mouse-cursor highlight; initial render (no
 /// hover) parity.
 #[test]
-#[ignore = "BUG: the right-edge scrollbar/board-edge band (cols 118..119) differs — Rust paints fg #e0e0e0 on bg #a5bac9 (board white square colour) while Python shows the scrollbar fg #003054 on screen bg #121212. The board cells + cursor square (0,0) otherwise match. 3 glyph + 175 colour cells. Root: ScrollView right-edge scrollbar colour/extent (note: checker03, same ScrollView without cursor var, is glyph+colour clean)."]
 fn parity_checker04_board() {
     let script = [Step::Wait(300)];
     let (rf, pf) = cat_both("checker04", "guide/widgets", &script, 400);
@@ -2072,7 +2064,6 @@ fn parity_world_clock03_ticks() {
 /// key01: a single RichLog that writes every Key event. Type "ab"; the log
 /// renders the two Key event objects. Exact glyph+colour parity.
 #[test]
-#[ignore = "BUG: glyph-perfect (`Key(key='a', character='a', name='a', is_printable=True)` on both) but the RichLog repr-syntax-highlight colours differ — py fg #f4005f/#fd971f/#98e024 (Rich repr theme) vs rust #b73763/#f5a623/#98d168. 148 colour cells. Root: rich-rs repr highlighter colour palette differs from Python Rich."]
 fn parity_input_key01_log() {
     let script = [Step::SendKeys("ab"), Step::Wait(300)];
     let (rf, pf) = cat_both("key01", "guide/input", &script, 400);
@@ -2082,7 +2073,6 @@ fn parity_input_key01_log() {
 /// key02: same as key01 plus a `key_space` bell handler (bell is inaudible in
 /// the grid). Type "a"; the log renders one Key event. Exact parity.
 #[test]
-#[ignore = "BUG: glyph-perfect but same RichLog repr-highlight colour divergence as key01 (py #f4005f/#fd971f/#98e024 vs rust #b73763/#f5a623/#98d168). 104 colour cells. Root: rich-rs repr highlighter palette differs from Python Rich."]
 fn parity_input_key02_log() {
     let script = [Step::SendKeys("a"), Step::Wait(300)];
     let (rf, pf) = cat_both("key02", "guide/input", &script, 400);

@@ -50,10 +50,6 @@ CheckerBoard > .checkerboard--black-square {
 CheckerBoard > .checkerboard--cursor-square {
     background: darkred;
 }
-CheckerBoard {
-    width: 1fr;
-    height: 1fr;
-}
 "#;
 
 // ---------------------------------------------------------------------------

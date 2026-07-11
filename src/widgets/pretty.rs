@@ -169,12 +169,20 @@ impl crate::widgets::Layout for Pretty {
         if debug_str.is_empty() {
             return Some(1);
         }
-        // Measure via rich_rs::Pretty
-        let console = Console::new();
-        let options = ConsoleOptions::default();
-        let rich = rich_rs::pretty::Pretty::from_str(debug_str);
-        let measurement = rich_rs::Renderable::measure(&rich, &console, &options);
-        Some(measurement.maximum.max(1))
+        // Measure via `pretty_repr` at unbounded width (its longest line is the
+        // maximum measurement), NOT via `rich_rs::pretty::Pretty::from_str` +
+        // `measure`: `from_str` rebuilds the highlighter theme on every call
+        // (~120ms in rich-rs 1.2.1), which is far too slow for a layout-path
+        // measurement that runs on every relayout.
+        let text =
+            rich_rs::pretty::pretty_repr(&debug_str, usize::MAX / 2, 4, None, None, None, false);
+        Some(
+            text.lines()
+                .map(rich_rs::cell_len)
+                .max()
+                .unwrap_or(1)
+                .max(1),
+        )
     }
 
     fn layout_height(&self) -> Option<usize> {

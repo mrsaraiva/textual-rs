@@ -937,7 +937,16 @@ impl crate::widgets::Render for ScrollBar {
         let thumb = thumb_raw.flatten_over(bg);
         let renderer = ScrollBarRender {
             virtual_size: self.window_virtual_size,
-            window_size: self.window_size,
+            // Python `ScrollBar._render_bar`: `window_size = self.window_size if
+            // self.window_size < self.window_virtual_size else 0` — with no
+            // overflow the bar renders as a PLAIN track (no thumb). Without this
+            // a forced bar (`overflow: scroll`, e.g. Log) painted a full-length
+            // thumb where Python shows an empty track.
+            window_size: if self.window_size < self.window_virtual_size {
+                self.window_size
+            } else {
+                0
+            },
             position: self.position,
             thickness: self.thickness,
             vertical: self.vertical,

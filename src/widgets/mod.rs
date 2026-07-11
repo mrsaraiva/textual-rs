@@ -106,7 +106,7 @@ pub use link::Link;
 pub use list_item::ListItem;
 pub use list_view::ListView;
 pub use loading_indicator::LoadingIndicator;
-pub(crate) use log::LOG_VSCROLLBAR_ID;
+pub(crate) use log::{LOG_HSCROLLBAR_ID, LOG_SCROLLBAR_CORNER_ID, LOG_VSCROLLBAR_ID};
 pub use log::Log;
 pub use markdown_viewer::{MarkdownTableOfContents, MarkdownViewer, Navigator};
 pub use masked_input::MaskedInput;

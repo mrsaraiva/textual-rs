@@ -14,6 +14,8 @@ use super::helpers::adjust_line_length_no_bg;
 use super::{NodeSeed, ScrollBar, ScrollView, Widget};
 
 pub(crate) const LOG_VSCROLLBAR_ID: &str = "__log_vscrollbar";
+pub(crate) const LOG_HSCROLLBAR_ID: &str = "__log_hscrollbar";
+pub(crate) const LOG_SCROLLBAR_CORNER_ID: &str = "__log_scrollbar_corner";
 
 // ── WP-25: LRU render cache ────────────────────────────────────────────────
 
@@ -749,9 +751,19 @@ impl crate::widgets::Render for Log {
             return Vec::new();
         }
         self.scrollbar_extracted = true;
+        // Python `Log { overflow: scroll }` ALWAYS shows BOTH scrollbars (and
+        // therefore the corner) — extract all three lanes, like ScrollView.
         let mut vbar = ScrollBar::new(true, 2);
         vbar.seed.css_id = Some(LOG_VSCROLLBAR_ID.to_string());
-        vec![crate::compose::ChildDecl::new(Box::new(vbar))]
+        let mut hbar = ScrollBar::new(false, 1);
+        hbar.seed.css_id = Some(LOG_HSCROLLBAR_ID.to_string());
+        let mut corner = super::ScrollBarCorner::new();
+        corner.seed.css_id = Some(LOG_SCROLLBAR_CORNER_ID.to_string());
+        vec![
+            crate::compose::ChildDecl::new(Box::new(vbar)),
+            crate::compose::ChildDecl::new(Box::new(hbar)),
+            crate::compose::ChildDecl::new(Box::new(corner)),
+        ]
     }
 
     fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
@@ -997,10 +1009,19 @@ mod tests {
     fn tree_mode_extracts_dedicated_scrollbar_child() {
         let mut log = Log::new();
         let mut children = log.compose();
-        assert_eq!(children.len(), 1);
+        // Python `Log { overflow: scroll }` always shows BOTH bars + corner.
+        assert_eq!(children.len(), 3);
         assert_eq!(
             children[0].widget_mut().take_node_seed().css_id.as_deref(),
             Some(LOG_VSCROLLBAR_ID)
+        );
+        assert_eq!(
+            children[1].widget_mut().take_node_seed().css_id.as_deref(),
+            Some(super::LOG_HSCROLLBAR_ID)
+        );
+        assert_eq!(
+            children[2].widget_mut().take_node_seed().css_id.as_deref(),
+            Some(super::LOG_SCROLLBAR_CORNER_ID)
         );
     }
 

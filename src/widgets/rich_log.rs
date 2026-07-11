@@ -451,8 +451,30 @@ impl RichLog {
     /// indentation, Python-repr-style string quoting) rather than being written
     /// as a plain text string.
     pub fn write_debug<T: std::fmt::Debug>(&mut self, value: T) -> &mut Self {
-        let pretty = rich_rs::pretty::Pretty::from_str(format!("{value:?}"));
-        self.write_renderable(pretty)
+        // Python's `Pretty` formats the repr AND runs `ReprHighlighter` over
+        // the formatted text (rich `pretty.py::Pretty.__rich_console__`), which
+        // is where the repr colours (ANSI-standard, later theme-mapped by the
+        // `ANSIToTruecolor` pass) come from. `rich_rs::pretty::Pretty` does not
+        // apply the highlighter (and its `from_str` rebuilds the theme each
+        // call, ~120ms), so mirror Python directly: format via `pretty_repr`,
+        // then repr-highlight the text.
+        use rich_rs::highlighter::Highlighter as _;
+        let repr = format!("{value:?}");
+        let text = rich_rs::pretty::pretty_repr(&repr, usize::MAX / 2, 4, None, None, None, false);
+        let highlighted = rich_rs::highlighter::repr_highlighter()
+            .highlight_text(&rich_rs::Text::from(text.as_str()));
+        self.write_renderable(highlighted)
+    }
+
+    /// Write a pre-formatted repr string through the Python `Pretty` path:
+    /// repr-highlighted (`ReprHighlighter`) exactly like
+    /// `RichLog.write(<object>)` in Python Textual.
+    pub fn write_pretty(&mut self, repr: impl Into<String>) -> &mut Self {
+        use rich_rs::highlighter::Highlighter as _;
+        let repr = repr.into();
+        let highlighted = rich_rs::highlighter::repr_highlighter()
+            .highlight_text(&rich_rs::Text::from(repr.as_str()));
+        self.write_renderable(highlighted)
     }
 
     pub fn clear(&mut self) -> &mut Self {
@@ -656,17 +678,37 @@ impl RichLog {
                 }
             }
             LogLine::Renderable(renderable) => {
+                // Python `RichLog.write`: render_width = the renderable's
+                // measured maximum, shrunk to the content region and raised to
+                // `min_width` (78) — NOT the full widget width. A `Syntax`
+                // block therefore paints its background only over that width;
+                // the remainder is plain surface padding.
+                let measured = renderable.measure(console, options).maximum;
+                let render_width = measured.min(width).max(self.min_width).max(1);
+                let mut render_options = options.clone();
+                render_options.size = (render_width, options.size.1);
+                render_options.max_width = render_width;
+                // Crop WITHOUT rich-rs padding (its pad extends the previous
+                // segment's background — a Syntax block's theme bg would bleed
+                // across the whole log width); pad UNSTYLED like Python's
+                // `Strip.adjust_cell_length(render_width)`, so the trailing
+                // cells take the widget surface.
                 let split = Segment::split_and_crop_lines(
-                    renderable.render(console, options),
-                    width,
+                    renderable.render(console, &render_options),
+                    render_width,
                     None,
-                    true,
+                    false,
                     false,
                 );
                 if split.is_empty() {
                     vec![vec![Segment::new(String::new())]]
                 } else {
                     split
+                        .into_iter()
+                        .map(|line| {
+                            crate::widgets::helpers::adjust_line_length_no_bg(&line, width)
+                        })
+                        .collect()
                 }
             }
         }

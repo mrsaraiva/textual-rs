@@ -2025,7 +2025,11 @@ impl crate::widgets::Render for DataTable {
         let rendered_columns = self.rendered_column_indices();
         let label_col_width = self.label_col_width();
         let cursor_type = self.cursor_type;
-        let show_cursor = self.node_state().focused && cursor_type != CursorType::None;
+        // Python paints the cursor regardless of focus: `.datatable--cursor`
+        // defaults to the BLURRED colours ($block-cursor-blurred-*) and only the
+        // `&:focus > .datatable--cursor` override switches to the strong ones.
+        let focused = self.node_state().focused;
+        let show_cursor = cursor_type != CursorType::None;
 
         // Cursor and hover coordinates.
         let cursor_coord = (self.selected, self.cursor_column);
@@ -2087,7 +2091,19 @@ impl crate::widgets::Render for DataTable {
         let cursor_fg = parse_color_like("$block-cursor-foreground")
             .map(|c| c.flatten_over(cursor_base))
             .unwrap_or(cursor_base);
-        let selected_style = CellVisual::new(cursor_base, true).final_fg(cursor_fg);
+        let selected_style = if focused {
+            CellVisual::new(cursor_base, true).final_fg(cursor_fg)
+        } else {
+            // Blurred cursor: `$block-cursor-blurred-background` ($primary 30%,
+            // alpha) over the row surface, `$block-cursor-blurred-foreground`
+            // ($foreground), `text-style: none`.
+            let blurred_bg = parse_color_like("$block-cursor-blurred-background")
+                .map(|c| c.flatten_over(row_base))
+                .unwrap_or(row_base);
+            let blurred_fg =
+                parse_color_like("$block-cursor-blurred-foreground").unwrap_or(header_fg);
+            CellVisual::new(blurred_bg, false).final_fg(blurred_fg)
+        };
         let hover_style = CellVisual::new(hover_bg.unwrap_or(row_base), false);
         let header_hover_style = CellVisual::new(header_hover_bg.unwrap_or(header_base), true);
 

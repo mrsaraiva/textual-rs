@@ -182,6 +182,26 @@ impl Color {
         // `red 10%` composite to Python's exact hex.
         self.blend_over_float(under, self.a)
     }
+
+    /// Quantize the alpha through Python's theme-variable hex round-trip.
+    ///
+    /// Python's `ColorSystem.generate()` emits every alpha-bearing theme
+    /// variable as an 8-digit hex string (`Color.hex` truncates alpha via
+    /// `int(a * 255)`), and the CSS layer re-parses it as `a = byte / 255`.
+    /// So `$block-cursor-blurred-background` ("$primary 30%") reaches widgets
+    /// with `a = 76/255 ≈ 0.298`, not `0.30` — which shifts blended channels
+    /// by one (e.g. `#153854` vs `#153954` over `$surface`). Apply this to
+    /// GENERATED theme tokens only; CSS-literal percentages (`red 10%`) stay
+    /// fractional in Python and must NOT be quantized.
+    pub fn quantize_alpha_hex(self) -> Color {
+        if self.a >= 1.0 || self.a <= 0.0 {
+            return self;
+        }
+        // f64 multiply (round-to-nearest) then truncate, exactly like CPython's
+        // `int(a * 255)` (e.g. 0.6 → 153, 0.3 → 76, 0.04 → 10).
+        let byte = ((self.a as f64) * 255.0) as u8;
+        Color::rgba_f(self.r, self.g, self.b, byte as f32 / 255.0)
+    }
 }
 
 /// CSS `hsl()` → RGB (Python Textual / CSS Color Module). `h` in degrees,
@@ -635,7 +655,12 @@ fn resolve_textual_dark_token(name: &str) -> Option<Color> {
         let contrast = contrast_text(background);
 
         // Textual's generated semantic colors for textual-dark.
-        m.insert("boost", contrast.with_alpha(0.04));
+        //
+        // NOTE: tokens Python emits as 8-digit hex from `ColorSystem.generate()`
+        // carry a u8-quantized alpha (`quantize_alpha_hex`); the `auto NN%`
+        // tokens (text/*, block-cursor-foreground, link-color, ...) stay
+        // fractional because Python keeps them as percentage strings.
+        m.insert("boost", contrast.with_alpha(0.04).quantize_alpha_hex());
         m.insert("text", contrast.with_alpha(0.87));
         m.insert("text-muted", contrast.with_alpha(0.60));
         m.insert("text-disabled", contrast.with_alpha(0.38));
@@ -674,11 +699,17 @@ fn resolve_textual_dark_token(name: &str) -> Option<Color> {
         m.insert("block-cursor-foreground", contrast.with_alpha(0.87));
         m.insert("block-cursor-background", primary);
         m.insert("block-cursor-blurred-foreground", foreground);
-        m.insert("block-cursor-blurred-background", primary.with_alpha(0.30));
+        m.insert(
+            "block-cursor-blurred-background",
+            primary.with_alpha(0.30).quantize_alpha_hex(),
+        );
         // Textual's `$block-hover-background`: contrast text at 10% alpha, composed at render time.
         let background = m.get("background").copied().unwrap();
         let ct = contrast_text(background);
-        m.insert("block-hover-background", ct.with_alpha(0.10));
+        m.insert(
+            "block-hover-background",
+            ct.with_alpha(0.10).quantize_alpha_hex(),
+        );
         // Textual's datatable--header-hover: `$accent 30%` (alpha), composed at render time.
         m.insert("header-hover-background", accent.with_alpha(0.30));
 
@@ -695,7 +726,9 @@ fn resolve_textual_dark_token(name: &str) -> Option<Color> {
             "input-cursor-foreground",
             m.get("background").copied().unwrap(),
         );
-        let selection = lighten_lab(primary, 0.15 / 2.0).with_alpha(0.40);
+        let selection = lighten_lab(primary, 0.15 / 2.0)
+            .with_alpha(0.40)
+            .quantize_alpha_hex();
         m.insert("input-selection-background", selection);
         m.insert("markdown-h1-color", primary);
         m.insert("markdown-h2-color", primary);
@@ -3548,6 +3581,38 @@ mod tests {
         for (name, expected) in cases {
             assert_eq!(tok(name), *expected, "design token ${name}");
         }
+    }
+
+    /// Alpha-bearing GENERATED theme tokens round-trip through Python's 8-digit
+    /// hex (`Color.hex` truncates via `int(a * 255)`; the CSS layer re-parses
+    /// `byte / 255`). Python emits `block-cursor-blurred-background` as
+    /// `#0178D44C` (a = 76/255 ≈ 0.298), so blending over `$surface` gives
+    /// `#153854` — carrying the raw `0.30` gave `#153954` (g off by one), the
+    /// DataTable blurred-cursor parity diff.
+    #[test]
+    fn generated_alpha_tokens_are_hex_quantized() {
+        let cases: &[(&str, u8)] = &[
+            ("block-cursor-blurred-background", 76), // 0.30 -> 0x4C
+            ("block-hover-background", 25),          // 0.10 -> 0x19
+            ("boost", 10),                           // 0.04 -> 0x0A
+            ("input-selection-background", 102),     // 0.40 -> 0x66 (exact)
+        ];
+        for (name, byte) in cases {
+            let c = parse_color_like(&format!("${name}"))
+                .unwrap_or_else(|| panic!("token ${name} did not resolve"));
+            let a_byte = (f64::from(c.a) * 255.0) as u8;
+            assert_eq!(a_byte, *byte, "token ${name} alpha byte");
+            assert!(
+                (c.a - f32::from(*byte) / 255.0).abs() < 1e-6,
+                "token ${name} alpha must be byte/255 exactly (got {})",
+                c.a
+            );
+        }
+        // On-screen regression: the blurred cursor over $surface is #153854.
+        let blurred = parse_color_like("$block-cursor-blurred-background").unwrap();
+        let surface = parse_color_like("$surface").unwrap();
+        let flat = blurred.flatten_over(surface);
+        assert_eq!((flat.r, flat.g, flat.b), (0x15, 0x38, 0x54));
     }
 
     #[test]

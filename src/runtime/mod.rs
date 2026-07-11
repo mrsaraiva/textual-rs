@@ -2675,7 +2675,32 @@ impl App {
         f: impl FnOnce(&mut dyn Widget) -> R,
     ) -> Option<R> {
         let mut pending = crate::runtime::types::PendingInvalidation::default();
-        self.run_on_node_widget_r(node_id, |widget, _ctx| f(widget), &mut pending)
+        let result = self.run_on_node_widget_r(
+            node_id,
+            |widget, ctx| {
+                // The closure is ctx-less, so it cannot request a relayout
+                // itself. Python content updates refresh with `layout=True`
+                // when they change the widget's intrinsic size (e.g.
+                // `Pretty.update()` growing by a line); mirror that: if the
+                // mutation changed the intrinsic content size, the current
+                // layout is stale and must be recomputed.
+                let before = (widget.layout_height(), widget.content_width());
+                let out = f(widget);
+                if (widget.layout_height(), widget.content_width()) != before {
+                    ctx.request_layout();
+                }
+                out
+            },
+            &mut pending,
+        );
+        // This entry point has no live frame `pending` to merge into (unlike
+        // dispatch paths); a layout/style invalidation absorbed above would be
+        // silently dropped with the local. Promote it to the loop-level force
+        // flag so the next iteration relayouts.
+        if pending.flags.layout || pending.flags.style {
+            self.pending_force_relayout = true;
+        }
+        result
     }
 
     /// Borrow a widget mutably by node id and downcast to `T`.

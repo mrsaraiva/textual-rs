@@ -263,7 +263,14 @@ fn generate_tokens(theme: &NamedTheme) -> HashMap<String, Color> {
             } else if let Some(v) = var.get(key.as_str()) {
                 colors.insert(key, parse_color_like(v).unwrap_or(color));
             } else {
-                colors.insert(key, lighten_lab(color, luminosity_delta).clamped());
+                // Python emits every generated shade via `Color.hex`, which
+                // quantizes a fractional alpha (boost family) to u8/255.
+                colors.insert(
+                    key,
+                    lighten_lab(color, luminosity_delta)
+                        .clamped()
+                        .quantize_alpha_hex(),
+                );
             }
         }
     }
@@ -296,10 +303,10 @@ fn generate_tokens(theme: &NamedTheme) -> HashMap<String, Color> {
     });
 
     insert_or_var(&mut colors, &var, "foreground-muted", || {
-        foreground.with_alpha(0.6)
+        foreground.with_alpha(0.6).quantize_alpha_hex()
     });
     insert_or_var(&mut colors, &var, "foreground-disabled", || {
-        foreground.with_alpha(0.38)
+        foreground.with_alpha(0.38).quantize_alpha_hex()
     });
 
     // Block cursor / hover.
@@ -310,10 +317,10 @@ fn generate_tokens(theme: &NamedTheme) -> HashMap<String, Color> {
         foreground
     });
     insert_or_var(&mut colors, &var, "block-cursor-blurred-background", || {
-        primary.with_alpha(0.3)
+        primary.with_alpha(0.3).quantize_alpha_hex()
     });
     insert_or_var(&mut colors, &var, "block-hover-background", || {
-        boost.with_alpha(0.1)
+        boost.with_alpha(0.1).quantize_alpha_hex()
     });
 
     // Borders / surface-active.
@@ -378,7 +385,7 @@ fn generate_tokens(theme: &NamedTheme) -> HashMap<String, Color> {
     insert_or_var(&mut colors, &var, "input-cursor-foreground", || background);
     let primary_lighten_1 = *colors.get("primary-lighten-1").unwrap();
     insert_or_var(&mut colors, &var, "input-selection-background", || {
-        primary_lighten_1.with_alpha(0.4)
+        primary_lighten_1.with_alpha(0.4).quantize_alpha_hex()
     });
     insert_or_var(&mut colors, &var, "input-selection-foreground", || {
         foreground

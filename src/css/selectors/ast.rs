@@ -86,6 +86,12 @@ pub struct SelectorChain {
 pub struct StyleRule {
     pub(super) selector_chain: SelectorChain,
     pub(super) style: Style,
+    /// True for rules from widget DEFAULT_CSS. Python layers user CSS above
+    /// DEFAULT_CSS regardless of selector specificity (`Styles.extract_rules`
+    /// leads the specificity key with `0 if is_default_rules else 1`), so e.g.
+    /// a user `SelectionList { border: solid $accent }` beats the default
+    /// `OptionList:focus { border: tall $border }`.
+    pub(super) is_default: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -109,7 +115,16 @@ impl StyleSheet {
                 combinators: Vec::new(),
             },
             style,
+            is_default: false,
         });
+    }
+
+    /// Mark every rule in this sheet as widget-DEFAULT_CSS (lower cascade
+    /// layer than user CSS, mirroring Python's `is_default_rules`).
+    pub fn mark_default(&mut self) {
+        for rule in &mut self.rules {
+            rule.is_default = true;
+        }
     }
 
     pub fn add_type(&mut self, name: impl Into<String>, style: Style) {

@@ -1,7 +1,6 @@
 /// Port of Python Textual `docs/examples/guide/input/key01.py`.
 ///
 /// Displays a RichLog that writes key event info on each key press.
-use rich_rs::{Segment, Style as RichStyle};
 use textual::keys::KeyEventData;
 use textual::prelude::*;
 
@@ -19,41 +18,19 @@ impl TextualApp for InputApp {
         let is_printable = key.is_printable;
 
         let _ = app.with_query_one_mut_as::<RichLog, _>("RichLog", |log| {
-            let key_style =
-                RichStyle::new().with_color(Color::parse("#b73763").unwrap().to_simple_opaque());
-            let field_style =
-                RichStyle::new().with_color(Color::parse("#f5a623").unwrap().to_simple_opaque());
-            let value_style =
-                RichStyle::new().with_color(Color::parse("#98d168").unwrap().to_simple_opaque());
-            let bool_style = RichStyle::new()
-                .with_color(Color::parse("#b73763").unwrap().to_simple_opaque())
-                .with_italic(true);
-
+            // Python: `RichLog.write(event)` wraps the Key event in `Pretty`,
+            // whose repr is coloured by rich's `ReprHighlighter` (ANSI-standard
+            // colours, mapped to the terminal theme at paint time). Mirror that
+            // by writing the repr string through the same highlighter path —
+            // no hardcoded colours.
             let char_display = character
                 .map(|ch| format!("'{ch}'"))
                 .unwrap_or_else(|| "None".to_string());
             let printable_display = if is_printable { "True" } else { "False" };
-
-            log.write_segments(vec![
-                Segment::styled("Key".to_string(), key_style),
-                Segment::new("(".to_string()),
-                Segment::styled("key".to_string(), field_style),
-                Segment::new("=".to_string()),
-                Segment::styled(format!("'{key_name}'"), value_style),
-                Segment::new(", ".to_string()),
-                Segment::styled("character".to_string(), field_style),
-                Segment::new("=".to_string()),
-                Segment::styled(char_display, value_style),
-                Segment::new(", ".to_string()),
-                Segment::styled("name".to_string(), field_style),
-                Segment::new("=".to_string()),
-                Segment::styled(format!("'{key_name}'"), value_style),
-                Segment::new(", ".to_string()),
-                Segment::styled("is_printable".to_string(), field_style),
-                Segment::new("=".to_string()),
-                Segment::styled(printable_display.to_string(), bool_style),
-                Segment::new(")".to_string()),
-            ]);
+            log.write_pretty(format!(
+                "Key(key='{key_name}', character={char_display}, name='{key_name}', \
+                 is_printable={printable_display})"
+            ));
         });
 
         ctx.request_repaint();

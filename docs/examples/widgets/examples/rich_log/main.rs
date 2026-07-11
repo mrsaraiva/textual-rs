@@ -1,5 +1,5 @@
 /// Mirrors Python Textual's `docs/examples/widgets/rich_log.py`.
-use rich_rs::{Column, Segment, Style as RichStyle, Syntax, Table};
+use rich_rs::{Column, Syntax, Table};
 use textual::keys::KeyEventData;
 use textual::prelude::*;
 
@@ -29,41 +29,17 @@ const SWIM_ROWS: &[&[&str]] = &[
 ];
 
 fn write_key_line(log: &mut RichLog, key_name: &str, character: Option<char>, is_printable: bool) {
-    let key_style =
-        RichStyle::new().with_color(Color::parse("#b73763").unwrap().to_simple_opaque());
-    let field_style =
-        RichStyle::new().with_color(Color::parse("#f5a623").unwrap().to_simple_opaque());
-    let value_style =
-        RichStyle::new().with_color(Color::parse("#98d168").unwrap().to_simple_opaque());
-    let bool_style = RichStyle::new()
-        .with_color(Color::parse("#b73763").unwrap().to_simple_opaque())
-        .with_italic(true);
-
     let character = character
         .map(|ch| format!("'{ch}'"))
         .unwrap_or_else(|| "None".to_string());
     let printable = if is_printable { "True" } else { "False" };
-
-    log.write_segments(vec![
-        Segment::styled("Key".to_string(), key_style),
-        Segment::new("(".to_string()),
-        Segment::styled("key".to_string(), field_style),
-        Segment::new("=".to_string()),
-        Segment::styled(format!("'{key_name}'"), value_style),
-        Segment::new(", ".to_string()),
-        Segment::styled("character".to_string(), field_style),
-        Segment::new("=".to_string()),
-        Segment::styled(character, value_style),
-        Segment::new(", ".to_string()),
-        Segment::styled("name".to_string(), field_style),
-        Segment::new("=".to_string()),
-        Segment::styled(format!("'{key_name}'"), value_style),
-        Segment::new(", ".to_string()),
-        Segment::styled("is_printable".to_string(), field_style),
-        Segment::new("=".to_string()),
-        Segment::styled(printable.to_string(), bool_style),
-        Segment::new(")".to_string()),
-    ]);
+    // Python: `RichLog.write(event)` wraps the Key event in `Pretty`, coloured
+    // by rich's `ReprHighlighter` (ANSI-standard colours mapped to the terminal
+    // theme at paint time). Mirror that path — no hardcoded colours.
+    log.write_pretty(format!(
+        "Key(key='{key_name}', character={character}, name='{key_name}', \
+         is_printable={printable})"
+    ));
 }
 
 #[derive(Clone, Default)]
@@ -74,7 +50,7 @@ fn build_rich_log() -> RichLog {
 
     log.write_renderable(
         Syntax::new(CODE, "python")
-            .with_theme("ansi_dark")
+            .with_theme("monokai")
             .with_indent_guides(true),
     );
 
@@ -88,7 +64,7 @@ fn build_rich_log() -> RichLog {
     }
     log.write_renderable(table);
 
-    log.write("[bold red]Write text or any Rich renderable!");
+    log.write("[bold magenta]Write text or any Rich renderable!");
     log
 }
 

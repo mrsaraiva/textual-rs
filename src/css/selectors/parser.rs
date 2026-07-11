@@ -185,6 +185,7 @@ fn append_style_rules(
             sheet.rules.push(StyleRule {
                 selector_chain,
                 style: style.clone(),
+                is_default: false,
             });
         } else {
             issues.push(CssParseIssue {
@@ -3060,6 +3061,37 @@ mod tests {
         };
         let style = sheet.style_for_meta(&meta);
         assert_eq!(style.fg, Some(crate::style::Color::parse("green").unwrap()));
+    }
+
+    #[test]
+    fn cascade_user_rule_beats_higher_specificity_default_rule() {
+        use super::super::ast::{SelectorMeta, SelectorStates, StyleSheet};
+        // Python layers user CSS ABOVE widget DEFAULT_CSS regardless of
+        // selector specificity (`Styles.extract_rules` leads the specificity
+        // key with `0 if is_default_rules else 1`). A default `Foo:focus`
+        // (type+pseudo, higher specificity) must lose to a user `Foo` rule.
+        let mut default_sheet = StyleSheet::parse("Foo:focus { color: red; }");
+        default_sheet.mark_default();
+        let mut sheet = default_sheet;
+        sheet.extend(&StyleSheet::parse("Foo { color: green; }"));
+        let meta = SelectorMeta {
+            type_name: "Foo".to_string(),
+            type_aliases: Vec::new(),
+            id: None,
+            classes: Vec::new(),
+            states: SelectorStates {
+                focused: true,
+                ..Default::default()
+            },
+        };
+        let style = sheet.style_for_meta(&meta);
+        assert_eq!(style.fg, Some(crate::style::Color::parse("green").unwrap()));
+
+        // Two DEFAULT rules still cascade by specificity between themselves.
+        let mut defaults_only = StyleSheet::parse("Foo { color: blue; } Foo:focus { color: red; }");
+        defaults_only.mark_default();
+        let style = defaults_only.style_for_meta(&meta);
+        assert_eq!(style.fg, Some(crate::style::Color::parse("red").unwrap()));
     }
 
     // ---- text-align parsing tests ----

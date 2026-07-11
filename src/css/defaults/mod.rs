@@ -43,7 +43,12 @@ pub fn default_widget_stylesheet() -> StyleSheet {
         tooltip::DEFAULT_CSS,
     ]
     .join("\n");
-    StyleSheet::parse(&combined)
+    let mut sheet = StyleSheet::parse(&combined);
+    // DEFAULT_CSS sits in a lower cascade layer than user CSS (Python
+    // `is_default_rules`): any user rule overrides any default rule for the
+    // same property, regardless of selector specificity.
+    sheet.mark_default();
+    sheet
 }
 
 #[cfg(test)]
