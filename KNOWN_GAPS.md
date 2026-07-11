@@ -10,8 +10,9 @@ Parity is measured against real Python by three harnesses:
 - **Styled per-cell-RGB harness** (`tests/visual_parity.rs`): **87 / 87** exact.
 - **Plain-text PTY harness** (`tests/pty_parity.rs`): **186 / 186**.
 - **Real-app interactive parity** (`tests/pty_interactive.rs`, real Rust vs real Python, PTY+vt100
-  full cell-grid + truecolor): **27** honest `#[ignore]`s remain (84 / 84 non-ignored green), grouped
-  into the divergence classes below.
+  full cell-grid + truecolor): **7** honest `#[ignore]`s remain (104 / 104 non-ignored green), grouped
+  into the divergence classes below — and of those 7, **only 3 are open bugs** (the rest are
+  intentional divergences / a 1.1 feature).
 
 > **Why real-app parity:** static render — and even an in-process "liveness" probe — can pass while the
 > live app is broken. Two examples this cycle: the tutorial stopwatch rendered perfectly and its
@@ -50,8 +51,24 @@ Closed in the 1.0-candidate batch (2026-07-11, three parallel Fable investigatio
   `input_types_typing` + `input_validation` (switched to `assert_glyph_only_parity` — the caret
   reverse-cursor cell blinks non-deterministically in a live PTY; glyph/layout is exact).
 
-Per-layer flow isolation (`mouse01`'s Ball-off-screen root) is partly addressed — see the Layout class
-below.
+Closed in the 1.0-candidate **second wave** (2026-07-11, three more parallel Fable investigations +
+integration — 27 → 7 ignores):
+- **Focus fundamentals** (`stopwatch04`, `events_prevent_clear`, + broad click blast radius):
+  focus-on-mouse-down was entirely missing (Python `Screen._forward_event` focuses the nearest
+  focusable under the pointer before forwarding), and focus now transfers off a widget the frame hides
+  (`Widget._on_hide` → `Screen._reset_focus`).
+- **`set_styles`/`with_widget_mut` relayout** (`mouse01`): runtime style mutations that change intrinsic
+  size now relayout (Python `refresh(layout=True)`); closes the mouse-following Ball.
+- **Markdown code-fence highlighting**: syntect → app-theme-token mapping (new `src/highlight.rs`,
+  Python `highlight.py` pygments parity) instead of rich-rs' foreign monokai scheme.
+- **Theme-token alpha hex-quantization** + **user-CSS-over-DEFAULT_CSS cascade layer** (two wide colour/CSS
+  roots): closed ContentSwitcher, SelectionList ×2, and (as demo misports) checker01/02/04.
+- **Global dim pre-blend** (`FrameBuffer::preblend_dim`, Python `ANSIToTruecolor`): `question_title01`
+  header sub-title, and every other dim emitter.
+- **Footer multi-key display**, **Switch** knob-animation + `-on` sync + `#custom-design` component
+  styles, **RichLog/Log** scrollbar lanes + width + repr highlighter (`log`, `validate01`,
+  `input_key01/02/03`), and `compound_byte01/02` (test de-race).
+- **Test-hygiene**: `input_typing` → `assert_glyph_only_parity` (blink-caret class).
 
 ## Deferred to 1.1 (feature gaps)
 
@@ -61,49 +78,31 @@ below.
 - **`App.suspend()`** inline-subprocess context manager — needs the inline-mode alt-screen
   teardown/restore. Blocks `guide/app/suspend`.
 
-## Interactive divergence classes (the 27 `pty_interactive` `#[ignore]`s)
+## Interactive divergence classes (the 7 `pty_interactive` `#[ignore]`s)
 
-Each class is tagged **[1.0-candidate]** (a real gap Fable's breadth makes realistically closeable for
-1.0 — leverage-ordered), **[1.x]** (deferred), or **[divergence]** (an intentional/permanent difference
-we will not "fix"). Counts are measured glyph/colour cell diffs; the point is the *class*.
+Tagged **[1.x]** (a real open bug, deferred) or **[divergence]** (an intentional/permanent difference we
+will not "fix"). Only **3 of the 7 are open bugs**, and each needs deeper/upstream work:
 
-- **[1.0-candidate] `#stop` button surface not tinted after `#start` hides (`stopwatch04`, 182c)** —
-  Python moves focus to `#stop` when `#start` goes `display:none`, so `#stop` gets
-  `Button:focus background-tint: $foreground 5%` (surface `#ba4461`); Rust renders it untinted
-  (`#b93c5b`) — focus doesn't transfer on hide (or the `:focus` tint isn't applied post-reveal). NOT a
-  colour-math gap. *(The old "Color.a u8-vs-float / LAB rounding" framing here was wrong: `Color.a` is
-  already `f32`, and rgb_to_lab/lab_to_rgb are bit-exact to Python (196k-case sweep). `stopwatch03` is
-  FIXED — it was `Digits` pre-flattening its fg over `$background` instead of the composited surface;
-  the 19 hardcoded-shade workarounds were removed as the LAB math was always correct.)*
-- **[1.0-candidate] Markdown code-fence syntax highlighting** — fenced code isn't tree-sitter
-  highlighted (TextArea is; wire it into Markdown). Tests: `markdown`, `markdown_viewer` (COLOUR only
-  now — tables + scrollbar thumb are fixed).
-- **[1.0-candidate] Layout follow-up — per-layer flow** — the `ball`-layer widget still lands
-  off-screen (`mouse01`). Partly addressed by the `layers` per-layer arrangement fix; needs a re-check
-  that layer children lay out from the full region. (The `actions06`/`actions07`, `binding01`,
-  `set_reactive02` members of this class are now closed — see *Recently closed*.)
-- **[1.x] `SelectionList` surface/row colours + selected-values `Pretty`** — `selection_list_selections`,
-  `selection_list_selected`.
-- **[1.x] `RichLog`/`Log` surface + Rich repr-highlight palette** — rich-rs repr palette differs;
-  scrollbar-track bg; `Log` bottom-row fill. `rich_log`, `log`, `input_key01/02`, `validate01`.
-- **[1.x] ANSI standard-palette → terminal-theme (MONOKAI) render mapping** — `checker01`. A global
-  `apply_ansi_truecolor_to_segments` paint filter now maps rich ANSI-indexed colours (the Markdown /
-  BBCode path) to the theme, which is what closed `widgets01/03/04`. It does **not** reach `checker01`
-  (re-verified 2026-07-10, still 1920 colour cells): the board's `on white`/`on black` arrive as
-  named-colour surfaces via a different emitter, not ANSI-indexed segments. Closing it needs that
-  emitter routed through the same filter — and must NOT be "fixed" by changing named-colour resolution.
-- **[1.x] `ScrollView` right-edge scrollbar colour/extent** — `checker04`, `checker02`.
-- **[1.x] Widget-local state / relayout grab-bag** — `Input` border not repainted on blur to a Button
-  (`prevent`); empty auto-width `Label.update()` in a Horizontal doesn't relayout (`radio_set_changed`);
-  Footer shows all keys of a multi-key binding (`counter02`); Header sub-title not dimmed
-  (`question_title01`); `ContentSwitcher` surface colours (`content_switcher`); `KeyLogger` Debug-vs-repr
-  (`input_key03`); `Switch` knob position + `#custom-design` colours after toggle (`switch`); compound
-  `Input` placeholder/value where Python is blank (`byte01`/`byte02`); `ColorButton` click doesn't
-  animate Screen bg (`custom01`); focused-Input past-end reverse-cursor blink-phase flake
-  (`input_typing`, ≤1c, kept ignored).
+- **[1.x] `radio_set_changed` — empty auto-width `Label.update()` in a `Horizontal` doesn't relayout.**
+  The `set_styles`/`with_widget_mut` relayout fixes this wave closed the offset/size-change cases; this
+  specific auto-width-content-grows-from-empty case still needs the intrinsic-size re-measure. Same class
+  as the widget-initiated layout-invalidation follow-up below.
+- **[1.x] `rich_log` — 26 residual cells inside a `Syntax` block (UPSTREAM rich-rs).** syntect-vs-pygments
+  token classes (def-signature `:` as operator, docstring quotes plain, indent-guide fg). Site: rich-rs
+  `src/syntax.rs`. The RichLog surface / width / scrollbar / repr-highlighter are all fixed — this is
+  purely the fenced-code token palette, which lives upstream (we own rich-rs; own pass).
+- **[1.x] `custom01` — ColorButton Screen-bg animation, 456 residual cells (frozen-ancestor-bg).** The
+  click now animates the Screen bg and dispatches correctly; the residual is the 4 button interiors —
+  Python's strip cache keeps `#ffffff33` blended over the PRE-animation surface while Rust re-flattens
+  over the LIVE animated surface. Root: `FROZEN_ANCESTOR_BG` (`src/runtime/render.rs`) not extending
+  staleness to a node's OWN semi-transparent bg — a frozen-bg-architecture pass that intersects the
+  live-composition invariant. Second wave.
 - **[divergence] Python-only startup crash** (`set_reactive01`) — the Python ref intentionally raises
   (pre-mount `query_one` → `NoMatches`, the doc's "wrong way"); reproducing a Rich traceback
   glyph-for-glyph isn't meaningful.
+- **[divergence] Rust demo composes an extra Footer** (`actions05`) — the Rust `actions` port mounts a
+  Footer the Python doc omits, shifting content one row. A demo-authoring difference (reconcilable by
+  dropping the Footer), not a framework gap.
 - **[divergence] Inline render mode** (`howto_inline01/02`) — see *Deferred to 1.1*.
 
 ## Cosmetic / minor (broader demo tail)
@@ -116,12 +115,12 @@ we will not "fix"). Counts are measured glyph/colour cell diffs; the point is th
 
 ## Tracked correctness follow-ups (no demo impact)
 
-- **Widget-initiated layout invalidation** — Rust has no `Static.update(layout=True)` parity: a plain
-  setter (`Static::set_text`, `Pretty` string update) can't signal "my intrinsic size changed", and
-  `App::with_widget_mut` creates a local `PendingInvalidation` and drops it. Two demos this batch
-  (`set_reactive02`, `input_validation`) had to call `ctx.request_layout()` in their watchers to force
-  the relayout Python does implicitly. A `.update()`-parity mechanism would remove that demo-side
-  responsibility. *(Surfaced by the layout + widgets Fable passes, 2026-07-11.)*
+- **Widget-initiated layout invalidation** — LARGELY CLOSED in the second wave: `set_styles` now
+  diff-detects layout-affecting mutations and relayouts, and `with_widget_mut` compares intrinsic size
+  around the closure and promotes an absorbed invalidation to a forced relayout (Python
+  `refresh(layout=True)`). Remaining edge: an auto-width `Label.update()` that grows from EMPTY content
+  in a `Horizontal` still doesn't re-measure (`radio_set_changed`, above) — a `.update()`-content-path
+  intrinsic re-measure, distinct from the style-mutation path now covered.
 - **`loading`/`disabled` → focus & hit-test** — Python's `is_disabled = disabled or loading` removes a
   covered/loading widget from the focus chain and interaction; Rust's focus chain and hit-test don't
   consult `state.loading` yet (the `loading` cover now paints, but the widget under it is still
