@@ -1126,19 +1126,36 @@ fn parity_input_types_typing() {
 }
 
 /// input_validation: typing an invalid number must surface the SAME failure
-/// descriptions in the Pretty widget on both apps.
+/// descriptions in the Pretty widget on both apps. Un-ignored once (a) the
+/// demo's `on_input_changed` requests LAYOUT (Python `Pretty.update()` is
+/// `refresh(layout=True)`) so the Pretty node resizes past its stale
+/// `[]`-sized rect and rich-rs renders the repr inline, and (b) Input routes
+/// its `-valid`/`-invalid` validation state onto the arena node via
+/// `ctx.set_class` (the `&.-invalid:focus` error border).
+///
+/// Timing: each keystroke triggers a relayout frame, so the wait must be
+/// generous enough for the SECOND key's frame to land before capture even
+/// under load; and both apps blink the caret at 500ms (reset on last key), so
+/// the capture point (wait + 400ms final settle) should sit MID blink-phase —
+/// 1250ms is centred in the second visible phase (1000..1500) on both apps —
+/// not near a 500ms boundary where a small scheduling skew flips the caret
+/// cell on one side only.
 #[test]
-#[ignore = "BUG: Pretty renders the failure-list multi-line `[` expanded; Python renders it inline `['Value is not even.', \"That's not a palindrome :/\"]`. 43 glyph + focused-Input tint diffs."]
+#[ignore = "FLAKY under load only (same 1-cell caret race as parity_input_typing; kept ignored rather than flip a timing-race green): the Pretty inline repr + Input -invalid border now match glyph- and colour-exact (0 glyph / 0 colour except the caret). Residual: the reverse caret cell PAST '13' — both apps reset the 500ms blink on the last key, but under load the Rust loop processes the key up to ~400-700ms late, shifting its blink phase by ~a half-period relative to Python, so the two captures land in opposite phases. Passes idle; fails deterministically at loadavg 50+."]
 fn parity_input_validation_failure() {
-    let script = [Step::SendKeys("13"), Step::Wait(300)];
+    let script = [Step::SendKeys("13"), Step::Wait(850)];
     let (rf, pf) = widgets_both("input_validation", &script, 400);
     assert_glyph_parity("input_validation", &pf, &rf, &[]);
 }
 
 /// masked_input: typing digits into a credit-card mask renders the same
-/// separators + placeholder on both apps.
+/// separators + placeholder on both apps. Un-ignored once (a) MaskedInput
+/// routes its `-valid`/`-invalid` validation state onto the arena node via
+/// `ctx.set_class` (so `&.-invalid:focus { border: tall $error }` paints for a
+/// partial card number, matching Python) and (b) MaskedInput's render shares
+/// Input's component-colour resolution (`input_chrome`), so the unfilled
+/// template suffix gets the faded `input--placeholder` `auto 38%` contrast fg.
 #[test]
-#[ignore = "BUG: the focused MaskedInput own-surface tint matches Python (bg #272727 both). Residual = 245 colour cells, all border FG: Python treats the partial card number as invalid and paints `&.-invalid:focus { border: tall $error }` (#b93c5b) while Rust keeps the valid `:focus` border ($border #0178d4). Root: MaskedInput template validation doesn't set the `-invalid` state (see KNOWN_GAPS: Pretty expand + MaskedInput invalid)."]
 fn parity_masked_input_typing() {
     let script = [Step::SendKeys("4242424242"), Step::Wait(300)];
     let (rf, pf) = widgets_both("masked_input", &script, 400);

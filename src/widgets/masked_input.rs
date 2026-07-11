@@ -5,7 +5,6 @@ use std::time::Instant;
 
 use crate::event::Event;
 use crate::message::*;
-use crate::style::{Color, parse_color_like};
 use crate::validation::{ValidationResult, ValidatorRef};
 
 use super::{
@@ -612,10 +611,24 @@ impl MaskedInput {
     }
 
     fn post_changed(&mut self, ctx: &mut crate::event::WidgetCtx) {
+        self.sync_validation_classes(ctx);
         ctx.post_message(InputChanged {
             value: self.value_str(),
             validation: self.validation_result.clone(),
         });
+    }
+
+    /// Mirror the `-valid`/`-invalid` classes computed by [`Self::revalidate`]
+    /// onto the mounted arena node (Python `MaskedInput.validate` →
+    /// `set_class`). `revalidate()` writes to `self.seed.classes`, which is
+    /// only consulted pre-mount / off-tree; after mount the node record is the
+    /// single source of truth, so the state must ride `ctx.set_class` class
+    /// ops (this is what makes `&.-invalid:focus { border: tall $error }`
+    /// match while typing a partial value).
+    fn sync_validation_classes(&self, ctx: &mut crate::event::WidgetCtx) {
+        let has = |class: &str| self.seed.classes.iter().any(|c| c == class);
+        ctx.set_class(has("-valid"), "-valid");
+        ctx.set_class(has("-invalid"), "-invalid");
     }
 
     fn copy_text(&self) -> Option<String> {
@@ -1023,29 +1036,18 @@ impl crate::widgets::Render for MaskedInput {
     fn render(&self, _console: &Console, options: &ConsoleOptions) -> Segments {
         let width = options.size.0.max(1);
 
-        let base_meta = crate::css::selector_meta_generic(self);
-        let base_style = crate::css::resolve_style(self, &base_meta);
-        let fallback_bg = parse_color_like("$background").unwrap_or(Color::rgb(0, 0, 0));
-        let base_bg = base_style.bg.unwrap_or(fallback_bg);
+        // Painted surface + component-colour resolution shared with `Input`
+        // (`input_chrome`): state-aware composited background (incl. the
+        // `:focus` `background-tint`) and the `auto <pct>%` contrast path that
+        // `input--placeholder`'s `color: $text-disabled` resolves to. The old
+        // hand-rolled resolver here missed both, so the unfilled template
+        // suffix painted with the plain foreground instead of Python's faded
+        // placeholder colour.
+        let base_bg = super::input_chrome::composited_surface_bg(self);
+        let widget_own_bg = crate::css::current_self_style().and_then(|s| s.bg);
 
         let resolve_component_rich = |class: &str| -> rich_rs::Style {
-            let meta = crate::css::selector_meta_component(crate::widgets::Widget::style_type(self), &[class]);
-            let style = crate::css::resolve_style_for_meta(&meta);
-            let mut rich = style
-                .to_rich_without_colors()
-                .unwrap_or_default();
-            let mut under_bg = base_bg;
-
-            if let Some(bg) = style.bg {
-                let flat = bg.flatten_over(under_bg);
-                under_bg = flat;
-                rich = rich.with_bgcolor(flat.to_simple_opaque());
-            }
-            if let Some(fg) = style.fg {
-                let flat = fg.flatten_over(under_bg);
-                rich = rich.with_color(flat.to_simple_opaque());
-            }
-            rich
+            super::input_chrome::resolve_input_component_rich(self, class, base_bg, widget_own_bg)
         };
 
         let cursor_style = resolve_component_rich("input--cursor");
@@ -1546,5 +1548,65 @@ mod tests {
         }
         assert!(!ctx.handled());
         assert_eq!(input.text(), "");
+    }
+
+    /// Regression (masked_input parity): after mount the arena node record is
+    /// the single source of truth for CSS classes, so `revalidate()`'s
+    /// seed-class update alone never reaches `MaskedInput.-invalid` /
+    /// `&.-invalid:focus` selectors (Python paints `border: tall $error` for a
+    /// partial card number; Rust kept the plain `:focus` border). Typing must
+    /// queue the `-valid` / `-invalid` state as deferred class commands.
+    #[test]
+    fn typing_partial_value_queues_invalid_class_for_node() {
+        use crate::event::ClassOp;
+
+        let mut input = MaskedInput::new("999");
+        let _guard = set_dispatch_recipient(make_node_id(), focused_state());
+        let _ = crate::runtime::drain_class_commands_for_test();
+
+        let press = |input: &mut MaskedInput, ch: char| {
+            let mut ctx = EventCtx::default();
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(
+                crate::node_id::NodeId::default(),
+                &mut ctx,
+            );
+            input.on_event(
+                &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
+                    KeyCode::Char(ch),
+                    KeyModifiers::NONE,
+                ))),
+                &mut __w,
+            );
+        };
+
+        // A single digit of a 3-digit required template is template-invalid.
+        press(&mut input, '1');
+        let ops = crate::runtime::drain_class_commands_for_test();
+        assert!(
+            ops.iter()
+                .any(|(_, op)| matches!(op, ClassOp::Add(c) if c == "-invalid")),
+            "typing a partial value must queue an -invalid class add, got {ops:?}"
+        );
+        assert!(
+            ops.iter()
+                .any(|(_, op)| matches!(op, ClassOp::Remove(c) if c == "-valid")),
+            "typing a partial value must queue a -valid class remove, got {ops:?}"
+        );
+
+        // Completing the template flips the state to -valid.
+        press(&mut input, '2');
+        let _ = crate::runtime::drain_class_commands_for_test();
+        press(&mut input, '3');
+        let ops = crate::runtime::drain_class_commands_for_test();
+        assert!(
+            ops.iter()
+                .any(|(_, op)| matches!(op, ClassOp::Add(c) if c == "-valid")),
+            "completing the template must queue a -valid class add, got {ops:?}"
+        );
+        assert!(
+            ops.iter()
+                .any(|(_, op)| matches!(op, ClassOp::Remove(c) if c == "-invalid")),
+            "completing the template must queue an -invalid class remove, got {ops:?}"
+        );
     }
 }

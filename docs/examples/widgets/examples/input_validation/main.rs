@@ -68,7 +68,10 @@ impl TextualApp for InputValidationApp {
             validation.failure_descriptions.clone()
         };
         *self.pretty_str.lock().unwrap_or_else(|e| e.into_inner()) = format!("{:?}", next);
-        ctx.request_repaint();
+        // Python's `Pretty.update()` refreshes with `layout=True` — the new repr
+        // changes the widget's intrinsic size, so a repaint alone would render
+        // the new content inside the STALE `[]`-sized rect (clipped to "[").
+        ctx.request_layout();
     }
 }
 
@@ -137,6 +140,29 @@ mod liveness {
         assert!(
             final_str.contains("not") || final_str.len() > initial.len(),
             "Pretty string should carry validation failure descriptions, got: {final_str}"
+        );
+    }
+
+    /// Regression: `on_input_changed` requests a LAYOUT (the Pretty repr change
+    /// resizes the widget, mirroring Python's `Pretty.update()` refresh with
+    /// `layout=True`). The relayout between two keystrokes must not disturb key
+    /// delivery: after typing "1" then "3" the Pretty string must carry BOTH
+    /// failure descriptions for "13" (not-even + not-palindrome).
+    #[test]
+    fn second_keystroke_survives_pretty_relayout() {
+        let app = InputValidationApp::new();
+        let pretty = app.pretty_str.clone();
+
+        run_test(app, |pilot| {
+            pilot.press(&["1", "3"])?;
+            Ok(())
+        })
+        .unwrap();
+
+        let final_str = pretty.lock().unwrap().clone();
+        assert!(
+            final_str.contains("not even") && final_str.contains("palindrome"),
+            "Pretty must reflect the full \"13\" validation state, got: {final_str}"
         );
     }
 }

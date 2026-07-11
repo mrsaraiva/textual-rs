@@ -8,7 +8,6 @@ use unicode_segmentation::UnicodeSegmentation;
 use crate::event::Event;
 use crate::message::*;
 use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
-use crate::style::{Color, parse_color_like};
 use crate::validation::{ValidationResult, ValidatorRef};
 
 use crate::action::ParsedAction;
@@ -445,10 +444,25 @@ impl Input {
     }
 
     fn post_changed(&mut self, ctx: &mut crate::event::WidgetCtx) {
+        self.sync_validation_classes(ctx);
         ctx.post_message(InputChanged {
             value: self.text.clone(),
             validation: self.validation_result.clone(),
         });
+    }
+
+    /// Mirror the `-valid`/`-invalid` classes computed by [`Self::revalidate`]
+    /// onto the mounted arena node (Python `Input.validate` → `set_class`).
+    ///
+    /// `revalidate()` writes the classes to `self.seed.classes`, which is only
+    /// consulted pre-mount / off-tree; after mount the node record is the
+    /// single source of truth, so the state must ride `ctx.set_class` class
+    /// ops (this is what makes `Input.-invalid` / `&.-invalid:focus` CSS
+    /// match while typing).
+    fn sync_validation_classes(&self, ctx: &mut crate::event::WidgetCtx) {
+        let has = |class: &str| self.seed.classes.iter().any(|c| c == class);
+        ctx.set_class(has("-valid"), "-valid");
+        ctx.set_class(has("-invalid"), "-invalid");
     }
 
     fn delete_selection_if_any(&mut self) -> bool {
@@ -1053,67 +1067,13 @@ impl crate::widgets::Render for Input {
         // `auto <pct>%` contrast token) composite over the correct background. During a live render
         // the composited background reflects the widget's own state-aware surface — including the
         // `:focus` `background-tint: $foreground 5%` — so a focused Input's placeholder contrasts
-        // against `#272727`, not the untinted `$surface`. This mirrors Python `dom.py`:
-        // `background += styles.background.tint(styles.background_tint)`.
-        let fallback_bg = parse_color_like("$background").unwrap_or(Color::rgb(0, 0, 0));
-        let base_bg = crate::css::current_composited_background().unwrap_or_else(|| {
-            // Off-tree callers (unit tests without a live style stack): resolve statelessly and
-            // apply any `background-tint` by hand.
-            let base_meta = crate::css::selector_meta_generic(self);
-            let base_style = crate::css::resolve_style(self, &base_meta);
-            let mut bg = match base_style.bg {
-                Some(bg) if bg.a <= 0.0 => fallback_bg,
-                Some(bg) => bg,
-                None => fallback_bg,
-            };
-            if let Some(tint) = base_style.background_tint {
-                bg = crate::renderables::Tint::<()>::blend_color_with_percent(
-                    bg, tint.color, tint.percent,
-                );
-            }
-            bg
-        });
-        // The widget's OWN (untinted) background. The base `Input { background: $surface }` rule
-        // also matches the component selector meta (which is typed `Input`), so component styles
-        // that don't set their own background inherit `$surface`. That leaked background must NOT
-        // be treated as a genuine component surface: the placeholder/suggestion text is painted on
-        // the widget's real (tinted) surface, so we keep `base_bg` for compositing in that case.
+        // against `#272727`, not the untinted `$surface` (shared with MaskedInput; see
+        // `input_chrome::composited_surface_bg` / `resolve_input_component_rich`).
+        let base_bg = super::input_chrome::composited_surface_bg(self);
         let widget_own_bg = crate::css::current_self_style().and_then(|s| s.bg);
 
         let resolve_component_rich = |class: &str| -> rich_rs::Style {
-            let style = crate::css::resolve_component_style(self, &[class]);
-            let mut rich = style
-                .to_rich_without_colors()
-                .unwrap_or_default();
-            let mut under_bg = base_bg;
-
-            if let Some(bg) = style.bg {
-                if bg.a <= 0.0 {
-                    return rich;
-                }
-                // Only a component background that DIFFERS from the widget's own surface is a real
-                // override (e.g. `input--cursor`/`input--selection`); a background equal to the
-                // widget surface is the leaked base rule — leave the segment transparent so the
-                // compositor paints (and tints) it against the real surface.
-                if Some(bg) != widget_own_bg {
-                    let flat = bg.flatten_over(under_bg);
-                    under_bg = flat;
-                    rich = rich.with_bgcolor(flat.to_simple_opaque());
-                }
-            }
-            if let Some(fg) = style.fg {
-                let flat = fg.flatten_over(under_bg);
-                rich = rich.with_color(flat.to_simple_opaque());
-            } else if let Some(auto) = style.fg_auto {
-                // `auto <pct>%` foreground (e.g. `$text-disabled` = `auto 38%` used by
-                // `input--placeholder`/`input--suggestion`). Resolve the contrast colour of the
-                // under-background and composite it at the fractional alpha, matching Python's
-                // `background.get_contrast_text(alpha)` / the segment compositor's fg_auto path.
-                let contrast = crate::style::contrast_text(under_bg);
-                let flat = contrast.blend_over_float(under_bg, auto.alpha());
-                rich = rich.with_color(flat.to_simple_opaque());
-            }
-            rich
+            super::input_chrome::resolve_input_component_rich(self, class, base_bg, widget_own_bg)
         };
 
         let cursor_style = resolve_component_rich("input--cursor");
@@ -2209,5 +2169,65 @@ mod tests {
         }
         assert!(!ctx.handled());
         assert_eq!(input.text(), "abc");
+    }
+
+    /// Regression (input_validation parity): after mount the arena node record
+    /// is the single source of truth for CSS classes, so `revalidate()`'s
+    /// seed-class update alone never reaches `Input.-invalid` /
+    /// `&.-invalid:focus` selectors. Typing must queue the `-valid` /
+    /// `-invalid` state as deferred class commands for the node.
+    #[test]
+    fn typing_invalid_value_queues_invalid_class_for_node() {
+        use crate::event::ClassOp;
+        use crate::validation::Function;
+
+        let mut input = Input::new().with_validators(vec![std::sync::Arc::new(Function::new(
+            |v: &str| v.len() >= 2,
+            "too short",
+        ))
+            as crate::validation::ValidatorRef]);
+        let _guard = set_dispatch_recipient(make_node_id(), focused_state());
+        let _ = crate::runtime::drain_class_commands_for_test();
+
+        let press = |input: &mut Input, ch: char| {
+            let mut ctx = EventCtx::default();
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(
+                crate::node_id::NodeId::default(),
+                &mut ctx,
+            );
+            input.on_event(
+                &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
+                    KeyCode::Char(ch),
+                    KeyModifiers::NONE,
+                ))),
+                &mut __w,
+            );
+        };
+
+        press(&mut input, 'a');
+        let ops = crate::runtime::drain_class_commands_for_test();
+        assert!(
+            ops.iter()
+                .any(|(_, op)| matches!(op, ClassOp::Add(c) if c == "-invalid")),
+            "typing a failing value must queue an -invalid class add, got {ops:?}"
+        );
+        assert!(
+            ops.iter()
+                .any(|(_, op)| matches!(op, ClassOp::Remove(c) if c == "-valid")),
+            "typing a failing value must queue a -valid class remove, got {ops:?}"
+        );
+
+        press(&mut input, 'b');
+        let ops = crate::runtime::drain_class_commands_for_test();
+        assert!(
+            ops.iter()
+                .any(|(_, op)| matches!(op, ClassOp::Add(c) if c == "-valid")),
+            "typing a now-passing value must queue a -valid class add, got {ops:?}"
+        );
+        assert!(
+            ops.iter()
+                .any(|(_, op)| matches!(op, ClassOp::Remove(c) if c == "-invalid")),
+            "typing a now-passing value must queue an -invalid class remove, got {ops:?}"
+        );
     }
 }
