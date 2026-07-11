@@ -4085,6 +4085,28 @@ impl App {
                     self.absorb_stylesheet_reload(root, reload, &mut pending_invalidation);
                 }
                 root.on_tick(tick);
+                // `root.on_tick` only reaches the app adapter — its composed
+                // children were extracted into the arena at tree build, so the
+                // widgets that actually animate (LoadingIndicator, …) never see
+                // the frame tick through it. Deliver the tick to every ACTIVE
+                // arena widget (and any cover widget — the `loading` overlay),
+                // mirroring `headless_advance_ticks`.
+                if let Some(tree) = self.active_widget_tree_mut()
+                    && let Some(tree_root) = tree.root()
+                {
+                    for node in tree.walk_depth_first(tree_root) {
+                        if let Some(widget_node) = tree.get_mut(node) {
+                            if widget_node.widget.is_active() {
+                                widget_node.widget.on_tick(tick);
+                            }
+                            if let Some(cover) = widget_node.cover_widget.as_mut()
+                                && cover.is_active()
+                            {
+                                cover.on_tick(tick);
+                            }
+                        }
+                    }
+                }
 
                 let mut app_tick_ctx = EventCtx::default();
                 {
@@ -4734,6 +4756,12 @@ impl App {
                         let widget = &mut widget_node.widget;
                         if widget.is_active() {
                             widget.on_tick(tick);
+                        }
+                        // Cover widgets (the `loading` overlay) animate too.
+                        if let Some(cover) = widget_node.cover_widget.as_mut()
+                            && cover.is_active()
+                        {
+                            cover.on_tick(tick);
                         }
                     }
                 }

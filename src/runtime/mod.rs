@@ -8,6 +8,8 @@ mod event_loop;
 #[cfg(test)]
 mod frozen_bg_regression;
 #[cfg(test)]
+mod loading_cover_regression;
+#[cfg(test)]
 mod toast_rack_regression;
 #[cfg(test)]
 mod tooltip_regression;
@@ -461,6 +463,12 @@ impl<'a> DomQueryMut<'a> {
                     tree.set_loading(id, loading);
                 }
             }
+            // Python `Widget._cover`/`_uncover` (the `loading` reactive's
+            // watcher) end with `self.refresh(layout=True)`: repaint the
+            // covered/uncovered nodes so the LoadingIndicator appears or the
+            // widget's own content returns without waiting for other activity.
+            let nodes = query.nodes.clone();
+            query.app.request_query_refresh(&nodes);
             query
         } else {
             query

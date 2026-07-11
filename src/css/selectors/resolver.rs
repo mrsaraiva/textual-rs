@@ -116,6 +116,20 @@ pub(crate) fn selector_meta_generic<T: Widget + ?Sized>(widget: &T) -> SelectorM
     }
 }
 
+/// Selector meta for a node's COVER widget (Python `Widget._cover`).
+///
+/// Python `Widget.set_loading` adds the `-textual-loading-indicator` class to
+/// the loading widget before covering, so the
+/// `LoadingIndicator.-textual-loading-indicator { … }` default rule applies.
+pub(crate) fn cover_selector_meta<T: Widget + ?Sized>(widget: &T) -> SelectorMeta {
+    let mut meta = selector_meta_generic(widget);
+    let class = "-textual-loading-indicator";
+    if !meta.classes.iter().any(|c| c == class) {
+        meta.classes.push(class.to_string());
+    }
+    meta
+}
+
 pub(crate) fn selector_meta_component(parent_type: &str, classes: &[&str]) -> SelectorMeta {
     SelectorMeta {
         type_name: parent_type.to_string(),

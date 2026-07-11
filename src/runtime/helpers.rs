@@ -409,6 +409,12 @@ pub(crate) fn any_widget_active_tree(tree: &WidgetTree) -> bool {
             if node.widget.is_active() {
                 return true;
             }
+            // A cover widget (the `loading` overlay's LoadingIndicator)
+            // animates on the frame tick even though the covered node's own
+            // widget is idle — keep the active tick cadence while covered.
+            if node.cover_widget.as_ref().is_some_and(|c| c.is_active()) {
+                return true;
+            }
         }
     }
     false

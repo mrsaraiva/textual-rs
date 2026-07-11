@@ -146,6 +146,7 @@ pub struct Input {
     restrict: Option<Regex>,
     max_length: Option<usize>,
     pending_blur: bool,
+    select_on_focus: bool,
     validators: Vec<ValidatorRef>,
     validation_result: ValidationResult,
     chrome: InputChrome,
@@ -174,6 +175,7 @@ impl Input {
             restrict: None,
             max_length: None,
             pending_blur: false,
+            select_on_focus: true,
             validators: Vec::new(),
             validation_result: ValidationResult::success(),
             chrome: InputChrome::new(),
@@ -242,6 +244,17 @@ impl Input {
 
     pub fn with_password(mut self, password: bool) -> Self {
         self.password = password;
+        self
+    }
+
+    /// Set whether the full value is selected when the input gains focus
+    /// (Python `Input(select_on_focus=...)`, default `True`).
+    ///
+    /// While the whole value is selected, the next printable keystroke
+    /// replaces it — e.g. a pre-filled `"0"` becomes `"123"` when typing
+    /// `123`, not `"0123"`.
+    pub fn with_select_on_focus(mut self, select_on_focus: bool) -> Self {
+        self.select_on_focus = select_on_focus;
         self
     }
 
@@ -705,6 +718,14 @@ impl crate::widgets::Interactive for Input {
             self.chrome.set_focus(new.focused);
             if was_focused && !new.focused {
                 self.pending_blur = true;
+            }
+            // Python `Input._on_focus`: with `select_on_focus` (default) the
+            // full value is selected on focus gain, so the next printable
+            // keystroke replaces it. (Python skips this for `from_app_focus`
+            // refocuses; in Rust terminal focus is tracked app-wide and does
+            // not flip node focus state, so no equivalent guard is needed.)
+            if !was_focused && new.focused && self.select_on_focus {
+                self.select_all();
             }
             // Clear suggestion on focus change (matches Python Textual).
             self.suggestion.clear();
@@ -1936,6 +1957,46 @@ mod tests {
             NodeState::default(),
         );
         assert!(input.suggestion.is_empty());
+    }
+
+    #[test]
+    fn select_on_focus_selects_full_value_on_focus_gain() {
+        // Python `Input._on_focus` with `select_on_focus=True` (the default):
+        // gaining focus selects the whole value.
+        let mut input = Input::new().with_value("0");
+        input.on_node_state_changed(NodeState::default(), focused_state());
+        assert_eq!(input.selected_text().as_deref(), Some("0"));
+        assert_eq!(input.selection.normalized(), (0, 1));
+        assert_eq!(input.cursor, 1);
+    }
+
+    #[test]
+    fn select_on_focus_false_keeps_selection_collapsed() {
+        let mut input = Input::new().with_value("0").with_select_on_focus(false);
+        input.on_node_state_changed(NodeState::default(), focused_state());
+        assert_eq!(input.selected_text(), None);
+    }
+
+    #[test]
+    fn typing_over_focus_selection_replaces_value() {
+        // Pre-filled "0", focus (select-on-focus), then typing "123" must
+        // REPLACE the selected "0" — "123", not "0123" (computed01 parity).
+        let mut input = Input::new().with_value("0");
+        input.on_node_state_changed(NodeState::default(), focused_state());
+        let _guard = set_dispatch_recipient(make_node_id(), focused_state());
+        for ch in ['1', '2', '3'] {
+            let mut ctx = EventCtx::default();
+            let mut __w =
+                crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            input.on_event(
+                &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
+                    KeyCode::Char(ch),
+                    KeyModifiers::NONE,
+                ))),
+                &mut __w,
+            );
+        }
+        assert_eq!(input.text(), "123");
     }
 
     #[test]

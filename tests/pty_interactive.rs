@@ -1517,8 +1517,10 @@ fn region_advances(
 // --- reactivity (input-driven, deterministic) -------------------------------
 
 /// computed01: typing a red value live recomputes the colour swatch background.
+/// Exercises `Input` select-on-focus: the pre-filled "0" is selected when the
+/// first Input auto-focuses, so typing "123" REPLACES it (Python
+/// `select_on_focus=True` default).
 #[test]
-#[ignore = "BUG (framework feature gap — NOT a demo-only fix): Python's `Input(\"0\", ...)` pre-fills each channel with \"0\" and relies on `select_on_focus=True` so typing \"123\" REPLACES the selected \"0\". `Input::with_value` exists, but Rust's Input has NO `select_on_focus` (select-all-on-focus), so pre-filling \"0\" and typing would yield \"0123\" != Python. 29 glyph cells. Root: implement Input select-on-focus (a 1.x feature) — see KNOWN_GAPS."]
 fn parity_computed01_color() {
     let script = [Step::SendKeys("123"), Step::Wait(300)];
     let (rf, pf) = cat_both("computed01", "guide/reactivity", &script, 400);
@@ -1802,7 +1804,6 @@ fn parity_checker04_board() {
 /// indicator (structural — exact spinner frame is non-deterministic). Worker
 /// completion time is random so we do NOT compare the loaded end-state.
 #[test]
-#[ignore = "BUG: while DataTable.loading=True, Python renders a LoadingIndicator (animated `●` dots) in all four panels; Rust renders a fully BLANK screen (no indicator, panels empty). The `loading` reactive does not mount/draw a LoadingIndicator. Root: DataTable/Widget `loading` state has no LoadingIndicator overlay in Rust."]
 fn parity_loading01_indicator() {
     fn loading_shown(kind: &AppKind) -> bool {
         let app = spawn(kind);

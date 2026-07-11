@@ -165,6 +165,11 @@ pub struct WidgetNode {
     /// overwriting it. `None` for every node that does not opt in, so existing
     /// absolute-positioned nodes lay out identically.
     pub(crate) absolute_offset: Option<(i32, i32)>,
+    /// Widget rendered in PLACE of this node's own visuals, mapped to the same
+    /// region (Python `Widget._cover_widget` / `_render_widget`). Set by the
+    /// `loading` reactive to a `LoadingIndicator`; while present the node's own
+    /// content and its children are not painted.
+    pub(crate) cover_widget: Option<Box<dyn Widget>>,
 }
 
 impl WidgetNode {
@@ -185,6 +190,7 @@ impl WidgetNode {
             layout_rect: Rect::ZERO,
             content_rect: Rect::ZERO,
             absolute_offset: None,
+            cover_widget: None,
         }
     }
 }
@@ -805,12 +811,21 @@ impl WidgetTree {
     }
 
     /// Set the loading state of a node and notify the widget.
+    ///
+    /// Python `Widget.set_loading` (via the `loading` reactive's
+    /// `_watch_loading`): `loading = True` COVERS the widget with a
+    /// `LoadingIndicator` carrying the `-textual-loading-indicator` class —
+    /// rendered in place of the widget's own visuals — and `loading = False`
+    /// uncovers it.
     pub fn set_loading(&mut self, node: NodeId, loading: bool) {
         if let Some(n) = self.arena.get_mut(node) {
             if n.state.loading != loading {
                 let old = n.state;
                 n.state.loading = loading;
                 let new = n.state;
+                n.cover_widget = loading.then(|| {
+                    Box::new(crate::widgets::LoadingIndicator::new()) as Box<dyn Widget>
+                });
                 n.widget.on_node_state_changed(old, new);
             }
         }
@@ -1993,6 +2008,26 @@ mod tests {
         assert!(tree.node_state(root).focused);
         tree.set_focus_state(root, false);
         assert!(!tree.node_state(root).focused);
+    }
+
+    #[test]
+    fn set_loading_covers_and_uncovers_node() {
+        // Python `Widget.set_loading`: loading=True covers the widget with a
+        // LoadingIndicator; loading=False uncovers it.
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(TestWidget::boxed("Root"));
+        assert!(tree.get(root).unwrap().cover_widget.is_none());
+
+        tree.set_loading(root, true);
+        let node = tree.get(root).unwrap();
+        assert!(node.state.loading);
+        let cover = node.cover_widget.as_ref().expect("loading covers the node");
+        assert_eq!(cover.style_type(), "LoadingIndicator");
+
+        tree.set_loading(root, false);
+        let node = tree.get(root).unwrap();
+        assert!(!node.state.loading);
+        assert!(node.cover_widget.is_none());
     }
 
     #[test]

@@ -782,6 +782,20 @@ fn render_tree_node(
         return;
     }
 
+    // Cover-widget parity (Python `Widget._render_widget` + `_compositor.py`
+    // cover handling): while a cover widget is set (the `loading` reactive
+    // covers a node with a `LoadingIndicator`), the COVER's visuals render in
+    // place of this node's own — same region — and the node's children are not
+    // painted (`_compositor.py:680`: placements are skipped while covered).
+    if let Some(cover) = node.cover_widget.as_deref() {
+        if should_render {
+            render_cover_widget(
+                cover, node, node_id, rect, w, h, ctx, meta, resolved, frame, console, debug,
+            );
+        }
+        return;
+    }
+
     // CSS `outline` is drawn OVER this node's own edge cells (without reserving
     // layout space) AND over any child content composited at those edges. It is
     // therefore computed here (while the ancestor style stack is the base
@@ -1279,6 +1293,92 @@ fn render_tree_node(
     }
 
     pop_style_context();
+}
+
+/// Paint a node's COVER widget (Python `Widget._render_widget`) into the
+/// node's layout rect, replacing the node's own visuals.
+///
+/// The node's own style context is pushed first (Python `Widget._cover` sets
+/// `widget._parent = self`), so the cover's translucent `$boost` surface
+/// composes over the covered widget's own background. The cover resolves with
+/// the `-textual-loading-indicator` class added by `set_loading`, so the
+/// `LoadingIndicator.-textual-loading-indicator { bg: $boost; }` default rule
+/// applies exactly as in Python.
+#[allow(clippy::too_many_arguments)]
+fn render_cover_widget(
+    cover: &dyn Widget,
+    node: &crate::widget_tree::WidgetNode,
+    node_id: NodeId,
+    rect: crate::widget_tree::Rect,
+    w: usize,
+    h: usize,
+    ctx: TreeRenderCtx,
+    meta: crate::css::SelectorMeta,
+    resolved: crate::style::Style,
+    frame: &mut FrameBuffer,
+    console: &rich_rs::Console,
+    debug: Option<&crate::debug::DebugLayout>,
+) {
+    let dest_x = rect.x0 + ctx.origin_x;
+    let dest_y = rect.y0 + ctx.origin_y;
+
+    let opts = rich_rs::ConsoleOptions {
+        size: (w, h),
+        max_width: w,
+        max_height: h,
+        ..Default::default()
+    };
+
+    let _dispatch_guard = set_dispatch_recipient(node_id, node.state);
+
+    // Parent the cover to this node (Python `_cover`: `widget._parent = self`).
+    push_style_context(meta, resolved);
+
+    let cover_meta = crate::css::cover_selector_meta(cover);
+    let cover_resolved = crate::css::resolve_style_for_meta(&cover_meta);
+
+    let debug_label = format!("{}(cover)", cover.style_type());
+    let segments = crate::widgets::render_widget_with_meta(
+        cover,
+        console,
+        &opts,
+        debug,
+        node_id,
+        &cover_meta,
+        &cover_resolved,
+        &debug_label,
+    );
+    pop_style_context();
+
+    let lines = rich_rs::Segment::split_and_crop_lines(segments, w, None, true, false);
+    let frame_clip = ClipRect::for_frame(frame);
+    let Some(paint_clip) = ctx.clip.intersect(frame_clip) else {
+        return;
+    };
+    for (row_idx, line) in lines.iter().enumerate() {
+        let y = dest_y + row_idx as i32;
+        if y < paint_clip.y0 {
+            continue;
+        }
+        if y >= paint_clip.y1 {
+            break;
+        }
+        let line_start = dest_x;
+        let line_end = dest_x + w as i32;
+        let x0 = line_start.max(paint_clip.x0);
+        let x1 = line_end.min(paint_clip.x1);
+        if x1 <= x0 {
+            continue;
+        }
+        let crop_start = (x0 - line_start) as usize;
+        let crop_width = (x1 - x0) as usize;
+        let cropped = if crop_start == 0 && crop_width == w {
+            line.clone()
+        } else {
+            crop_line_horizontal(line, crop_start, crop_width)
+        };
+        frame.write_line_at(x0 as usize, y as usize, &cropped, false);
+    }
 }
 
 /// Paint precomputed `outline` perimeter cells into the frame buffer.

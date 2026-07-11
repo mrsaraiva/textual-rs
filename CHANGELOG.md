@@ -75,6 +75,35 @@ hand-implemented on the common path.
   `dyn Widget` surface; the `#[widget(..)]` derive needs no capability trait in
   scope (it uses full paths).
 
+### Added — the `loading` reactive covers widgets with a LoadingIndicator
+
+- **`loading = true` now shows an animated `LoadingIndicator` over the widget**
+  (Python `Widget.loading` / `set_loading` parity). Setting a node's loading
+  state (`query_mut(sel).set(None, None, None, Some(true))`) covers the node
+  with a `LoadingIndicator` carrying the `-textual-loading-indicator` class —
+  Python's `Widget._cover_widget`, held as `WidgetNode::cover_widget`. The
+  render walk paints the cover IN PLACE of the node's own visuals (same
+  region, children skipped, mirroring `_compositor.py`), parented to the
+  node's style context so the indicator's `$boost` surface composes over the
+  covered widget's background. `loading = false` uncovers. Setting loading
+  requests a repaint of the affected nodes (Python `_cover`/`_uncover`'s
+  `refresh(layout=True)`).
+- **Live loop now delivers frame ticks to active arena widgets.** The live
+  event loop only called `root.on_tick`, which never reaches arena-extracted
+  widgets — tick-driven animations (LoadingIndicator's dot gradient) were
+  frozen in live runs while the headless pump animated them. The live loop now
+  walks the arena and ticks every `is_active()` widget (and cover widget),
+  converging live behavior with `headless_advance_ticks`.
+
+### Added — `Input` select-on-focus (Python `select_on_focus=True` default)
+
+- **Gaining focus selects the Input's full value**, so the next printable
+  keystroke replaces it — a pre-filled `"0"` becomes `"123"` when typing
+  `123`, not `"0123"` (Python `Input._on_focus`). Enabled by default to match
+  Python; opt out with the new `Input::with_select_on_focus(false)` builder.
+  Un-ignores the `computed01` interactive parity case (its three channel
+  inputs now pre-fill `"0"` like Python's `Input("0", ...)`).
+
 ### Added — container seed-builder unification (Node-removal groundwork)
 
 - **Uniform identity/border builders on the container family.** Completing the
