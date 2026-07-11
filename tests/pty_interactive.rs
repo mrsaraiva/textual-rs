@@ -654,11 +654,11 @@ fn assert_glyph_parity(name: &str, py: &Grid, rust: &Grid, skip_rows: &[usize]) 
 /// gap remains (tracked as a separate follow-up) — so the structural win stays a
 /// live regression guard without bundling an unrelated colour-engine fix.
 ///
-/// Live callers: `parity_input_types_typing` and `parity_input_validation_failure`,
-/// whose sole residual is the caret reverse-cursor cell that blinks
-/// non-deterministically in a live PTY. (The Select tests that used to use it
-/// flipped back to full `assert_glyph_parity` once their colour bugs were fixed,
-/// ab6cef6.)
+/// Live callers: `parity_input_typing`, `parity_input_types_typing`, and
+/// `parity_input_validation_failure`, whose sole residual is the caret
+/// reverse-cursor cell that blinks non-deterministically in a live PTY. (The
+/// Select tests that used to use it flipped back to full `assert_glyph_parity`
+/// once their colour bugs were fixed, ab6cef6.)
 fn assert_glyph_only_parity(name: &str, py: &Grid, rust: &Grid, skip_rows: &[usize]) {
     assert_glyph_parity_inner(name, py, rust, skip_rows, false);
 }
@@ -1103,13 +1103,17 @@ fn widgets02_welcome_alignment_and_rule_colour() {
 // --- text-entry widgets -----------------------------------------------------
 
 /// input: type into the first Input; the typed text + cursor should render
-/// identically on both apps (deterministic, no clock/header).
+/// identically on both apps (deterministic, no clock/header). The focused-Input
+/// own-surface tint matches (#272727 both); the sole residual is the reverse
+/// cursor cell past the last glyph, whose visibility depends on the live-PTY
+/// blink phase (Python's cursor blinks too and the phase can't be pinned) — the
+/// same class handled by `parity_input_types_typing` / `parity_input_validation_failure`.
+/// Assert deterministic GLYPH parity and only report the ≤1-cell colour delta.
 #[test]
-#[ignore = "BUG (FLAKY — kept ignored rather than flip a 9/10): the focused Input own-surface tint matches Python (#272727 both). Residual is ≤1 cell and blink-phase-dependent: Python paints a reverse cursor cell (fg $background / bg $foreground #e0e0e0) at the caret PAST the last glyph; whether it's visible at capture depends on the cursor blink phase, so this passes ~9/10 and fails 1/10. Un-ignoring would add a timing-race green. Root: past-end reverse-cursor cell (src/widgets/input.rs); pinning the blink phase in a live PTY isn't available."]
 fn parity_input_typing() {
     let script = [Step::SendKeys("Marcos"), Step::Wait(250)];
     let (rf, pf) = widgets_both("input", &script, 400);
-    assert_glyph_parity("input", &pf, &rf, &[]);
+    assert_glyph_only_parity("input", &pf, &rf, &[]);
 }
 
 /// input_types: integer + number Inputs; typing digits validates live.
