@@ -133,6 +133,12 @@ mod tests {
     #[test]
     fn advance_clock_runs_and_pauses_the_stopwatch() {
         textual::run_test(StopwatchApp, |pilot| {
+            // Clicking now moves focus to the pressed Button (Python
+            // `Screen._forward_event` click-to-focus), so the `:focus` styling
+            // is part of every post-click frame. Park focus on #reset FIRST so
+            // the idle fingerprint and the final post-reset fingerprint carry
+            // the same focus state and compare equal on the display alone.
+            pilot.click("#reset")?;
             let idle = pilot.app().frame_fingerprint();
             pilot.click("#start")?;
             pilot.advance_clock(Duration::from_secs(1))?;

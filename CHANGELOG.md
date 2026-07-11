@@ -47,6 +47,66 @@ the fence surface, bare identifiers `$text-primary`, …) — instead of rich-rs
 built-in syntect colour scheme, which painted a foreign monokai theme including
 its own background. The widgets/markdown demo's python fence now renders
 byte-identical SGR to Python. New module: `src/highlight.rs`.
+### Fixed — widget-local behavior/relayout parity batch (footer keys, header dim, switch, click-to-focus, live click messages, style-anim plumbing, RichLog scrollbar)
+
+Seven `[1.x]` parity gaps closed at the framework level (each verified cell-exact
+against the real Python app in the interactive PTY harness; the corresponding
+`tests/pty_interactive.rs` cases are un-ignored):
+
+- **Footer shows ONE key per multi-key binding.** Python expands `"up,k"` into
+  separate `Binding`s and `Footer.compose` renders the FIRST one per action
+  (`↑ Increment`), while the Rust footer joined every alternative
+  (`↑ k Increment`). Decl-derived binding hints no longer pre-join a
+  `key_display`; the Footer formats the first comma alternative
+  (`Footer::footer_key_display`) and the KeyPanel keeps its all-keys join
+  (Python `KeyPanel` behavior). (`guide/widgets/counter02`)
+- **Header sub-title dims like Python.** `HeaderTitle::render` emits the ` — `
+  separator + subtitle as `dim` segments (Python `App.format_title`), and the
+  render pipeline gains Python's GLOBAL dim pre-blend
+  (`FrameBuffer::preblend_dim`, mirroring `ANSIToTruecolor`/`dim_style`): any
+  dim cell's fg is blended toward its bg at factor 0.66 and SGR dim is
+  stripped, so dim text renders identical colours to Python everywhere.
+  (`app/question_title01`)
+- **Switch knob animates + `-on`/custom colours resolve.** The knob slide now
+  runs through the app animator (`AnimationRequest` on `slider_pos`, 0.3s —
+  Python `watch_value`); the old per-widget `on_tick` easing never ran for
+  keyboard toggles (arena ticks gate on `is_active()`). The `-on` class lands
+  on the ARENA node when the slider reaches 1 (Python
+  `watch__slider_position`), and the `switch--slider` component style resolves
+  against the LIVE selector stack (Checkbox/RadioButton pattern) so
+  `#custom-design > .switch--slider` and post-toggle `Switch.-on` colours
+  match. (`widgets/switch`, `guide/compound/byte01+byte02`)
+- **Click-to-focus (Python `Screen._forward_event`).** A mouse press now
+  focuses the first focusable widget in the ancestry of the press target
+  BEFORE the widget receives the event, and a press outside any widget clears
+  focus; dedicated scrollbar lanes never move focus. Previously focus only
+  ever moved via keys/actions, so e.g. a focused `Input` kept its `:focus`
+  border after clicking a `Button`. Applies to both the live loop and the
+  headless `pilot.click` path. (`events/prevent`)
+- **Live clicks deliver widget messages.** The live loop's mouse-up arm
+  dropped messages posted while handling the synthesized `Click` (the
+  headless path dispatched them) — a custom widget's `on_event(Click)` ->
+  `post_message` demo was inert in the real terminal. Also plumbed
+  `StyleAnimationRequest`s through `DispatchOutcome`/message dispatch, so
+  `ctx.animate_style(...)` works from ANY handler (Python
+  `styles.animate(...)`), and the `custom01` demo now animates the screen
+  background over 0.5s like Python. (`events/custom01`; its remaining
+  colour residual is the frozen-ancestor-surface interaction with a node's
+  OWN translucent bg, tracked in the test's `#[ignore]`)
+- **RichLog scrollbar parity.** An unscrollable bar (window >= virtual)
+  renders Python's `window_size=0` form — a plain `$scrollbar-background`
+  track with NO thumb (`ScrollBar._render_bar`), instead of a full-length
+  reverse-video thumb; and RichLog's horizontal VIRTUAL size follows the
+  widest rendered line (Python `_widest_line_width`) instead of `min_width`,
+  which manufactured a phantom h-overflow lane (shortening the vertical bar)
+  in panes narrower than 78 cells. (`guide/input/key01+key02+key03`)
+- **Demo-port fidelity:** `key03`'s KeyLogger writes the Python event repr
+  with the measured Rich-repr palette and reports
+  `style_type_aliases = ["RichLog"]` (Python subclass DEFAULT_CSS
+  inheritance); `key01`/`key02` swap their hand-styled repr palette to the
+  measured Python colours; `custom01` carries the per-button `tall` border
+  (inline `Widget::style()`, Python `on_mount` styles) + `#ffffff33`
+  background; `byte03`'s Input gains Python's `placeholder="byte"`.
 
 ### BREAKING — the RA-2 batch (one pre-1.0 breaking wave; migration index)
 

@@ -86,6 +86,9 @@ pub struct RichLog {
     content_height: AtomicUsize,
     viewport_height: AtomicUsize,
     widget_width: AtomicUsize,
+    /// Widest RENDERED physical line (Python `RichLog._widest_line_width`):
+    /// the horizontal VIRTUAL size follows actual content, not `min_width`.
+    widest_line_width: AtomicUsize,
     widget_height: AtomicUsize,
     scrollbar_extracted: bool,
     seed: NodeSeed,
@@ -156,6 +159,7 @@ impl RichLog {
             content_height: AtomicUsize::new(1),
             viewport_height: AtomicUsize::new(1),
             widget_width: AtomicUsize::new(1),
+            widest_line_width: AtomicUsize::new(0),
             widget_height: AtomicUsize::new(1),
             scrollbar_extracted: false,
             seed: NodeSeed::default(),
@@ -821,11 +825,13 @@ impl crate::widgets::Scrollable for RichLog {
     }
 
     fn scroll_virtual_content_size(&self) -> Option<(usize, usize)> {
-        let width = self
-            .widget_width
-            .load(Ordering::Relaxed)
-            .max(self.min_width)
-            .max(1);
+        // Python `RichLog.write`: `self.virtual_size =
+        // Size(self._widest_line_width, len(self.lines))` — the horizontal
+        // virtual extent is the widest ACTUAL rendered line. `min_width` only
+        // sets the RENDER measure width; clamping the virtual size to it
+        // manufactured phantom horizontal overflow (and a reserved h-lane that
+        // shortened the vertical bar) in any pane narrower than 78 cells.
+        let width = self.widest_line_width.load(Ordering::Relaxed).max(1);
         let height = self
             .content_height
             .load(Ordering::Relaxed)
@@ -854,6 +860,36 @@ impl crate::widgets::Render for RichLog {
         let viewport_width = width;
         let physical = self.physical_lines(console, options, viewport_width);
         let content_height = physical.len().max(1);
+        // Measure each physical line's CONTENT width (Python
+        // `_widest_line_width`): rendered lines are padded to the render
+        // width, so strip only the TRAILING blank run before measuring.
+        fn line_content_width(line: &[Segment]) -> usize {
+            let mut widths: Vec<usize> = Vec::with_capacity(line.len());
+            let mut tail = true;
+            for seg in line.iter().rev() {
+                if seg.control.is_some() {
+                    widths.push(0);
+                    continue;
+                }
+                if tail {
+                    let trimmed = seg.text.trim_end_matches(' ');
+                    let w = rich_rs::cell_len(trimmed);
+                    widths.push(w);
+                    if !trimmed.is_empty() {
+                        tail = false;
+                    }
+                } else {
+                    widths.push(rich_rs::cell_len(&seg.text));
+                }
+            }
+            widths.into_iter().sum()
+        }
+        let widest = physical
+            .iter()
+            .map(|line| line_content_width(line))
+            .max()
+            .unwrap_or(0);
+        self.widest_line_width.store(widest, Ordering::Relaxed);
 
         self.viewport_height.store(height, Ordering::Relaxed);
         self.content_height.store(content_height, Ordering::Relaxed);
@@ -960,6 +996,34 @@ mod tests {
         options.max_width = width;
         options.max_height = height;
         options
+    }
+
+    /// Python `RichLog.write`: `virtual_size = Size(self._widest_line_width,
+    /// len(lines))` — the horizontal VIRTUAL size follows the widest ACTUAL
+    /// rendered line, while `min_width` (78) only sets the render measure.
+    /// Clamping the virtual width to `min_width` manufactured phantom
+    /// horizontal overflow (and a reserved h-lane that shortened the vertical
+    /// bar) in any pane narrower than 78 cells (the key03 2x2 grid).
+    #[test]
+    fn virtual_width_tracks_widest_line_not_min_width() {
+        let console = Console::new();
+        let options = options_for(&console, 40, 10);
+        let mut log = RichLog::new();
+        log.write("short line".to_string());
+        let _ = crate::widgets::Render::render(&log, &console, &options);
+        let (virtual_w, _) = log.scroll_virtual_content_size().unwrap();
+        assert_eq!(
+            virtual_w, 10,
+            "virtual width must be the widest rendered line, not min_width (78)"
+        );
+
+        // A longer line grows the virtual width with the content (bounded by
+        // the render width — physical lines are cropped at render time, a
+        // pre-existing separate gap from Python's horizontal RichLog scroll).
+        log.write("x".repeat(30));
+        let _ = crate::widgets::Render::render(&log, &console, &options);
+        let (virtual_w, _) = log.scroll_virtual_content_size().unwrap();
+        assert_eq!(virtual_w, 30);
     }
 
     #[test]

@@ -437,7 +437,7 @@ fn node_is_docked(tree: &WidgetTree, node_id: NodeId) -> bool {
     resolve_style_in_tree(tree, node_id).is_some_and(|style| style.dock.is_some())
 }
 
-fn node_is_dedicated_scrollbar(tree: &WidgetTree, node_id: NodeId) -> bool {
+pub(crate) fn node_is_dedicated_scrollbar(tree: &WidgetTree, node_id: NodeId) -> bool {
     let Some(node) = tree.get(node_id) else {
         return false;
     };

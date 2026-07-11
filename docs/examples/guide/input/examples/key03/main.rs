@@ -6,6 +6,10 @@
 ///
 /// Python original uses a `KeyLogger(RichLog)` subclass with `on_key` — here
 /// `KeyLogger` wraps `RichLog` and intercepts `Event::Key` in `on_event`.
+/// `style_type_aliases()` reports the `RichLog` base type so `RichLog { ... }`
+/// default CSS applies to the subclass, exactly as Python's `DEFAULT_CSS`
+/// inheritance does.
+use rich_rs::{Segment, Style as RichStyle};
 use textual::prelude::*;
 
 const CSS: &str = r#"
@@ -49,6 +53,12 @@ impl Widget for KeyLogger {
         "KeyLogger"
     }
 
+    fn style_type_aliases(&self) -> &[&'static str] {
+        // Python `class KeyLogger(RichLog)`: base-class DEFAULT_CSS
+        // (`RichLog { background: $surface; ... }`) applies to the subclass.
+        &["RichLog"]
+    }
+
     fn focusable(&self) -> bool {
         true
     }
@@ -75,13 +85,60 @@ impl Widget for KeyLogger {
 
     fn on_event(&mut self, event: &Event, ctx: &mut textual::event::WidgetCtx) {
         if let Event::Key(key) = event {
-            let display = format!(
-                "Key(key={:?}, character={:?}, is_printable={})",
-                key.name(),
-                key.character,
-                key.is_printable,
-            );
-            self.log.write(display);
+            // Python `self.write(event)` renders the event's rich repr —
+            // `Key(key='a', character='a', name='a', is_printable=True)` —
+            // through Rich's repr highlighter. Token styles measured from the
+            // real Python app under the MONOKAI ANSI theme:
+            //   Key           -> bold magenta            (#f4005f, bold)
+            //   ( ) , =       -> default fg              (parens bold)
+            //   attrib names  -> yellow                  (#fd971f)
+            //   'a' strings   -> green                   (#98e024)
+            //   True / False  -> italic green / red      (#98e024 / #f4005f)
+            //   None          -> italic magenta          (#f4005f)
+            let call = RichStyle::new()
+                .with_color(Color::parse("#f4005f").unwrap().to_simple_opaque())
+                .with_bold(true);
+            let paren = RichStyle::new().with_bold(true);
+            let attrib = RichStyle::new()
+                .with_color(Color::parse("#fd971f").unwrap().to_simple_opaque());
+            let string = RichStyle::new()
+                .with_color(Color::parse("#98e024").unwrap().to_simple_opaque());
+            let bool_true = string.with_italic(true);
+            let magenta_italic = RichStyle::new()
+                .with_color(Color::parse("#f4005f").unwrap().to_simple_opaque())
+                .with_italic(true);
+
+            let key_name = key.name().to_string();
+            let (char_display, char_style) = match key.character {
+                Some(ch) => (format!("'{ch}'"), string),
+                None => ("None".to_string(), magenta_italic),
+            };
+            let (printable_display, printable_style) = if key.is_printable {
+                ("True", bool_true)
+            } else {
+                ("False", magenta_italic)
+            };
+
+            self.log.write_segments(vec![
+                Segment::styled("Key".to_string(), call),
+                Segment::styled("(".to_string(), paren),
+                Segment::styled("key".to_string(), attrib),
+                Segment::new("=".to_string()),
+                Segment::styled(format!("'{key_name}'"), string),
+                Segment::new(", ".to_string()),
+                Segment::styled("character".to_string(), attrib),
+                Segment::new("=".to_string()),
+                Segment::styled(char_display, char_style),
+                Segment::new(", ".to_string()),
+                Segment::styled("name".to_string(), attrib),
+                Segment::new("=".to_string()),
+                Segment::styled(format!("'{key_name}'"), string),
+                Segment::new(", ".to_string()),
+                Segment::styled("is_printable".to_string(), attrib),
+                Segment::new("=".to_string()),
+                Segment::styled(printable_display.to_string(), printable_style),
+                Segment::styled(")".to_string(), paren),
+            ]);
             ctx.request_repaint();
             ctx.set_handled();
             return;

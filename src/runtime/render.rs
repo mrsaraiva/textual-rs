@@ -198,8 +198,11 @@ impl App {
     pub fn render(&mut self, renderable: &dyn Renderable) -> crate::Result<()> {
         self.refresh_size()?;
         let base_style = self.theme.base.to_rich();
-        let next =
+        let mut next =
             FrameBuffer::from_renderable(&self.console, &self.options, renderable, base_style);
+        // Match the tree path: pre-blend `dim` before diffing (Python's global
+        // ANSIToTruecolor filter semantics).
+        next.preblend_dim();
         let now = std::time::Instant::now();
         let dt_ms = now.duration_since(self.last_render_at).as_millis();
         self.last_render_at = now;
@@ -390,6 +393,11 @@ impl App {
                 }
             }
         }
+
+        // Python applies the `ANSIToTruecolor` line filter to every strip; the
+        // dim-attribute pre-blend must run on the composed frame BEFORE diffing
+        // so live output matches the tree-render path (see `preblend_dim`).
+        next.preblend_dim();
 
         let now = std::time::Instant::now();
         let dt_ms = now.duration_since(self.last_render_at).as_millis();
@@ -2702,6 +2710,12 @@ fn render_tree_to_frame_with_debug_and_stylesheet(
 
         pop_style_context();
     }
+
+    // Python applies the `ANSIToTruecolor` line filter to every rendered strip,
+    // which (among other things) pre-blends `dim` into the fg colour. Mirror it
+    // as a whole-frame pass once composition is complete (every cell carries its
+    // final surface bg by now).
+    frame.preblend_dim();
 
     frame
 }

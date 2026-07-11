@@ -241,7 +241,7 @@ impl ByteEditor {
             .with_child(
                 Container::new()
                     .class("top")
-                    .with_child(Input::new().id("byte-input")),
+                    .with_child(Input::new().with_placeholder("byte").id("byte-input")),
             )
             .with_child(Container::new().with_child(ByteInput::new()));
         Self { inner }
@@ -440,8 +440,10 @@ mod tests {
                 .app_mut()
                 .with_query_one_mut_as::<Input, _>("Input", |i| i.text().to_string())
                 .unwrap_or_default();
+            // NOTE: click only — a mouse press now FOCUSES the switch
+            // (Python `Screen._forward_event` click-to-focus), so a trailing
+            // Enter would toggle the freshly-focused switch straight back off.
             pilot.click("#switch-0")?;
-            pilot.press(&["enter"])?;
             let text = pilot
                 .app_mut()
                 .with_query_one_mut_as::<Input, _>("Input", |i| i.text().to_string())

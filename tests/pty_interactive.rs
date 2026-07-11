@@ -1185,8 +1185,15 @@ fn parity_checkbox_toggle() {
 }
 
 /// switch: the focused switch toggles on Enter/Space.
+/// Un-ignored: the Switch knob now animates via the app animator (Python
+/// `watch_value` -> `animate("_slider_position", ...)`; the old per-widget
+/// `on_tick` easing never ran for keyboard toggles because arena ticks gate on
+/// `is_active()`), the `-on` class lands on the ARENA node when the slider
+/// reaches 1 (Python `watch__slider_position`), and the `switch--slider`
+/// component style resolves against the LIVE selector stack so
+/// `#custom-design > .switch--slider` (id + child combinator) and the
+/// post-toggle `Switch.-on` colour match. Full glyph+colour parity.
 #[test]
-#[ignore = "BUG (demo-port label gap COMPLETED in the 1.0 sweep — the top Static now carries `.class(\"label\")`, so glyph parity is exact, 250->0). Residual = 6 colour cells: the focused Switch slider-knob track colour split after toggle (2-cell offset in the on/off fill) + the `#custom-design` custom slider/background colours (darkslateblue #483d8b not rendered on the track). Root: Switch slider render + custom component colours, a widget concern."]
 fn parity_switch_toggle() {
     let script = [Step::Key(Key::Enter), Step::Wait(250)];
     let (rf, pf) = widgets_both("switch", &script, 400);
@@ -1719,8 +1726,12 @@ fn parity_counter01_render() {
 }
 
 /// counter02: the focused counter increments on `k`/up. Press `k`.
+/// Un-ignored: the Footer now shows one key per multi-key binding — Python
+/// expands `"up,k"` into separate Bindings and `Footer.compose` renders the
+/// FIRST one per action (`↑ Increment`), so `Footer::footer_key_display`
+/// formats only the first comma alternative (the KeyPanel keeps all keys).
+/// Full glyph+colour parity.
 #[test]
-#[ignore = "BUG (demo `Counter { height: auto }` COMPLETED in the 1.0 sweep, glyph 78->24). Residual = 24 glyph cells on the Footer row: Python renders a multi-key binding (`up,k`) showing only the FIRST key symbol (`↑ Increment`), while Rust's Footer shows both keys (`↑ k Increment  ↓ j Decrement`). Root: Footer binding-hint display of comma-separated multi-key bindings, a framework Footer concern."]
 fn parity_counter02_increment() {
     let script = [Step::SendKeys("k"), Step::Wait(300)];
     let (rf, pf) = cat_both("counter02", "guide/widgets", &script, 400);
@@ -1947,8 +1958,11 @@ fn parity_question03_layout() {
 
 /// question_title01: a Header (with title/subtitle) + question + buttons.
 /// Header row 0 carries a live clock, excluded from the glyph comparison.
+/// Un-ignored: `HeaderTitle::render` now emits the ` — ` separator + subtitle
+/// as `dim` segments (Python `App.format_title`), and the render pipeline
+/// pre-blends `dim` into the fg colour exactly like Python's `ANSIToTruecolor`
+/// filter (`FrameBuffer::preblend_dim`, factor 0.66). Full glyph+colour parity.
 #[test]
-#[ignore = "BUG: glyph-perfect but the Header SUBTITLE text fg is #e0e0e0 (Rust, full $text) vs #a0a3a6 (Python, dimmed). 25 colour cells (re-measured; was 139). Root: `HeaderTitle::render` emits one plain segment; Python's `App.format_title` applies Rich `dim` to the ` — ` separator + subtitle (`stylize(\"dim\")`). Fix = emit the subtitle+separator as `dim` segments (render-logic, not a colour token)."]
 fn parity_question_title01_layout() {
     let script = [Step::Wait(300)];
     let (rf, pf) = cat_both("question_title01", "app", &script, 400);
@@ -2063,6 +2077,12 @@ fn parity_world_clock03_ticks() {
 
 /// key01: a single RichLog that writes every Key event. Type "ab"; the log
 /// renders the two Key event objects. Exact glyph+colour parity.
+/// Un-ignored: the demo's hand-styled repr segments now carry the MEASURED
+/// Python palette (Rich repr theme through the MONOKAI ANSI map: call
+/// #f4005f bold, attrib names #fd971f, strings #98e024, True italic green),
+/// and the RichLog's always-shown vertical scrollbar renders Python's
+/// unscrollable form (window_size=0 -> plain `$scrollbar-background` track,
+/// no full-length thumb — `ScrollBar._render_bar` parity). Full parity.
 #[test]
 fn parity_input_key01_log() {
     let script = [Step::SendKeys("ab"), Step::Wait(300)];
@@ -2072,6 +2092,8 @@ fn parity_input_key01_log() {
 
 /// key02: same as key01 plus a `key_space` bell handler (bell is inaudible in
 /// the grid). Type "a"; the log renders one Key event. Exact parity.
+/// Un-ignored: same measured-palette + unscrollable-scrollbar-track fixes as
+/// `parity_input_key01_log`. Full glyph+colour parity.
 #[test]
 fn parity_input_key02_log() {
     let script = [Step::SendKeys("a"), Step::Wait(300)];
@@ -2081,8 +2103,16 @@ fn parity_input_key02_log() {
 
 /// key03: four KeyLogger RichLogs in a CSS grid; only the focused one logs.
 /// Type "a"; compare the whole grid (which pane logged + its content).
+/// Un-ignored: the KeyLogger now writes the Python event repr
+/// (`Key(key='a', character='a', name='a', is_printable=True)`) with the
+/// measured Rich-repr palette, reports `style_type_aliases = ["RichLog"]` so
+/// the base-class DEFAULT_CSS applies (Python subclass CSS inheritance), the
+/// unscrollable scrollbar renders Python's plain track, and RichLog's
+/// horizontal VIRTUAL size follows the widest rendered line (Python
+/// `_widest_line_width`) instead of `min_width` — which manufactured a
+/// phantom h-overflow lane in the 57-cell panes that shortened the vertical
+/// bar by one row. Full glyph+colour parity.
 #[test]
-#[ignore = "BUG: the custom KeyLogger writes the Rust Debug form `Key(key=\"a\", character=Some('a'), is_printable=true)` while Python writes the event repr `Key(key='a', character='a', name='a', is_printable=True)` (34 glyph cells) + the same repr-highlight colour divergence as key01. Root: KeyLogger event formatting (Rust Debug vs Python repr; note key01/02's single RichLog DOES match text — only the subclassed logger diverges)."]
 fn parity_input_key03_grid() {
     let script = [Step::SendKeys("a"), Step::Wait(300)];
     let (rf, pf) = cat_both("key03", "guide/input", &script, 400);
@@ -2350,7 +2380,7 @@ fn parity_command02_palette_open() {
 /// the colour hex). Click the first (#008080); the screen bg animates to that
 /// colour over 0.5s. Wait past the animation and compare the settled screen.
 #[test]
-#[ignore = "BUG (demo port COMPLETED in the 1.0 sweep: `ColorButton::render()` now returns `Color(r, g, b)` (str(Color)) and the CSS uses `height: auto`, so glyph parity is exact, 1004->0). Residual = 3600 colour cells: clicking a ColorButton does NOT set/animate the Screen background in the live loop — Python's screen fills with the selected colour (#008080), Rust stays screen-default (#121212). Root: ColorButton `Event::Click` -> `ColorSelected` -> Screen `set_bg` not taking effect in the live run_sync loop (click-event delivery to custom-widget `on_event`, or live set_bg-on-Screen), a runtime concern outside the demo."]
+#[ignore = "BUG (runtime click->message delivery + style-animation plumbing FIXED: the live Up arm now dispatches Click-outcome messages like the headless path, handler style animations flow through DispatchOutcome, and the demo faithfully animates the Screen bg over 0.5s + carries the per-button `tall` border + `#ffffff33` bg — 3600 -> 456 colour cells). Residual = 456 cells: the four ColorButtons' interiors. Python's strip cache keeps each button's `#ffffff33` bg blended over the PRE-ANIMATION surface (#121212 -> #414141) because an ancestor-only inline bg change never re-bakes child strips, while Rust re-flattens the translucent own-bg over the LIVE animated surface (#008080 -> #339999) every frame. Root: FROZEN_ANCESTOR_BG covers transparent-bg glyph strips only; extending Python's staleness to a node's OWN semi-transparent bg flatten intersects the render-time live-composition invariant for surfaces (frozen-bg architecture, needs its own pass)."]
 fn parity_events_custom01_select() {
     let script = [Step::Click(6, 2), Step::Wait(900)];
     let (rf, pf) = cat_both("custom01", "events", &script, 600);
@@ -2404,8 +2434,12 @@ fn parity_events_on_decorator02_toggle() {
 /// prevent: an Input + Clear button; typing rings a bell, clicking Clear empties
 /// the Input *without* re-firing Input.Changed. Type "abc", then click Clear;
 /// compare the cleared Input.
+/// Un-ignored: the runtime now moves focus on mouse-down (Python
+/// `Screen._forward_event`: the first focusable widget in the ancestry of the
+/// press target is focused BEFORE the widget receives the event; a press
+/// outside any widget clears focus) — so clicking Clear blurs the Input and
+/// its border repaints to the blurred grey. Full glyph+colour parity.
 #[test]
-#[ignore = "BUG: the Input is correctly cleared (prevent works, glyph-perfect) but after clicking Clear (focus moves to the Button) Python shows the now-blurred Input's grey border #191919 while Rust keeps the Input's focused-blue border #0178d4. 408 colour cells. Root: Input border colour not updated on blur when focus moves to the Button."]
 fn parity_events_prevent_clear() {
     let script = [
         Step::SendKeys("abc"),
@@ -2517,10 +2551,21 @@ fn parity_animator_animation01() {
 
 /// compound/byte01: 8 BitSwitches + an Input (not wired). Tab from the Input to
 /// the first Switch and toggle it with Space; compare the rendered grid.
+/// NOTE the leading Wait: the harness `settle()` is TEXT-stability based and
+/// can return before Python applies its (colour-only) initial auto-focus to
+/// the Input — a Tab sent in that window focuses the Input instead of moving
+/// OFF it, and the Space then types an (invisible) space into the Input
+/// instead of toggling the switch. Measured live: with the pause, Python
+/// renders the `byte` placeholder + the toggled green knob, matching Rust.
 #[test]
-#[ignore = "BUG: the focused Switch slider track matches Python (#000f18, colour_diffs=0). Residual = 4 glyph cells: Rust renders the Input placeholder `byte` while Python renders it blank. Root: Input placeholder shown where Python is blank (widget-local, see KNOWN_GAPS)."]
 fn parity_compound_byte01() {
-    let script = [Step::Key(Key::Tab), Step::Key(Key::Space), Step::Wait(300)];
+    let script = [
+        Step::Wait(600),
+        Step::Key(Key::Tab),
+        Step::Wait(300),
+        Step::Key(Key::Space),
+        Step::Wait(400),
+    ];
     let (rf, pf) = cat_both("byte01", "guide/compound", &script, 400);
     assert_glyph_parity("byte01", &pf, &rf, &[]);
 }
@@ -2528,10 +2573,16 @@ fn parity_compound_byte01() {
 /// compound/byte02: toggling a Switch posts BitChanged up to ByteEditor, which
 /// writes the integer value into the Input. Tab to the first (bit 7) Switch and
 /// toggle it; the Input should read "128" on both.
+/// Leading Wait: same auto-focus settle race as `parity_compound_byte01`.
 #[test]
-#[ignore = "BUG: the focused Switch slider track matches Python (#000f18, colour_diffs=0). Residual = 3 glyph cells: Rust renders the Input value `128` while Python renders it blank. Root: Input value/placeholder shown where Python is blank (widget-local, see KNOWN_GAPS)."]
 fn parity_compound_byte02() {
-    let script = [Step::Key(Key::Tab), Step::Key(Key::Space), Step::Wait(400)];
+    let script = [
+        Step::Wait(600),
+        Step::Key(Key::Tab),
+        Step::Wait(300),
+        Step::Key(Key::Space),
+        Step::Wait(500),
+    ];
     let (rf, pf) = cat_both("byte02", "guide/compound", &script, 400);
     assert_glyph_parity("byte02", &pf, &rf, &[]);
 }

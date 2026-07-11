@@ -935,18 +935,20 @@ impl crate::widgets::Render for ScrollBar {
         }
         .unwrap_or_else(|| Color::rgb(48, 156, 255));
         let thumb = thumb_raw.flatten_over(bg);
+        // Python `ScrollBar._render_bar` (scrollbar.py:311-313): an unscrollable
+        // bar (window >= virtual, e.g. a RichLog with `overflow-y: scroll` whose
+        // content fits the viewport) renders with `window_size = 0` — a plain
+        // track (bg only), NO thumb. Passing the raw window painted a full-length
+        // reverse-video thumb over the whole track where Python shows the bare
+        // `$scrollbar-background` strip.
+        let window_size = if self.window_size < self.window_virtual_size {
+            self.window_size
+        } else {
+            0
+        };
         let renderer = ScrollBarRender {
             virtual_size: self.window_virtual_size,
-            // Python `ScrollBar._render_bar`: `window_size = self.window_size if
-            // self.window_size < self.window_virtual_size else 0` — with no
-            // overflow the bar renders as a PLAIN track (no thumb). Without this
-            // a forced bar (`overflow: scroll`, e.g. Log) painted a full-length
-            // thumb where Python shows an empty track.
-            window_size: if self.window_size < self.window_virtual_size {
-                self.window_size
-            } else {
-                0
-            },
+            window_size,
             position: self.position,
             thickness: self.thickness,
             vertical: self.vertical,
@@ -1309,6 +1311,38 @@ mod tests {
         let track_hit = geometry.hit_test(79, track_y, 0, 10).unwrap();
         assert_eq!(track_hit.axis, ScrollbarAxis::Vertical);
         assert_eq!(track_hit.part, ScrollbarPart::Track);
+    }
+
+    /// Python `ScrollBar._render_bar` (scrollbar.py:311-313): a bar whose
+    /// window covers the whole virtual extent renders with `window_size = 0` —
+    /// a PLAIN track (bg only), no thumb. Regression for the RichLog
+    /// `overflow-y: scroll` gutter, which painted a full-length reverse-video
+    /// thumb where Python shows the bare `$scrollbar-background` strip.
+    #[test]
+    fn unscrollable_bar_renders_plain_track_without_thumb() {
+        let mut bar = ScrollBar::new(true, 2);
+        bar.set_window_virtual_size(2); // content: 2 rows
+        bar.set_window_size(28); // viewport: 28 rows (nothing to scroll)
+        let console = rich_rs::Console::new();
+        let mut options = rich_rs::ConsoleOptions::default();
+        options.size = (2, 10);
+        options.max_width = 2;
+        options.max_height = 10;
+        let segments = crate::widgets::Render::render(&bar, &console, &options);
+        assert!(
+            segments
+                .iter()
+                .filter(|seg| seg.control.is_none())
+                .all(|seg| seg.style.map(|s| s.reverse != Some(true)).unwrap_or(true)),
+            "an unscrollable bar must not paint a reverse-video thumb"
+        );
+        assert!(
+            segments
+                .iter()
+                .filter(|seg| seg.control.is_none() && !seg.text.trim().is_empty() || seg.text == " ")
+                .all(|seg| seg.style.and_then(|s| s.bgcolor).is_some()),
+            "an unscrollable bar paints the plain track background on every cell"
+        );
     }
 
     #[test]

@@ -1,8 +1,10 @@
+use std::time::Duration;
+
 use crossterm::event::KeyCode;
 use rich_rs::{Console, ConsoleOptions, Segments};
 use textual_macros::widget;
 
-use crate::event::{Action, Event};
+use crate::event::{Action, AnimationLevel, AnimationRequest, Event};
 use crate::message::*;
 use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
 
@@ -20,8 +22,9 @@ const SWITCH_WIDTH: usize = 4;
 const SWITCH_VIRTUAL_SIZE: usize = 100;
 const SWITCH_WINDOW_SIZE: usize = 50;
 
-/// Duration of the slide animation in ticks (~60Hz assumed, so 18 ticks ~ 0.3s).
-const ANIMATION_TICKS: u64 = 18;
+/// Duration of the slide animation (Python `watch_value`:
+/// `self.animate("_slider_position", ..., duration=0.3, level="basic")`).
+const ANIMATION_DURATION: Duration = Duration::from_millis(300);
 
 /// A boolean toggle switch widget.
 ///
@@ -37,10 +40,6 @@ pub struct Switch {
     slider_pos: f32,
     /// Animation target (0.0 or 1.0).
     slider_target: f32,
-    /// Tick when animation started, None if not animating.
-    anim_start_tick: Option<u64>,
-    /// Position at start of animation.
-    anim_start_pos: f32,
     seed: NodeSeed,
 }
 
@@ -55,8 +54,6 @@ impl Switch {
             disabled: false,
             slider_pos: pos,
             slider_target: pos,
-            anim_start_tick: None,
-            anim_start_pos: pos,
             seed: NodeSeed::default(),
         }
         .rebuild_classes()
@@ -102,12 +99,16 @@ impl Switch {
 
     // ── Watchers ─────────────────────────────────────────────────────────
 
-    fn watch_value(&mut self, _old: &bool, _new: &bool, _ctx: &mut ReactiveCtx) {
+    fn watch_value(&mut self, _old: &bool, _new: &bool, ctx: &mut ReactiveCtx) {
         // Snap slider immediately (programmatic change, no animation).
         self.slider_target = if self.value { 1.0 } else { 0.0 };
         self.slider_pos = self.slider_target;
-        self.anim_start_tick = None;
         self.rebuild_classes_in_place();
+        // Python `watch__slider_position`: `set_class(slider_position == 1,
+        // "-on")` — the class must land on the ARENA node (the seed was
+        // consumed at mount), or `Switch.-on .switch--slider { color: $success }`
+        // never matches after a programmatic value change.
+        ctx.set_class(self.value, "-on");
     }
 
     // ── Builder methods ──────────────────────────────────────────────────
@@ -124,14 +125,25 @@ impl Switch {
     }
 
     /// Called after an interactive toggle (from event handler).
-    /// Starts the slider animation and rebuilds CSS classes.
-    fn on_toggled(&mut self) {
+    ///
+    /// Python `watch_value` animates `_slider_position` toward the new value
+    /// (0.3s, level=basic, default in-out-cubic easing) via the app animator;
+    /// the knob position and the `-on` class then follow the animated position
+    /// in the `Event::AnimationValue` handler (Python `watch__slider_position`).
+    fn on_toggled(&mut self, ctx: &mut crate::event::WidgetCtx) {
         self.slider_target = if self.value { 1.0 } else { 0.0 };
-        // Mark animation start; actual tick will be recorded in on_tick.
-        self.anim_start_pos = self.slider_pos;
-        // Use a sentinel to indicate "start next tick".
-        self.anim_start_tick = Some(u64::MAX);
         self.rebuild_classes_in_place();
+        let node_id = crate::widgets::Widget::node_id(self);
+        ctx.request_animation(
+            AnimationRequest::new(
+                node_id,
+                "slider_pos",
+                self.slider_pos,
+                self.slider_target,
+                ANIMATION_DURATION,
+            )
+            .with_level(AnimationLevel::Basic),
+        );
     }
 
     fn rebuild_classes(mut self) -> Self {
@@ -216,7 +228,7 @@ impl Interactive for Switch {
                     ctx.request_repaint();
                     if mouse.target.is_some_and(|t| t == crate::widgets::Widget::node_id(self)) {
                         self.value = !self.value;
-                        self.on_toggled();
+                        self.on_toggled(ctx);
                         self.emit_changed(ctx);
                         ctx.set_handled();
                     }
@@ -228,7 +240,7 @@ impl Interactive for Switch {
                 }
             Event::Action(Action::Toggle) if crate::widgets::Widget::node_state(self).focused => {
                 self.value = !self.value;
-                self.on_toggled();
+                self.on_toggled(ctx);
                 self.emit_changed(ctx);
                 ctx.request_repaint();
                 ctx.set_handled();
@@ -236,35 +248,30 @@ impl Interactive for Switch {
             Event::Key(key) if crate::widgets::Widget::node_state(self).focused => match key.code {
                 KeyCode::Enter | KeyCode::Char(' ') => {
                     self.value = !self.value;
-                    self.on_toggled();
+                    self.on_toggled(ctx);
                     self.emit_changed(ctx);
                     ctx.request_repaint();
                     ctx.set_handled();
                 }
                 _ => {}
             },
-            _ => {}
-        }
-    }
-
-    fn on_tick(&mut self, tick: u64) {
-        if let Some(start) = self.anim_start_tick {
-            if start == u64::MAX {
-                // First tick of animation — record actual start.
-                self.anim_start_tick = Some(tick);
-                self.anim_start_pos = self.slider_pos;
-            } else {
-                let elapsed = tick.saturating_sub(start);
-                let t = (elapsed as f32 / ANIMATION_TICKS as f32).min(1.0);
-                // Ease-out cubic: 1 - (1 - t)^3
-                let eased = 1.0 - (1.0 - t).powi(3);
-                self.slider_pos =
-                    self.anim_start_pos + (self.slider_target - self.anim_start_pos) * eased;
-                if t >= 1.0 {
-                    self.slider_pos = self.slider_target;
-                    self.anim_start_tick = None;
-                }
+            // Animator update for the knob slide (requested by `on_toggled`).
+            // Python `watch__slider_position`: follow the animated position and
+            // toggle the `-on` class exactly when the slider reaches 1.
+            Event::AnimationValue(anim)
+                if anim.target == crate::widgets::Widget::node_id(self)
+                    && anim.attribute == "slider_pos" =>
+            {
+                self.slider_pos = anim.value;
+                #[allow(clippy::float_cmp)]
+                let on = self.slider_pos == 1.0;
+                // Deferred WidgetCommand (`WidgetCtx::set_class` command-queue
+                // path) — lands on `node.classes` at the shared flush.
+                ctx.set_class(on, "-on");
+                ctx.request_repaint();
+                ctx.set_handled();
             }
+            _ => {}
         }
     }
 }
@@ -280,7 +287,18 @@ impl Render for Switch {
         // half (on). Colors come from the `switch--slider` component style;
         // in plain text the thumb and track are both spaces (the distinction
         // is purely color/reverse), matching Python.
-        let slider = crate::css::resolve_component_style(self, &["switch--slider"]);
+        // Resolve the `switch--slider` component style against the LIVE CSS
+        // context: this node's meta (real arena classes like `-on`, its css id,
+        // and interaction states) is already the top of the selector stack,
+        // pushed by `render_widget_with_meta` — the same pattern Checkbox and
+        // RadioButton use. `resolve_component_style(self, ...)` would re-push a
+        // meta rebuilt from the (consumed-at-mount) seed, so an id rule like
+        // `#custom-design > .switch--slider { background: darkslateblue }`
+        // (child combinator against the id) and the post-toggle `-on` colour
+        // never matched.
+        let slider = crate::css::resolve_style_for_meta(
+            &crate::css::selector_meta_component("", &["switch--slider"]),
+        );
         let base_bg = crate::css::current_self_style()
             .and_then(|s| s.bg)
             .or_else(|| crate::style::parse_color_like("$surface"))
@@ -377,8 +395,13 @@ mod tests {
         assert!(!ctx.handled());
     }
 
+    /// Toggling requests a `slider_pos` animation on the widget's node (Python
+    /// `watch_value` -> `self.animate("_slider_position", ...)`), and the
+    /// `Event::AnimationValue` updates drive the knob position + the `-on`
+    /// class op exactly when the slider reaches 1 (Python
+    /// `watch__slider_position`).
     #[test]
-    fn switch_animation_progresses_on_tick() {
+    fn switch_toggle_requests_animation_and_value_events_drive_knob() {
         let mut widget = Switch::new(false);
         let id = make_node_id();
         let _guard = set_dispatch_recipient(id, focused_state());
@@ -386,21 +409,63 @@ mod tests {
         let key =
             KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
         {
-            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(id, &mut ctx);
             widget.on_event(&Event::Key(key), &mut __w);
         }
         assert!(widget.value());
-        // Animation should be pending.
+        // The toggle must enqueue the slider animation request.
+        let requests = ctx.take_animation_requests();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].attribute, "slider_pos");
+        assert_eq!(requests[0].target, id);
+        assert!((requests[0].end - 1.0).abs() < f32::EPSILON);
         assert!(widget.is_animating());
 
-        // Simulate ticks.
-        widget.on_tick(1);
-        widget.on_tick(2);
+        // Mid-animation value: knob follows, `-on` NOT yet set.
+        let mut ctx = EventCtx::default();
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(id, &mut ctx);
+            widget.on_event(
+                &Event::AnimationValue(crate::event::AnimationValueEvent {
+                    target: id,
+                    attribute: "slider_pos".to_string(),
+                    value: 0.5,
+                    done: false,
+                }),
+                &mut __w,
+            );
+        }
+        assert!((widget.slider_pos - 0.5).abs() < f32::EPSILON);
         assert!(widget.is_animating());
+        // Mid-animation the class op is a Remove (`-on` only at position 1).
+        let ops = crate::runtime::commands::drain_class_commands_for_test();
+        assert!(
+            ops.iter().any(|(node, op)| *node == id
+                && matches!(op, crate::event::ClassOp::Remove(c) if c == "-on")),
+            "mid-animation the `-on` class must be (still) off"
+        );
 
-        // After enough ticks, animation completes.
-        for tick in 3..=30 {
-            widget.on_tick(tick);
+        // Final value: knob lands, `-on` class op queued for the arena node
+        // (via the ReactiveCtx surface WidgetCtx derefs to; the runtime's
+        // reactive flush applies it to `node.classes`).
+        let mut ctx = EventCtx::default();
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(id, &mut ctx);
+            widget.on_event(
+                &Event::AnimationValue(crate::event::AnimationValueEvent {
+                    target: id,
+                    attribute: "slider_pos".to_string(),
+                    value: 1.0,
+                    done: true,
+                }),
+                &mut __w,
+            );
+            let ops = crate::runtime::commands::drain_class_commands_for_test();
+            assert!(
+                ops.iter().any(|(node, op)| *node == id
+                    && matches!(op, crate::event::ClassOp::Add(c) if c == "-on")),
+                "reaching slider position 1 must queue the `-on` class op on the node"
+            );
         }
         assert!(!widget.is_animating());
         assert!((widget.slider_pos - 1.0).abs() < f32::EPSILON);

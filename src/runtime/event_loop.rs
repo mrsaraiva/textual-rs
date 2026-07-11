@@ -206,6 +206,8 @@ fn merge_outcome_into_runtime_pass(pass: &mut RuntimeMessagePass, outcome: &mut 
     pass.stop_requested |= outcome.stop_requested;
     pass.animation_requests
         .append(&mut outcome.animation_requests);
+    pass.style_animation_requests
+        .append(&mut outcome.style_animation_requests);
     pass.worker_requests.append(&mut outcome.worker_requests);
     pass.recompose_nodes.append(&mut outcome.recompose_nodes);
     pass.class_ops.append(&mut outcome.class_ops);
@@ -302,6 +304,7 @@ fn dispatch_action_string(
                 stop_requested: ctx.stop_requested(),
                 messages: ctx.take_messages(),
                 animation_requests: ctx.take_animation_requests(),
+                style_animation_requests: ctx.take_style_animation_requests(),
                 worker_requests: ctx.take_worker_requests(),
                 recompose_nodes: ctx.take_recompose_nodes(),
                 default_prevented: false,
@@ -327,6 +330,7 @@ fn dispatch_action_string(
             stop_requested: ctx.stop_requested(),
             messages: ctx.take_messages(),
             animation_requests: ctx.take_animation_requests(),
+            style_animation_requests: ctx.take_style_animation_requests(),
             worker_requests: ctx.take_worker_requests(),
             recompose_nodes: ctx.take_recompose_nodes(),
             default_prevented: false,
@@ -355,6 +359,7 @@ fn dispatch_action_string(
                 stop_requested: ctx.stop_requested(),
                 messages: ctx.take_messages(),
                 animation_requests: ctx.take_animation_requests(),
+                style_animation_requests: ctx.take_style_animation_requests(),
                 worker_requests: ctx.take_worker_requests(),
                 recompose_nodes: ctx.take_recompose_nodes(),
                 default_prevented: false,
@@ -389,6 +394,8 @@ fn dispatch_simulated_key_like_input(
     pass.stop_requested |= app_key_ctx.stop_requested();
     pass.animation_requests
         .extend(app_key_ctx.take_animation_requests());
+    pass.style_animation_requests
+        .extend(app_key_ctx.take_style_animation_requests());
     pass.worker_requests
         .extend(app_key_ctx.take_worker_requests());
     pass.recompose_nodes
@@ -461,6 +468,8 @@ fn dispatch_simulated_key_like_input(
                     pass.stop_requested |= ctx.stop_requested();
                     pass.animation_requests
                         .extend(ctx.take_animation_requests());
+                    pass.style_animation_requests
+                        .extend(ctx.take_style_animation_requests());
                     pass.worker_requests.extend(ctx.take_worker_requests());
                     pass.recompose_nodes.extend(ctx.take_recompose_nodes());
                     pass.generated.extend(ctx.take_messages());
@@ -478,6 +487,8 @@ fn dispatch_simulated_key_like_input(
             pass.stop_requested |= root_ctx.stop_requested();
             pass.animation_requests
                 .extend(root_ctx.take_animation_requests());
+            pass.style_animation_requests
+                .extend(root_ctx.take_style_animation_requests());
             pass.worker_requests.extend(root_ctx.take_worker_requests());
             pass.recompose_nodes.extend(root_ctx.take_recompose_nodes());
             pass.generated.extend(root_ctx.take_messages());
@@ -499,6 +510,8 @@ fn dispatch_simulated_key_like_input(
                 pass.stop_requested |= fallback_ctx.stop_requested();
                 pass.animation_requests
                     .extend(fallback_ctx.take_animation_requests());
+                pass.style_animation_requests
+                    .extend(fallback_ctx.take_style_animation_requests());
                 pass.worker_requests
                     .extend(fallback_ctx.take_worker_requests());
                 pass.recompose_nodes
@@ -725,6 +738,7 @@ struct RuntimeMessagePass {
     repaint_requested: bool,
     invalidation: crate::event::InvalidationFlags,
     animation_requests: Vec<AnimationRequest>,
+    style_animation_requests: Vec<crate::event::StyleAnimationRequest>,
     worker_requests: Vec<WorkerRequest>,
     recompose_nodes: Vec<NodeId>,
     stop_requested: bool,
@@ -2124,6 +2138,9 @@ impl App {
                 .animation_requests
                 .extend(pass.animation_requests);
             aggregate
+                .style_animation_requests
+                .extend(pass.style_animation_requests);
+            aggregate
                 .worker_requests
                 .extend(pass.worker_requests);
             aggregate
@@ -2146,6 +2163,9 @@ impl App {
             aggregate
                 .animation_requests
                 .append(&mut outcome.animation_requests);
+            aggregate
+                .style_animation_requests
+                .append(&mut outcome.style_animation_requests);
             aggregate
                 .worker_requests
                 .append(&mut outcome.worker_requests);
@@ -2308,6 +2328,7 @@ impl App {
                 stop_requested: mount_ctx.stop_requested(),
                 messages: mount_ctx.take_messages(),
                 animation_requests: mount_ctx.take_animation_requests(),
+                style_animation_requests: mount_ctx.take_style_animation_requests(),
                 worker_requests: mount_ctx.take_worker_requests(),
                 recompose_nodes: mount_ctx.take_recompose_nodes(),
                 default_prevented: false,
@@ -2700,6 +2721,7 @@ impl App {
                                             stop_requested: ctx.stop_requested(),
                                             messages: ctx.take_messages(),
                                             animation_requests: ctx.take_animation_requests(),
+                                            style_animation_requests: ctx.take_style_animation_requests(),
                                             worker_requests: ctx.take_worker_requests(),
                                             recompose_nodes: ctx.take_recompose_nodes(),
                                             default_prevented: false,
@@ -2764,6 +2786,7 @@ impl App {
                                     stop_requested: root_ctx.stop_requested(),
                                     messages: root_ctx.take_messages(),
                                     animation_requests: root_ctx.take_animation_requests(),
+                                    style_animation_requests: root_ctx.take_style_animation_requests(),
                                     worker_requests: root_ctx.take_worker_requests(),
                                     recompose_nodes: root_ctx.take_recompose_nodes(),
                                     default_prevented: false,
@@ -2823,6 +2846,7 @@ impl App {
                                         stop_requested: fallback_ctx.stop_requested(),
                                         messages: fallback_ctx.take_messages(),
                                         animation_requests: fallback_ctx.take_animation_requests(),
+                                        style_animation_requests: fallback_ctx.take_style_animation_requests(),
                                         worker_requests: fallback_ctx.take_worker_requests(),
                                         recompose_nodes: fallback_ctx.take_recompose_nodes(),
                                         default_prevented: false,
@@ -3391,6 +3415,9 @@ impl App {
                                             }
                                         }
                                     }
+                                    // No widget cell under the press: Python
+                                    // treats this as a press on the Screen
+                                    // (not focusable) — focus is untouched.
                                     let down_event = Event::MouseDown(MouseDownEvent {
                                         target: NodeId::default(),
                                         screen_x: mouse.column,
@@ -3541,6 +3568,27 @@ impl App {
                                                 InvalidationScope::Global,
                                             );
                                         }
+                                    }
+
+                                    // Messages posted by widgets while handling
+                                    // the synthesized Click (e.g. a custom
+                                    // `on_event(Click)` posting a demo message)
+                                    // must reach the app, exactly as the
+                                    // headless click path dispatches them.
+                                    // Dropping them here left live clicks inert
+                                    // where `pilot.click` worked (custom01).
+                                    let mut click_msg_outcome = self
+                                        .dispatch_message_queue_with_runtime(
+                                            root,
+                                            click_outcome.messages,
+                                        );
+                                    self.absorb_outcome(
+                                        &mut click_msg_outcome,
+                                        &mut pending_invalidation,
+                                        InvalidationScope::Global,
+                                    );
+                                    if click_msg_outcome.stop_requested {
+                                        break 'event_loop;
                                     }
                                 }
                                 let mut msg_outcome = self
@@ -3784,6 +3832,7 @@ impl App {
                     stop_requested: timer_ctx.stop_requested(),
                     messages: timer_ctx.take_messages(),
                     animation_requests: timer_ctx.take_animation_requests(),
+                    style_animation_requests: timer_ctx.take_style_animation_requests(),
                     worker_requests: timer_ctx.take_worker_requests(),
                     recompose_nodes: timer_ctx.take_recompose_nodes(),
                     default_prevented: false,
@@ -4136,6 +4185,7 @@ impl App {
                     stop_requested: app_tick_ctx.stop_requested(),
                     messages: app_tick_ctx.take_messages(),
                     animation_requests: app_tick_ctx.take_animation_requests(),
+                    style_animation_requests: app_tick_ctx.take_style_animation_requests(),
                     worker_requests: app_tick_ctx.take_worker_requests(),
                     recompose_nodes: app_tick_ctx.take_recompose_nodes(),
                     default_prevented: false,
@@ -4344,6 +4394,7 @@ impl App {
                 stop_requested: mount_ctx.stop_requested(),
                 messages: mount_ctx.take_messages(),
                 animation_requests: mount_ctx.take_animation_requests(),
+                style_animation_requests: mount_ctx.take_style_animation_requests(),
                 worker_requests: mount_ctx.take_worker_requests(),
                 recompose_nodes: mount_ctx.take_recompose_nodes(),
                 default_prevented: false,
@@ -4469,6 +4520,7 @@ impl App {
                     stop_requested: ctx.stop_requested(),
                     messages: ctx.take_messages(),
                     animation_requests: ctx.take_animation_requests(),
+                    style_animation_requests: ctx.take_style_animation_requests(),
                     worker_requests: ctx.take_worker_requests(),
                     recompose_nodes: ctx.take_recompose_nodes(),
                     default_prevented: false,
@@ -4806,6 +4858,7 @@ impl App {
                 stop_requested: app_tick_ctx.stop_requested(),
                 messages: app_tick_ctx.take_messages(),
                 animation_requests: app_tick_ctx.take_animation_requests(),
+                style_animation_requests: app_tick_ctx.take_style_animation_requests(),
                 worker_requests: app_tick_ctx.take_worker_requests(),
                 recompose_nodes: app_tick_ctx.take_recompose_nodes(),
                 default_prevented: false,
@@ -4946,6 +4999,7 @@ impl App {
                             stop_requested: ctx.stop_requested(),
                             messages: ctx.take_messages(),
                             animation_requests: ctx.take_animation_requests(),
+                            style_animation_requests: ctx.take_style_animation_requests(),
                             worker_requests: ctx.take_worker_requests(),
                             recompose_nodes: ctx.take_recompose_nodes(),
                             default_prevented: false,
@@ -4974,6 +5028,7 @@ impl App {
                     stop_requested: root_ctx.stop_requested(),
                     messages: root_ctx.take_messages(),
                     animation_requests: root_ctx.take_animation_requests(),
+                    style_animation_requests: root_ctx.take_style_animation_requests(),
                     worker_requests: root_ctx.take_worker_requests(),
                     recompose_nodes: root_ctx.take_recompose_nodes(),
                     default_prevented: false,
@@ -5004,6 +5059,7 @@ impl App {
                     stop_requested: fallback_ctx.stop_requested(),
                     messages: fallback_ctx.take_messages(),
                     animation_requests: fallback_ctx.take_animation_requests(),
+                    style_animation_requests: fallback_ctx.take_style_animation_requests(),
                     worker_requests: fallback_ctx.take_worker_requests(),
                     recompose_nodes: fallback_ctx.take_recompose_nodes(),
                     default_prevented: false,
@@ -5426,6 +5482,11 @@ impl App {
                 requests.extend(msg_outcome.animation_requests);
                 requests
             },
+            style_animation_requests: {
+                let mut requests = outcome.style_animation_requests;
+                requests.extend(msg_outcome.style_animation_requests);
+                requests
+            },
             worker_requests: {
                 let mut requests = outcome.worker_requests;
                 requests.extend(msg_outcome.worker_requests);
@@ -5510,6 +5571,8 @@ impl App {
         }
         let requests = std::mem::take(&mut outcome.animation_requests);
         self.enqueue_animation_requests(requests);
+        let style_requests = std::mem::take(&mut outcome.style_animation_requests);
+        self.enqueue_style_animation_requests(style_requests);
         let recompose_nodes = std::mem::take(&mut outcome.recompose_nodes);
         if !recompose_nodes.is_empty() {
             self.request_widget_recompose_nodes(&recompose_nodes);
@@ -6208,6 +6271,7 @@ impl App {
                     stop_requested: root_capture_ctx.stop_requested(),
                     messages: root_capture_ctx.take_messages(),
                     animation_requests: root_capture_ctx.take_animation_requests(),
+                    style_animation_requests: root_capture_ctx.take_style_animation_requests(),
                     worker_requests: root_capture_ctx.take_worker_requests(),
                     recompose_nodes: root_capture_ctx.take_recompose_nodes(),
                     default_prevented: false,
@@ -6414,6 +6478,9 @@ impl App {
             outcome
                 .animation_requests
                 .extend(ctx.take_animation_requests());
+            outcome
+                .style_animation_requests
+                .extend(ctx.take_style_animation_requests());
             outcome.worker_requests.extend(ctx.take_worker_requests());
             outcome.class_ops.extend(ctx.take_class_ops());
         }

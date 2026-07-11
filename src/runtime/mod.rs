@@ -16,6 +16,7 @@ mod tooltip_regression;
 #[cfg(test)]
 mod hidden_focus_reset_regression;
 mod overlay_focus_regression;
+mod pointer_focus_regression;
 mod widget_ctx;
 mod helpers;
 pub mod pilot;

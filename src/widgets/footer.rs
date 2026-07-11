@@ -547,6 +547,28 @@ impl Footer {
         (left_items, palette)
     }
 
+    /// Displayed key for a binding hint without an explicit `key_display`.
+    ///
+    /// Python expands a comma key spec (`"up,k"`) into SEPARATE `Binding`
+    /// instances (`Binding.make_bindings`), and `Footer.compose` shows one
+    /// `FooterKey` per action using the FIRST binding's key
+    /// (`multi_bindings[0]` + `app.get_key_display`), so the footer renders
+    /// `↑ Increment` — never `↑ k Increment`. (The KeyPanel, by contrast, joins
+    /// ALL keys of the action; it keeps its own formatter.)
+    fn footer_key_display(key_spec: &str) -> String {
+        let first = key_spec
+            .split(',')
+            .map(str::trim)
+            .find(|part| !part.is_empty())
+            .unwrap_or(key_spec);
+        // Python `format_key` leaves "tab"/"shift+tab" as-is (no ⇥ alias).
+        if matches!(first, "tab" | "shift+tab") {
+            first.to_string()
+        } else {
+            crate::keys::format_key_display(first)
+        }
+    }
+
     fn bindings_from_hints(hints: &[crate::event::BindingHint]) -> Vec<FooterBinding> {
         hints
             .iter()
@@ -555,7 +577,9 @@ impl Footer {
             .filter(|hint| hint.enabled != Some(false))
             .map(|hint| {
                 let mut binding = FooterBinding::new(
-                    hint.key_display.clone().unwrap_or_else(|| hint.key.clone()),
+                    hint.key_display
+                        .clone()
+                        .unwrap_or_else(|| Self::footer_key_display(&hint.key)),
                     hint.description.clone(),
                 );
                 binding.tooltip = hint.tooltip.clone();
@@ -960,6 +984,21 @@ mod tests {
     use crate::node_id::NodeId;
     use crate::render::FrameBuffer;
     use crate::widgets::Widget;
+
+    /// Python expands `"up,k"` into separate `Binding`s and the Footer shows
+    /// only the FIRST one per action (`get_key_display` of `multi_bindings[0]`)
+    /// — so the fallback display for a comma key spec is the formatted FIRST
+    /// alternative, never a join of all alternatives.
+    #[test]
+    fn footer_key_display_shows_first_alternative_of_multi_key_binding() {
+        assert_eq!(Footer::footer_key_display("up,k"), "\u{2191}");
+        assert_eq!(Footer::footer_key_display("down,j"), "\u{2193}");
+        assert_eq!(Footer::footer_key_display("k,up"), "k");
+        assert_eq!(Footer::footer_key_display("ctrl+s"), "^s");
+        // Python `format_key("tab")` keeps the literal name (no alias).
+        assert_eq!(Footer::footer_key_display("tab"), "tab");
+        assert_eq!(Footer::footer_key_display("shift+tab,backtab"), "shift+tab");
+    }
 
     #[test]
     fn bindings_changed_posts_footer_bindings_updated_message() {

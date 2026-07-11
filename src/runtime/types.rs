@@ -1,5 +1,5 @@
 use crate::css::{StyleRule, StyleSheet, node_selector_meta, resolve_node_style};
-use crate::event::{AnimationRequest, BindingHint, ClassOp, InvalidationFlags};
+use crate::event::{AnimationRequest, BindingHint, ClassOp, InvalidationFlags, StyleAnimationRequest};
 use crate::message::MessageEvent;
 use crate::node_id::{NodeId, node_id_from_ffi};
 use crate::render::{DirtyRegion, FrameBuffer};
@@ -198,6 +198,11 @@ pub struct DispatchOutcome {
     pub stop_requested: bool,
     pub messages: Vec<MessageEvent>,
     pub animation_requests: Vec<AnimationRequest>,
+    /// CSS property animations (`ctx.animate_style` / `request_style_animation`)
+    /// queued by handlers during this dispatch cycle. Enqueued on the animator
+    /// by `absorb_outcome`, mirroring Python `styles.animate(...)` being usable
+    /// from any message/event handler.
+    pub style_animation_requests: Vec<StyleAnimationRequest>,
     /// Worker spawn requests emitted by widgets during this dispatch cycle.
     pub worker_requests: Vec<WorkerRequest>,
     /// Nodes whose children should be recomposed after dispatch.

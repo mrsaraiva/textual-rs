@@ -447,6 +447,7 @@ impl App {
             stop_requested: synth_event.stop_requested(),
             messages: synth_event.take_messages(),
             animation_requests: synth_event.take_animation_requests(),
+            style_animation_requests: synth_event.take_style_animation_requests(),
             worker_requests: synth_event.take_worker_requests(),
             recompose_nodes: synth_event.take_recompose_nodes(),
             default_prevented: false,

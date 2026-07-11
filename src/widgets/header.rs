@@ -183,10 +183,10 @@ impl HeaderTitle {
         }
     }
 
-    fn line_text(&self) -> String {
+    fn active_subtitle(&self) -> Option<&str> {
         match &self.subtitle {
-            Some(subtitle) if !subtitle.is_empty() => format!("{} — {}", self.title, subtitle),
-            _ => self.title.clone(),
+            Some(subtitle) if !subtitle.is_empty() => Some(subtitle.as_str()),
+            _ => None,
         }
     }
 }
@@ -215,8 +215,21 @@ impl crate::widgets::Render for HeaderTitle {
     }
 
     fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+        // Python `App.format_title` (app.py): the ` — ` separator and the
+        // subtitle are styled `dim` (`Content.assemble(title, (" — ", "dim"),
+        // sub_title.stylize("dim"))`); the render pipeline's dim pre-blend then
+        // fades them toward the header background exactly like Python's
+        // `ANSIToTruecolor` filter.
         let mut out = Segments::new();
-        out.push(Segment::new(self.line_text()));
+        match self.active_subtitle() {
+            Some(subtitle) => {
+                let dim = rich_rs::Style::new().with_dim(true);
+                out.push(Segment::new(self.title.clone()));
+                out.push(Segment::styled(" — ".to_string(), dim));
+                out.push(Segment::styled(subtitle.to_string(), dim));
+            }
+            None => out.push(Segment::new(self.title.clone())),
+        }
         out
     }
 }

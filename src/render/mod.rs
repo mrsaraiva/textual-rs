@@ -204,6 +204,50 @@ impl FrameBuffer {
         out
     }
 
+    /// Pre-blend the `dim` attribute into the foreground colour.
+    ///
+    /// Mirrors Python Textual's global `ANSIToTruecolor` line filter
+    /// (`filter.py::dim_style`): a segment styled `dim` never reaches the
+    /// terminal as SGR 2 — its foreground is replaced with
+    /// `bg + (fg - bg) * DIM_FACTOR` (0.66, per channel, truncated like rich's
+    /// `Color.from_rgb(int(...))`) blended toward the segment's own background
+    /// (falling back to the frame's base background), and the `dim` attribute
+    /// is stripped. Cells without a foreground colour keep their `dim` flag,
+    /// exactly as Python's filter only rewrites styles with a `color` set.
+    pub(crate) fn preblend_dim(&mut self) {
+        const DIM_FACTOR: f32 = 0.66;
+        fn rgb_of(color: rich_rs::SimpleColor) -> Option<(u8, u8, u8)> {
+            match color {
+                rich_rs::SimpleColor::Rgb { r, g, b } => Some((r, g, b)),
+                _ => None,
+            }
+        }
+        let default_bg = self.default_style.and_then(|s| s.bgcolor);
+        for cell in &mut self.cells {
+            let Some(style) = cell.style.as_mut() else {
+                continue;
+            };
+            if style.dim != Some(true) {
+                continue;
+            }
+            let Some(fg) = style.color.and_then(rgb_of) else {
+                continue;
+            };
+            let Some(bg) = style.bgcolor.or(default_bg).and_then(rgb_of) else {
+                continue;
+            };
+            let blend = |b: u8, f: u8| -> u8 {
+                (b as f32 + (f as f32 - b as f32) * DIM_FACTOR) as u8
+            };
+            style.color = Some(rich_rs::SimpleColor::Rgb {
+                r: blend(bg.0, fg.0),
+                g: blend(bg.1, fg.1),
+                b: blend(bg.2, fg.2),
+            });
+            style.dim = None;
+        }
+    }
+
     /// Render a renderable to a FrameBuffer.
     pub fn from_renderable(
         console: &Console,
@@ -500,6 +544,57 @@ mod tests {
         meta.meta = Some(Arc::new(map));
         seg.meta = Some(meta);
         seg
+    }
+
+    /// Python `ANSIToTruecolor` filter parity (`filter.py::dim_style`): a dim
+    /// cell's fg pre-blends toward its bg at factor 0.66 (truncated) and the
+    /// `dim` attribute is stripped; a dim cell WITHOUT a fg colour keeps its
+    /// flag (Python only rewrites styles with a `color` set).
+    #[test]
+    fn preblend_dim_blends_fg_toward_bg_and_strips_dim() {
+        let mut frame = FrameBuffer::new(3, 1, None);
+        let dim_style = Style::new()
+            .with_color(rich_rs::SimpleColor::Rgb { r: 224, g: 224, b: 224 })
+            .with_bgcolor(rich_rs::SimpleColor::Rgb { r: 33, g: 36, b: 39 })
+            .with_dim(true);
+        frame.set_cell(
+            0,
+            0,
+            Cell {
+                text: "x".to_string(),
+                style: Some(dim_style),
+                meta: None,
+                continuation: false,
+            },
+        );
+        // No fg colour: dim must survive untouched.
+        let fgless = Style::new()
+            .with_bgcolor(rich_rs::SimpleColor::Rgb { r: 0, g: 0, b: 0 })
+            .with_dim(true);
+        frame.set_cell(
+            1,
+            0,
+            Cell {
+                text: "y".to_string(),
+                style: Some(fgless),
+                meta: None,
+                continuation: false,
+            },
+        );
+        frame.preblend_dim();
+
+        let blended = frame.get(0, 0).style.unwrap();
+        assert_eq!(blended.dim, None, "dim attribute must be stripped");
+        // bg + (fg - bg) * 0.66, truncated per channel:
+        // r: 33 + (224-33)*0.66 = 159.06 -> 159; g: 36 + 188*0.66 = 160.08 -> 160;
+        // b: 39 + 185*0.66 = 161.1 -> 161.
+        assert_eq!(
+            blended.color,
+            Some(rich_rs::SimpleColor::Rgb { r: 159, g: 160, b: 161 })
+        );
+
+        let kept = frame.get(1, 0).style.unwrap();
+        assert_eq!(kept.dim, Some(true), "fg-less dim cells keep the flag");
     }
 
     #[test]

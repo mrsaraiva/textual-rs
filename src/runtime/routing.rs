@@ -1,6 +1,6 @@
 use crate::debug::debug_message;
 use crate::event::{Action, AnimationRequest, BindingHint, Event, EventCtx, WidgetCtx};
-use crate::keys::{KeyEventData, format_key_display};
+use crate::keys::KeyEventData;
 use crate::message::{MessageEnvelope, MessageEvent};
 use crate::node_id::NodeId;
 use crate::widget_tree::WidgetTree;
@@ -32,6 +32,7 @@ pub(crate) fn dispatch_event(root: &mut dyn Widget, event: Event) -> DispatchOut
         stop_requested: ctx.stop_requested(),
         messages: ctx.take_messages(),
         animation_requests: ctx.take_animation_requests(),
+        style_animation_requests: ctx.take_style_animation_requests(),
         worker_requests: ctx.take_worker_requests(),
         recompose_nodes: ctx.take_recompose_nodes(),
         default_prevented: false,
@@ -88,6 +89,7 @@ pub(crate) fn dispatch_mouse_scroll(
         stop_requested: ctx.stop_requested(),
         messages: ctx.take_messages(),
         animation_requests: ctx.take_animation_requests(),
+        style_animation_requests: ctx.take_style_animation_requests(),
         worker_requests: ctx.take_worker_requests(),
         recompose_nodes: ctx.take_recompose_nodes(),
         default_prevented: false,
@@ -212,6 +214,7 @@ pub fn dispatch_event_tree(
         stop_requested: ctx.stop_requested(),
         messages: ctx.take_messages(),
         animation_requests: ctx.take_animation_requests(),
+        style_animation_requests: ctx.take_style_animation_requests(),
         worker_requests: ctx.take_worker_requests(),
         recompose_nodes: ctx.take_recompose_nodes(),
         default_prevented: false,
@@ -286,6 +289,7 @@ pub fn dispatch_event_to_target_tree(
         stop_requested: ctx.stop_requested(),
         messages: ctx.take_messages(),
         animation_requests: ctx.take_animation_requests(),
+        style_animation_requests: ctx.take_style_animation_requests(),
         worker_requests: ctx.take_worker_requests(),
         recompose_nodes: ctx.take_recompose_nodes(),
         default_prevented: false,
@@ -322,6 +326,7 @@ pub fn dispatch_event_broadcast_tree(tree: &mut WidgetTree, event: &Event) -> Di
         stop_requested: aggregate.stop_requested(),
         messages: aggregate.take_messages(),
         animation_requests: aggregate.take_animation_requests(),
+        style_animation_requests: aggregate.take_style_animation_requests(),
         worker_requests: aggregate.take_worker_requests(),
         recompose_nodes: aggregate.take_recompose_nodes(),
         default_prevented: false,
@@ -403,6 +408,7 @@ pub(crate) fn dispatch_mouse_scroll_to_target_tree(
         stop_requested: ctx.stop_requested(),
         messages: ctx.take_messages(),
         animation_requests: ctx.take_animation_requests(),
+        style_animation_requests: ctx.take_style_animation_requests(),
         worker_requests: ctx.take_worker_requests(),
         recompose_nodes: ctx.take_recompose_nodes(),
         default_prevented: false,
@@ -483,6 +489,7 @@ pub fn dispatch_message_queue_tree(
     let mut default_prevented = false;
     let mut emitted: Vec<MessageEvent> = Vec::new();
     let mut animation_requests: Vec<AnimationRequest> = Vec::new();
+    let mut style_animation_requests: Vec<crate::event::StyleAnimationRequest> = Vec::new();
     let mut worker_requests: Vec<crate::worker::WorkerRequest> = Vec::new();
     let mut recompose_nodes: Vec<NodeId> = Vec::new();
     let mut class_ops: Vec<(NodeId, ClassOp)> = Vec::new();
@@ -511,6 +518,7 @@ pub fn dispatch_message_queue_tree(
         default_prevented |= envelope.is_default_prevented();
         let next = ctx.take_messages();
         let mut next_anims = ctx.take_animation_requests();
+        let mut next_style_anims = ctx.take_style_animation_requests();
         let mut next_workers = ctx.take_worker_requests();
         let mut next_recompose = ctx.take_recompose_nodes();
         let mut next_class_ops = ctx.take_class_ops();
@@ -531,6 +539,9 @@ pub fn dispatch_message_queue_tree(
         if !next_anims.is_empty() {
             animation_requests.append(&mut next_anims);
         }
+        if !next_style_anims.is_empty() {
+            style_animation_requests.append(&mut next_style_anims);
+        }
         if !next_workers.is_empty() {
             worker_requests.append(&mut next_workers);
         }
@@ -546,6 +557,7 @@ pub fn dispatch_message_queue_tree(
         stop_requested,
         messages: emitted,
         animation_requests,
+        style_animation_requests,
         worker_requests,
         recompose_nodes,
         default_prevented,
@@ -644,22 +656,6 @@ fn key_matches_binding(key: &KeyEventData, binding_key: &str) -> bool {
         .split(',')
         .map(str::trim)
         .any(|alt| aliases.contains(&alt))
-}
-
-fn format_binding_key_display(binding_key: &str) -> String {
-    binding_key
-        .split(',')
-        .map(str::trim)
-        .filter(|part| !part.is_empty())
-        .map(|part| {
-            if matches!(part, "tab" | "shift+tab") {
-                part.to_string()
-            } else {
-                format_key_display(part)
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
 }
 
 /// Walk the focused widget chain and find the first matching `BindingDecl`.
@@ -819,7 +815,6 @@ fn collect_node_binding_hints(
     for decl in node.widget.bindings() {
         let mut hint = BindingHint::new(&decl.key, &decl.description)
             .hidden(!decl.show)
-            .with_key_display(format_binding_key_display(&decl.key))
             .with_priority(decl.priority)
             .with_action(&decl.action)
             .with_namespace(
@@ -900,7 +895,6 @@ fn collect_root_scope_hints(tree: &WidgetTree) -> (Vec<BindingHint>, Vec<NodeId>
             for decl in node.widget.bindings() {
                 let mut hint = BindingHint::new(&decl.key, &decl.description)
                     .hidden(!decl.show)
-                    .with_key_display(format_binding_key_display(&decl.key))
                     .with_priority(decl.priority)
                     .with_action(&decl.action)
                     .with_namespace(

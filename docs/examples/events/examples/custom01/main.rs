@@ -3,19 +3,25 @@
 /// Demonstrates custom messages in Textual:
 /// - `ColorButton` is a custom widget that renders its color string and
 ///   posts a `ColorSelected` message when clicked.
-/// - `ColorApp` handles `ColorSelected` and animates the screen background.
+/// - `ColorApp` handles `ColorSelected` and animates the screen background
+///   to the selected color over 0.5s (Python:
+///   `self.screen.styles.animate("background", message.color, duration=0.5)`).
 ///
 /// In Python this uses `self.post_message(self.Selected(self.color))` inside a
-/// widget sub-class and an `App.on_color_button_selected` handler.
+/// widget sub-class and an `App.on_color_button_selected` handler; the button's
+/// per-instance styles (translucent white background + a `tall` border in the
+/// button's own color) are set inline in `on_mount`.
 ///
 /// In Rust we define a custom message (`ColorSelected`), implement `Widget` for
-/// `ColorButton`, and handle the message in `TextualApp::on_message_with_app`.
-///
-/// NOTE: The Python example animates the background on click. The Rust port
-/// sets the background immediately (textual-rs animation API does not yet expose
-/// a public `animate` call for arbitrary properties from user code).
+/// `ColorButton` (its per-instance border color comes from the inline
+/// `Widget::style()` hook — the analogue of Python's `on_mount` inline styles),
+/// and handle the message in `TextualApp::on_message_with_app` with
+/// `ctx.animate_style(screen, "bg", ...)`.
+use std::time::Duration;
+
+use textual::event::{AnimationEase, StyleValue};
 use textual::prelude::*;
-use textual::style::parse_color_like;
+use textual::style::{BorderEdge, BorderType, parse_color_like};
 
 // ---------------------------------------------------------------------------
 // Custom message
@@ -52,6 +58,22 @@ impl Widget for ColorButton {
         "ColorButton"
     }
 
+    /// Inline styles, mirroring Python's `on_mount`:
+    /// `self.styles.border = ("tall", self.color)` — the per-instance border
+    /// color that CSS (shared across all buttons) cannot express.
+    fn style(&self) -> Option<Style> {
+        let mut style = Style::new();
+        let edge = BorderEdge::Edge {
+            border_type: BorderType::Tall,
+            color: self.color,
+        };
+        style.border_top = edge;
+        style.border_right = edge;
+        style.border_bottom = edge;
+        style.border_left = edge;
+        Some(style)
+    }
+
     fn on_event(&mut self, event: &Event, ctx: &mut textual::event::WidgetCtx) {
         if matches!(event, Event::Click(_)) {
             ctx.post_message(ColorSelected { color: self.color });
@@ -85,7 +107,7 @@ ColorButton {
     margin: 1 2;
     content-align: center middle;
     height: auto;
-    border: tall white;
+    background: #ffffff33;
 }
 "#;
 
@@ -112,10 +134,23 @@ impl TextualApp for ColorApp {
         ctx: &mut textual::event::WidgetCtx,
     ) {
         if let Some(m) = message.downcast_ref::<ColorSelected>() {
-            if let Ok(q) = app.query_mut("Screen") {
-                q.set_styles(|s| s.set_bg(m.color));
+            if let Ok(screen) = app.query_one("Screen") {
+                // Animate from the current background (a previous selection's
+                // explicit bg, or the theme `$background`) to the new color —
+                // Python: `styles.animate("background", color, duration=0.5)`.
+                let from = app
+                    .node_explicit_bg(screen)
+                    .or_else(|| parse_color_like("$background"))
+                    .unwrap_or(Color::rgb(0x12, 0x12, 0x12));
+                ctx.animate_style(
+                    screen,
+                    "bg",
+                    StyleValue::Color(from),
+                    StyleValue::Color(m.color),
+                    Duration::from_millis(500),
+                    AnimationEase::InOutCubic,
+                );
             }
-            ctx.request_repaint();
             ctx.set_handled();
         }
     }
@@ -142,10 +177,11 @@ mod tests {
     }
 
     /// LIVENESS probe (Pilot, headless): clicking a custom `ColorButton` posts
-    /// the custom `ColorSelected` message, which the app handles by setting the
-    /// screen background to the button's color. Asserted via the explicit screen
-    /// background (`node_explicit_bg`) — proving the custom message round-trips
-    /// from the widget's `on_event` click handler to the app handler.
+    /// the custom `ColorSelected` message, which the app handles by animating
+    /// the screen background to the button's color over 0.5s. Advancing the
+    /// test clock past the animation must settle the explicit screen bg on the
+    /// target — proving the custom message round-trips from the widget's
+    /// `on_event` click handler to the app handler and into the animator.
     #[test]
     fn custom01_color_button_click_sets_background_is_live() {
         fn screen_bg(app: &App) -> Option<Color> {
@@ -155,12 +191,14 @@ mod tests {
             let before = screen_bg(pilot.app());
             // First ColorButton is "#008080" (teal).
             pilot.click("ColorButton")?;
+            // Let the 0.5s bg animation run to completion on the test clock.
+            pilot.advance_clock(Duration::from_millis(700))?;
             let after = screen_bg(pilot.app());
             assert_ne!(before, after, "clicking a ColorButton must change the screen background");
             assert_eq!(
                 after,
                 parse_color_like("#008080"),
-                "clicking the first ColorButton must set the bg to #008080"
+                "clicking the first ColorButton must animate the bg to #008080"
             );
             Ok(())
         })

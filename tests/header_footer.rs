@@ -109,12 +109,14 @@ fn footer_groups_consecutive_bindings_with_same_group() {
 
     let buf = FrameBuffer::from_renderable(&console, &options, &footer, None);
     let line = &buf.as_plain_lines()[0];
-    assert!(line.contains("left"));
-    assert!(line.contains("right"));
+    // Keys without an explicit `key_display` render via Python's `format_key`
+    // aliases: left -> LEFTWARDS ARROW, right -> RIGHTWARDS ARROW, enter -> RETURN SYMBOL.
+    assert!(line.contains('\u{2190}'));
+    assert!(line.contains('\u{2192}'));
     assert!(line.contains("Move"));
     assert!(!line.contains("move left"));
     assert!(!line.contains("move right"));
-    let enter = line.find("enter").expect("enter key should render");
+    let enter = line.find('\u{23ce}').expect("enter key should render");
     let submit = line
         .find("submit")
         .expect("submit description should render");
