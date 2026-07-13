@@ -2684,10 +2684,21 @@ impl App {
                 // when they change the widget's intrinsic size (e.g.
                 // `Pretty.update()` growing by a line); mirror that: if the
                 // mutation changed the intrinsic content size, the current
-                // layout is stale and must be recomputed.
-                let before = (widget.layout_height(), widget.content_width());
+                // layout is stale and must be recomputed. The `auto_content_*`
+                // probes matter for `width: auto`/`height: auto` widgets whose
+                // fill-default hints are `None` (e.g. `Label::set_text` on an
+                // auto-width label reports only through `auto_content_width`).
+                let probe = |w: &dyn Widget| {
+                    (
+                        w.layout_height(),
+                        w.content_width(),
+                        w.auto_content_width(),
+                        w.auto_content_height(),
+                    )
+                };
+                let before = probe(widget);
                 let out = f(widget);
-                if (widget.layout_height(), widget.content_width()) != before {
+                if probe(widget) != before {
                     ctx.request_layout();
                 }
                 out

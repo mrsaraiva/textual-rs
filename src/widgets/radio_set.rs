@@ -1,8 +1,6 @@
-use crossterm::event::KeyCode;
 use rich_rs::{Console, ConsoleOptions, Segment, Segments};
 use textual_macros::widget;
 
-use crate::event::Event;
 use crate::message::*;
 
 use super::{
@@ -262,37 +260,54 @@ impl crate::widgets::Focus for RadioSet {
         // focus and drives selection between its buttons.
         false
     }
+
+    /// Python `RadioSet.BINDINGS` (all `show=False`). Declarative bindings are
+    /// resolved focused→root, so a focused RadioSet's `down → next_button` wins
+    /// over an ancestor scroll container's `down → scroll_down` — exactly like
+    /// Python's binding chain (radio_set_changed parity). Raw `on_event` key
+    /// handling would LOSE to the ancestor binding (bindings dispatch first),
+    /// so the keyboard behavior lives here, not in `on_event`.
+    fn bindings(&self) -> Vec<super::BindingDecl> {
+        vec![
+            super::BindingDecl::new("down,right", "next_button", "Next option").hidden(),
+            super::BindingDecl::new("enter,space", "toggle_button", "Toggle").hidden(),
+            super::BindingDecl::new("up,left", "previous_button", "Previous option").hidden(),
+        ]
+    }
+
+    fn execute_action(
+        &mut self,
+        action: &crate::action::ParsedAction,
+        ctx: &mut crate::event::WidgetCtx,
+    ) -> bool {
+        if self.disabled || self.buttons.is_empty() {
+            return false;
+        }
+        match action.name.as_str() {
+            "next_button" => {
+                self.move_selection(1);
+                ctx.request_repaint();
+                ctx.set_handled();
+                true
+            }
+            "previous_button" => {
+                self.move_selection(-1);
+                ctx.request_repaint();
+                ctx.set_handled();
+                true
+            }
+            "toggle_button" => {
+                self.toggle_selected(ctx);
+                true
+            }
+            _ => false,
+        }
+    }
 }
 
 impl crate::widgets::Interactive for RadioSet {
     fn on_mount(&mut self, _ctx: &mut crate::event::WidgetCtx) {
         self.mounted = true;
-    }
-
-    fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
-        if self.disabled || self.buttons.is_empty() {
-            return;
-        }
-        if let Event::Key(key) = event {
-            if self.node_state().focused {
-                match key.code {
-                    KeyCode::Up | KeyCode::Left => {
-                        self.move_selection(-1);
-                        ctx.request_repaint();
-                        ctx.set_handled();
-                    }
-                    KeyCode::Down | KeyCode::Right => {
-                        self.move_selection(1);
-                        ctx.request_repaint();
-                        ctx.set_handled();
-                    }
-                    KeyCode::Enter | KeyCode::Char(' ') => {
-                        self.toggle_selected(ctx);
-                    }
-                    _ => {}
-                }
-            }
-        }
     }
 
     fn on_message(&mut self, message: &MessageEvent, ctx: &mut crate::event::WidgetCtx) {
@@ -443,11 +458,9 @@ impl ReactiveWidget for RadioSet {}
 mod tests {
     use super::*;
     use crate::event::EventCtx;
-    use crate::keys::KeyEventData;
     use crate::node_id::NodeId;
     use crate::runtime::dispatch_ctx::set_dispatch_recipient;
     use crate::widgets::NodeState;
-    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
     fn make_node_id() -> NodeId {
         use slotmap::SlotMap;
@@ -462,26 +475,42 @@ mod tests {
         }
     }
 
+    /// Run a RadioSet binding action (the canonical keyboard path — keys reach
+    /// the set through its declarative `bindings()`, not raw `on_event`).
+    fn run_action(set: &mut RadioSet, name: &str, ctx: &mut EventCtx) -> bool {
+        let parsed = crate::action::parse_action(name).expect("parse action");
+        let mut __w =
+            crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), ctx);
+        crate::widgets::Widget::execute_action(set, &parsed, &mut __w)
+    }
+
     #[test]
-    fn radio_set_space_changes_selection_and_emits_message() {
+    fn bindings_mirror_python_radioset() {
+        // Python `RadioSet.BINDINGS`: down/right → next_button,
+        // enter/space → toggle_button, up/left → previous_button (all hidden).
+        let set = RadioSet::from_labels(&["A"]);
+        let bindings = crate::widgets::Widget::bindings(&set);
+        let pairs: Vec<(&str, &str)> = bindings
+            .iter()
+            .map(|b| (b.key.as_str(), b.action.as_str()))
+            .collect();
+        assert!(pairs.contains(&("down,right", "next_button")));
+        assert!(pairs.contains(&("enter,space", "toggle_button")));
+        assert!(pairs.contains(&("up,left", "previous_button")));
+        assert!(bindings.iter().all(|b| !b.show), "Python declares show=False");
+    }
+
+    #[test]
+    fn radio_set_toggle_changes_selection_and_emits_message() {
         let mut set = RadioSet::from_labels(&["A", "B", "C"]);
         let id = make_node_id();
         let _guard = set_dispatch_recipient(id, focused_state());
-        let down = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
         let mut ctx1 = EventCtx::default();
-        {
-            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx1);
-            set.on_event(&Event::Key(down), &mut __w);
-        }
+        assert!(run_action(&mut set, "next_button", &mut ctx1));
         assert_eq!(set.selected_index(), 1);
 
-        let space =
-            KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
         let mut ctx2 = EventCtx::default();
-        {
-            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx2);
-            set.on_event(&Event::Key(space), &mut __w);
-        }
+        assert!(run_action(&mut set, "toggle_button", &mut ctx2));
         assert_eq!(set.pressed_index(), Some(1));
         let messages = ctx2.take_messages();
         assert!(messages.iter().any(|m| {
@@ -495,13 +524,8 @@ mod tests {
         let mut set = RadioSet::new().with_button(RadioButton::new("A").with_value(true));
         let id = make_node_id();
         let _guard = set_dispatch_recipient(id, focused_state());
-        let space =
-            KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
         let mut ctx = EventCtx::default();
-        {
-            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
-            set.on_event(&Event::Key(space), &mut __w);
-        }
+        assert!(run_action(&mut set, "toggle_button", &mut ctx));
         assert_eq!(set.pressed_index(), Some(0));
     }
 
@@ -516,12 +540,8 @@ mod tests {
         let _guard = set_dispatch_recipient(id, focused_state());
         assert_eq!(set.selected_index(), 1);
 
-        let down = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
         let mut ctx = EventCtx::default();
-        {
-            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
-            set.on_event(&Event::Key(down), &mut __w);
-        }
+        assert!(run_action(&mut set, "next_button", &mut ctx));
         assert_eq!(set.selected_index(), 3);
     }
 
@@ -530,12 +550,8 @@ mod tests {
         let mut set = RadioSet::from_labels(&["A", "B"]).disabled(true);
         let id = make_node_id();
         let _guard = set_dispatch_recipient(id, focused_state());
-        let down = KeyEventData::from_crossterm(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
         let mut ctx = EventCtx::default();
-        {
-            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
-            set.on_event(&Event::Key(down), &mut __w);
-        }
+        assert!(!run_action(&mut set, "next_button", &mut ctx));
         assert!(!ctx.handled());
         assert!(!set.focusable());
     }

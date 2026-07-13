@@ -1231,12 +1231,12 @@ fn parity_radio_set_navigate() {
 }
 
 /// radio_set_changed: selecting a button updates two Labels (pressed label +
-/// pressed index). Both must show the same strings.
+/// pressed index). Both must show the same strings. Guards two fixes:
+/// RadioSet's declarative BINDINGS win the down/space keys over the ancestor
+/// VerticalScroll's `scroll_down` (Python binding-chain priority), and
+/// `Label::set_text` on an empty auto-width Label triggers a relayout
+/// (`with_widget_mut` intrinsic-size diff over the auto_content_* channels).
 #[test]
-#[ignore = "BUG (out of scope): the RadioSet focus/selection colours now match Python, but the \
-            #pressed/#index Labels show only a stray 'P' — Label.update()/set_text() on an empty auto-width \
-            Label inside a Horizontal does not trigger a relayout, so the label stays 1 cell wide. Fix lives \
-            in the Label/runtime relayout path, not the RadioSet widget."]
 fn parity_radio_set_changed() {
     let script = [
         Step::SendKeys("\x1b[B"),

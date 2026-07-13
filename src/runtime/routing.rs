@@ -2555,6 +2555,45 @@ mod binding_tests {
         assert_eq!(action, "submit");
     }
 
+    /// Parity regression (radio_set_changed): a focused `RadioSet` inside a
+    /// scroll container must win the `down` key with its own
+    /// `down,right → next_button` binding — NOT the ancestor's
+    /// `down → scroll_down`. Python resolves BINDINGS focused→root, so the
+    /// deeper widget's binding shadows the scroll container's.
+    #[test]
+    fn match_binding_focused_radio_set_beats_ancestor_scroll_binding() {
+        use crate::widgets::{RadioButton, RadioSet, VerticalScroll};
+
+        let mut tree = WidgetTree::new();
+        let root_id = tree.set_root(Box::new(Root));
+        let scroll_id = tree.mount(root_id, Box::new(VerticalScroll::new()));
+        let radio_id = tree.mount(
+            scroll_id,
+            Box::new(
+                RadioSet::new()
+                    .with_button(RadioButton::new("A"))
+                    .with_button(RadioButton::new("B")),
+            ),
+        );
+        tree.set_focus_state(radio_id, true);
+
+        let key = KeyEventData::from_crossterm(key_event(KeyCode::Down, KeyModifiers::empty()));
+        let result = match_binding_tree(&tree, &key);
+        assert_eq!(
+            result,
+            Some((radio_id, "next_button".to_string())),
+            "focused RadioSet's binding must shadow the scroll container's scroll_down"
+        );
+
+        // Space / enter toggle through the RadioSet binding as well.
+        let space =
+            KeyEventData::from_crossterm(key_event(KeyCode::Char(' '), KeyModifiers::empty()));
+        assert_eq!(
+            match_binding_tree(&tree, &space),
+            Some((radio_id, "toggle_button".to_string()))
+        );
+    }
+
     /// CLUSTER 6 (screen-root bindings): with no widget focused, the no-focus
     /// chain must reach the screen-body root (root + first content child), even
     /// when the screen root has infrastructure siblings (scrollbars / tooltip).

@@ -29,6 +29,28 @@ Python's `visual_style`-vs-`background_colors` split. The post-render recolor
 remains as a backstop and now matches the own-bg(+tint)-composited surface.
 `parity_events_custom01_select` un-`#[ignore]`d (glyph+colour clean);
 regression test in `src/runtime/frozen_bg_regression.rs`.
+### Fixed — RadioSet keyboard navigation rides declarative BINDINGS (Python parity)
+
+`RadioSet` now declares Python's `BINDINGS` (`down,right → next_button`,
+`enter,space → toggle_button`, `up,left → previous_button`, all hidden) and
+executes them via widget actions, replacing its raw `on_event` key handling.
+Bindings resolve focused→root, so a focused RadioSet inside a scroll container
+now wins the arrow keys — previously the ancestor's `down → scroll_down`
+binding consumed the key first (bindings dispatch before raw key handlers) and
+the navigation cursor never moved (`radio_set_changed` parity case, now
+glyph+colour clean). Regression tests:
+`match_binding_focused_radio_set_beats_ancestor_scroll_binding`
+(`src/runtime/routing.rs`) plus the migrated RadioSet action tests.
+
+### Fixed — content updates that change intrinsic size now relayout
+
+`App::with_widget_mut` / `with_query_one_mut_as` (e.g. `Label::set_text`,
+Python `Static.update()` → `refresh(layout=True)`) now also diff the
+`auto_content_width`/`auto_content_height` channels — a `width: auto` widget
+whose fill-default `content_width()` is `None` (Label/Static) previously kept
+its stale zero-width box when its content grew, unless something else forced a
+relayout in the same frame. Regression test:
+`tests/content_update_relayout.rs`.
 
 ### Fixed — runtime focus parity: focus-on-click + focus transfer when the focused widget hides
 
