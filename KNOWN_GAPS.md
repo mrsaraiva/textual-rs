@@ -10,9 +10,10 @@ Parity is measured against real Python by three harnesses:
 - **Styled per-cell-RGB harness** (`tests/visual_parity.rs`): **87 / 87** exact.
 - **Plain-text PTY harness** (`tests/pty_parity.rs`): **186 / 186**.
 - **Real-app interactive parity** (`tests/pty_interactive.rs`, real Rust vs real Python, PTY+vt100
-  full cell-grid + truecolor): **7** honest `#[ignore]`s remain (104 / 104 non-ignored green), grouped
-  into the divergence classes below — and of those 7, **only 3 are open bugs** (the rest are
-  intentional divergences / a 1.1 feature).
+  full cell-grid + truecolor): **5** honest `#[ignore]`s remain (106 / 106 non-ignored green), grouped
+  into the divergence classes below — and of those 5, **only 1 is an open bug** (`rich_log`, whose fix
+  is done upstream in rich-rs and is pending a rich-rs publish + version bump). The other 4 are
+  intentional divergences / a 1.1 feature.
 
 > **Why real-app parity:** static render — and even an in-process "liveness" probe — can pass while the
 > live app is broken. Two examples this cycle: the tutorial stopwatch rendered perfectly and its
@@ -70,6 +71,17 @@ integration — 27 → 7 ignores):
   `input_key01/02/03`), and `compound_byte01/02` (test de-race).
 - **Test-hygiene**: `input_typing` → `assert_glyph_only_parity` (blink-caret class).
 
+Closed in the 1.0-candidate **third wave** (2026-07-12, the deep/upstream trio — 7 → 5 ignores):
+- **`custom01`** (`FROZEN_ANCESTOR_BG`): a node's OWN translucent-bg content now freezes at bake time
+  against the ancestor surface captured on the widget's style cache key (Python `visual_style` cache),
+  while borders/padding (`background_colors`) stay live — mirroring Python's border-vs-content split.
+  Divergence-gated (byte-identical in steady state).
+- **`radio_set_changed`**: RadioSet keyboard nav now rides Python's declarative `BINDINGS` (an ancestor
+  `VerticalScroll`'s `down→scroll_down` binding was stealing the arrows before the raw handler ran); and
+  `with_widget_mut` now probes `auto_content_width/height` so a `Static.update()` that grows an
+  auto-width label relayouts (the content-update path — see the follow-up below, now closed).
+- **`rich_log`** fixed upstream in `../rich-rs` (see the divergence class — publish-gated).
+
 ## Deferred to 1.1 (feature gaps)
 
 - **Inline terminal render mode** (`run(inline=True)`) — no inline render region / alt-screen
@@ -78,25 +90,18 @@ integration — 27 → 7 ignores):
 - **`App.suspend()`** inline-subprocess context manager — needs the inline-mode alt-screen
   teardown/restore. Blocks `guide/app/suspend`.
 
-## Interactive divergence classes (the 7 `pty_interactive` `#[ignore]`s)
+## Interactive divergence classes (the 5 `pty_interactive` `#[ignore]`s)
 
 Tagged **[1.x]** (a real open bug, deferred) or **[divergence]** (an intentional/permanent difference we
-will not "fix"). Only **3 of the 7 are open bugs**, and each needs deeper/upstream work:
+will not "fix"). Only **1 of the 5 is an open bug**, and its fix is already done upstream:
 
-- **[1.x] `radio_set_changed` — empty auto-width `Label.update()` in a `Horizontal` doesn't relayout.**
-  The `set_styles`/`with_widget_mut` relayout fixes this wave closed the offset/size-change cases; this
-  specific auto-width-content-grows-from-empty case still needs the intrinsic-size re-measure. Same class
-  as the widget-initiated layout-invalidation follow-up below.
-- **[1.x] `rich_log` — 26 residual cells inside a `Syntax` block (UPSTREAM rich-rs).** syntect-vs-pygments
-  token classes (def-signature `:` as operator, docstring quotes plain, indent-guide fg). Site: rich-rs
-  `src/syntax.rs`. The RichLog surface / width / scrollbar / repr-highlighter are all fixed — this is
-  purely the fenced-code token palette, which lives upstream (we own rich-rs; own pass).
-- **[1.x] `custom01` — ColorButton Screen-bg animation, 456 residual cells (frozen-ancestor-bg).** The
-  click now animates the Screen bg and dispatches correctly; the residual is the 4 button interiors —
-  Python's strip cache keeps `#ffffff33` blended over the PRE-animation surface while Rust re-flattens
-  over the LIVE animated surface. Root: `FROZEN_ANCESTOR_BG` (`src/runtime/render.rs`) not extending
-  staleness to a node's OWN semi-transparent bg — a frozen-bg-architecture pass that intersects the
-  live-composition invariant. Second wave.
+- **[1.x — fix done upstream, publish-gated] `rich_log`** — the last real gap, and it lives in rich-rs,
+  not textual-rs. Three syntect-vs-pygments fenced-code token-class mismatches (annotation `:` as
+  operator, docstring `"""` delimiters, and the indent-guide dim pre-blend) are **fixed in
+  `../rich-rs`** (`src/themes/monokai.tmTheme` scope mapping + a theme-generic `indent_guide_color`
+  applying Python's `DIM_FACTOR = 0.66` pre-blend); with that fix patched in, `rich_log` reaches 0/0.
+  Closing it in textual-rs is purely a **rich-rs publish (1.2.2) + version bump** away — an
+  outward-facing release step held for the maintainer.
 - **[divergence] Python-only startup crash** (`set_reactive01`) — the Python ref intentionally raises
   (pre-mount `query_one` → `NoMatches`, the doc's "wrong way"); reproducing a Rich traceback
   glyph-for-glyph isn't meaningful.
@@ -115,12 +120,16 @@ will not "fix"). Only **3 of the 7 are open bugs**, and each needs deeper/upstre
 
 ## Tracked correctness follow-ups (no demo impact)
 
-- **Widget-initiated layout invalidation** — LARGELY CLOSED in the second wave: `set_styles` now
-  diff-detects layout-affecting mutations and relayouts, and `with_widget_mut` compares intrinsic size
-  around the closure and promotes an absorbed invalidation to a forced relayout (Python
-  `refresh(layout=True)`). Remaining edge: an auto-width `Label.update()` that grows from EMPTY content
-  in a `Horizontal` still doesn't re-measure (`radio_set_changed`, above) — a `.update()`-content-path
-  intrinsic re-measure, distinct from the style-mutation path now covered.
+- **Widget-initiated layout invalidation** — CLOSED across waves 2–3: `set_styles` diff-detects
+  layout-affecting mutations and relayouts, and `with_widget_mut` compares intrinsic size around the
+  closure — now including `auto_content_width/height` — and promotes an absorbed invalidation to a
+  forced relayout (Python `refresh(layout=True)`). Both the style-mutation and the content-update
+  (`Static.update`) paths are covered.
+- **`OptionList`/`SelectionList` keyboard nav uses raw `on_event`, not declarative BINDINGS** — same bug
+  class `RadioSet` had (fixed in wave 3): they handle Up/Down/PageUp/PageDown in `on_event`
+  (`src/widgets/option_list.rs`) with no `BINDINGS`, so an ancestor scroll container's binding can steal
+  the arrows before the raw handler runs. Give them Python's declarative `BINDINGS`. *(No demo currently
+  reproduces it — the RadioSet case did because it was nested in a `VerticalScroll`.)*
 - **`loading`/`disabled` → focus & hit-test** — Python's `is_disabled = disabled or loading` removes a
   covered/loading widget from the focus chain and interaction; Rust's focus chain and hit-test don't
   consult `state.loading` yet (the `loading` cover now paints, but the widget under it is still
