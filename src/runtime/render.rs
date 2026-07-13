@@ -53,23 +53,27 @@ use super::types::{
 // (detected via a fingerprint of the node's OWN, non-inherited style identity).
 //
 // When the live ancestor composite diverges from that frozen value, two
-// mechanisms replicate Python's `visual_style`-vs-`background_colors` split:
+// mechanisms replicate Python's `visual_style`-vs-`background_colors` split.
+// The freeze is BACKGROUND-ONLY: content FOREGROUNDS (link colour, `color:
+// auto` contrast, fg-over-bg) always resolve against the LIVE surface, exactly
+// like Python resolving the link/contrast fg from `background_colors` (live),
+// not the cached `visual_style` (the `guide/actions` `Red`/`Green`/`Blue` link
+// labels tint to the current red surface, not the pre-change one).
 //
-// 1. BAKE-TIME OVERRIDE (`crate::css::set_frozen_ancestor_bg_override`):
-//    installed around the node's `render_widget_with_meta` pass, it makes
-//    `current_ancestor_composited_background()` — the surface content strips
-//    bake against, Python's `visual_style.background` — return the FROZEN
-//    surface. This covers the node's OWN (possibly semi-transparent) `bg`
-//    flatten for glyph strips, the content-align padding, and the fg-bearing
-//    vertical extend (all rendered from Python's cached `visual_style`).
-//    Surface fills that Python renders live from `background_colors`
-//    (`StylesCache`: border rows/edges, CSS padding, trailing content pad)
-//    read `current_composited_background()` / `parent_style.bg`, which are
-//    NOT overridden and stay live.
+// 1. RECOLOR BACKSTOP (`recolor_frozen_content_bg`): content GLYPH strips bake
+//    normally (bg + fg over the LIVE surface); their BACKGROUND cell is then
+//    re-keyed, bg-only, from the LIVE own-surface composite to the FROZEN one
+//    after the render pass. Foreground is untouched.
 //
-// 2. RECOLOR BACKSTOP (`recolor_frozen_content_bg`): content glyph strips
-//    baked by widgets from other live sources are re-keyed from the LIVE
-//    own-surface composite to the FROZEN one after the render pass.
+// 2. BAKE-TIME OVERRIDE (`crate::css::set_frozen_ancestor_bg_override`):
+//    installed around the node's `render_widget_with_meta` pass and read ONLY
+//    by the blank FILL cells (content-align padding + the fg-bearing vertical
+//    extend), which Python renders from the cached `visual_style.rich_style`
+//    and the recolor backstop cannot reach (they carry no glyph and aren't
+//    tagged). Those cells are spaces, so freezing their fg is invisible.
+//    Surface fills Python renders live from `background_colors` (`StylesCache`:
+//    border rows/edges, CSS padding, trailing content pad) read
+//    `current_composited_background()` / `parent_style.bg` and stay live.
 thread_local! {
     static FROZEN_ANCESTOR_BG: std::cell::RefCell<
         std::collections::HashMap<NodeId, (u64, Option<Color>)>,

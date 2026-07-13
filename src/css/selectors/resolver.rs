@@ -345,22 +345,29 @@ pub(crate) fn current_composited_background() -> Option<crate::style::Color> {
 // -- Frozen ancestor surface override (Python `visual_style` cache parity) ---
 
 thread_local! {
-    /// When set, `current_ancestor_composited_background()` — the surface a
-    /// widget's CONTENT strips bake against, the render-time analogue of
-    /// Python's cached `visual_style.background` — returns this FROZEN
-    /// ancestor surface instead of the live style-stack composite.
+    /// The FROZEN ancestor surface for the node currently rendering, when its
+    /// live ancestor composite has diverged from the surface it captured at its
+    /// own last content re-render (an ancestor-only INLINE background change,
+    /// e.g. a Screen background animation). Python keeps the content strip's
+    /// BACKGROUND baked over the OLD surface in that case because `visual_style`
+    /// is cached on the widget's own `styles._cache_key`, which an ancestor
+    /// inline mutation never bumps.
     ///
-    /// Installed by `runtime::render` (see `FROZEN_ANCESTOR_BG` there) ONLY
-    /// while rendering a node whose live ancestor composite has diverged from
-    /// the surface the node captured at its own last content re-render (an
-    /// ancestor-only INLINE background change, e.g. a Screen background
-    /// animation). Python keeps the whole content strip baked over the OLD
-    /// surface in that case because `visual_style` is cached on the widget's
-    /// own `styles._cache_key`, which an ancestor inline mutation never bumps.
+    /// Installed by `runtime::render` (see `FROZEN_ANCESTOR_BG` there) and read
+    /// ONLY by `render_widget_with_meta`'s blank FILL cells (content-align pad
+    /// and the fg-bearing vertical extend), which Python renders from the cached
+    /// `visual_style.rich_style` — a bg-only concern here (those cells are
+    /// spaces, so their frozen fg is invisible / an opaque `$foreground`).
     ///
-    /// Surface/padding fills (`current_composited_background`, the Python
-    /// `background_colors` analogue) are deliberately NOT overridden — they
-    /// stay live, exactly like Python's `StylesCache` border/padding lines.
+    /// It deliberately does NOT flow through
+    /// `current_ancestor_composited_background()`: content GLYPH strips must
+    /// bake their FOREGROUND (link colour / `color: auto` contrast / fg over
+    /// bg) against the LIVE surface — Python resolves the link/contrast fg from
+    /// `background_colors` (live), not the cached `visual_style`. Their frozen
+    /// BACKGROUND is applied post-render, bg-only, by `recolor_frozen_content_bg`.
+    ///
+    /// Surface/padding fills that Python renders live from `background_colors`
+    /// (`StylesCache` border/CSS-padding/trailing-pad) are unaffected.
     static FROZEN_ANCESTOR_BG_OVERRIDE: std::cell::Cell<Option<crate::style::Color>> =
         const { std::cell::Cell::new(None) };
 }
@@ -384,10 +391,12 @@ impl Drop for FrozenAncestorBgGuard {
 }
 
 /// The active frozen ancestor surface, if a divergence override is installed.
-/// Consumed by the `visual_style`-equivalent fill in `render_widget_with_meta`
+/// Consumed ONLY by the blank FILL cells in `render_widget_with_meta`
 /// (content-align padding / fg-bearing vertical extend), which Python renders
 /// from the cached `visual_style.rich_style` (`Strip.align` /
 /// `render_line` IndexError -> `Strip.blank(width, visual_style.rich_style)`).
+/// NOT read by `current_ancestor_composited_background()`, so content GLYPH
+/// foregrounds keep resolving against the LIVE surface (see the thread-local).
 pub(crate) fn frozen_ancestor_bg_override() -> Option<crate::style::Color> {
     FROZEN_ANCESTOR_BG_OVERRIDE.with(|cell| cell.get())
 }
@@ -400,16 +409,16 @@ pub(crate) fn frozen_ancestor_bg_override() -> Option<crate::style::Color> {
 /// `apply_style_to_segments` would compute when it runs AFTER `render()` returns
 /// (at which point the current widget's style has been popped from the stack).
 ///
-/// This is the bake-surface for widget CONTENT strips — the render-time
-/// analogue of Python's `visual_style.background` — so when the frozen
-/// ancestor surface override is installed (ancestor-only inline bg change,
-/// see [`set_frozen_ancestor_bg_override`]) it returns the FROZEN surface.
+/// This is the bake-surface for widget CONTENT strips. It stays LIVE even
+/// under a frozen-ancestor-bg divergence: content glyph FOREGROUNDS (link
+/// colour, `color: auto` contrast, fg-over-bg) must resolve against the
+/// current surface — Python computes those from `background_colors` (live),
+/// not the cached `visual_style` (`guide/actions` `Red`/`Green`/`Blue` link
+/// labels tint to the live surface). The glyph BACKGROUND is frozen post-
+/// render, bg-only, by `recolor_frozen_content_bg`.
 ///
 /// Returns `None` if the ancestor chain has no explicit background.
 pub(crate) fn current_ancestor_composited_background() -> Option<crate::style::Color> {
-    if let Some(frozen) = frozen_ancestor_bg_override() {
-        return Some(frozen);
-    }
     let fallback =
         crate::style::parse_color_like("$background").unwrap_or(crate::style::Color::rgb(0, 0, 0));
     STYLE_STACK.with(|stack| {
