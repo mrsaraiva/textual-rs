@@ -19,14 +19,17 @@ widget with its OWN semi-transparent `background` (events/custom01's
 ColorButton `#ffffff33`) re-flattened over the LIVE animated surface every
 frame and its interior drifted with the animation.
 
-The mechanism now installs a bake-time override
-(`set_frozen_ancestor_bg_override`) around a diverged node's render pass:
-`current_ancestor_composited_background()` — the bake surface for content
-strips, content-align padding, and the fg-bearing vertical extend — returns
-the FROZEN surface, while `current_composited_background()`/`parent_style.bg`
-surfaces (borders, CSS padding, trailing pad) stay live, exactly matching
-Python's `visual_style`-vs-`background_colors` split. The post-render recolor
-remains as a backstop and now matches the own-bg(+tint)-composited surface.
+The fix freezes the BACKGROUND of content strips only — the foreground stays
+live. Glyph strips bake bg+fg over the LIVE surface; the glyph background is
+then frozen post-render (bg-only) by `recolor_frozen_content_bg`, and a
+bake-time override (`set_frozen_ancestor_bg_override`) around a diverged node's
+render pass freezes only the blank content-align / vertical-extend FILL cells
+(spaces — no visible fg). Borders, CSS padding, and trailing pad
+(`background_colors`) stay live. This matches Python's `visual_style` (cached
+content bg) vs `background_colors` (live) split — including that a link /
+auto-contrast foreground resolves from the LIVE surface (an initial
+content-fg-freeze regressed `guide/actions` red-bg labels; the pty_interactive
+gate caught it and it was narrowed to background-only).
 `parity_events_custom01_select` un-`#[ignore]`d (glyph+colour clean);
 regression test in `src/runtime/frozen_bg_regression.rs`.
 ### Fixed — RadioSet keyboard navigation rides declarative BINDINGS (Python parity)
