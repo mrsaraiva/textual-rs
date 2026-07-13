@@ -51,10 +51,25 @@ use super::types::{
 // into the child's text. To match Python we cache, per node, the composited
 // ancestor background captured when the node last re-rendered its own content
 // (detected via a fingerprint of the node's OWN, non-inherited style identity).
-// When the live ancestor composite diverges from that frozen value we push a
-// synthetic opaque style entry (a clone of the parent style with its bg forced
-// to the frozen value) so the child's transparent segments composite over the
-// frozen ancestor surface — exactly as Python's cached `visual_style` does.
+//
+// When the live ancestor composite diverges from that frozen value, two
+// mechanisms replicate Python's `visual_style`-vs-`background_colors` split:
+//
+// 1. BAKE-TIME OVERRIDE (`crate::css::set_frozen_ancestor_bg_override`):
+//    installed around the node's `render_widget_with_meta` pass, it makes
+//    `current_ancestor_composited_background()` — the surface content strips
+//    bake against, Python's `visual_style.background` — return the FROZEN
+//    surface. This covers the node's OWN (possibly semi-transparent) `bg`
+//    flatten for glyph strips, the content-align padding, and the fg-bearing
+//    vertical extend (all rendered from Python's cached `visual_style`).
+//    Surface fills that Python renders live from `background_colors`
+//    (`StylesCache`: border rows/edges, CSS padding, trailing content pad)
+//    read `current_composited_background()` / `parent_style.bg`, which are
+//    NOT overridden and stay live.
+//
+// 2. RECOLOR BACKSTOP (`recolor_frozen_content_bg`): content glyph strips
+//    baked by widgets from other live sources are re-keyed from the LIVE
+//    own-surface composite to the FROZEN one after the render pass.
 thread_local! {
     static FROZEN_ANCESTOR_BG: std::cell::RefCell<
         std::collections::HashMap<NodeId, (u64, Option<Color>)>,
@@ -131,11 +146,33 @@ fn node_own_style_fingerprint(
     h.finish()
 }
 
+/// The surface a node's content strips bake against: the node's own
+/// `background` rule (folded with `background-tint`, mirroring Python
+/// `styles.background.tint(styles.background_tint)`) composited over the
+/// given ancestor surface. With no own `bg` rule this is the ancestor surface
+/// itself — Python's `visual_style` walks the same chain.
+fn compose_own_content_surface(resolved: &crate::style::Style, ancestor: Color) -> Color {
+    match resolved.bg {
+        Some(bg) => {
+            let flat = bg.flatten_over(ancestor);
+            if let Some(tint) = resolved.background_tint {
+                crate::renderables::Tint::<()>::blend_color_with_percent(
+                    flat, tint.color, tint.percent,
+                )
+            } else {
+                flat
+            }
+        }
+        None => ancestor,
+    }
+}
+
 /// Re-key the FROZEN ancestor surface into a node's already-baked content glyph
-/// segments (Python `visual_style` cache parity). Only segments that (a) belong
-/// to this node, (b) are tagged `textual:no_text_style` (the text renderer's
-/// glyph strips — NOT the surface/pad fill, which is untagged), and (c) still
-/// carry the LIVE surface as their baked bg are re-keyed to the frozen surface.
+/// segments (Python `visual_style` cache parity backstop). Only segments that
+/// (a) belong to this node, (b) are tagged `textual:no_text_style` (the text
+/// renderer's glyph strips — NOT the surface/pad fill, which is untagged), and
+/// (c) still carry the LIVE own-content surface (own `bg`+tint over the live
+/// ancestor composite) as their baked bg are re-keyed to the frozen equivalent.
 /// Condition (c) keeps segments that carry their own opaque bg (spans, per-cell
 /// backgrounds) untouched. See `FROZEN_ANCESTOR_BG` for the rationale.
 fn recolor_frozen_content_bg(
@@ -871,6 +908,26 @@ fn render_tree_node(
             }
         });
 
+        // When the composited ancestor surface has DIVERGED from what this node
+        // captured at its own last content render (an ancestor-only background
+        // change, e.g. `guide/actions` pressing `r` to set the screen bg, or the
+        // `events/custom01` Screen bg animation), Python keeps the CACHED base
+        // surface in `visual_style` while Rust would bake the LIVE surface.
+        // Install the frozen bake-surface override for this node's render pass
+        // so everything derived from Python's `visual_style` — the node's own
+        // (possibly semi-transparent) bg flatten in content glyph strips, the
+        // content-align padding, the fg-bearing vertical extend — composites
+        // over the FROZEN ancestor surface. Surfaces Python renders live from
+        // `background_colors` (border rows/edges, CSS padding, trailing content
+        // pad) are unaffected, preserving the documented render-time
+        // live-composition invariant for surfaces. See `FROZEN_ANCESTOR_BG`.
+        let diverged = match (frozen_ancestor_bg, live_ancestor_bg) {
+            (Some(frozen), Some(live)) if frozen != live => Some((frozen, live)),
+            _ => None,
+        };
+        let frozen_bake_guard =
+            diverged.map(|(frozen, _)| crate::css::set_frozen_ancestor_bg_override(frozen));
+
         // render_widget_with_meta handles CSS composition, border rendering,
         // segment tagging with the real arena NodeId, and style stack push/pop.
         let mut segments = crate::widgets::render_widget_with_meta(
@@ -883,21 +940,17 @@ fn render_tree_node(
             &resolved,
             &debug_label,
         );
+        drop(frozen_bake_guard);
 
-        // When the composited ancestor surface has DIVERGED from what this node
-        // captured at its own last content render (an ancestor-only background
-        // change, e.g. `guide/actions` pressing `r` to set the screen bg), Rust
-        // baked the LIVE surface into the node's transparent glyph segments while
-        // Python keeps the CACHED base surface in `visual_style`. Re-key ONLY the
-        // content glyph segments (`textual:no_text_style`, tagged by the text
-        // renderer) whose baked bg still equals the live surface back to the
-        // frozen surface — Python's cached `visual_style`. The node's own
-        // surface/padding fill (computed after self is popped, from
-        // `background_colors`) is untagged and stays LIVE, preserving the
-        // documented render-time live-composition invariant for surfaces.
-        if let (Some(frozen), Some(live)) = (frozen_ancestor_bg, live_ancestor_bg) {
-            if frozen != live {
-                segments = recolor_frozen_content_bg(segments, node_id, live, frozen);
+        // Backstop for content glyph strips baked from live sources outside the
+        // override's reach: re-key cells still carrying the LIVE own-content
+        // surface to the frozen equivalent (see `recolor_frozen_content_bg`).
+        if let Some((frozen, live)) = diverged {
+            let live_content = compose_own_content_surface(&resolved, live);
+            let frozen_content = compose_own_content_surface(&resolved, frozen);
+            if live_content != frozen_content {
+                segments =
+                    recolor_frozen_content_bg(segments, node_id, live_content, frozen_content);
             }
         }
         if node.widget.preserve_underlay() && !segments.is_empty() {

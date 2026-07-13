@@ -2383,8 +2383,15 @@ fn parity_command02_palette_open() {
 /// custom01: four ColorButtons (transparent white bg, coloured border, render
 /// the colour hex). Click the first (#008080); the screen bg animates to that
 /// colour over 0.5s. Wait past the animation and compare the settled screen.
+/// The four ColorButtons carry an OWN semi-transparent `#ffffff33` background;
+/// Python's cached `visual_style` keeps their content strips blended over the
+/// PRE-ANIMATION Screen surface (#121212 -> #414141) after the click animates
+/// the Screen bg, because an ancestor-only inline bg change never bumps the
+/// child's `styles._cache_key`. The frozen-ancestor-bg bake-time override
+/// (`set_frozen_ancestor_bg_override`, see `runtime::render`) replicates that:
+/// content glyphs + content-align fill bake over the frozen surface while
+/// border rows / CSS padding stay live (`background_colors`).
 #[test]
-#[ignore = "BUG (runtime click->message delivery + style-animation plumbing FIXED: the live Up arm now dispatches Click-outcome messages like the headless path, handler style animations flow through DispatchOutcome, and the demo faithfully animates the Screen bg over 0.5s + carries the per-button `tall` border + `#ffffff33` bg — 3600 -> 456 colour cells). Residual = 456 cells: the four ColorButtons' interiors. Python's strip cache keeps each button's `#ffffff33` bg blended over the PRE-ANIMATION surface (#121212 -> #414141) because an ancestor-only inline bg change never re-bakes child strips, while Rust re-flattens the translucent own-bg over the LIVE animated surface (#008080 -> #339999) every frame. Root: FROZEN_ANCESTOR_BG covers transparent-bg glyph strips only; extending Python's staleness to a node's OWN semi-transparent bg flatten intersects the render-time live-composition invariant for surfaces (frozen-bg architecture, needs its own pass)."]
 fn parity_events_custom01_select() {
     let script = [Step::Click(6, 2), Step::Wait(900)];
     let (rf, pf) = cat_both("custom01", "events", &script, 600);

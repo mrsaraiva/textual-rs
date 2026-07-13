@@ -1083,13 +1083,24 @@ pub(crate) fn render_widget_with_meta<W: Widget + ?Sized>(
     // or auto-contrast for `color: auto`). Used for BOTH content-align padding
     // (visual.py `Strip.align`) and the vertical extend beyond content (widget.py
     // `render_line` IndexError fallback `Strip.blank(width, visual_style.rich_style)`).
+    //
+    // Python `visual_style` cache parity: `visual_style` is cached on the
+    // widget's OWN `styles._cache_key`, so after an ancestor-only INLINE bg
+    // change these visual_style-derived fills keep the FROZEN ancestor surface
+    // (runtime::render installs the override), while `fill`/`pad_fill` below —
+    // Python's live `background_colors` inner style — stay live.
+    let visual_parent_bg = crate::css::frozen_ancestor_bg_override().unwrap_or(fill_parent_bg);
+    let visual_inner_bg = resolved
+        .bg
+        .map(|c| c.flatten_over(visual_parent_bg))
+        .unwrap_or(visual_parent_bg);
     let fill_fg_style = {
-        let mut s = rich_rs::Style::new().with_bgcolor(fill_inner_bg.to_simple_opaque());
+        let mut s = rich_rs::Style::new().with_bgcolor(visual_inner_bg.to_simple_opaque());
         if let Some(fg) = resolved.fg {
-            s = s.with_color(fg.flatten_over(fill_inner_bg).to_simple_opaque());
+            s = s.with_color(fg.flatten_over(visual_inner_bg).to_simple_opaque());
         } else if let Some(auto) = resolved.fg_auto {
-            let contrast = crate::style::contrast_text(fill_inner_bg)
-                .blend_over_float(fill_inner_bg, auto.alpha());
+            let contrast = crate::style::contrast_text(visual_inner_bg)
+                .blend_over_float(visual_inner_bg, auto.alpha());
             s = s.with_color(contrast.to_simple_opaque());
         }
         s

@@ -7,6 +7,29 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### Fixed — frozen-ancestor-bg covers a widget's OWN translucent background (Python `visual_style` cache parity)
+
+After an ancestor-only INLINE background change (e.g. a Screen background
+animation), Python keeps each non-restyled descendant's CONTENT strips baked
+over the OLD ancestor surface — `visual_style` is cached on the widget's own
+`styles._cache_key`, which an ancestor inline mutation never bumps — while
+border rows and CSS padding re-render live from `background_colors`. Rust's
+frozen-ancestor-bg mechanism only re-keyed transparent-bg glyph strips, so a
+widget with its OWN semi-transparent `background` (events/custom01's
+ColorButton `#ffffff33`) re-flattened over the LIVE animated surface every
+frame and its interior drifted with the animation.
+
+The mechanism now installs a bake-time override
+(`set_frozen_ancestor_bg_override`) around a diverged node's render pass:
+`current_ancestor_composited_background()` — the bake surface for content
+strips, content-align padding, and the fg-bearing vertical extend — returns
+the FROZEN surface, while `current_composited_background()`/`parent_style.bg`
+surfaces (borders, CSS padding, trailing pad) stay live, exactly matching
+Python's `visual_style`-vs-`background_colors` split. The post-render recolor
+remains as a backstop and now matches the own-bg(+tint)-composited surface.
+`parity_events_custom01_select` un-`#[ignore]`d (glyph+colour clean);
+regression test in `src/runtime/frozen_bg_regression.rs`.
+
 ### Fixed — runtime focus parity: focus-on-click + focus transfer when the focused widget hides
 
 Two missing focus fundamentals (tutorial `stopwatch04` now passes glyph+colour

@@ -25,10 +25,11 @@ pub use resolver::resolve_component_style;
 pub(crate) use resolver::{
     apply_display_visibility_to_tree, begin_style_render_pass, cover_selector_meta,
     current_ancestor_composited_background, current_composited_background,
-    current_host_style, current_parent_style, current_self_style, layout_fields_equal,
-    node_selector_meta, node_selector_meta_from_node, pop_style_context, push_style_context,
-    resolve_node_style, resolve_style, resolve_style_for_meta, selector_meta_component,
-    selector_meta_generic, take_layout_affected_style_changes, with_style_stack,
+    current_host_style, current_parent_style, current_self_style, frozen_ancestor_bg_override,
+    layout_fields_equal, node_selector_meta, node_selector_meta_from_node, pop_style_context,
+    push_style_context, resolve_node_style, resolve_style, resolve_style_for_meta,
+    selector_meta_component, selector_meta_generic, set_frozen_ancestor_bg_override,
+    take_layout_affected_style_changes, with_style_stack,
 };
 pub(crate) use segments::{
     apply_ansi_truecolor_to_segments, apply_style_to_segments, apply_widget_opacity_to_segments,

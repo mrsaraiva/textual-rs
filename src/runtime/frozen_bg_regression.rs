@@ -162,6 +162,106 @@ fn label_cell_bgs(app: &App) -> Vec<crate::style::Color> {
 
 const UNTINTED: crate::style::Color = crate::style::Color::rgb(0x10, 0x20, 0x30);
 
+// ---------------------------------------------------------------------------
+// Own SEMI-TRANSPARENT bg over an ancestor-only INLINE bg change
+// (the `events/custom01` shape: ColorButton `background: #ffffff33` while the
+// Screen bg animates). Python's `visual_style` — cached on the widget's OWN
+// `styles._cache_key` — keeps the whole CONTENT strip (glyphs AND the
+// content-align fill) baked as `own bg over the PRE-CHANGE ancestor surface`,
+// while `background_colors`-derived surfaces (CSS padding) re-render LIVE.
+// ---------------------------------------------------------------------------
+
+struct TranslucentApp;
+
+impl TextualApp for TranslucentApp {
+    fn compose(&mut self) -> AppRoot {
+        AppRoot::new().with_child(Static::new(LABEL_TEXT).without_markup().id("host"))
+    }
+    fn configure(&mut self, app: &mut App) -> crate::Result<()> {
+        app.load_stylesheet(
+            "Screen { background: #102030; } \
+             Static#host { background: #ffffff33; height: 3; \
+                           content-align: center middle; padding: 0 2; }",
+        );
+        Ok(())
+    }
+}
+
+/// Frame positions of the label glyph run: ((x_first, y), bgs).
+fn glyph_cells(app: &App) -> (Option<(usize, usize)>, Vec<crate::style::Color>) {
+    let mut first = None;
+    let mut bgs = Vec::new();
+    for y in 0..app.frame.height {
+        for x in 0..app.frame.width {
+            if app.frame.get(x, y).text == "X" {
+                if first.is_none() {
+                    first = Some((x, y));
+                }
+                if let Some(bg) = app.frame_cell_bg(x, y) {
+                    bgs.push(bg);
+                }
+            }
+        }
+    }
+    (first, bgs)
+}
+
+#[test]
+fn ancestor_inline_bg_change_keeps_own_translucent_content_surface_frozen() {
+    crate::run_test(TranslucentApp, |pilot| {
+        pilot.pause()?;
+        let (first, before) = glyph_cells(pilot.app());
+        let (gx, gy) = first.expect("label glyphs rendered");
+        assert_eq!(before.len(), LABEL_TEXT.len(), "label cells found");
+        let frozen_blend = before[0];
+        assert!(
+            before.iter().all(|bg| *bg == frozen_blend),
+            "precondition: uniform own-bg blend over the initial screen surface"
+        );
+        // Content-align pad (left of the centered glyph run) and the CSS
+        // padding column share the same blend before the ancestor change.
+        let align_pad_before = pilot.app().frame_cell_bg(gx - 1, gy).unwrap();
+        let css_pad_before = pilot.app().frame_cell_bg(0, gy).unwrap();
+        assert_eq!(align_pad_before, frozen_blend);
+        assert_eq!(css_pad_before, frozen_blend);
+
+        // Ancestor-only INLINE bg mutation (the animation-frame shape): the
+        // host's own fingerprint is untouched, so its frozen capture persists.
+        pilot
+            .app_mut()
+            .query_mut("Screen")
+            .expect("Screen node")
+            .set_styles(|s| s.style.bg = crate::style::parse_color_like("#800000"));
+        pilot.pause()?;
+
+        let (_, after) = glyph_cells(pilot.app());
+        assert_eq!(after.len(), LABEL_TEXT.len(), "label cells found");
+        // Python `visual_style` parity: glyph cells AND the content-align fill
+        // keep the own-translucent-bg blend over the PRE-CHANGE surface.
+        assert!(
+            after.iter().all(|bg| *bg == frozen_blend),
+            "content glyph bg must stay frozen at the pre-change blend \
+             (got {after:?}, want {frozen_blend:?})"
+        );
+        let align_pad_after = pilot.app().frame_cell_bg(gx - 1, gy).unwrap();
+        assert_eq!(
+            align_pad_after, frozen_blend,
+            "content-align fill must stay frozen (Python Strip.align uses the \
+             cached visual_style surface)"
+        );
+        // Python `background_colors` parity: the CSS padding column re-renders
+        // LIVE — own translucent bg over the NEW ancestor surface.
+        let css_pad_after = pilot.app().frame_cell_bg(0, gy).unwrap();
+        assert_ne!(
+            css_pad_after, frozen_blend,
+            "CSS padding must re-render live over the new ancestor surface \
+             (Python StylesCache inner style)"
+        );
+        Ok(())
+    })
+    .unwrap();
+}
+
 #[test]
 fn ancestor_focus_change_rebakes_transparent_child_glyph_bg() {
     crate::run_test(TintApp, |pilot| {
