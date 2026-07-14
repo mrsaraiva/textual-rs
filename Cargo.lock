@@ -980,7 +980,7 @@ dependencies = [
 
 [[package]]
 name = "textual"
-version = "1.0.0-dev"
+version = "1.0.0"
 dependencies = [
  "crossterm",
  "insta",
@@ -1006,7 +1006,7 @@ dependencies = [
 
 [[package]]
 name = "textual-macros"
-version = "1.0.0-dev"
+version = "1.0.0"
 dependencies = [
  "proc-macro2",
  "quote",

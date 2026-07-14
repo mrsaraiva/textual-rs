@@ -7,6 +7,26 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-07-14
+
+First stable release. textual-rs is a fundamentals-first Rust port of Python
+Textual — a reactive TUI framework with widgets, CSS styling, layout, focus, and
+an event/message runtime, built on `rich-rs` and `crossterm`.
+
+**What 1.0 means** (see `KNOWN_GAPS.md` and `docs/devel/ROAD_TO_1.0_PIVOT.md`): a
+hardened core with an honest, *frozen* authoring surface — not "every demo pixel
+matches". Demo parity is the **verification floor**, not the release gate; the demo
+tail continues across 1.x. Current parity against real Python: styled per-cell-RGB
+**87/87**, plain-text PTY **186/186**, real-app interactive **108/108 non-ignored**
+(the 3 remaining `#[ignore]`s are intentional divergences — a Python-only startup
+crash the reference doc raises on purpose — or the deferred 1.1 inline-render
+feature; **zero open bugs**).
+
+The `Widget` trait split (small required core + capability traits) and the prelude
+are frozen at their 1.0 shape (the RA-2 breaking batch; see the migration index
+below). The entries below cover this release; the earlier `1.0.0-dev` milestone is
+retained for history.
+
 ### Fixed — `OptionList` / `SelectionList` keyboard nav rides declarative BINDINGS
 
 `OptionList` and `SelectionList` handled Up/Down/PageUp/PageDown/Home/End/
@@ -1778,15 +1798,17 @@ demo to a verified-working state.
   deterministic unit tests asserting the timer+reactive wiring advances the
   displayed value.
 
-## [1.0.0] - 2026-06-24
+## [1.0.0-dev] - 2026-06-24
 
-First stable release. textual-rs is a fundamentals-first Rust port of Python Textual,
-verified against Textual's own documentation examples (the demos *are* the spec).
+Pre-release development milestone (tagged `v1.0.0-dev`), retained for history. The
+framing below reflects the *old* "the demos are the spec" plan, later superseded by
+`ROAD_TO_1.0_PIVOT.md`; the numbers were accurate at the time.
 
-**Parity at 1.0:** styled per-cell-RGB harness **85/87**, plain-text PTY harness **186/186**,
-~92% of the 309-example comprehensive demo audit faithful. See `KNOWN_GAPS.md` for the
-small set of deferred gaps (inline mode + `App.suspend` → 1.1; `display`/`offset` styled
-edge cases; markdown code-fence highlighting).
+First stable-release *candidate*. textual-rs is a fundamentals-first Rust port of Python
+Textual, verified against Textual's own documentation examples.
+
+**Parity at this milestone:** styled per-cell-RGB harness **85/87**, plain-text PTY harness
+**186/186**, ~92% of the 309-example comprehensive demo audit faithful.
 
 **Subsystems built/completed this cycle** (each a real, Python-faithful framework layer —
 not demo emulation):
