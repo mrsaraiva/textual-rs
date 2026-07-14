@@ -1,4 +1,3 @@
-use crossterm::event::KeyCode;
 use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 
 use crate::event::{Action, Event};
@@ -346,6 +345,48 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for SelectionList<T> {
         self.inner.on_layout(width, height);
     }
 
+    /// Python `SelectionList.BINDINGS` adds `space → select` (show=False) on
+    /// top of the `OptionList.BINDINGS` it inherits, so both enter (inherited)
+    /// and space route to `select`. Declarative bindings are resolved
+    /// focused→root, so a focused SelectionList's `down → cursor_down` wins
+    /// over an ancestor scroll container's `down → scroll_down` — exactly like
+    /// Python's binding chain. Raw `on_event` key handling would LOSE to the
+    /// ancestor binding (bindings dispatch first), so the keyboard behavior
+    /// lives here, not in `on_event`.
+    fn bindings(&self) -> Vec<crate::widgets::BindingDecl> {
+        let mut bindings = Widget::bindings(&self.inner);
+        bindings.push(crate::widgets::BindingDecl::new("space", "select", "Toggle option").hidden());
+        bindings
+    }
+
+    fn execute_action(
+        &mut self,
+        action: &crate::action::ParsedAction,
+        ctx: &mut crate::event::WidgetCtx,
+    ) -> bool {
+        if self.disabled {
+            return false;
+        }
+        match action.name.as_str() {
+            // Python: enter/space run OptionList's `action_select`, which posts
+            // `OptionSelected`; SelectionList intercepts that event
+            // (`_on_option_list_option_selected` → `event.stop()`) and toggles
+            // the highlighted selection instead of re-emitting it.
+            "select" => {
+                if let Some(index) = self.inner.highlighted() {
+                    if self.item_is_selectable(index) {
+                        self.toggle(index, ctx);
+                        ctx.set_handled();
+                    }
+                }
+                true
+            }
+            // Navigation actions (cursor_up/cursor_down/first/last/
+            // page_up/page_down) are inherited from the inner OptionList.
+            _ => Widget::execute_action(&mut self.inner, action, ctx),
+        }
+    }
+
     fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
         if self.disabled {
             return;
@@ -373,26 +414,6 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for SelectionList<T> {
                     }
                 }
             }
-            Event::Key(key) if self.node_state().focused => match key.code {
-                KeyCode::Char(' ') | KeyCode::Enter => {
-                    if let Some(index) = self.inner.highlighted() {
-                        if self.item_is_selectable(index) {
-                            self.toggle(index, ctx);
-                            ctx.set_handled();
-                        }
-                    }
-                }
-                // Delegate navigation keys to the inner OptionList.
-                KeyCode::Up
-                | KeyCode::Down
-                | KeyCode::PageUp
-                | KeyCode::PageDown
-                | KeyCode::Home
-                | KeyCode::End => {
-                    self.inner.on_event(event, ctx);
-                }
-                _ => {}
-            },
             // Delegate action-based scroll to inner list.
             Event::Action(
                 Action::ScrollUp
@@ -751,19 +772,73 @@ mod tests {
         ])
         .disabled(true);
 
-        let key = crate::keys::KeyEventData::from_crossterm(crossterm::event::KeyEvent::new(
-            KeyCode::Char(' '),
-            crossterm::event::KeyModifiers::NONE,
-        ));
         let mut ctx = EventCtx::default();
-        {
-            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
-            list.on_event(&Event::Key(key), &mut __w);
-        }
+        assert!(!run_action(&mut list, "select", &mut ctx));
 
         assert_eq!(list.selected(), Vec::<usize>::new());
         assert!(!ctx.handled());
         assert!(!list.focusable());
+    }
+
+    /// Run a SelectionList binding action (the canonical keyboard path — keys
+    /// reach the list through its declarative `bindings()`, not raw `on_event`).
+    fn run_action(list: &mut SelectionList<String>, name: &str, ctx: &mut EventCtx) -> bool {
+        let parsed = crate::action::parse_action(name).expect("parse action");
+        let mut __w =
+            crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), ctx);
+        Widget::execute_action(list, &parsed, &mut __w)
+    }
+
+    #[test]
+    fn bindings_mirror_python_selection_list() {
+        // Python `SelectionList.BINDINGS` = inherited `OptionList.BINDINGS`
+        // (down/end/enter/home/pagedown/pageup/up) + its own space → select
+        // (all show=False).
+        let list: SelectionList<String> = SelectionList::new();
+        let bindings = Widget::bindings(&list);
+        let pairs: Vec<(&str, &str)> = bindings
+            .iter()
+            .map(|b| (b.key.as_str(), b.action.as_str()))
+            .collect();
+        assert_eq!(
+            pairs,
+            vec![
+                ("down", "cursor_down"),
+                ("end", "last"),
+                ("enter", "select"),
+                ("home", "first"),
+                ("pagedown", "page_down"),
+                ("pageup", "page_up"),
+                ("up", "cursor_up"),
+                ("space", "select"),
+            ]
+        );
+        assert!(bindings.iter().all(|b| !b.show), "Python declares show=False");
+    }
+
+    #[test]
+    fn select_action_toggles_highlighted_and_nav_actions_delegate() {
+        let mut list = SelectionList::with_selections(vec![
+            Selection::new("A", "a".to_string()),
+            Selection::new("B", "b".to_string()),
+        ]);
+        list.on_layout(40, 5);
+
+        // cursor_down delegates to the inner OptionList's highlight cursor.
+        let mut ctx = EventCtx::default();
+        assert!(run_action(&mut list, "cursor_down", &mut ctx));
+        assert_eq!(list.highlighted(), Some(1));
+
+        // `select` toggles the highlighted entry (Python intercepts
+        // OptionSelected and toggles; no OptionSelected escapes).
+        let mut ctx = EventCtx::default();
+        assert!(run_action(&mut list, "select", &mut ctx));
+        assert!(list.is_selected(1));
+        assert!(ctx.handled());
+
+        let mut ctx = EventCtx::default();
+        assert!(run_action(&mut list, "select", &mut ctx));
+        assert!(!list.is_selected(1));
     }
 
     #[test]

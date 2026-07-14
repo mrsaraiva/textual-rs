@@ -1,4 +1,3 @@
-use crossterm::event::KeyCode;
 use rich_rs::{Console, ConsoleOptions, MetaValue, Renderable, Segment, Segments, Text};
 use textual_macros::widget;
 
@@ -675,6 +674,30 @@ impl OptionList {
         self.viewport_height.saturating_sub(1).max(1)
     }
 
+    /// Move the highlight up one page (Python `action_page_up`): with no
+    /// highlight, jump to the first enabled option instead.
+    fn page_up_highlight(&mut self, ctx: &mut crate::event::WidgetCtx) {
+        if self.cursor.highlighted().is_none() {
+            if let Some(first) = self.first_selectable() {
+                self.highlight_index(first, ctx);
+            }
+        } else {
+            self.move_highlight(-(self.page_step() as isize), ctx);
+        }
+    }
+
+    /// Move the highlight down one page (Python `action_page_down`): with no
+    /// highlight, jump to the last enabled option instead.
+    fn page_down_highlight(&mut self, ctx: &mut crate::event::WidgetCtx) {
+        if self.cursor.highlighted().is_none() {
+            if let Some(last) = self.last_selectable() {
+                self.highlight_index(last, ctx);
+            }
+        } else {
+            self.move_highlight(self.page_step() as isize, ctx);
+        }
+    }
+
     fn scroll_by_rows(&mut self, delta_rows: isize, ctx: &mut crate::event::WidgetCtx) {
         let before = self.offset;
         if delta_rows.is_negative() {
@@ -704,6 +727,76 @@ impl OptionList {
 impl crate::widgets::Focus for OptionList {
     fn focusable(&self) -> bool {
         !self.disabled
+    }
+
+    /// Python `OptionList.BINDINGS` (all `show=False`). Declarative bindings
+    /// are resolved focused→root, so a focused OptionList's `down →
+    /// cursor_down` wins over an ancestor scroll container's `down →
+    /// scroll_down` — exactly like Python's binding chain. Raw `on_event` key
+    /// handling would LOSE to the ancestor binding (bindings dispatch first),
+    /// so the keyboard behavior lives here, not in `on_event`.
+    fn bindings(&self) -> Vec<super::BindingDecl> {
+        vec![
+            super::BindingDecl::new("down", "cursor_down", "Down").hidden(),
+            super::BindingDecl::new("end", "last", "Last").hidden(),
+            super::BindingDecl::new("enter", "select", "Select").hidden(),
+            super::BindingDecl::new("home", "first", "First").hidden(),
+            super::BindingDecl::new("pagedown", "page_down", "Page Down").hidden(),
+            super::BindingDecl::new("pageup", "page_up", "Page Up").hidden(),
+            super::BindingDecl::new("up", "cursor_up", "Up").hidden(),
+        ]
+    }
+
+    fn execute_action(
+        &mut self,
+        action: &crate::action::ParsedAction,
+        ctx: &mut crate::event::WidgetCtx,
+    ) -> bool {
+        if self.disabled {
+            return false;
+        }
+        match action.name.as_str() {
+            "cursor_up" => {
+                self.move_highlight(-1, ctx);
+                ctx.set_handled();
+                true
+            }
+            "cursor_down" => {
+                self.move_highlight(1, ctx);
+                ctx.set_handled();
+                true
+            }
+            "page_up" => {
+                self.page_up_highlight(ctx);
+                ctx.set_handled();
+                true
+            }
+            "page_down" => {
+                self.page_down_highlight(ctx);
+                ctx.set_handled();
+                true
+            }
+            "first" => {
+                if let Some(first) = self.first_selectable() {
+                    self.highlight_index(first, ctx);
+                }
+                ctx.set_handled();
+                true
+            }
+            "last" => {
+                if let Some(last) = self.last_selectable() {
+                    self.highlight_index(last, ctx);
+                }
+                ctx.set_handled();
+                true
+            }
+            "select" => {
+                self.confirm_selection(ctx);
+                ctx.set_handled();
+                true
+            }
+            _ => false,
+        }
     }
 }
 
@@ -748,70 +841,11 @@ impl crate::widgets::Interactive for OptionList {
                     ctx.set_handled();
                 }
                 Action::ScrollPageUp => {
-                    if self.cursor.highlighted().is_none() {
-                        if let Some(first) = self.first_selectable() {
-                            self.highlight_index(first, ctx);
-                        }
-                    } else {
-                        self.move_highlight(-(self.page_step() as isize), ctx);
-                    }
+                    self.page_up_highlight(ctx);
                     ctx.set_handled();
                 }
                 Action::ScrollPageDown => {
-                    if self.cursor.highlighted().is_none() {
-                        if let Some(last) = self.last_selectable() {
-                            self.highlight_index(last, ctx);
-                        }
-                    } else {
-                        self.move_highlight(self.page_step() as isize, ctx);
-                    }
-                    ctx.set_handled();
-                }
-                _ => {}
-            },
-            Event::Key(key) if self.node_state().focused => match key.code {
-                KeyCode::Up => {
-                    self.move_highlight(-1, ctx);
-                    ctx.set_handled();
-                }
-                KeyCode::Down => {
-                    self.move_highlight(1, ctx);
-                    ctx.set_handled();
-                }
-                KeyCode::PageUp => {
-                    if self.cursor.highlighted().is_none() {
-                        if let Some(first) = self.first_selectable() {
-                            self.highlight_index(first, ctx);
-                        }
-                    } else {
-                        self.move_highlight(-(self.page_step() as isize), ctx);
-                    }
-                    ctx.set_handled();
-                }
-                KeyCode::PageDown => {
-                    if self.cursor.highlighted().is_none() {
-                        if let Some(last) = self.last_selectable() {
-                            self.highlight_index(last, ctx);
-                        }
-                    } else {
-                        self.move_highlight(self.page_step() as isize, ctx);
-                    }
-                    ctx.set_handled();
-                }
-                KeyCode::Home => {
-                    if let Some(first) = self.first_selectable() {
-                        self.highlight_index(first, ctx);
-                    }
-                    ctx.set_handled();
-                }
-                KeyCode::End => {
-                    if let Some(last) = self.last_selectable() {
-                        self.highlight_index(last, ctx);
-                    }
-                    ctx.set_handled();
-                }
-                KeyCode::Enter => {
-                    self.confirm_selection(ctx);
+                    self.page_down_highlight(ctx);
                     ctx.set_handled();
                 }
                 _ => {}
@@ -1147,6 +1181,41 @@ mod tests {
         }
     }
 
+    /// Run an OptionList binding action (the canonical keyboard path — keys
+    /// reach the list through its declarative `bindings()`, not raw `on_event`).
+    fn run_action(list: &mut OptionList, name: &str, ctx: &mut EventCtx) -> bool {
+        let parsed = crate::action::parse_action(name).expect("parse action");
+        let mut __w =
+            crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), ctx);
+        crate::widgets::Widget::execute_action(list, &parsed, &mut __w)
+    }
+
+    #[test]
+    fn bindings_mirror_python_option_list() {
+        // Python `OptionList.BINDINGS`: down → cursor_down, end → last,
+        // enter → select, home → first, pagedown → page_down,
+        // pageup → page_up, up → cursor_up (all show=False).
+        let list = OptionList::new();
+        let bindings = crate::widgets::Widget::bindings(&list);
+        let pairs: Vec<(&str, &str)> = bindings
+            .iter()
+            .map(|b| (b.key.as_str(), b.action.as_str()))
+            .collect();
+        assert_eq!(
+            pairs,
+            vec![
+                ("down", "cursor_down"),
+                ("end", "last"),
+                ("enter", "select"),
+                ("home", "first"),
+                ("pagedown", "page_down"),
+                ("pageup", "page_up"),
+                ("up", "cursor_up"),
+            ]
+        );
+        assert!(bindings.iter().all(|b| !b.show), "Python declares show=False");
+    }
+
     /// Dim text under the block cursor keeps its dimming as a pre-blended
     /// COLOUR (Python `ANSIToTruecolor`/`dim_color`: `bg + (fg - bg) * 0.66`),
     /// with the `dim` attribute stripped — the `Select` overlay blank-prompt
@@ -1352,15 +1421,8 @@ mod tests {
 
         let id = make_node_id();
         let _guard = set_dispatch_recipient(id, focused_state());
-        let key = crate::keys::KeyEventData::from_crossterm(crossterm::event::KeyEvent::new(
-            KeyCode::PageDown,
-            crossterm::event::KeyModifiers::NONE,
-        ));
         let mut ctx = EventCtx::default();
-        {
-            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
-            list.on_event(&Event::Key(key), &mut __w);
-        }
+        assert!(run_action(&mut list, "page_down", &mut ctx));
         assert_eq!(list.highlighted(), Some(2));
         assert!(ctx.handled());
     }
@@ -1374,15 +1436,8 @@ mod tests {
         let before = list.highlighted();
         let id = make_node_id();
         let _guard = set_dispatch_recipient(id, focused_state());
-        let key = crate::keys::KeyEventData::from_crossterm(crossterm::event::KeyEvent::new(
-            KeyCode::Down,
-            crossterm::event::KeyModifiers::NONE,
-        ));
         let mut ctx = EventCtx::default();
-        {
-            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
-            list.on_event(&Event::Key(key), &mut __w);
-        }
+        assert!(!run_action(&mut list, "cursor_down", &mut ctx));
 
         assert_eq!(list.highlighted(), before);
         assert!(!ctx.handled());

@@ -14,7 +14,10 @@
 //!   colours) still resolve on this node.
 //! - `on_event`: Escape → dismiss (keep Select focused); a lost-focus `Blur` →
 //!   dismiss (click outside); printable keys → type-to-search; everything else
-//!   forwards to the inner `OptionList` (navigation / Enter / mouse).
+//!   forwards to the inner `OptionList` (mouse). Navigation / Enter ride the
+//!   inner `OptionList`'s declarative BINDINGS (delegated `bindings()` /
+//!   `execute_action()`), exactly like Python's `SelectOverlay(OptionList)`
+//!   inheriting `OptionList.BINDINGS`.
 
 use rich_rs::Text;
 

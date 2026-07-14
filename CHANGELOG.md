@@ -7,6 +7,34 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### Fixed — `OptionList` / `SelectionList` keyboard nav rides declarative BINDINGS
+
+`OptionList` and `SelectionList` handled Up/Down/PageUp/PageDown/Home/End/
+Enter/Space in raw `on_event`, but the runtime dispatches the declarative
+binding chain (focused→root) BEFORE raw key handlers — so an ancestor scroll
+container's `down → scroll_down` binding stole the arrow keys and the cursor
+never moved when the list was nested in a scroll view (the same bug `RadioSet`
+had). Both widgets now declare Python's `BINDINGS` and execute them as widget
+actions, and the raw key arms are removed (Python architecture):
+
+- `OptionList` (Python `_option_list.py`): `down → cursor_down`, `end → last`,
+  `enter → select`, `home → first`, `pagedown → page_down`, `pageup → page_up`,
+  `up → cursor_up` (all `show=False`).
+- `SelectionList` (Python `_selection_list.py`): inherits the `OptionList`
+  bindings and adds `space → select`; `select` toggles the highlighted entry
+  (Python intercepts `OptionSelected` and toggles instead of re-emitting).
+- `SelectOverlay` / `PaletteCommandList` (`#[widget(base = OptionList)]`)
+  inherit the bindings through base delegation, exactly like Python's
+  `SelectOverlay(OptionList)` subclassing.
+
+### Fixed — `actions05` demo composed a `Footer` that Python's does not
+
+The Rust `guide/actions/actions05` port composed a `Footer` absent from
+Python's `actions05.py` (which yields only two `ColorSwitcher`s), shifting all
+content by the footer row. The Footer is removed and the
+`parity_actions05_red_bg` PTY case is un-ignored (now passes with 0 glyph and
+0 colour diffs).
+
 ### Changed — `rich-rs` dependency bumped to 1.2.2 (closes the last `rich_log` parity gap)
 
 `rich-rs 1.2.2` aligns the `Syntax` fenced-code token palette to Pygments

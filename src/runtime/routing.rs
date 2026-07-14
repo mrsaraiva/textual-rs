@@ -2594,6 +2594,90 @@ mod binding_tests {
         );
     }
 
+    /// Same parity regression as RadioSet, for `OptionList`: a focused list
+    /// inside a scroll container must win the arrows with its own
+    /// `down → cursor_down` / `up → cursor_up` bindings — NOT the ancestor's
+    /// `down → scroll_down` (Python resolves BINDINGS focused→root).
+    #[test]
+    fn match_binding_focused_option_list_beats_ancestor_scroll_binding() {
+        use crate::widgets::{OptionItem, OptionList, VerticalScroll};
+
+        let mut tree = WidgetTree::new();
+        let root_id = tree.set_root(Box::new(Root));
+        let scroll_id = tree.mount(root_id, Box::new(VerticalScroll::new()));
+        let list_id = tree.mount(
+            scroll_id,
+            Box::new(OptionList::with_items(vec![
+                OptionItem::new("A"),
+                OptionItem::new("B"),
+            ])),
+        );
+        tree.set_focus_state(list_id, true);
+
+        let down = KeyEventData::from_crossterm(key_event(KeyCode::Down, KeyModifiers::empty()));
+        assert_eq!(
+            match_binding_tree(&tree, &down),
+            Some((list_id, "cursor_down".to_string())),
+            "focused OptionList's binding must shadow the scroll container's scroll_down"
+        );
+
+        let up = KeyEventData::from_crossterm(key_event(KeyCode::Up, KeyModifiers::empty()));
+        assert_eq!(
+            match_binding_tree(&tree, &up),
+            Some((list_id, "cursor_up".to_string()))
+        );
+
+        let page_down =
+            KeyEventData::from_crossterm(key_event(KeyCode::PageDown, KeyModifiers::empty()));
+        assert_eq!(
+            match_binding_tree(&tree, &page_down),
+            Some((list_id, "page_down".to_string())),
+            "focused OptionList's binding must shadow the scroll container's page_down scroll"
+        );
+
+        let enter = KeyEventData::from_crossterm(key_event(KeyCode::Enter, KeyModifiers::empty()));
+        assert_eq!(
+            match_binding_tree(&tree, &enter),
+            Some((list_id, "select".to_string()))
+        );
+    }
+
+    /// Same parity regression as RadioSet, for `SelectionList`: a focused list
+    /// inside a scroll container must win the arrows (inherited
+    /// OptionList bindings) and space (`space → select`) — NOT the ancestor's
+    /// `down → scroll_down` (Python resolves BINDINGS focused→root).
+    #[test]
+    fn match_binding_focused_selection_list_beats_ancestor_scroll_binding() {
+        use crate::widgets::{Selection, SelectionList, VerticalScroll};
+
+        let mut tree = WidgetTree::new();
+        let root_id = tree.set_root(Box::new(Root));
+        let scroll_id = tree.mount(root_id, Box::new(VerticalScroll::new()));
+        let list_id = tree.mount(
+            scroll_id,
+            Box::new(SelectionList::with_selections(vec![
+                Selection::new("A", "a".to_string()),
+                Selection::new("B", "b".to_string()),
+            ])),
+        );
+        tree.set_focus_state(list_id, true);
+
+        let down = KeyEventData::from_crossterm(key_event(KeyCode::Down, KeyModifiers::empty()));
+        assert_eq!(
+            match_binding_tree(&tree, &down),
+            Some((list_id, "cursor_down".to_string())),
+            "focused SelectionList's binding must shadow the scroll container's scroll_down"
+        );
+
+        // Space toggles through the SelectionList's own `space → select`.
+        let space =
+            KeyEventData::from_crossterm(key_event(KeyCode::Char(' '), KeyModifiers::empty()));
+        assert_eq!(
+            match_binding_tree(&tree, &space),
+            Some((list_id, "select".to_string()))
+        );
+    }
+
     /// CLUSTER 6 (screen-root bindings): with no widget focused, the no-focus
     /// chain must reach the screen-body root (root + first content child), even
     /// when the screen root has infrastructure siblings (scrollbars / tooltip).

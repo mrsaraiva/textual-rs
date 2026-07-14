@@ -146,7 +146,6 @@ impl TextualApp for ActionsApp {
         AppRoot::new()
             .with_child(ColorSwitcher::new())
             .with_child(ColorSwitcher::new())
-            .with_child(Footer::new())
     }
 
     /// App-level `set_background` (key bindings): tints the whole screen.

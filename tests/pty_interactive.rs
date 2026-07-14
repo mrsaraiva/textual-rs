@@ -2223,7 +2223,6 @@ fn parity_actions04_red_bg() {
 /// actions05: two ColorSwitcher widgets + r/g/b app bindings. Press `r` (sets
 /// the screen bg red behind both switchers).
 #[test]
-#[ignore = "BUG. The live-vs-cached GLYPH composition of actions03/04 is FIXED (render.rs frozen-ancestor-bg re-keys the ColorSwitcher text back to #121212). Residual roots are OUT of render.rs scope: (1) the Rust demo composes an extra `Footer` that Python's actions05 has NOT — Python yields only two ColorSwitchers (the `r Red g Green b Blue` footer row + its #242f38 band are Rust-only, ~80 glyph diffs on rows 18-22/29); (2) the second ColorSwitcher shows a cumulative 1-row layout shift; (3) `height: 100%` makes each ColorSwitcher taller than its text, so Python fills the VERTICAL-EXTEND rows with the cached `visual_style` (#121212) while Rust fills them from the LIVE `background_colors` (red) — that split lives in the widget content-fill path (widgets/core.rs `vfill_style`), not the transparent-glyph composite this root owns. Fixes belong in the demo (drop Footer) + layout + the widget vertical-extend fill."]
 fn parity_actions05_red_bg() {
     let script = [Step::SendKeys("r"), Step::Wait(300)];
     let (rf, pf) = cat_both("actions05", "guide/actions", &script, 400);
