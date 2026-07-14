@@ -22,7 +22,7 @@ all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
-rich-rs = "1.2.1"
+rich-rs = "1.2.2"
 crossterm = "0.28"
 tokio = { version = "1.43", features = ["macros", "rt-multi-thread", "time", "sync"] }
 thiserror = "2.0"

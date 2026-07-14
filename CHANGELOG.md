@@ -7,6 +7,16 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### Changed — `rich-rs` dependency bumped to 1.2.2 (closes the last `rich_log` parity gap)
+
+`rich-rs 1.2.2` aligns the `Syntax` fenced-code token palette to Pygments
+(annotation `:` plain, docstring `"""` yellow, `for … in` operator-pink, comment
+delimiters grey) and derives the indent-guide colour from the theme's comment
+scope with Python's `DIM_FACTOR = 0.66` dim pre-blend. This closes the final
+real interactive-parity gap (`rich_log`: 26 → 0 cells); it was the only remaining
+`pty_interactive` `#[ignore]` that was an actual bug. All 4 remaining ignores are
+now intentional divergences or the deferred 1.1 inline-render feature.
+
 ### Fixed — frozen-ancestor-bg covers a widget's OWN translucent background (Python `visual_style` cache parity)
 
 After an ancestor-only INLINE background change (e.g. a Screen background

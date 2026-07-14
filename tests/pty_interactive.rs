@@ -1461,8 +1461,11 @@ fn parity_data_table_sort() {
 
 /// rich_log: a key press is echoed into the RichLog as an event; both apps
 /// should render the same content above (Syntax + Table) and append on key.
+/// The last 26 residual cells were a rich-rs `Syntax` token-palette gap
+/// (def-signature colon, docstring quotes, indent-guide dim) fixed upstream in
+/// rich-rs 1.2.2 (syntect→pygments scope mapping + theme-derived guide colour);
+/// with that bump the whole panel is glyph- and colour-exact.
 #[test]
-#[ignore = "UPSTREAM (rich-rs): 26 residual colour cells, all inside the Syntax block (was 1147 — surface bg, repr-highlight palette, monokai theme + render width all fixed). Remaining: (a) the def-signature colon token class (py plain #f8f8f2 vs syntect operator #ff4689), (b) docstring `\"\"\"` quotes (py string #e6db74 vs plain), (c) indent-guide fg (py dim-comment #6f6c5a vs rust #959077). Root: rich-rs `src/syntax.rs` syntect-vs-pygments token classes + indent-guide colour derivation — fix in rich-rs, not textual-rs."]
 fn parity_rich_log_keypress() {
     let script = [Step::Key(Key::Char('z')), Step::Wait(300)];
     let (rf, pf) = widgets_both("rich_log", &script, 400);
