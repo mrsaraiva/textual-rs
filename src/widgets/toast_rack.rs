@@ -3,11 +3,13 @@
 //!
 //! Port of Python `textual.widgets._toast.ToastRack`/`ToastHolder`. The rack is a
 //! real widget docked on the screen (`dock: bottom`, `layer: _toastrack`,
-//! `align: right bottom`); the app injects it as a system child of the app root
-//! (like the scrollbar lanes). `App::notify` records notifications in the app's
-//! store and pushes a snapshot into the rack via [`ToastRack::sync`]; the rack
-//! reconciles that snapshot into real [`Toast`] child nodes and owns the
-//! auto-dismiss timers.
+//! `align: right bottom`); the runtime mounts one as a system child of EVERY
+//! screen tree — the base app tree and each pushed/modal screen — mirroring
+//! Python's `Screen._extend_compose` (`App::mount_system_toast_rack`).
+//! `App::notify` records notifications in the app's store and pushes a snapshot
+//! into the ACTIVE screen's rack via [`ToastRack::sync`]; the rack reconciles
+//! that snapshot into real [`Toast`] child nodes and owns the auto-dismiss
+//! timers.
 //!
 //! Timing lives on the *persistent rack node* (not the ephemeral `Toast`
 //! children): the rack registers one widget-owned one-shot timer per
@@ -28,6 +30,12 @@ use crate::runtime::TimerHandle;
 
 use super::toast::{Toast, ToastSeverity};
 use super::NodeSeed;
+
+/// CSS id of the system `ToastRack` the runtime mounts on every screen tree
+/// (base app tree + each pushed/modal screen), mirroring Python's
+/// `ToastRack(id="textual-toastrack")` in `Screen._extend_compose`
+/// (`screen.py:1164`).
+pub(crate) const SYSTEM_TOAST_RACK_ID: &str = "textual-toastrack";
 
 /// Immutable description of one notification, pushed from the app's notification
 /// store into [`ToastRack::sync`]. Off-tree widgets cannot read `App`, so the

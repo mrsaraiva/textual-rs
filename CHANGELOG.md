@@ -34,6 +34,31 @@ Python's `actions05.py` (which yields only two `ColorSwitcher`s), shifting all
 content by the footer row. The Footer is removed and the
 `parity_actions05_red_bg` PTY case is un-ignored (now passes with 0 glyph and
 0 colour diffs).
+### Fixed — notifications show on the CURRENT screen (per-screen `ToastRack`, Python parity)
+
+A toast posted via `App::notify` while a modal/pushed screen was active
+targeted the BASE app tree's single `ToastRack` — occluded behind the screen
+(and, because the rack was looked up in the base tree but synced against the
+ACTIVE tree, the sync silently went nowhere). Python mounts a
+`ToastRack(id="textual-toastrack")` on EVERY `Screen`
+(`Screen._extend_compose`) and `App._refresh_notifications` targets the
+current (top) screen's rack, so toasts always render above the active screen.
+
+Rust now mirrors that architecture: the runtime mounts a system `ToastRack`
+on every screen tree — the base app tree (`App::build_widget_tree`) and each
+pushed/modal/mode screen tree (`ScreenStack::push_inner`, next to the system
+tooltip) via the new `App::mount_system_toast_rack`. The old single-rack
+injection in `AppRoot::compose` is retired (it also gave dead duplicate racks
+to nested `AppRoot` screen bodies). `refresh_toast_rack` resolves the rack in
+the ACTIVE tree, and every screen-stack transition (`push_screen`,
+`push_screen_with_callback`, `pop_screen`, `dismiss_screen`, `switch_mode`,
+`remove_mode`) marks the store for re-sync so live notifications follow the
+screen stack (Python `ScreenResume` → `_refresh_notifications`) — a toast
+posted before pushing a modal re-shows on the modal, and re-shows on the base
+screen after pop. Auto-dismiss timers register on the active screen's rack
+node, so toasts expire correctly over a modal. Regression tests:
+`runtime::toast_rack_regression::{toast_over_modal_mounts_on_modal_rack_and_dismisses,
+notifications_follow_screen_transitions}`.
 
 ### Changed — `rich-rs` dependency bumped to 1.2.2 (closes the last `rich_log` parity gap)
 

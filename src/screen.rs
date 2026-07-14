@@ -521,6 +521,10 @@ impl ScreenStack {
             .unwrap_or_default();
         crate::runtime::App::mount_declarations(&mut widget_tree, root_id, compose_decls);
         crate::runtime::App::mount_system_tooltip(&mut widget_tree, root_id);
+        // Every screen carries its own system ToastRack (Python
+        // `Screen._extend_compose`), so notifications posted while this screen
+        // is active render above it, not on the occluded base tree.
+        crate::runtime::App::mount_system_toast_rack(&mut widget_tree, root_id);
         // Drain initial lifecycle events (mount events from tree construction).
         let _ = widget_tree.drain_lifecycle();
 
@@ -1025,7 +1029,8 @@ mod tests {
         let entry = stack.top().unwrap();
         // The widget tree should have a root node (from compose).
         assert!(entry.widget_tree.root().is_some());
-        assert_eq!(entry.widget_tree.len(), 3);
+        // Root host + composed StubWidget + system tooltip + system ToastRack.
+        assert_eq!(entry.widget_tree.len(), 4);
     }
 
     // -- CSS stylesheet is parsed from css() --------------------------------

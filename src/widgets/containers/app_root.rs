@@ -49,7 +49,6 @@ const APP_ROOT_TYPE_ALIASES: &[&str] = &["AppRoot", "App"];
 pub(crate) const APP_ROOT_VSCROLLBAR_ID: &str = "__app_root_vscrollbar";
 pub(crate) const APP_ROOT_HSCROLLBAR_ID: &str = "__app_root_hscrollbar";
 pub(crate) const APP_ROOT_SCROLLBAR_CORNER_ID: &str = "__app_root_scrollbar_corner";
-pub(crate) const APP_ROOT_TOAST_RACK_ID: &str = "__app_root_toast_rack";
 const APP_ROOT_OFFSET_X_ATTR: &str = "approot.offset_x";
 const APP_ROOT_OFFSET_Y_ATTR: &str = "approot.offset_y";
 const APP_ROOT_SCROLL_ANIMATION_DURATION: Duration = Duration::from_millis(100);
@@ -537,14 +536,12 @@ impl crate::widgets::Render for AppRoot {
         corner.seed.css_id = Some(APP_ROOT_SCROLLBAR_CORNER_ID.to_string());
         decls.push(crate::compose::ChildDecl::new(Box::new(corner)));
 
-        // System child: the docked notification stack (Python mounts a ToastRack
-        // on every screen). Starts `display: none` (its default CSS) and floats on
-        // the `_toastrack` layer above app content; `App::notify` -> the rack's
-        // `sync` turns it on and mounts real Toast children.
-        let rack = crate::widgets::ToastRack::new();
-        decls.push(
-            crate::compose::ChildDecl::new(Box::new(rack)).with_id(APP_ROOT_TOAST_RACK_ID),
-        );
+        // NOTE: the docked notification stack (`ToastRack`) is NOT injected
+        // here. Python mounts a ToastRack on every Screen (`screen.py
+        // `_extend_compose`), so the runtime mounts it as a per-tree system
+        // child (`App::mount_system_toast_rack`) on the base tree and on every
+        // pushed screen tree — injecting it from AppRoot::compose would give a
+        // dead duplicate rack to every nested AppRoot used as a screen body.
 
         decls
     }

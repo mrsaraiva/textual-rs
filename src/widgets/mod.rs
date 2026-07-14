@@ -140,6 +140,7 @@ pub use text_area::{
 };
 pub use toast::{Toast, ToastSeverity};
 pub use toast_rack::{NotificationSnapshot, ToastHolder, ToastRack};
+pub(crate) use toast_rack::SYSTEM_TOAST_RACK_ID;
 pub(crate) use tooltip::SYSTEM_TOOLTIP_STYLE_ID;
 pub use tooltip::Tooltip;
 pub use tree::{Tree, TreeNode};

@@ -23,8 +23,8 @@ struct NotifyApp;
 
 impl crate::TextualApp for NotifyApp {
     fn compose(&mut self) -> AppRoot {
-        // Empty screen; the ToastRack is injected as a system child of the app
-        // root, exactly as in a real app.
+        // Empty screen; a system ToastRack is mounted on every screen tree by
+        // the runtime, exactly as in a real app.
         AppRoot::new()
     }
 }
@@ -133,10 +133,7 @@ fn later_toast_does_not_reset_earlier_toast_countdown() {
     .expect("headless run_test must succeed");
 }
 
-/// A minimal pushed screen (its own tree). Used to prove that notifying while a
-/// screen is active degrades gracefully: the base-tree rack is synced (no panic,
-/// no wrong-z bleed) even though the toast is not shown over the pushed screen
-/// (per-screen racks are a 1.x follow-up).
+/// A minimal pushed (modal) screen with its own tree.
 struct BlankScreen;
 impl crate::screen::Screen for BlankScreen {
     fn compose(&self) -> Box<dyn crate::widgets::Widget> {
@@ -144,32 +141,135 @@ impl crate::screen::Screen for BlankScreen {
     }
 }
 
+/// Number of live toasts held by the `ToastRack` in `tree` (every screen tree
+/// mounts exactly one system rack via `App::mount_system_toast_rack`).
+fn rack_len(tree: &crate::widget_tree::WidgetTree) -> usize {
+    let root = tree.root().expect("tree has a root");
+    let rack_id = tree
+        .walk_depth_first(root)
+        .into_iter()
+        .find(|&id| {
+            tree.get(id)
+                .map(|node| node.widget.style_type() == "ToastRack")
+                .unwrap_or(false)
+        })
+        .expect("every screen tree mounts a system ToastRack");
+    let widget: &dyn crate::widgets::Widget = tree.get(rack_id).unwrap().widget.as_ref();
+    (widget as &dyn std::any::Any)
+        .downcast_ref::<crate::widgets::ToastRack>()
+        .expect("ToastRack node downcasts to ToastRack")
+        .len()
+}
+
+/// Per-screen racks (Python parity): a toast posted while a modal screen is
+/// active mounts on THAT screen's own `ToastRack` — rendered above the modal —
+/// not on the occluded base tree's rack, and it auto-dismisses on the modal's
+/// rack. Popping back leaves the base screen consistent (a later toast mounts
+/// on the base rack again).
 #[test]
-fn notify_while_screen_pushed_degrades_gracefully() {
+fn toast_over_modal_mounts_on_modal_rack_and_dismisses() {
     crate::run_test(NotifyApp, |pilot| {
         pilot.pause()?;
         pilot.app_mut().push_screen(Box::new(BlankScreen));
         pilot.pause()?;
 
-        // Notify while the pushed screen is the active tree. Must not panic; the
-        // base-tree rack is targeted (behind the pushed screen).
         pilot.app_mut().notify(
-            "under-a-screen",
+            "over-the-modal",
             "",
             ToastSeverity::Error,
             Some(Duration::from_secs(5)),
         );
         pilot.pause()?;
 
-        // No panic, the app still renders a frame, and the notification is in the
-        // store (buffered on the base rack).
-        assert!(pilot.app().frame.height > 0, "app still renders a frame");
         assert_eq!(pilot.app().notifications.len(), 1);
+        // The MODAL screen's rack holds the toast; the base rack does not.
+        {
+            let app = pilot.app();
+            let screen_tree = &app.screen_stack.top().expect("pushed screen").widget_tree;
+            assert_eq!(rack_len(screen_tree), 1, "toast mounts on the modal's rack");
+            let base_tree = app.widget_tree.as_ref().expect("base tree");
+            assert_eq!(rack_len(base_tree), 0, "base rack stays empty");
+        }
+        assert!(
+            frame_shows(pilot.app(), "over-the-modal"),
+            "toast renders above the active modal screen"
+        );
 
-        // Popping back to the base screen and pumping keeps things consistent
-        // (still no panic).
+        // The rack-owned timer lives on the modal's rack node and dismisses there.
+        pilot.advance_clock(Duration::from_secs(6))?;
+        assert_eq!(pilot.app().notifications.len(), 0, "auto-dismissed over the modal");
+        {
+            let app = pilot.app();
+            let screen_tree = &app.screen_stack.top().expect("pushed screen").widget_tree;
+            assert_eq!(rack_len(screen_tree), 0, "modal rack empties on dismiss");
+        }
+        assert!(!frame_shows(pilot.app(), "over-the-modal"));
+
+        // Back on the base screen the plain path still works.
         pilot.app_mut().action_pop_screen();
         pilot.pause()?;
+        pilot.app_mut().notify(
+            "back-on-base",
+            "",
+            ToastSeverity::Information,
+            Some(Duration::from_secs(5)),
+        );
+        pilot.pause()?;
+        assert_eq!(pilot.app().notifications.len(), 1);
+        assert_eq!(
+            rack_len(pilot.app().widget_tree.as_ref().expect("base tree")),
+            1,
+            "base rack works again after pop"
+        );
+        assert!(frame_shows(pilot.app(), "back-on-base"));
+        Ok(())
+    })
+    .expect("headless run_test must succeed");
+}
+
+/// Live notifications follow screen transitions (Python `ScreenResume` →
+/// `App._refresh_notifications`): a toast posted on the base screen re-shows on
+/// a subsequently pushed screen's rack, and re-shows on the base rack after pop.
+#[test]
+fn notifications_follow_screen_transitions() {
+    crate::run_test(NotifyApp, |pilot| {
+        pilot.pause()?;
+        pilot.app_mut().notify(
+            "sticky-toast",
+            "",
+            ToastSeverity::Warning,
+            Some(Duration::from_secs(60)),
+        );
+        pilot.pause()?;
+        assert_eq!(
+            rack_len(pilot.app().widget_tree.as_ref().expect("base tree")),
+            1,
+            "toast mounts on the base rack first"
+        );
+
+        // Push: the still-live notification re-syncs onto the new screen's rack.
+        pilot.app_mut().push_screen(Box::new(BlankScreen));
+        pilot.pause()?;
+        {
+            let app = pilot.app();
+            let screen_tree = &app.screen_stack.top().expect("pushed screen").widget_tree;
+            assert_eq!(
+                rack_len(screen_tree),
+                1,
+                "live toast re-shows on the pushed screen's rack"
+            );
+        }
+        assert!(frame_shows(pilot.app(), "sticky-toast"));
+
+        // Pop: the base rack still holds it and it renders again.
+        pilot.app_mut().action_pop_screen();
+        pilot.pause()?;
+        assert_eq!(
+            rack_len(pilot.app().widget_tree.as_ref().expect("base tree")),
+            1,
+            "toast still lives on the base rack after pop"
+        );
+        assert!(frame_shows(pilot.app(), "sticky-toast"));
         Ok(())
     })
     .expect("headless run_test must succeed");

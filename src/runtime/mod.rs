@@ -57,8 +57,8 @@ use crate::screen::ScreenStack;
 use crate::style::{Theme, Visibility};
 use crate::widget_tree::{QueryError, WidgetTree};
 use crate::widgets::{
-    BindingDecl, HelpPanel, SYSTEM_TOOLTIP_STYLE_ID, ToastSeverity, Tooltip, Widget,
-    WidgetSelectionAnchor, WidgetStyles,
+    BindingDecl, HelpPanel, SYSTEM_TOAST_RACK_ID, SYSTEM_TOOLTIP_STYLE_ID, ToastSeverity, Tooltip,
+    Widget, WidgetSelectionAnchor, WidgetStyles,
 };
 use crate::{Error, Result};
 use crossterm::event::{KeyCode, KeyModifiers};
@@ -3059,6 +3059,7 @@ impl App {
         Self::mount_declarations(&mut tree, root_node_id, declarations);
 
         Self::mount_system_tooltip(&mut tree, root_node_id);
+        Self::mount_system_toast_rack(&mut tree, root_node_id);
 
         // Fire `on_mount()` on every freshly-mounted tree node (children that
         // were composed out of their parent widget into the arena tree). The
@@ -3175,6 +3176,23 @@ impl App {
         tree.set_css_id(tooltip_id, Some(SYSTEM_TOOLTIP_STYLE_ID.to_string()));
         tree.set_runtime_display(tooltip_id, false);
         tooltip_id
+    }
+
+    /// Mount the per-screen system `ToastRack` as a direct child of `root`.
+    ///
+    /// Python mounts a `ToastRack(id="textual-toastrack")` on EVERY screen
+    /// (`Screen._extend_compose`, `screen.py:1164`), so notifications always
+    /// show on the current (top) screen. The Rust runtime mirrors that: this is
+    /// called for the base app tree (`build_widget_tree`) and for every pushed
+    /// screen tree (`ScreenStack::push_inner`). The rack starts `display: none`
+    /// (its default CSS) on the `_toastrack` layer; `App::notify` →
+    /// `refresh_toast_rack` syncs the store into the ACTIVE tree's rack, which
+    /// toggles itself visible and mounts real `Toast` children.
+    pub(crate) fn mount_system_toast_rack(tree: &mut WidgetTree, root: NodeId) -> NodeId {
+        let rack = crate::widgets::ToastRack::new();
+        let rack_id = tree.mount(root, Box::new(rack));
+        tree.set_css_id(rack_id, Some(SYSTEM_TOAST_RACK_ID.to_string()));
+        rack_id
     }
 
     pub(super) fn clipboard_message_sender() -> NodeId {
@@ -3528,11 +3546,13 @@ impl App {
     /// tree is built — the rack seeds itself on the next dirty sweep once mounted)
     /// or when the store is not dirty.
     ///
-    /// Targets the base app tree's rack (found by type). When a modal/pushed
-    /// screen is active the base rack sits behind it, so toasts posted while a
-    /// screen is up buffer in the store and are shown on the base rack — they are
-    /// not (yet) rendered over the pushed screen (per-screen racks are a 1.x
-    /// follow-up). This degrades gracefully: no panic, no wrong-z bleed.
+    /// Targets the ACTIVE tree's rack (Python `App._refresh_notifications`
+    /// resolving `self.screen`'s rack, `app.py:4596-4612`): every screen tree
+    /// carries its own system rack (`mount_system_toast_rack`), so a toast
+    /// posted while a modal/pushed screen is up mounts on THAT screen's rack and
+    /// renders above it. Screen transitions mark the store dirty
+    /// (`mark_notifications_for_resync`) so the newly-active rack re-syncs, the
+    /// way Python re-shows notifications on `ScreenResume`.
     ///
     /// Returns `true` when a sync actually ran (rack found + store consumed), so
     /// the headless pump can count it as progress. Returns `false` (leaving the
@@ -3542,7 +3562,7 @@ impl App {
         if !self.notifications_dirty {
             return false;
         }
-        let Some(rack_id) = self.base_toast_rack_node() else {
+        let Some(rack_id) = self.active_toast_rack_node() else {
             // No rack mounted yet — keep the store dirty so a later sweep (after
             // the rack mounts) picks the notifications up.
             return false;
@@ -3576,17 +3596,29 @@ impl App {
         true
     }
 
-    /// The node id of the base app tree's `ToastRack` (injected as a system child
-    /// of the app root). Uses the base `widget_tree`, not the active screen tree,
-    /// so notifications always target the app-level rack.
-    fn base_toast_rack_node(&self) -> Option<NodeId> {
-        let tree = self.widget_tree.as_ref()?;
+    /// The node id of the ACTIVE tree's system `ToastRack` (top screen tree when
+    /// a screen is pushed, otherwise the base app tree — every tree mounts one
+    /// via [`Self::mount_system_toast_rack`]). This is the rack `refresh_toast_rack`
+    /// syncs, so toasts always land on the current (top) screen, matching Python's
+    /// `App._refresh_notifications` → `self.screen.get_child_by_type(ToastRack)`.
+    fn active_toast_rack_node(&self) -> Option<NodeId> {
+        let tree = self.active_widget_tree()?;
         let root = tree.root()?;
         tree.walk_depth_first(root).into_iter().find(|&id| {
             tree.get(id)
                 .map(|node| node.widget.style_type() == "ToastRack")
                 .unwrap_or(false)
         })
+    }
+
+    /// Mark the notification store dirty after a screen-stack transition so the
+    /// event loop re-syncs the newly-active tree's `ToastRack` (Python re-shows
+    /// notifications on `ScreenResume` via `App._refresh_notifications`,
+    /// `screen.py:1465-1472`). No-op when there are no live notifications.
+    fn mark_notifications_for_resync(&mut self) {
+        if !self.notifications.is_empty() {
+            self.notifications_dirty = true;
+        }
     }
 
     fn notify_help_quit(&mut self) {
@@ -3709,8 +3741,10 @@ impl App {
         self.dispatch_screen_lifecycle_event(Event::ScreenSuspend);
         self.screen_stack.push(screen);
         self.honor_screen_auto_focus();
-        // The active tree changed; force a relayout + full repaint.
+        // The active tree changed; force a relayout + full repaint, and re-sync
+        // live notifications onto the new screen's own ToastRack.
         self.pending_force_relayout = true;
+        self.mark_notifications_for_resync();
     }
 
     /// Push a system modal screen (e.g. the command palette) from the
@@ -3804,8 +3838,10 @@ impl App {
         self.dispatch_screen_lifecycle_event(Event::ScreenSuspend);
         self.screen_stack.push_with_callback(screen, callback);
         self.honor_screen_auto_focus();
-        // The active tree changed; force a relayout + full repaint.
+        // The active tree changed; force a relayout + full repaint, and re-sync
+        // live notifications onto the new screen's own ToastRack.
         self.pending_force_relayout = true;
+        self.mark_notifications_for_resync();
     }
 
     /// Dismiss the topmost screen with an optional result value.
@@ -3820,6 +3856,8 @@ impl App {
                     self.current_mode = None;
                 }
                 self.dispatch_screen_lifecycle_event(Event::ScreenResume);
+                // Re-sync live notifications onto the resumed tree's ToastRack.
+                self.mark_notifications_for_resync();
             }
             true
         } else {
@@ -3833,7 +3871,7 @@ impl App {
     /// If the popped screen was a mode screen, `current_mode` is cleared.
     /// Returns `None` if the stack is empty.
     pub fn pop_screen(&mut self) -> Option<crate::screen::ScreenResult> {
-        self.screen_stack.pop().map(|(_screen, result, mode_name)| {
+        let popped = self.screen_stack.pop().map(|(_screen, result, mode_name)| {
             if mode_name.is_some() {
                 self.current_mode = None;
             }
@@ -3841,7 +3879,12 @@ impl App {
             // The active tree changed; force a relayout + full repaint.
             self.pending_force_relayout = true;
             result
-        })
+        });
+        if popped.is_some() {
+            // Re-sync live notifications onto the resumed tree's ToastRack.
+            self.mark_notifications_for_resync();
+        }
+        popped
     }
 
     /// Number of screens on the stack.
@@ -3920,6 +3963,8 @@ impl App {
         let _ = self.focus_first_in_active_tree();
         self.current_mode = Some(name.to_string());
         self.dispatch_screen_lifecycle_event(Event::ScreenResume);
+        // Re-sync live notifications onto the new mode screen's ToastRack.
+        self.mark_notifications_for_resync();
         true
     }
 
@@ -3948,6 +3993,8 @@ impl App {
         if self.current_mode.as_deref() == Some(name) {
             self.screen_stack.pop_mode(name);
             self.current_mode = None;
+            // Re-sync live notifications onto the resumed tree's ToastRack.
+            self.mark_notifications_for_resync();
         }
         true
     }
