@@ -537,12 +537,6 @@ pub struct EventCtx {
     worker_requests: Vec<WorkerRequest>,
     recompose_nodes: Vec<NodeId>,
     class_ops: Vec<(NodeId, ClassOp)>,
-    /// Message types currently suppressed from posting, managed as a stack so
-    /// nested `prevent` scopes compose. Mirrors Python's
-    /// `MessagePump._prevent_message_types_stack` (`message_pump.py`): the active
-    /// prevented set is the union of every entry on the stack. When empty (the
-    /// common case) nothing is suppressed.
-    prevented_stack: Vec<Vec<TypeId>>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -713,9 +707,7 @@ impl EventCtx {
     /// Whether a concrete message type id is currently suppressed by an active
     /// `prevent(...)` scope.
     fn is_type_prevented(&self, type_id: TypeId) -> bool {
-        self.prevented_stack
-            .iter()
-            .any(|frame| frame.contains(&type_id))
+        crate::message::is_message_type_prevented(type_id)
     }
 
     /// Whether message type `M` is currently prevented from posting.
@@ -733,6 +725,13 @@ impl EventCtx {
     /// inside `f` is silently dropped, exactly as Python suppresses the queued
     /// message. Scopes nest: an inner scope adds to the prevented set and pops
     /// on exit.
+    ///
+    /// The scope is *ambient* (thread-local), mirroring Python's
+    /// `ContextVar`-backed prevent stack: it also covers reactive mutations
+    /// started inside `f` (e.g. `Handle::update`) — the prevented set is
+    /// captured into the reactive context and re-activated when its watchers
+    /// dispatch, and it rides on every posted message so the dispatch of those
+    /// messages honours it too (Python `message._prevent`).
     ///
     /// ```ignore
     /// ctx.prevent::<InputChanged, _>(|ctx| {
@@ -752,10 +751,8 @@ impl EventCtx {
         type_ids: &[TypeId],
         f: impl FnOnce(&mut EventCtx) -> R,
     ) -> R {
-        self.prevented_stack.push(type_ids.to_vec());
-        let result = f(self);
-        self.prevented_stack.pop();
-        result
+        let _scope = crate::message::enter_prevent_scope(type_ids);
+        f(self)
     }
 
     pub fn spawn_async_task(&mut self, task_id: u64, target: NodeId, request: AsyncTaskRequest) {
@@ -1115,6 +1112,7 @@ impl<'a> WidgetCtx<'a> {
             || reactive.needs_layout()
             || reactive.needs_recompose()
             || reactive.needs_styles()
+            || reactive.has_messages()
         {
             crate::reactive::enqueue_runtime_reactive_entry(
                 crate::reactive::RuntimeReactiveEntry::new(node, reactive),

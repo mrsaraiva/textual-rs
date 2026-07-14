@@ -6111,6 +6111,7 @@ impl App {
         let mut layout_requested = false;
         let mut recompose_requested = false;
         let mut all_class_ops: Vec<(NodeId, ClassOp)> = Vec::new();
+        let mut watcher_messages: Vec<crate::message::MessageEvent> = Vec::new();
         for mut entry in entries {
             // Dynamic watchers (Python `DOMNode.watch(obj, field, cb)`): fire for
             // the entry's initial changes BEFORE widget dispatch, while no tree
@@ -6160,6 +6161,18 @@ impl App {
             if !result.class_ops.is_empty() {
                 all_class_ops.append(&mut result.class_ops);
             }
+            if !result.messages.is_empty() {
+                watcher_messages.append(&mut result.messages);
+            }
+        }
+
+        // Messages posted by watchers (Python `watch_*` → `self.post_message`)
+        // bubble from their node in the PostUp step of the shared flush. Each
+        // was already filtered/stamped against the prevent scopes re-activated
+        // during watcher dispatch, so prevention spans the reactive
+        // update→re-dispatch cycle.
+        if !watcher_messages.is_empty() {
+            self.pending_widget_posts.extend(watcher_messages);
         }
 
         if !all_class_ops.is_empty() {
@@ -6458,6 +6471,11 @@ impl App {
         // messages to root so app hooks still run in tree mode.
         for message in initial {
             let mut ctx = EventCtx::default();
+            // Re-activate the message's prevent-set snapshot around the root/app
+            // hooks, exactly like the tree pump does per envelope (Python
+            // `_dispatch_message`: `with self.prevent(*message._prevent):`).
+            let prevent_frame = message.prevent_snapshot().to_vec();
+            let _prevent_scope = crate::message::enter_prevent_scope(&prevent_frame);
             {
                 let mut __wctx = WidgetCtx::__from_dispatch(NodeId::default(), &mut ctx);
                 root.on_message(&message, &mut __wctx);
@@ -8802,6 +8820,164 @@ mod tests {
             watch_calls.load(Ordering::SeqCst),
             1,
             "widget's own reactive_dispatch still ran after dynamic-watcher notification"
+        );
+    }
+
+    // -------------------------------------------------------------------
+    // prevent(...) across the reactive update→re-dispatch cycle
+    // -------------------------------------------------------------------
+
+    #[derive(Debug, Clone)]
+    struct WatcherPing;
+    crate::impl_message!(WatcherPing);
+
+    /// Reactive widget whose watcher posts `WatcherPing` on every `value`
+    /// change (the `Switch.watch_value` → `Switch.Changed` shape).
+    struct PreventPoster {
+        value: bool,
+    }
+
+    impl PreventPoster {
+        fn set_value(&mut self, value: bool, ctx: &mut ReactiveCtx) {
+            if self.value != value {
+                let old = self.value;
+                self.value = value;
+                ctx.record_change(
+                    "value",
+                    ReactiveFlags::reactive(),
+                    Box::new(old),
+                    Box::new(value),
+                );
+            }
+        }
+    }
+
+    impl ReactiveWidget for PreventPoster {
+        fn reactive_dispatch(&mut self, changes: &[ReactiveChange], ctx: &mut ReactiveCtx) {
+            for change in changes {
+                if change.field_name == "value" {
+                    ctx.post_message(WatcherPing);
+                }
+            }
+        }
+    }
+
+    impl Widget for PreventPoster {
+        fn reactive_widget(&mut self) -> Option<&mut dyn ReactiveWidget> {
+            Some(self)
+        }
+
+        fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+            Segments::new()
+        }
+    }
+
+    /// Tree root that counts delivered `WatcherPing` messages.
+    struct PingCounter {
+        hits: Arc<AtomicUsize>,
+    }
+
+    impl Widget for PingCounter {
+        fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+            Segments::new()
+        }
+
+        fn on_message(
+            &mut self,
+            message: &crate::message::MessageEvent,
+            _ctx: &mut crate::event::WidgetCtx,
+        ) {
+            if message.is::<WatcherPing>() {
+                self.hits.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+    }
+
+    /// REGRESSION (byte03 Input→Switch): `prevent(M)` must span the reactive
+    /// update→re-dispatch cycle. A handler running inside a `prevent(M)` scope
+    /// mutates a reactive via `Handle::update_in`; the widget's watcher — which
+    /// posts `M` — runs LATER, in the runtime reactive phase, after the scope
+    /// closed. Python keeps the prevention active there (the `ContextVar`
+    /// prevent stack is live across the synchronous `_check_watchers`, and the
+    /// snapshot rides on posted messages); Rust must too, or `M` leaks and the
+    /// example needs a behavior-equivalent guard bool instead of the real
+    /// `prevent` scope.
+    #[test]
+    fn prevent_scope_spans_reactive_update_redispatch_cycle() {
+        let _ = take_runtime_reactive_entries();
+        let hits = Arc::new(AtomicUsize::new(0));
+
+        let mut tree = crate::widget_tree::WidgetTree::new();
+        let root_id = tree.set_root(Box::new(PingCounter {
+            hits: Arc::clone(&hits),
+        }));
+        let poster_id = tree.mount(root_id, Box::new(PreventPoster { value: false }));
+        let handle = crate::handle::Handle::<PreventPoster>::resolve(&tree, poster_id)
+            .expect("poster handle resolves");
+        let mut app = test_app_with_tree(tree);
+
+        // Handler shape: inside `ctx.prevent::<WatcherPing, _>(...)`,
+        // programmatically update the reactive (byte03's `handle.update`).
+        let mut ectx = crate::event::EventCtx::default();
+        ectx.prevent::<WatcherPing, _>(|_ctx| {
+            let tree = app.active_widget_tree_mut().expect("tree installed");
+            handle
+                .update_in(tree, |w, rctx| w.set_value(true, rctx))
+                .expect("update_in succeeds");
+        });
+
+        // The prevent scope has exited; the watcher dispatch happens NOW, in
+        // the deferred reactive phase — the captured snapshot must still apply.
+        let mut pending = super::PendingInvalidation::default();
+        let mut root = StyleNode::new("Root");
+        app.run_event_loop_reactive_phase(&mut root, &mut pending);
+
+        assert!(
+            app.active_widget_tree()
+                .and_then(|t| handle.read_in(t, |w| w.value).ok())
+                .unwrap_or(false),
+            "the reactive mutation itself still lands"
+        );
+        assert_eq!(
+            hits.load(Ordering::SeqCst),
+            0,
+            "WatcherPing posted by the deferred watcher must be suppressed by the \
+             prevent scope that was active when the reactive was mutated"
+        );
+    }
+
+    /// Control: the same programmatic update WITHOUT a prevent scope delivers
+    /// the watcher's message (this also pins the watcher→post→bubble plumbing
+    /// the suppression test relies on, so it cannot pass vacuously).
+    #[test]
+    fn reactive_watcher_post_delivers_without_prevent_scope() {
+        let _ = take_runtime_reactive_entries();
+        let hits = Arc::new(AtomicUsize::new(0));
+
+        let mut tree = crate::widget_tree::WidgetTree::new();
+        let root_id = tree.set_root(Box::new(PingCounter {
+            hits: Arc::clone(&hits),
+        }));
+        let poster_id = tree.mount(root_id, Box::new(PreventPoster { value: false }));
+        let handle = crate::handle::Handle::<PreventPoster>::resolve(&tree, poster_id)
+            .expect("poster handle resolves");
+        let mut app = test_app_with_tree(tree);
+
+        {
+            let tree = app.active_widget_tree_mut().expect("tree installed");
+            handle
+                .update_in(tree, |w, rctx| w.set_value(true, rctx))
+                .expect("update_in succeeds");
+        }
+
+        let mut pending = super::PendingInvalidation::default();
+        let mut root = StyleNode::new("Root");
+        app.run_event_loop_reactive_phase(&mut root, &mut pending);
+
+        assert_eq!(
+            hits.load(Ordering::SeqCst),
+            1,
+            "without prevent, the watcher-posted message bubbles to the root"
         );
     }
 

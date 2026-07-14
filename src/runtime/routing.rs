@@ -510,7 +510,17 @@ pub fn dispatch_message_queue_tree(
         }
 
         let mut ctx = EventCtx::default();
-        dispatch_message_bubble(tree, &mut envelope, &mut ctx);
+        {
+            // Re-activate the prevent-set snapshot riding on the message for
+            // the duration of its dispatch (Python `message_pump.py`
+            // `_dispatch_message`: `with self.prevent(*message._prevent):`).
+            // Messages posted by handlers inside this scope are stamped with
+            // the union, so prevention propagates transitively across
+            // message-triggered dispatch cycles.
+            let prevent_frame = envelope.event.prevent_snapshot().to_vec();
+            let _prevent_scope = crate::message::enter_prevent_scope(&prevent_frame);
+            dispatch_message_bubble(tree, &mut envelope, &mut ctx);
+        }
         handled |= ctx.handled();
         repaint_requested |= ctx.repaint_requested();
         invalidation.merge(ctx.invalidation());
@@ -1681,6 +1691,111 @@ mod envelope_tests {
     /// Helper: build a MessageEvent from a sender FFI id and a typed message.
     fn msg_event<M: Message>(sender_ffi: u64, message: M) -> MessageEvent {
         MessageEvent::new(node_id_from_ffi(sender_ffi), message)
+    }
+
+    // -----------------------------------------------------------------------
+    // prevent(...) across dispatch cycles (Python `Message._prevent`)
+    // -----------------------------------------------------------------------
+
+    #[derive(Debug, Clone)]
+    struct HopFirst;
+    crate::impl_message!(HopFirst);
+
+    #[derive(Debug, Clone)]
+    struct HopSecond;
+    crate::impl_message!(HopSecond);
+
+    /// On `HopFirst`, posts `HopSecond` (the `BitSwitch.on_switch_changed` →
+    /// `BitChanged` shape from guide/compound byte03).
+    struct HopConverter;
+
+    impl Widget for HopConverter {
+        fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+            Segments::new()
+        }
+
+        fn on_message(&mut self, message: &MessageEvent, ctx: &mut crate::event::WidgetCtx) {
+            if message.is::<HopFirst>() {
+                ctx.post_message(HopSecond);
+                ctx.set_handled();
+            }
+        }
+    }
+
+    struct HopSecondCounter {
+        count: Arc<AtomicUsize>,
+    }
+
+    impl Widget for HopSecondCounter {
+        fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+            Segments::new()
+        }
+
+        fn on_message(&mut self, message: &MessageEvent, _ctx: &mut crate::event::WidgetCtx) {
+            if message.is::<HopSecond>() {
+                self.count.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+    }
+
+    /// Python parity (`message_pump.py`): a message posted inside a
+    /// `prevent(M)` scope carries the prevented set (`message._prevent`,
+    /// stamped in `post_message`), and dispatching it re-activates the set
+    /// around its handlers (`_dispatch_message`: `with
+    /// self.prevent(*message._prevent):`) — so a handler of that message that
+    /// posts `M` is suppressed even though the original scope closed cycles
+    /// ago. This is the leg the byte03 guard used to paper over.
+    #[test]
+    fn prevent_set_rides_message_across_dispatch_cycles() {
+        let count = Arc::new(AtomicUsize::new(0));
+
+        let mut tree = WidgetTree::new();
+        let root_id = tree.set_root(Box::new(HopSecondCounter {
+            count: count.clone(),
+        }));
+        let converter_id = tree.mount(root_id, Box::new(HopConverter));
+
+        // Post `HopFirst` from inside a `prevent(HopSecond)` scope — exactly a
+        // handler running `ctx.prevent::<HopSecond, _>(|ctx| ctx.post_message(..))`.
+        let stamped = {
+            let mut ectx = EventCtx::default();
+            ectx.set_node_id(converter_id);
+            ectx.prevent::<HopSecond, _>(|ctx| {
+                ctx.post_message(HopFirst);
+            });
+            ectx.take_messages()
+        };
+        assert_eq!(stamped.len(), 1, "HopFirst itself is not prevented");
+
+        // The scope is long closed; dispatch happens in a later cycle.
+        let _ = dispatch_message_queue_tree(&mut tree, stamped);
+
+        assert_eq!(
+            count.load(Ordering::Relaxed),
+            0,
+            "HopSecond posted while handling the stamped HopFirst must be suppressed"
+        );
+    }
+
+    /// Control: without a prevent scope the same hop delivers `HopSecond`.
+    #[test]
+    fn message_hop_delivers_without_prevent_scope() {
+        let count = Arc::new(AtomicUsize::new(0));
+
+        let mut tree = WidgetTree::new();
+        let root_id = tree.set_root(Box::new(HopSecondCounter {
+            count: count.clone(),
+        }));
+        let converter_id = tree.mount(root_id, Box::new(HopConverter));
+
+        let messages = vec![MessageEvent::new(converter_id, HopFirst)];
+        let _ = dispatch_message_queue_tree(&mut tree, messages);
+
+        assert_eq!(
+            count.load(Ordering::Relaxed),
+            1,
+            "without prevent, the hopped HopSecond reaches the root"
+        );
     }
 
     // =====================================================================

@@ -12,17 +12,15 @@
 /// the decimal value (clamped 0..=255) and programmatically sets each Switch via
 /// `Handle::update` (which fires the watcher so slider and CSS classes sync).
 ///
-/// Framework gaps:
+/// Framework notes:
 /// - Python uses `with switch.prevent(BitSwitch.BitChanged)` when updating switches
-///   from the Input watcher to avoid feedback loops. Rust now has a real
-///   `EventCtx::prevent::<M>()` context (see `events/prevent`), but it suppresses
-///   posts within a *single* dispatch's `EventCtx`. Here the switch is updated via
-///   `Handle::update`, whose reactive watcher emits `BitChanged` in a *later*
-///   runtime cycle through a different `EventCtx`, so an app-side `prevent` scope
-///   cannot span it. Faithfully porting this case needs prevent-awareness threaded
-///   through `ReactiveCtx`/the reactive-update pipeline; until then the
-///   `suppress_bit_changed` bool reproduces the same suppression.
-///   DEFERRED(byte03-prevent): wire `prevent` through `ReactiveCtx`/`Handle::update`.
+///   from the Input watcher to avoid feedback loops. Rust's `prevent` scope is now
+///   ambient and spans the reactive update→re-dispatch cycle (Python's
+///   `ContextVar`-backed prevent stack + `Message._prevent` snapshot): the
+///   `Handle::update` reactive mutation captures the active prevented set, the
+///   Switch watcher's `SwitchChanged` rides it, and `BitChanged` posted while
+///   handling that `SwitchChanged` is suppressed — so this port uses the real
+///   `ctx.prevent::<BitChanged, _>(...)` scope, exactly like Python.
 /// - Python `ByteEditor.validate_value` clamps 0..=255 via `clamp()`. In Rust we
 ///   clamp directly in the `InputChanged` handler.
 use textual::prelude::*;
@@ -33,7 +31,12 @@ use textual::prelude::*;
 
 #[derive(Debug, Clone)]
 struct BitChanged {
+    /// Message contract fields (Python `BitSwitch.BitChanged.bit/.value`); the
+    /// app handler recomputes the byte by querying all switches instead of
+    /// reading them, exactly like the Python example.
+    #[allow(dead_code)]
     bit: u8,
+    #[allow(dead_code)]
     value: bool,
 }
 
@@ -298,18 +301,11 @@ impl Widget for ByteEditor {
 // App
 // ---------------------------------------------------------------------------
 
-struct ByteInputApp {
-    /// Suppresses the `BitChanged` feedback loop when switches are programmatically
-    /// updated from `InputChanged`.
-    /// Mirrors Python `with switch.prevent(BitSwitch.BitChanged)`.
-    suppress_bit_changed: bool,
-}
+struct ByteInputApp;
 
 impl ByteInputApp {
     fn new() -> Self {
-        Self {
-            suppress_bit_changed: false,
-        }
+        Self
     }
 }
 
@@ -330,10 +326,6 @@ impl TextualApp for ByteInputApp {
         ctx: &mut textual::event::WidgetCtx,
     ) {
         if let Some(_bc) = message.downcast_ref::<BitChanged>() {
-            if self.suppress_bit_changed {
-                ctx.set_handled();
-                return;
-            }
             // Switches changed → compute byte value → update Input.
             // Python: `on_bit_switch_bit_changed`: iterate all BitSwitches, OR bits.
             let mut byte_val: u32 = 0;
@@ -362,22 +354,25 @@ impl TextualApp for ByteInputApp {
                 .map(|v| v.clamp(0, 255) as u32)
                 .unwrap_or(0);
 
-            // Suppress feedback: while we set switches programmatically, ignore BitChanged.
-            self.suppress_bit_changed = true;
-
-            for bit in 0..8u8 {
-                let bit_on = (byte_val >> bit) & 1 == 1;
-                let switch_sel = format!("#switch-{bit}");
-                // Use `query_one_typed` + `Handle::update` so the reactive watcher fires,
-                // snapping the slider position and rebuilding CSS classes.
-                if let Ok(handle) = app.query_one_typed::<Switch>(&switch_sel) {
-                    let _ = handle.update(app, |sw, rctx| {
-                        sw.set_value(bit_on, rctx);
-                    });
+            // Suppress feedback while we set switches programmatically —
+            // Python: `with switch.prevent(BitSwitch.BitChanged):`. The scope
+            // spans the reactive update→re-dispatch cycle: each `Handle::update`
+            // captures the prevented set, the Switch watcher's `SwitchChanged`
+            // carries it, and the `BitChanged` that `BitSwitch` posts while
+            // handling that `SwitchChanged` is dropped.
+            ctx.prevent::<BitChanged, _>(|_ectx| {
+                for bit in 0..8u8 {
+                    let bit_on = (byte_val >> bit) & 1 == 1;
+                    let switch_sel = format!("#switch-{bit}");
+                    // Use `query_one_typed` + `Handle::update` so the reactive watcher
+                    // fires, snapping the slider position and rebuilding CSS classes.
+                    if let Ok(handle) = app.query_one_typed::<Switch>(&switch_sel) {
+                        let _ = handle.update(app, |sw, rctx| {
+                            sw.set_value(bit_on, rctx);
+                        });
+                    }
                 }
-            }
-
-            self.suppress_bit_changed = false;
+            });
             ctx.request_repaint();
         }
     }

@@ -958,6 +958,82 @@ macro_rules! impl_message {
 }
 
 // ---------------------------------------------------------------------------
+// Prevented message types (ambient scope)
+// ---------------------------------------------------------------------------
+
+thread_local! {
+    /// The stack of active `prevent(...)` scopes on this (UI) thread.
+    ///
+    /// Mirrors Python's `prevent_message_types_stack` `ContextVar`
+    /// (`message_pump.py`): the active prevented set is the union of every
+    /// frame on the stack. It is ambient — not stored on any dispatch context —
+    /// so a prevent scope opened in an event/message handler also covers
+    /// synchronous work started inside it (e.g. a `Handle::update` reactive
+    /// mutation), exactly like Python's context-managed set covers a reactive
+    /// `_check_watchers` cascade.
+    static PREVENTED_MESSAGE_TYPES: std::cell::RefCell<Vec<Vec<std::any::TypeId>>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Whether a concrete message type id is suppressed by an active
+/// `prevent(...)` scope on this thread. Mirrors Python
+/// `MessagePump._is_prevented` (checked at post time by
+/// `Widget.check_message_enabled`).
+pub(crate) fn is_message_type_prevented(type_id: std::any::TypeId) -> bool {
+    PREVENTED_MESSAGE_TYPES.with(|stack| {
+        stack
+            .borrow()
+            .iter()
+            .any(|frame| frame.contains(&type_id))
+    })
+}
+
+/// Snapshot the union of all active prevent frames (deduplicated). Mirrors
+/// Python `MessagePump._get_prevented_messages`; the snapshot is stamped onto
+/// every posted [`MessageEvent`] so prevention is honoured across dispatch
+/// cycles (`message_pump.py`: `message._prevent.update(...)`).
+pub(crate) fn active_prevented_message_types() -> Vec<std::any::TypeId> {
+    PREVENTED_MESSAGE_TYPES.with(|stack| {
+        let stack = stack.borrow();
+        let mut union: Vec<std::any::TypeId> = Vec::new();
+        for frame in stack.iter() {
+            for type_id in frame {
+                if !union.contains(type_id) {
+                    union.push(*type_id);
+                }
+            }
+        }
+        union
+    })
+}
+
+/// RAII guard for one prevent frame. Dropping pops the frame, so scopes nest
+/// and unwind correctly (Python's `with self.prevent(...)`).
+pub(crate) struct PreventScope {
+    pushed: bool,
+}
+
+/// Push `frame` as an active prevent scope for the guard's lifetime.
+/// An empty frame is a no-op (nothing pushed), keeping the hot path free.
+pub(crate) fn enter_prevent_scope(frame: &[std::any::TypeId]) -> PreventScope {
+    if frame.is_empty() {
+        return PreventScope { pushed: false };
+    }
+    PREVENTED_MESSAGE_TYPES.with(|stack| stack.borrow_mut().push(frame.to_vec()));
+    PreventScope { pushed: true }
+}
+
+impl Drop for PreventScope {
+    fn drop(&mut self) {
+        if self.pushed {
+            PREVENTED_MESSAGE_TYPES.with(|stack| {
+                stack.borrow_mut().pop();
+            });
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // MessageEvent / MessageEnvelope
 // ---------------------------------------------------------------------------
 
@@ -969,6 +1045,13 @@ pub struct MessageEvent {
     /// Handlers can use this to identify which widget produced the message,
     /// even when the message has bubbled through containers.
     pub control: Option<NodeId>,
+    /// Prevent-set snapshot riding on this message (Python `Message._prevent`,
+    /// stamped by `MessagePump.post_message`): the message types that were
+    /// prevented when this message was posted. The dispatcher re-activates the
+    /// snapshot for the duration of this message's dispatch
+    /// (`message_pump.py`: `with self.prevent(*message._prevent):`), so a
+    /// prevented type stays prevented across dispatch cycles it triggers.
+    prevent: Vec<std::any::TypeId>,
 }
 
 impl MessageEvent {
@@ -978,6 +1061,7 @@ impl MessageEvent {
             sender,
             message: Box::new(message),
             control: None,
+            prevent: active_prevented_message_types(),
         }
     }
 
@@ -987,7 +1071,15 @@ impl MessageEvent {
             sender,
             message,
             control: None,
+            prevent: active_prevented_message_types(),
         }
+    }
+
+    /// The prevent-set snapshot this message carries (Python
+    /// `Message._prevent`). Re-activated by the dispatcher around this
+    /// message's handlers.
+    pub(crate) fn prevent_snapshot(&self) -> &[std::any::TypeId] {
+        &self.prevent
     }
 
     /// Builder: set the control node.

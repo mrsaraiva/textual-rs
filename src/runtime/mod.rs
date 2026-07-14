@@ -2568,7 +2568,7 @@ impl App {
                 app.with_widget_taken_as::<W, _>(node_id, |child, app| {
                     let mut rctx = crate::reactive::ReactiveCtx::new(node_id);
                     set_child(child, value_ref, &mut rctx);
-                    crate::reactive::run_reactive_phase_with_dispatch(
+                    let result = crate::reactive::run_reactive_phase_with_dispatch(
                         &mut rctx,
                         |changes, ctx| {
                             if let Some(rw) = child.reactive_widget() {
@@ -2576,6 +2576,12 @@ impl App {
                             }
                         },
                     );
+                    // Bubble watcher-posted messages from the child node in the
+                    // shared flush's PostUp step (same routing as
+                    // `process_reactive_entries_for_node`).
+                    if !result.messages.is_empty() {
+                        app.pending_widget_posts.extend(result.messages);
+                    }
                 });
             }
         });

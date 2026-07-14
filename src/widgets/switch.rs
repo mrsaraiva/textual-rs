@@ -109,6 +109,12 @@ impl Switch {
         // consumed at mount), or `Switch.-on .switch--slider { color: $success }`
         // never matches after a programmatic value change.
         ctx.set_class(self.value, "-on");
+        // Python `watch_value` posts `Switch.Changed` on EVERY value change,
+        // including programmatic ones (`_switch.py`). The interactive toggle
+        // path posts through its event handler and never reaches this watcher
+        // (it writes the field directly), so this does not double-post.
+        // Honours active `prevent(SwitchChanged)` scopes via `ReactiveCtx`.
+        ctx.post_message(SwitchChanged { value: self.value });
     }
 
     // ── Builder methods ──────────────────────────────────────────────────

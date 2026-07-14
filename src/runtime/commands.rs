@@ -432,6 +432,7 @@ impl App {
             || reactive.needs_layout()
             || reactive.needs_recompose()
             || reactive.needs_styles()
+            || reactive.has_messages()
         {
             crate::reactive::enqueue_runtime_reactive_entry(
                 crate::reactive::RuntimeReactiveEntry::new(node, reactive),

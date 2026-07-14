@@ -239,10 +239,26 @@ pub struct ReactiveCtx {
     recompose_requested: bool,
     class_ops: Vec<(NodeId, crate::event::ClassOp)>,
     styles_requested: bool,
+    /// Messages posted by watcher callbacks (Python watchers calling
+    /// `self.post_message(...)` from `watch_*`). Drained by the reactive phase
+    /// and bubbled from this node by the runtime flush.
+    messages: Vec<crate::message::MessageEvent>,
+    /// Snapshot of the ambient `prevent(...)` scopes active when this context
+    /// was created. Reactive watcher dispatch is *deferred* in Rust (Python
+    /// runs `_check_watchers` synchronously inside the still-open `with
+    /// self.prevent(...)` block), so the active prevented set must be captured
+    /// here and re-activated around the deferred watcher dispatch
+    /// ([`run_reactive_phase_with_dispatch`]) for prevention to span the
+    /// reactive update→re-dispatch cycle.
+    prevented: Vec<std::any::TypeId>,
 }
 
 impl ReactiveCtx {
     /// Create a new reactive context for the given widget node.
+    ///
+    /// Captures the ambient prevented-message set (Python's context-managed
+    /// `prevent` stack) so it stays in effect when this context's watchers
+    /// dispatch later in the runtime reactive phase.
     pub fn new(node_id: NodeId) -> Self {
         Self {
             node_id,
@@ -252,6 +268,8 @@ impl ReactiveCtx {
             recompose_requested: false,
             class_ops: Vec::new(),
             styles_requested: false,
+            messages: Vec::new(),
+            prevented: crate::message::active_prevented_message_types(),
         }
     }
 
@@ -422,6 +440,45 @@ impl ReactiveCtx {
     pub fn has_class_ops(&self) -> bool {
         !self.class_ops.is_empty()
     }
+
+    /// Post a message from this widget (sender = this context's node).
+    ///
+    /// The watcher-side analogue of Python watchers calling
+    /// `self.post_message(...)` from `watch_*` (e.g. `Switch.watch_value`
+    /// posting `Switch.Changed`). Honours active `prevent(...)` scopes exactly
+    /// like `EventCtx::post_message`: a prevented message type is silently
+    /// dropped, and a posted message carries the active prevented set so its
+    /// own dispatch keeps honouring it (Python `message._prevent`).
+    ///
+    /// Messages are drained by the runtime reactive phase and bubbled from
+    /// this node during the shared flush.
+    pub fn post_message<M: crate::message::Message>(&mut self, message: M) {
+        self.post_message_boxed(Box::new(message));
+    }
+
+    /// Boxed form of [`post_message`](ReactiveCtx::post_message).
+    pub fn post_message_boxed(&mut self, message: Box<dyn crate::message::Message>) {
+        if crate::message::is_message_type_prevented(message.as_any().type_id()) {
+            crate::debug::debug_message(&format!(
+                "[reactive post_message] PREVENTED node={:?} payload={message:?}",
+                self.node_id
+            ));
+            return;
+        }
+        let node = self.node_id;
+        self.messages
+            .push(crate::message::MessageEvent::from_boxed(node, message).with_control(node));
+    }
+
+    /// Whether any watcher-posted message is pending on this context.
+    pub fn has_messages(&self) -> bool {
+        !self.messages.is_empty()
+    }
+
+    /// Drain the watcher-posted messages.
+    pub(crate) fn take_messages(&mut self) -> Vec<crate::message::MessageEvent> {
+        std::mem::take(&mut self.messages)
+    }
 }
 
 impl std::fmt::Debug for ReactiveCtx {
@@ -530,6 +587,10 @@ pub struct ReactivePhaseResult {
     pub cycle_detected: bool,
     /// Class mutations queued by watcher callbacks during the reactive phase.
     pub class_ops: Vec<(NodeId, crate::event::ClassOp)>,
+    /// Messages posted by watcher callbacks during the reactive phase
+    /// (already filtered/stamped against the active `prevent(...)` scopes).
+    /// The runtime bubbles them from the owning node.
+    pub messages: Vec<crate::message::MessageEvent>,
 }
 
 /// Run the reactive phase for a single widget: drain changes, call watchers,
@@ -558,6 +619,15 @@ pub fn run_reactive_phase_with_dispatch(
     ctx: &mut ReactiveCtx,
     mut dispatch: impl FnMut(&[ReactiveChange], &mut ReactiveCtx),
 ) -> ReactivePhaseResult {
+    // Re-activate the `prevent(...)` scopes that were live when this context's
+    // changes were recorded, for the duration of watcher dispatch. Python runs
+    // watchers synchronously inside the still-open `with self.prevent(...)`
+    // block (`reactive.py` `_check_watchers`); Rust defers them to this phase,
+    // so the captured snapshot must be re-established here or a prevented
+    // message type posted by a watcher would leak.
+    let prevented_snapshot = ctx.prevented.clone();
+    let _prevent_scope = crate::message::enter_prevent_scope(&prevented_snapshot);
+
     let mut result = ReactivePhaseResult::default();
 
     for iteration in 0..MAX_REACTIVE_ITERATIONS {
@@ -608,8 +678,9 @@ pub fn run_reactive_phase_with_dispatch(
         result.needs_recompose = true;
     }
 
-    // Drain any class ops queued by watcher callbacks.
+    // Drain any class ops and messages queued by watcher callbacks.
     result.class_ops = ctx.take_class_ops();
+    result.messages = ctx.take_messages();
 
     result
 }
@@ -1364,5 +1435,90 @@ mod tests {
         let result = run_reactive_phase(&mut app, &mut ctx);
         assert!(!result.had_changes);
         assert_eq!(app.observed, None);
+    }
+
+    // ── prevent(...) across the reactive update→dispatch cycle ─────────────
+
+    #[derive(Debug, Clone)]
+    struct PreventPing;
+    crate::impl_message!(PreventPing);
+
+    #[derive(Debug, Clone)]
+    struct PreventPong;
+    crate::impl_message!(PreventPong);
+
+    /// Python `message_pump.prevent` semantics across the deferred reactive
+    /// dispatch: a `ReactiveCtx` created inside an active `prevent(M)` scope
+    /// captures the prevented set, and `run_reactive_phase_with_dispatch`
+    /// re-activates it around watcher dispatch — so a watcher posting `M`
+    /// is suppressed even though the scope itself already exited, while other
+    /// message types flow (and carry the snapshot for their own dispatch).
+    #[test]
+    fn reactive_phase_reactivates_prevent_snapshot_for_watcher_posts() {
+        use std::any::TypeId;
+
+        let id = make_node_id();
+        // Record the change INSIDE the prevent scope (this is what a handler's
+        // `Handle::update` inside `ctx.prevent::<M, _>(...)` does).
+        let mut ctx = {
+            let _scope =
+                crate::message::enter_prevent_scope(&[TypeId::of::<PreventPing>()]);
+            let mut ctx = ReactiveCtx::new(id);
+            ctx.record_change(
+                "value",
+                ReactiveFlags::reactive(),
+                Box::new(false),
+                Box::new(true),
+            );
+            ctx
+        };
+        // The scope is now closed; the deferred watcher dispatch runs later.
+        assert!(
+            !crate::message::is_message_type_prevented(TypeId::of::<PreventPing>()),
+            "ambient scope must be closed before the deferred dispatch"
+        );
+
+        let result = run_reactive_phase_with_dispatch(&mut ctx, |_changes, ctx| {
+            ctx.post_message(PreventPing);
+            ctx.post_message(PreventPong);
+        });
+
+        assert_eq!(
+            result.messages.len(),
+            1,
+            "the prevented type is dropped; the other type flows"
+        );
+        assert!(
+            result.messages[0].is::<PreventPong>(),
+            "surviving message is the non-prevented type"
+        );
+        // The surviving message carries the snapshot (Python `Message._prevent`)
+        // so its own dispatch keeps suppressing the prevented type.
+        assert!(
+            result.messages[0]
+                .prevent_snapshot()
+                .contains(&TypeId::of::<PreventPing>()),
+            "posted message must ride the active prevent set"
+        );
+    }
+
+    /// Without any active prevent scope, watcher posts flow untouched and carry
+    /// an empty snapshot.
+    #[test]
+    fn reactive_phase_watcher_posts_flow_without_prevent_scope() {
+        let id = make_node_id();
+        let mut ctx = ReactiveCtx::new(id);
+        ctx.record_change(
+            "value",
+            ReactiveFlags::reactive(),
+            Box::new(false),
+            Box::new(true),
+        );
+        let result = run_reactive_phase_with_dispatch(&mut ctx, |_changes, ctx| {
+            ctx.post_message(PreventPing);
+        });
+        assert_eq!(result.messages.len(), 1);
+        assert!(result.messages[0].is::<PreventPing>());
+        assert!(result.messages[0].prevent_snapshot().is_empty());
     }
 }

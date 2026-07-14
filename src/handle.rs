@@ -178,6 +178,7 @@ impl<W: Widget> Handle<W> {
             || rctx.needs_layout()
             || rctx.needs_recompose()
             || rctx.has_class_ops()
+            || rctx.has_messages()
         {
             enqueue_runtime_reactive_entry(RuntimeReactiveEntry::new(self.node, rctx));
         }

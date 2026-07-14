@@ -642,6 +642,15 @@ impl<T: TextualApp> TextualAppAdapter<T> {
             needs_layout |= rctx.needs_layout();
             needs_styles |= rctx.needs_styles();
             needs_recompose |= rctx.needs_recompose();
+            // Route watcher-posted messages (already prevent-filtered/stamped
+            // at post time) through the deferred command FIFO; the shared flush
+            // bubbles them via `pending_widget_posts`.
+            {
+                use crate::runtime::commands::{WidgetCommand, enqueue_widget_command};
+                for message in rctx.take_messages() {
+                    enqueue_widget_command(WidgetCommand::PostMessage(message));
+                }
+            }
             // Feed chained changes (watchers calling setters on the dispatch ctx)
             // back into the app ctx for the next iteration.
             for change in rctx.take_changes() {
