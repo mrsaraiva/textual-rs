@@ -9,6 +9,8 @@ widgets, style them with CSS, lay them out with a real box model, and drive them
 reactive state and an event/message runtime — a faithful Rust port of Python's
 [Textual](https://github.com/Textualize/textual).
 
+![textual-rs](imgs/hero.svg)
+
 > **Attribution.** textual-rs is a derivative work: a Rust port of
 > [Textual](https://github.com/Textualize/textual), created by Will McGugan and the
 > [Textualize](https://www.textualize.io/) team. All credit for the original framework
@@ -73,6 +75,8 @@ fn main() -> Result<()> {
 }
 ```
 
+![QuestionApp](imgs/question.svg)
+
 Want to see the framework in action first? The Python documentation examples are ported
 verbatim and runnable:
 
@@ -134,6 +138,35 @@ Supported selectors: type, `#id`, `.class`, pseudo-classes (`:hover`, `:focus`,
 (`,`), universal (`*`). Theme tokens (`$primary`, `$surface`, `$error-darken-2`, …)
 resolve against the active theme with lighten/darken/muted derivations. Load external
 `.tcss` files and hot-reload them with `App::watch_stylesheet()`.
+
+### Themes
+
+Every colour token resolves against the active theme, so one line re-skins the whole
+app — `app.set_theme_by_name("nord")` — and `App::register_theme` adds your own. The
+same screen under four of the 21 built-in themes:
+
+| | |
+|:---:|:---:|
+| ![nord](imgs/theme_nord.svg) | ![gruvbox](imgs/theme_gruvbox.svg) |
+| ![dracula](imgs/theme_dracula.svg) | ![solarized-light](imgs/theme_solarized_light.svg) |
+
+Built-in: `textual-dark`, `textual-light`, `nord`, `gruvbox`, `dracula`, `tokyo-night`,
+`monokai`, `flexoki`, `catppuccin-mocha`, `catppuccin-latte`, `catppuccin-frappe`,
+`catppuccin-macchiato`, `solarized-dark`, `solarized-light`, `rose-pine`,
+`rose-pine-moon`, `rose-pine-dawn`, `atom-one-dark`, `atom-one-light`, `ansi-dark`,
+`ansi-light`.
+
+### Animation
+
+Styles animate through CSS transitions with easing curves — declare which properties
+interpolate and the runtime animator tweens them on state changes (colors, opacity,
+dimensions, offsets):
+
+```css
+Button {
+    transition: background 200ms ease-in-out, opacity 300ms linear;
+}
+```
 
 ## Layout
 
