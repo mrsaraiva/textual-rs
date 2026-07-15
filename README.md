@@ -6,7 +6,7 @@
 
 **A reactive TUI framework for Rust.** Build rich terminal applications from composable
 widgets, style them with CSS, lay them out with a real box model, and drive them with
-reactive state and an event/message runtime — a faithful Rust port of Python's
+reactive state and an event/message runtime, a faithful Rust port of Python's
 [Textual](https://github.com/Textualize/textual).
 
 ![textual-rs](imgs/hero.svg)
@@ -33,7 +33,7 @@ textual = "1.0"
 
 ## A complete app
 
-This is a whole Textual application — a question with two buttons that prints your
+This is a whole Textual application: a question with two buttons that prints your
 answer when you pick one. It gets a themed UI, mouse **and** keyboard handling, and
 focus management for free:
 
@@ -90,7 +90,7 @@ tools/run-doc-example.sh guide/screens modal01      # modal screens
 ## Reactive state
 
 Textual's signature feature: declare state as **reactive** fields and *watchers* run
-automatically whenever the value changes — no manual "now update the UI" plumbing.
+automatically whenever the value changes, with no manual "now update the UI" plumbing.
 
 ```rust
 use textual::prelude::*;
@@ -105,11 +105,11 @@ struct ColorApp {
 ```
 
 Reactive fields also support `compute`d values, `validate` hooks, and field-to-field
-`data_bind` — mirroring Python Textual's reactivity model.
+`data_bind`, mirroring Python Textual's reactivity model.
 
 ## Styling with CSS
 
-Stylesheets use Textual's TCSS syntax — selectors, the cascade with specificity and
+Stylesheets use Textual's TCSS syntax: selectors, the cascade with specificity and
 `!important`, theme tokens, and nested `&` rules:
 
 ```css
@@ -142,7 +142,7 @@ resolve against the active theme with lighten/darken/muted derivations. Load ext
 ### Themes
 
 Every colour token resolves against the active theme, so one line re-skins the whole
-app — `app.set_theme_by_name("nord")` — and `App::register_theme` adds your own. The
+app (`app.set_theme_by_name("nord")`), and `App::register_theme` adds your own. The
 same screen under four of the 21 built-in themes:
 
 | | |
@@ -158,7 +158,7 @@ Built-in: `textual-dark`, `textual-light`, `nord`, `gruvbox`, `dracula`, `tokyo-
 
 ### Animation
 
-Styles animate through CSS transitions with easing curves — declare which properties
+Styles animate through CSS transitions with easing curves: declare which properties
 interpolate and the runtime animator tweens them on state changes (colors, opacity,
 dimensions, offsets):
 
@@ -170,7 +170,7 @@ Button {
 
 ## Layout
 
-Five layout modes — **vertical**, **horizontal**, **grid**, **dock**, and **absolute** —
+Five layout modes (**vertical**, **horizontal**, **grid**, **dock**, and **absolute**)
 over a Python-faithful border-box model (margin collapsing, padding, border), with:
 
 - **Size units:** cells (`20`), `auto`, percentage (`50%`), fractions (`1fr`), viewport (`100vw`, `50vh`)
@@ -179,7 +179,7 @@ over a Python-faithful border-box model (margin collapsing, padding, border), wi
 
 ## Widgets
 
-Over 40 first-class widgets — proper focus, keyboard and mouse behavior, component
+Over 40 first-class widgets, with proper focus, keyboard and mouse behavior, component
 styles, messages, and tests:
 
 **Interactive:** Button, Input, MaskedInput, TextArea, Checkbox, RadioSet, Switch,
@@ -195,7 +195,7 @@ KeyPanel
 ## Headless testing
 
 Every app and widget is testable **without a real terminal** via the in-process `Pilot`
-harness — press keys, click, pause, and assert on the live state:
+harness. Press keys, click, pause, and assert on the live state:
 
 ```rust
 run_test(QuestionApp { reply: None }, |pilot| {
@@ -206,7 +206,7 @@ run_test(QuestionApp { reply: None }, |pilot| {
 })?;
 ```
 
-This backs **3,100+ tests** — unit, integration, snapshot (via `insta`), and real-PTY
+This backs **3,100+ tests**: unit, integration, snapshot (via `insta`), and real-PTY
 parity harnesses that diff Rust against the actual Python Textual output cell-by-cell.
 
 ## Architecture
@@ -224,14 +224,14 @@ Widget tree → rich-rs Segments (with metadata) → FrameBuffer (2D grid) → f
 
 Python Textual is the source of truth for behavior and default styling. The port aligns:
 
-1. **Semantics first** — event/focus/message behavior, layout/box-model rules
-2. **Defaults second** — the 16 widget default CSS files match Python Textual verbatim
-3. **Visuals third** — render-time composition, border painting, opacity blending
+1. **Semantics first:** event/focus/message behavior, layout/box-model rules
+2. **Defaults second:** the 16 widget default CSS files match Python Textual verbatim
+3. **Visuals third:** render-time composition, border painting, opacity blending
 
 Parity is a continuously measured *verification floor*, not a demo emulation: styled
 per-cell-RGB **87/87**, plain-text PTY **186/186**, and real-app interactive parity
 against live Python with only a handful of intentional divergences (see `KNOWN_GAPS.md`).
-Rust idioms — ownership, type safety, modular boundaries — are used throughout while
+Rust idioms (ownership, type safety, modular boundaries) are used throughout while
 preserving behavioral parity.
 
 ## Build and test
@@ -259,11 +259,11 @@ Narrow the output with a filter: `TEXTUAL_DEBUG_STYLE_FILTER='type=Button,class=
 
 ## Status
 
-**1.0** — first stable release. See [`CHANGELOG.md`](CHANGELOG.md) for the release notes,
+**1.0**, the first stable release. See [`CHANGELOG.md`](CHANGELOG.md) for the release notes,
 [`KNOWN_GAPS.md`](KNOWN_GAPS.md) for the honest, tracked set of remaining divergences (all
 intentional or the deferred 1.1 inline-render feature), and [`ROADMAP.md`](ROADMAP.md) for
 1.x direction.
 
 ## License
 
-MIT — see [`LICENSE`](LICENSE). Original Textual framework © the Textualize team.
+MIT. See [`LICENSE`](LICENSE). Original Textual framework © the Textualize team.

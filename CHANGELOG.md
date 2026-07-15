@@ -10,16 +10,16 @@ until the API stabilizes.
 ## [1.0.0] - 2026-07-14
 
 First stable release. textual-rs is a fundamentals-first Rust port of Python
-Textual — a reactive TUI framework with widgets, CSS styling, layout, focus, and
+Textual, a reactive TUI framework with widgets, CSS styling, layout, focus, and
 an event/message runtime, built on `rich-rs` and `crossterm`.
 
 **What 1.0 means** (see `KNOWN_GAPS.md` and `docs/devel/ROAD_TO_1.0_PIVOT.md`): a
-hardened core with an honest, *frozen* authoring surface — not "every demo pixel
+hardened core with an honest, *frozen* authoring surface, not "every demo pixel
 matches". Demo parity is the **verification floor**, not the release gate; the demo
 tail continues across 1.x. Current parity against real Python: styled per-cell-RGB
 **87/87**, plain-text PTY **186/186**, real-app interactive **108/108 non-ignored**
-(the 3 remaining `#[ignore]`s are intentional divergences — a Python-only startup
-crash the reference doc raises on purpose — or the deferred 1.1 inline-render
+(the 3 remaining `#[ignore]`s are intentional divergences (a Python-only startup
+crash the reference doc raises on purpose) or the deferred 1.1 inline-render
 feature; **zero open bugs**).
 
 The `Widget` trait split (small required core + capability traits) and the prelude
