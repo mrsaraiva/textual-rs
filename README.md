@@ -192,6 +192,25 @@ KeyPanel
 
 **Containers:** Container, ScrollView, Frame, Panel, Overlay, Constrained, Styled
 
+A few of them up close. `TextArea` is a code editor with tree-sitter syntax
+highlighting, line numbers, and selections:
+
+![TextArea code editor](imgs/code_editor.svg)
+
+`Markdown` renders documents in the terminal, including headings, lists, tables, and
+highlighted code blocks:
+
+![Markdown](imgs/markdown.svg)
+
+`DataTable` scales to large datasets with fixed rows/columns, sorting, and a
+keyboard-driven cell cursor:
+
+![DataTable](imgs/data_table.svg)
+
+`Tree` (and `DirectoryTree`) present hierarchical data with expandable nodes:
+
+![Tree](imgs/tree.svg)
+
 ## Headless testing
 
 Every app and widget is testable **without a real terminal** via the in-process `Pilot`

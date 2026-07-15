@@ -32,14 +32,14 @@
         font-family: arial;
     }
 
-    .terminal-751890390-r8 { fill: #780028 }
+    .terminal-751890390-r1 { fill: #e0e0e0 }
 .terminal-751890390-r6 { fill: #e76580 }
-.terminal-751890390-r4 { fill: #0c7dd4;font-weight: bold }
-.terminal-751890390-r1 { fill: #e0e0e0 }
-.terminal-751890390-r5 { fill: #004295 }
-.terminal-751890390-r3 { fill: #6db2ff }
 .terminal-751890390-r2 { fill: #c5c8c6 }
+.terminal-751890390-r5 { fill: #004295 }
 .terminal-751890390-r7 { fill: #f5e5e9;font-weight: bold }
+.terminal-751890390-r8 { fill: #780028 }
+.terminal-751890390-r3 { fill: #6db2ff }
+.terminal-751890390-r4 { fill: #0c7dd4;font-weight: bold }
     </style>
 
     <defs>
