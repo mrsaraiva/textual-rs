@@ -5402,6 +5402,60 @@ impl App {
         hasher.finish()
     }
 
+    /// Export the currently rendered frame as a "rich terminal" SVG file.
+    ///
+    /// Reads the same in-memory [`FrameBuffer`] that [`frame_fingerprint`]
+    /// hashes, so it works in headless (`run_test`/Pilot) mode where nothing is
+    /// written to a real terminal — the Rust analogue of Python Textual's
+    /// `App.save_screenshot` / `take_svg_screenshot` doc-screenshot path.
+    ///
+    /// [`frame_fingerprint`]: Self::frame_fingerprint
+    pub fn save_frame_svg(&self, path: &str, title: &str) -> crate::Result<()> {
+        struct FrameSegments(rich_rs::Segments);
+        impl rich_rs::Renderable for FrameSegments {
+            fn render(
+                &self,
+                _console: &rich_rs::Console,
+                _options: &rich_rs::ConsoleOptions,
+            ) -> rich_rs::Segments {
+                self.0.clone()
+            }
+        }
+
+        // `FrameBuffer::to_segments` emits one segment per cell; merge
+        // consecutive same-style runs (never across row separators) so the
+        // exported SVG stays compact (per-cell segments inflate it ~40x).
+        let mut runs: Vec<rich_rs::Segment> = Vec::new();
+        for seg in self.frame.to_segments() {
+            let cell = seg.control.is_none() && seg.text != "\n";
+            match runs.last_mut() {
+                Some(prev)
+                    if cell
+                        && prev.control.is_none()
+                        && prev.text != "\n"
+                        && prev.style == seg.style =>
+                {
+                    prev.text = format!("{}{}", prev.text, seg.text).into();
+                }
+                _ => runs.push(seg),
+            }
+        }
+        let mut merged = rich_rs::Segments::new();
+        merged.extend(runs);
+
+        let mut console = rich_rs::Console::new_with_record();
+        {
+            let options = console.options_mut();
+            options.size = (self.frame.width, self.frame.height);
+            options.max_width = self.frame.width;
+            options.max_height = self.frame.height;
+            console.sync_from_options();
+        }
+        console.print(&FrameSegments(merged), None, None, None, false, "")?;
+        console.save_svg(path, title, None, true, 0.61, None)?;
+        Ok(())
+    }
+
     /// The explicit inline background color of a tree node, if any.
     ///
     /// Mirrors reading `widget.styles.background` in Python Textual — the value

@@ -3051,6 +3051,9 @@ impl App {
     ///
     /// Also processes `compose()` declarations for any widget that provides them.
     pub(crate) fn build_widget_tree(&mut self, root: &mut dyn Widget) {
+        // A rebuilt tree reissues NodeIds from scratch; surfaces captured for a
+        // previous tree's like-numbered nodes must not leak into this one.
+        render::clear_frozen_ancestor_bg_cache();
         let mut tree = WidgetTree::new();
 
         // Mount a synthetic root node that mirrors the real root widget.

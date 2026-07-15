@@ -1,0 +1,46 @@
+Screen {
+    align: center middle;
+}
+
+#hero {
+    width: 80;
+    height: auto;
+    padding: 1 2;
+    border: round $primary;
+    background: $panel;
+}
+
+#tagline {
+    width: 100%;
+    text-align: center;
+    color: $text;
+    margin-bottom: 1;
+}
+
+#actions {
+    height: auto;
+    align-horizontal: center;
+}
+
+#actions Button {
+    margin: 0 1;
+}
+
+#controls {
+    height: auto;
+    margin: 1 0;
+    align-horizontal: center;
+}
+
+#controls Checkbox {
+    margin-right: 2;
+}
+
+#controls ProgressBar {
+    margin-left: 2;
+    margin-top: 1;
+}
+
+DataTable {
+    height: auto;
+}

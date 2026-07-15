@@ -80,6 +80,19 @@ thread_local! {
     > = std::cell::RefCell::new(std::collections::HashMap::new());
 }
 
+/// Drop every captured ancestor surface.
+///
+/// Must run whenever the arena tree is rebuilt from scratch
+/// (`App::build_widget_tree`): `NodeId`s restart from the same values for a new
+/// tree, so a second app (or a remount) running on the same thread would
+/// otherwise inherit surfaces captured by a *previous* tree's like-numbered
+/// nodes — e.g. a README screenshot batch rendering the same screen under
+/// several themes in one process leaked the prior theme's `$surface` into the
+/// next app's transparent labels.
+pub(crate) fn clear_frozen_ancestor_bg_cache() {
+    FROZEN_ANCESTOR_BG.with(|cache| cache.borrow_mut().clear());
+}
+
 /// Fingerprint of a node's style-cache identity — the render-time analogue of
 /// Python's `visual_style` cache validity. Two components:
 ///
@@ -110,8 +123,24 @@ fn node_own_style_fingerprint(
     resolved: &crate::style::Style,
     node: &crate::widget_tree::WidgetNode,
 ) -> u64 {
+    node_own_style_fingerprint_at(crate::theme::theme_generation(), resolved, node)
+}
+
+/// [`node_own_style_fingerprint`] with the active-theme generation passed
+/// explicitly (pure — unit-testable without mutating the global theme state).
+fn node_own_style_fingerprint_at(
+    theme_generation: u64,
+    resolved: &crate::style::Style,
+    node: &crate::widget_tree::WidgetNode,
+) -> u64 {
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
+    // Active-theme generation: a theme switch re-resolves every `$token`
+    // colour (Python `App._invalidate_css` via `_watch_theme`), so every
+    // captured ancestor surface is stale by construction and must be
+    // re-captured live — selector identity alone cannot see this (token
+    // VALUES change, selectors don't).
+    theme_generation.hash(&mut h);
     // Component 2: ancestor selector identity — re-capture on ancestor
     // class/pseudo-state changes, never on ancestor inline style values.
     crate::css::ancestor_selector_fingerprint().hash(&mut h);
@@ -3692,6 +3721,30 @@ mod tests {
             }
         }
         out
+    }
+
+    #[test]
+    fn theme_generation_invalidates_frozen_ancestor_fingerprint() {
+        // A theme switch re-resolves every `$token` colour, so a transparent
+        // child's captured ancestor surface is stale by construction. The
+        // capture is keyed on `node_own_style_fingerprint`, which sees neither
+        // selector identity nor own-style changes on a theme switch — it must
+        // fold in the active-theme generation instead.
+        use crate::widget_tree::WidgetTree;
+        use crate::widgets::Static;
+
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(Box::new(Static::new("x")));
+        let node = tree.get(root).expect("root node");
+        let resolved = crate::style::Style::new();
+
+        let before = node_own_style_fingerprint_at(0, &resolved, node);
+        let after = node_own_style_fingerprint_at(1, &resolved, node);
+        assert_ne!(
+            before, after,
+            "a theme-generation bump must invalidate the frozen-ancestor-bg \
+             fingerprint so captured surfaces re-capture live"
+        );
     }
 
     #[test]

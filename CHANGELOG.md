@@ -90,6 +90,23 @@ real interactive-parity gap (`rich_log`: 26 → 0 cells); it was the only remain
 `pty_interactive` `#[ignore]` that was an actual bug. All 4 remaining ignores are
 now intentional divergences or the deferred 1.1 inline-render feature.
 
+### Fixed — frozen-ancestor-bg cache invalidates on tree rebuild and theme switch
+
+The `FROZEN_ANCESTOR_BG` capture cache (see the entry below) is thread-local and
+NodeId-keyed but was never cleared, and its fingerprint ignored the active theme —
+so switching themes at runtime (e.g. `ctrl+t` theme cycling) left a stale
+`$surface` from the previous theme baked into transparent-child surfaces, and a
+freshly rebuilt widget tree could reuse a prior tree's captures. The cache is now
+cleared on `build_widget_tree`, and the active-theme generation is folded into
+`node_own_style_fingerprint` so a theme switch re-captures every frozen surface
+(Python `App._invalidate_css` on `_watch_theme`). Regression tests cover both.
+
+### Added — `App::save_frame_svg`
+
+Export the current rendered frame to an SVG (rich-terminal style) —
+`app.save_frame_svg(path, title)`. Renders the live `FrameBuffer` with same-style
+run merging; used to generate the README screenshots and handy for docs/snapshots.
+
 ### Fixed — frozen-ancestor-bg covers a widget's OWN translucent background (Python `visual_style` cache parity)
 
 After an ancestor-only INLINE background change (e.g. a Screen background

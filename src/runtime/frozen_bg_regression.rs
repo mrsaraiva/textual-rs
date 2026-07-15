@@ -262,6 +262,58 @@ fn ancestor_inline_bg_change_keeps_own_translucent_content_surface_frozen() {
     .unwrap();
 }
 
+// ---------------------------------------------------------------------------
+// Cross-app staleness: `FROZEN_ANCESTOR_BG` is thread-local and keyed by
+// `NodeId`. A second app built on the same thread reissues the SAME NodeIds
+// for a structurally identical tree, and a transparent child's fingerprint
+// (own style + ancestor selector identity) does not see ancestor VALUE
+// differences — so without clearing the cache on tree build, app B's label
+// would bake app A's captured surface (the README multi-theme screenshot
+// batch leaked the previous theme's surface this way).
+// ---------------------------------------------------------------------------
+
+struct ScreenLabelApp {
+    screen_bg: &'static str,
+}
+
+impl TextualApp for ScreenLabelApp {
+    fn compose(&mut self) -> AppRoot {
+        AppRoot::new().with_child(Static::new(LABEL_TEXT).without_markup().id("lbl"))
+    }
+    fn configure(&mut self, app: &mut App) -> crate::Result<()> {
+        app.load_stylesheet(&format!(
+            "Screen {{ background: {}; }} \
+             Static#lbl {{ background: transparent; height: 1; }}",
+            self.screen_bg
+        ));
+        Ok(())
+    }
+}
+
+fn assert_label_bakes(screen_bg: &'static str, want: crate::style::Color) {
+    crate::run_test(ScreenLabelApp { screen_bg }, |pilot| {
+        pilot.pause()?;
+        let bgs = label_cell_bgs(pilot.app());
+        assert_eq!(bgs.len(), LABEL_TEXT.len(), "label cells found");
+        assert!(
+            bgs.iter().all(|bg| *bg == want),
+            "transparent label must bake THIS app's screen surface \
+             (got {bgs:?}, want {want:?})"
+        );
+        Ok(())
+    })
+    .unwrap();
+}
+
+#[test]
+fn fresh_widget_tree_recaptures_frozen_ancestor_surfaces() {
+    // App A bakes its transparent label over its own screen surface…
+    assert_label_bakes("#102030", crate::style::Color::rgb(0x10, 0x20, 0x30));
+    // …and app B (same thread, identical structure => identical NodeIds and
+    // fingerprints) must bake ITS surface, not app A's captured one.
+    assert_label_bakes("#803000", crate::style::Color::rgb(0x80, 0x30, 0x00));
+}
+
 #[test]
 fn ancestor_focus_change_rebakes_transparent_child_glyph_bg() {
     crate::run_test(TintApp, |pilot| {
