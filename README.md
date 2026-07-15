@@ -4,9 +4,10 @@
 [![Documentation](https://docs.rs/textual/badge.svg)](https://docs.rs/textual)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A Rust port of [Textual](https://github.com/Textualize/textual), a **reactive TUI framework** for building rich terminal applications with widgets, CSS styling, layout, and event-driven architecture.
-
-Built on [`rich-rs`](https://crates.io/crates/rich-rs) for terminal rendering primitives and [`crossterm`](https://crates.io/crates/crossterm) for terminal I/O.
+**A reactive TUI framework for Rust.** Build rich terminal applications from composable
+widgets, style them with CSS, lay them out with a real box model, and drive them with
+reactive state and an event/message runtime — a faithful Rust port of Python's
+[Textual](https://github.com/Textualize/textual).
 
 > **Attribution.** textual-rs is a derivative work: a Rust port of
 > [Textual](https://github.com/Textualize/textual), created by Will McGugan and the
@@ -14,67 +15,103 @@ Built on [`rich-rs`](https://crates.io/crates/rich-rs) for terminal rendering pr
 > design, API, and concepts goes to them. This project exists only because of their work
 > and aims to bring that experience to Rust. Published on crates.io as the `textual` crate.
 
-## Installing
+## Compatibility
+
+Runs on Linux, macOS, and Windows. True color, Unicode, and mouse work on modern
+terminals. **Minimum Supported Rust Version: 1.85** (Rust 2024 edition). Built on
+[`rich-rs`](https://crates.io/crates/rich-rs) for rendering and
+[`crossterm`](https://crates.io/crates/crossterm) for terminal I/O.
+
+## Install
 
 ```toml
 [dependencies]
-textual = "1.0.0-dev"
+textual = "1.0"
 ```
 
-## Features
+## A complete app
 
-- **56 widgets:** buttons, inputs, text areas, data tables, trees, tabs, markdown viewer, select, checkboxes, progress bars, overlays, and more
-- **108 CSS properties:** type/id/class/pseudo-class selectors, descendant/child combinators, nested `&` rules, cascade with specificity and `!important`, theme tokens
-- **Full layout engine:** vertical, horizontal, grid, dock, and absolute positioning with box model (margin, border, padding), scrolling, min/max constraints, fractional/percentage/viewport units
-- **Event system:** capture/bubble phases, focus management, keyboard bindings with action maps, mouse hit-testing, message bus
-- **Reactive runtime:** Tokio-based event loop, reactive state with watchers, workers for background tasks, CSS transitions with easing functions
-- **Hot-reloadable stylesheets:** external `.tcss` files with `App::watch_stylesheet()`
-- **Deterministic rendering:** frame buffer with screen diffing, metadata-safe hit-testing across repaints
-- **1,490 tests:** unit, integration, snapshot (via `insta`), and golden-file coverage
-- **`unsafe` forbidden:** enforced by lint configuration
+This is a whole Textual application — a question with two buttons that prints your
+answer when you pick one. It gets a themed UI, mouse **and** keyboard handling, and
+focus management for free:
 
-## Quick start
+```rust
+use textual::prelude::*;
+
+struct QuestionApp {
+    reply: Option<String>,
+}
+
+impl TextualApp for QuestionApp {
+    fn compose(&mut self) -> AppRoot {
+        AppRoot::new()
+            .with_child(Label::new("Do you love Textual?"))
+            .with_child(Button::primary("Yes").id("yes"))
+            .with_child(Button::error("No").id("no"))
+    }
+
+    fn on_message(&mut self, message: &MessageEvent, ctx: &mut textual::event::WidgetCtx) {
+        if let Some(m) = message.downcast_ref::<ButtonPressed>() {
+            if let Some(id) = &m.button_id {
+                self.reply = Some(id.clone());
+            }
+            ctx.request_stop();
+            ctx.set_handled();
+        }
+    }
+
+    fn take_exit_output(&mut self) -> Option<String> {
+        self.reply.take()
+    }
+}
+
+fn main() -> Result<()> {
+    if let Some(reply) = run_sync_with_output(QuestionApp { reply: None })? {
+        println!("You chose: {reply}");
+    }
+    Ok(())
+}
+```
+
+Want to see the framework in action first? The Python documentation examples are ported
+verbatim and runnable:
 
 ```bash
-tools/run-doc-example.sh widgets buttons           # Interactive button demo
-tools/run-doc-example.sh widgets hello             # Composed widget/layout showcase
-tools/run-doc-example.sh widgets data_table        # Data table widget
-tools/run-doc-example.sh widgets input             # Input fields
-tools/run-doc-example.sh widgets text_area_example # Text editor
+tools/run-doc-example.sh widgets buttons       # button states, variants, focus
+tools/run-doc-example.sh widgets data_table    # sortable, keyboard-driven table
+tools/run-doc-example.sh widgets text_area_example  # syntax-highlighted editor
+tools/run-doc-example.sh guide/screens modal01      # modal screens
 ```
 
-Widget-focused docs parity examples live in a dedicated crate:
+## Reactive state
 
-```bash
-cargo run --manifest-path docs/examples/widgets/Cargo.toml --example tabbed_content
-tools/run-doc-example.sh widgets tabbed_content_label_color
-tools/run-doc-example.sh guide/screens modal01
+Textual's signature feature: declare state as **reactive** fields and *watchers* run
+automatically whenever the value changes — no manual "now update the UI" plumbing.
+
+```rust
+use textual::prelude::*;
+
+#[derive(Reactive)]
+struct ColorApp {
+    // Assigning a new value fires `watch_color(old, new)`, which can query and
+    // restyle widgets, post messages, or trigger a re-layout.
+    #[reactive(watch_with_app)]
+    color: Color,
+}
 ```
 
-## Demo Source Mapping
+Reactive fields also support `compute`d values, `validate` hooks, and field-to-field
+`data_bind` — mirroring Python Textual's reactivity model.
 
-- Python docs demos (`../textual/docs/examples/**`) map to our docs example lane (`docs/examples/**`).
-  - Current crate-backed location: `docs/examples/widgets/examples/**` and `docs/examples/guide/**`.
-- Python app demos (`../textual/examples/**`) map to app examples under `examples/**`.
+## Styling with CSS
 
-## Widget catalog
-
-**Interactive:** Button, Input, MaskedInput, TextArea, Checkbox, RadioSet, Switch, Select, OptionList, SelectionList, ListView, DataTable, Tree, DirectoryTree, Tabs, TabbedContent, Collapsible, CommandPalette, Link
-
-**Display:** Label/Static, Text, Markdown, Pretty, Digits, ProgressBar, LoadingIndicator, Sparkline, RichLog, Log, Toast, Rule, Spacer, Placeholder, HelpPanel, KeyPanel
-
-**Containers:** Container, ScrollView, Frame, Panel, Overlay, Constrained, Styled, Node
-
-## CSS styling
-
-Stylesheets use Textual's TCSS syntax with nested rules:
+Stylesheets use Textual's TCSS syntax — selectors, the cascade with specificity and
+`!important`, theme tokens, and nested `&` rules:
 
 ```css
 Button {
     width: auto;
     min-width: 16;
-    line-pad: 1;
-    text-align: center;
     content-align: center middle;
 
     &.-style-flat {
@@ -91,17 +128,53 @@ Button {
 }
 ```
 
-Supported selectors: type, `#id`, `.class`, pseudo-classes (`:hover`, `:focus`, `:active`, `:disabled`, `:can-focus`, `:dark`, `:light`, `:even`, `:odd`, `:first-child`, `:last-child`, and more), descendant (` `), child (`>`), grouping (`,`), universal (`*`).
-
-Theme tokens (`$primary`, `$surface`, `$error-darken-2`, etc.) resolve against the active theme and support lighten/darken/muted derivations.
+Supported selectors: type, `#id`, `.class`, pseudo-classes (`:hover`, `:focus`,
+`:active`, `:disabled`, `:can-focus`, `:dark`, `:light`, `:even`, `:odd`,
+`:first-child`, `:last-child`, and more), descendant (` `), child (`>`), grouping
+(`,`), universal (`*`). Theme tokens (`$primary`, `$surface`, `$error-darken-2`, …)
+resolve against the active theme with lighten/darken/muted derivations. Load external
+`.tcss` files and hot-reload them with `App::watch_stylesheet()`.
 
 ## Layout
 
-Five layout modes: **vertical**, **horizontal**, **grid**, **dock**, and **absolute**.
+Five layout modes — **vertical**, **horizontal**, **grid**, **dock**, and **absolute** —
+over a Python-faithful border-box model (margin collapsing, padding, border), with:
 
-Size units: cells (`20`), auto, percentage (`50%`), fractions (`1fr`), viewport (`100vw`, `50vh`).
+- **Size units:** cells (`20`), `auto`, percentage (`50%`), fractions (`1fr`), viewport (`100vw`, `50vh`)
+- **Constraints:** `min-width` / `max-width` / `min-height` / `max-height`
+- **Scrolling:** `overflow: auto | hidden | scroll` with real scrollbars
 
-Box model with margin collapsing, border-box sizing (default, matching Python Textual), padding, and border. Constraints via `min-width`, `max-width`, `min-height`, `max-height`. Overflow handling with scrollbars (`overflow: auto | hidden | scroll`).
+## Widgets
+
+Over 40 first-class widgets — proper focus, keyboard and mouse behavior, component
+styles, messages, and tests:
+
+**Interactive:** Button, Input, MaskedInput, TextArea, Checkbox, RadioSet, Switch,
+Select, OptionList, SelectionList, ListView, DataTable, Tree, DirectoryTree, Tabs,
+TabbedContent, Collapsible, CommandPalette, Link
+
+**Display:** Label / Static, Text, Markdown, Pretty, Digits, ProgressBar,
+LoadingIndicator, Sparkline, RichLog, Log, Toast, Rule, Spacer, Placeholder, HelpPanel,
+KeyPanel
+
+**Containers:** Container, ScrollView, Frame, Panel, Overlay, Constrained, Styled
+
+## Headless testing
+
+Every app and widget is testable **without a real terminal** via the in-process `Pilot`
+harness — press keys, click, pause, and assert on the live state:
+
+```rust
+run_test(QuestionApp { reply: None }, |pilot| {
+    assert!(!pilot.app().headless_stop_requested());
+    pilot.click("#yes")?;                       // fire the button
+    assert!(pilot.app().headless_stop_requested()); // handler ran, app exiting
+    Ok(())
+})?;
+```
+
+This backs **3,100+ tests** — unit, integration, snapshot (via `insta`), and real-PTY
+parity harnesses that diff Rust against the actual Python Textual output cell-by-cell.
 
 ## Architecture
 
@@ -111,50 +184,53 @@ Widget tree → rich-rs Segments (with metadata) → FrameBuffer (2D grid) → f
 
 - **Event routing:** capture phase (root → focused) then bubble phase (focused → root)
 - **Style resolution:** CSS cascade with specificity, inheritance, and `!important`
-- **Rendering:** dirty-flag driven; widgets call `ctx.request_repaint()` to trigger re-render
-
-## Build and test
-
-```bash
-cargo build                      # Build library
-cargo test                       # Run all 1,490 tests
-cargo clippy                     # Lint
-cargo fmt                        # Format
-```
-
-## Debugging
-
-Environment variables for targeted instrumentation:
-
-```bash
-TEXTUAL_DEBUG_STYLE_FILE=/tmp/style.log   # Log CSS resolution
-TEXTUAL_DEBUG_LAYOUT_FILE=/tmp/layout.log # Log layout calculations
-TEXTUAL_DEBUG_INPUT_FILE=/tmp/input.log   # Log input events
-TEXTUAL_DEBUG_RENDER_FILE=/tmp/render.log # Log rendering
-TEXTUAL_DEBUG_BORDER_FILE=/tmp/border.log # Log border painting
-TEXTUAL_DEBUG_FOCUS=1                     # Log focus changes to stderr
-```
-
-Filters narrow output: `TEXTUAL_DEBUG_STYLE_FILTER='type=Button,class=error'`
+- **Rendering:** dirty-flag driven; only changed cells are repainted; hit-testing survives repaints via segment metadata
+- **`unsafe` forbidden:** enforced by lint configuration
 
 ## Python parity
 
 Python Textual is the source of truth for behavior and default styling. The port aligns:
 
-1. **Semantics first:** event/focus/message behavior, layout/box-model rules
-2. **Defaults second:** all 16 widget default CSS files match Python Textual verbatim
-3. **Visuals third:** render-time composition, border painting, opacity blending
+1. **Semantics first** — event/focus/message behavior, layout/box-model rules
+2. **Defaults second** — the 16 widget default CSS files match Python Textual verbatim
+3. **Visuals third** — render-time composition, border painting, opacity blending
 
-Rust idioms are used where appropriate (ownership, type safety, modular boundaries) while preserving behavioral parity.
+Parity is a continuously measured *verification floor*, not a demo emulation: styled
+per-cell-RGB **87/87**, plain-text PTY **186/186**, and real-app interactive parity
+against live Python with only a handful of intentional divergences (see `KNOWN_GAPS.md`).
+Rust idioms — ownership, type safety, modular boundaries — are used throughout while
+preserving behavioral parity.
 
-## Roadmap
+## Build and test
 
-See `ROADMAP.md` for detailed phase tracking. Current status:
+```bash
+cargo build      # build the library
+cargo test       # run the test suite
+cargo clippy     # lint
+cargo fmt        # format
+```
 
-- Phases 0–9.6: **Complete** (runtime, widgets, layout, styling, async, animations, debug tooling, input diagnostics, tabbed content parity)
-- Phase 9.7: **Active** (core modularization)
-- v0.2 execution: widget closure, invalidation improvements, broader test coverage
+### Debugging
+
+Opt-in, filterable instrumentation via environment variables:
+
+```bash
+TEXTUAL_DEBUG_STYLE_FILE=/tmp/style.log    # CSS resolution
+TEXTUAL_DEBUG_LAYOUT_FILE=/tmp/layout.log  # layout calculations
+TEXTUAL_DEBUG_INPUT_FILE=/tmp/input.log    # input events
+TEXTUAL_DEBUG_RENDER_FILE=/tmp/render.log  # rendering
+TEXTUAL_DEBUG_FOCUS=1                       # focus changes (stderr)
+```
+
+Narrow the output with a filter: `TEXTUAL_DEBUG_STYLE_FILTER='type=Button,class=error'`.
+
+## Status
+
+**1.0** — first stable release. See [`CHANGELOG.md`](CHANGELOG.md) for the release notes,
+[`KNOWN_GAPS.md`](KNOWN_GAPS.md) for the honest, tracked set of remaining divergences (all
+intentional or the deferred 1.1 inline-render feature), and [`ROADMAP.md`](ROADMAP.md) for
+1.x direction.
 
 ## License
 
-MIT
+MIT — see [`LICENSE`](LICENSE). Original Textual framework © the Textualize team.
