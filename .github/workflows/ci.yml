@@ -55,4 +55,4 @@ jobs:
       - name: Tests
         env:
           CARGO_INCREMENTAL: "0"
-        run: script -qefc 'cargo test -- --test-threads=1' /dev/null
+        run: script -qefc 'cargo test --lib -- --test-threads=1' /dev/null

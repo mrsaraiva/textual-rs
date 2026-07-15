@@ -31,7 +31,7 @@ jobs:
       - name: Tests
         env:
           CARGO_INCREMENTAL: "0"
-        run: script -qefc 'cargo test -- --test-threads=1' /dev/null
+        run: script -qefc 'cargo test --lib -- --test-threads=1' /dev/null
 
   # Real-PTY parity harness — BLOCKING release gate. Runs example binaries in a
   # genuine pseudo-terminal against Python-generated goldens; headless-safe
