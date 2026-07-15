@@ -121,7 +121,11 @@ Closed in the 1.0-candidate **third wave** (2026-07-12, the deep/upstream trio �
   suite under a PTY (`script -qefc 'cargo test -- --test-threads=1' /dev/null`) so the driver
   initializes; single-threaded also avoids TTY contention. The real fix is a headless/mock driver for
   unit tests so they run without a TTY, after which the PTY wrapper can be dropped and the CI `test` job
-  made blocking (it is `continue-on-error` today). (Diagnosed at 1.0 release.)
+  made blocking (it is `continue-on-error` today). (Diagnosed at 1.0 release.) Additionally, 3 `runtime::render::tests::{modal_screen_layer_preserves_underlay_text,
+  modal_screen_layer_tints_underlay_colors, screen_stylesheet_does_not_leak_to_underlay_layer}` are
+  `#[ignore]`d: their translucent-modal-over-underlay assertion needs the truecolor profile the real
+  driver negotiates, which a headless PTY can't answer (it degrades to opaque). Un-ignore once the test
+  helper forces a fixed color profile.
 
 - **Widget-initiated layout invalidation** — CLOSED across waves 2–3: `set_styles` diff-detects
   layout-affecting mutations and relayouts, and `with_widget_mut` compares intrinsic size around the
