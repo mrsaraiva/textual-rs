@@ -115,6 +115,14 @@ Closed in the 1.0-candidate **third wave** (2026-07-12, the deep/upstream trio �
 
 ## Tracked correctness follow-ups (no demo impact)
 
+- **Runtime unit tests need a real TTY (1.x test-harness cleanup).** ~130 `runtime::event_loop::tests`
+  call `app.initialize()`, which brings up the real terminal driver and fails on headless CI with
+  `Terminal(Os { WouldBlock })` (`src/runtime/event_loop.rs:8738`). CI works around this by running the
+  suite under a PTY (`script -qefc 'cargo test -- --test-threads=1' /dev/null`) so the driver
+  initializes; single-threaded also avoids TTY contention. The real fix is a headless/mock driver for
+  unit tests so they run without a TTY, after which the PTY wrapper can be dropped and the CI `test` job
+  made blocking (it is `continue-on-error` today). (Diagnosed at 1.0 release.)
+
 - **Widget-initiated layout invalidation** — CLOSED across waves 2–3: `set_styles` diff-detects
   layout-affecting mutations and relayouts, and `with_widget_mut` compares intrinsic size around the
   closure — now including `auto_content_width/height` — and promotes an absorbed invalidation to a
