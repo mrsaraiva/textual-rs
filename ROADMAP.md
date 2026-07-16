@@ -37,7 +37,7 @@ a ported regression test. Items marked **[spec]** get a Fable design/spec pass a
 maintainer review before implementation; the rest go direct to implementation.
 
 **W1 — Extension story (make third-party widgets/apps first-class)**
-- [ ] Cross-screen widget access: App-level sync (`query_on`/`with_widget_mut_on`)
+- [x] Cross-screen widget access: App-level sync (`query_on`/`with_widget_mut_on`)
   + deferred `ctx.query_one_on` (Gap 7 B1/B2). Design done
   (`docs/devel/DESIGN_mount_and_cross_screen.md`). [M/L]
 - [x] Component classes for custom widgets: `COMPONENT_CLASSES` +
@@ -52,7 +52,7 @@ maintainer review before implementation; the rest go direct to implementation.
 - [x] Validation description-priority ladder: `describe_failure` + `merge` +
   `failure_descriptions`. [M]
 - [x] Reactive `always_update` (derive attribute) + Suggester `use_cache`. [S]
-- [ ] Devtools framework hooks: log sink over the devtools socket + debug-channel
+- [x] Devtools framework hooks: log sink over the devtools socket + debug-channel
   introspection + `on_tick` for inactive screens (harness work lives in
   `textual-dev-rs`). [M]
 
@@ -68,7 +68,7 @@ maintainer review before implementation; the rest go direct to implementation.
   `WrappedDocument` / `DocumentNavigator` parity. **[spec]** [M/L]
 
 **W4 — Behavior flips (maintainer-approved)**
-- [ ] `Select.allow_blank` default `false` -> `true` (Python parity; breaking
+- [x] `Select.allow_blank` default `false` -> `true` (Python parity; breaking
   default, audit examples/apps). [S]
 - [ ] Fine-grained widget messages: DataTable (Row/Cell/Column/Header/RowLabel
   Highlighted+Selected), Collapsible (`Expanded`/`Collapsed`), SelectionList
