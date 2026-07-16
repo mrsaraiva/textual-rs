@@ -7,6 +7,17 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### Fixed — deferred widget commands no longer alias across screen trees
+
+`NodeId` is a slotmap key, and independent screen trees allocate identical keys,
+so a deferred command (e.g. `Handle::update_via`) captured on one screen could
+pass the `tree.contains` check against a different active screen's tree and mutate
+an unrelated widget. `CommandTarget::Node` now carries the owning tree's id; a
+command whose owning tree is not the active one at drain time is dropped with a
+debug log instead of aliasing, and same-tree/unstamped commands resolve exactly
+as before. (Cross-screen widget access as a feature remains a 1.1 item; this is
+the correctness half.)
+
 ### Fixed — user `Screen { layers }` no longer clobbers the system toast/loading layers
 
 User-facing CSS `layers`/`layer`/`offset` already worked, but a user

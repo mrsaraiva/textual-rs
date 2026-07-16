@@ -110,7 +110,7 @@ impl<'a> WidgetCtx<'a> {
     /// (reachable via `Deref`, which only sets reactive flags).
     pub fn add_class(&mut self, class: &str) {
         enqueue_widget_command(WidgetCommand::AddClass {
-            target: CommandTarget::Node(self.node_id()),
+            target: self_node_target(self.node_id()),
             class: class.to_string(),
         });
     }
@@ -118,7 +118,7 @@ impl<'a> WidgetCtx<'a> {
     /// Remove a CSS class from this widget's own node (command-queue path).
     pub fn remove_class(&mut self, class: &str) {
         enqueue_widget_command(WidgetCommand::RemoveClass {
-            target: CommandTarget::Node(self.node_id()),
+            target: self_node_target(self.node_id()),
             class: class.to_string(),
         });
     }
@@ -140,7 +140,7 @@ impl<'a> WidgetCtx<'a> {
     /// for `ReactiveCtx::add_class_to`.
     pub fn add_class_to(&mut self, node: crate::node_id::NodeId, class: &str) {
         enqueue_widget_command(WidgetCommand::AddClass {
-            target: CommandTarget::Node(node),
+            target: self_node_target(node),
             class: class.to_string(),
         });
     }
@@ -149,7 +149,7 @@ impl<'a> WidgetCtx<'a> {
     /// closer for `ReactiveCtx::remove_class_from`.
     pub fn remove_class_from(&mut self, node: crate::node_id::NodeId, class: &str) {
         enqueue_widget_command(WidgetCommand::RemoveClass {
-            target: CommandTarget::Node(node),
+            target: self_node_target(node),
             class: class.to_string(),
         });
     }
@@ -166,7 +166,7 @@ impl<'a> WidgetCtx<'a> {
         F: FnOnce(&mut crate::widgets::WidgetStyles) + Send + 'static,
     {
         enqueue_widget_command(WidgetCommand::UpdateStyles {
-            target: CommandTarget::Node(self.node_id()),
+            target: self_node_target(self.node_id()),
             apply: Box::new(f),
         });
     }
@@ -223,9 +223,31 @@ impl<W: Widget> Handle<W> {
         F: FnOnce(&mut W, &mut WidgetCtx) + Send + 'static,
     {
         enqueue_widget_command(WidgetCommand::UpdateWidget {
-            target: CommandTarget::Node(self.node_id()),
+            // Stamp the handle's carried tree identity: screens own separate
+            // trees whose slotmap keys collide, so an unstamped NodeId drained
+            // while a different tree is active would mutate an unrelated
+            // widget. A stamped target whose tree is not the active tree at
+            // drain is dropped with a debug log (cross-screen apply is a
+            // deferred feature).
+            target: CommandTarget::Node {
+                node: self.node_id(),
+                tree: Some(self.tree_id()),
+            },
             apply: make_update_apply::<W, F>(f),
         });
+    }
+}
+
+/// Node target for ctx-path enqueues (self / arbitrary-node class ops, style
+/// writes): stamped with the DISPATCHING tree's identity when inside a
+/// dispatch scope, so the command cannot alias a same-keyed node of a
+/// different tree if the active tree changes before the drain. Outside a
+/// dispatch scope (`None`) it resolves against the active tree at drain,
+/// exactly as before the tree-stamp.
+fn self_node_target(node: crate::node_id::NodeId) -> CommandTarget {
+    CommandTarget::Node {
+        node,
+        tree: crate::runtime::dispatch_ctx::dispatch_tree_id(),
     }
 }
 
@@ -248,4 +270,232 @@ where
             )),
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::event::EventCtx;
+    use crate::node_id::NodeId;
+    use crate::runtime::commands::take_widget_commands;
+    use crate::runtime::types::PendingInvalidation;
+    use crate::widget_tree::WidgetTree;
+    use rich_rs::{Console, ConsoleOptions, Segments};
+
+    /// Minimal widget carrying observable state.
+    struct Probe {
+        value: u32,
+    }
+
+    impl Widget for Probe {
+        fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+            Segments::new()
+        }
+
+        fn style_type(&self) -> &'static str {
+            "Probe"
+        }
+    }
+
+    fn build_probe_tree(value: u32) -> (WidgetTree, NodeId) {
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(Box::new(Probe { value }));
+        (tree, root)
+    }
+
+    fn test_app_with_tree(tree: WidgetTree) -> crate::runtime::App {
+        let mut app = crate::runtime::App::new().expect("app should initialize for runtime tests");
+        app.widget_tree = Some(tree);
+        app
+    }
+
+    fn flush_commands(app: &mut crate::runtime::App) {
+        let mut pending = PendingInvalidation::default();
+        for cmd in take_widget_commands() {
+            app.apply_widget_command(cmd, &mut pending);
+        }
+    }
+
+    fn probe_value(tree: &WidgetTree, node: NodeId) -> u32 {
+        let n = tree.get(node).expect("probe node present");
+        (n.widget.as_ref() as &dyn Any)
+            .downcast_ref::<Probe>()
+            .expect("probe downcast")
+            .value
+    }
+
+    /// Aliasing regression (design note section 2.1 / Phase B0): a `Handle`
+    /// from tree A must NOT mutate tree B's widget at the same slotmap key when
+    /// B is the tree commands resolve against at drain time. Before the
+    /// tree-stamp fix, `Handle::update_via` dropped the handle's `tree_id` and
+    /// the command passed `contains()` against the unrelated tree.
+    #[test]
+    fn handle_update_via_does_not_alias_across_trees() {
+        let _ = take_widget_commands();
+
+        // Tree A (NOT installed in the app) and a handle to its root.
+        let (tree_a, root_a) = build_probe_tree(1);
+        let handle_a = crate::handle::Handle::<Probe>::resolve(&tree_a, root_a).unwrap();
+
+        // Tree B, independently built: same insert order, same slotmap key.
+        let (tree_b, root_b) = build_probe_tree(2);
+        assert_eq!(
+            handle_a.node_id(),
+            root_b,
+            "precondition: independent trees allocate identical NodeIds"
+        );
+
+        // B is the active tree at drain time.
+        let mut app = test_app_with_tree(tree_b);
+
+        let mut ev = EventCtx::default();
+        let mut wctx = WidgetCtx::new(handle_a.node_id(), &mut ev);
+        handle_a.update_via(&mut wctx, |p, _| p.value = 99);
+        drop(wctx);
+
+        flush_commands(&mut app);
+
+        let tree = app.widget_tree.as_ref().unwrap();
+        assert_eq!(
+            probe_value(tree, root_b),
+            2,
+            "tree B's widget must not be mutated by a handle from tree A"
+        );
+    }
+
+    /// The stamped path still applies when the handle's owning tree IS the tree
+    /// commands resolve against (the normal same-tree case).
+    #[test]
+    fn handle_update_via_applies_in_owning_tree() {
+        let _ = take_widget_commands();
+
+        let (tree_a, root_a) = build_probe_tree(1);
+        let handle_a = crate::handle::Handle::<Probe>::resolve(&tree_a, root_a).unwrap();
+        let mut app = test_app_with_tree(tree_a);
+
+        let mut ev = EventCtx::default();
+        let mut wctx = WidgetCtx::new(handle_a.node_id(), &mut ev);
+        handle_a.update_via(&mut wctx, |p, _| p.value = 99);
+        drop(wctx);
+
+        flush_commands(&mut app);
+
+        let tree = app.widget_tree.as_ref().unwrap();
+        assert_eq!(probe_value(tree, root_a), 99);
+    }
+
+    struct ModalScreenStub;
+
+    impl crate::screen::Screen for ModalScreenStub {
+        fn name(&self) -> &str {
+            "modal-stub"
+        }
+
+        fn compose(&self) -> Box<dyn Widget> {
+            Box::new(Probe { value: 500 })
+        }
+    }
+
+    /// A stamped target whose owning tree is still alive in the app but NOT the
+    /// active tree (a screen is pushed on top) is dropped: neither the owning
+    /// tree nor the screen's same-keyed node is mutated. Cross-screen APPLY is
+    /// Phase B2; B0 only guarantees no aliasing.
+    #[test]
+    fn handle_update_via_drops_while_other_screen_active() {
+        let _ = take_widget_commands();
+
+        let (tree_a, root_a) = build_probe_tree(1);
+        let tree_a_id = tree_a.tree_id();
+        let handle_a = crate::handle::Handle::<Probe>::resolve(&tree_a, root_a).unwrap();
+        let mut app = test_app_with_tree(tree_a);
+
+        app.push_screen(Box::new(ModalScreenStub));
+        // Screen build may enqueue its own commands; flush them first.
+        flush_commands(&mut app);
+        assert_ne!(
+            app.tree_by_id(tree_a_id)
+                .map(crate::widget_tree::WidgetTree::tree_id),
+            None,
+            "precondition: tree A is alive in the app"
+        );
+
+        let mut ev = EventCtx::default();
+        let mut wctx = WidgetCtx::new(handle_a.node_id(), &mut ev);
+        handle_a.update_via(&mut wctx, |p, _| p.value = 99);
+        drop(wctx);
+
+        flush_commands(&mut app);
+
+        // Owning (non-active) tree untouched: the command was dropped, not
+        // applied cross-screen.
+        let tree_a_ref = app.tree_by_id(tree_a_id).expect("tree A alive");
+        assert_eq!(probe_value(tree_a_ref, root_a), 1);
+        // The active screen tree's same-keyed Probe (if any) untouched too.
+        let active = app.active_widget_tree().expect("active screen tree");
+        assert_ne!(active.tree_id(), tree_a_id);
+        if let Some(n) = active.get(handle_a.node_id())
+            && let Some(p) = (n.widget.as_ref() as &dyn Any).downcast_ref::<Probe>()
+        {
+            assert_eq!(p.value, 500, "screen tree widget must not be aliased");
+        }
+    }
+
+    /// Back-compat pin: an unstamped (`tree: None`) Node target resolves
+    /// against the active tree exactly as before the tree-stamp.
+    #[test]
+    fn unstamped_node_target_resolves_against_active_tree() {
+        let _ = take_widget_commands();
+
+        let (tree, root) = build_probe_tree(1);
+        let mut app = test_app_with_tree(tree);
+
+        crate::runtime::commands::enqueue_widget_command(
+            crate::runtime::commands::WidgetCommand::AddClass {
+                target: crate::runtime::commands::CommandTarget::Node {
+                    node: root,
+                    tree: None,
+                },
+                class: "active".to_string(),
+            },
+        );
+        flush_commands(&mut app);
+
+        let tree = app.widget_tree.as_ref().unwrap();
+        assert!(tree.has_class(root, "active"));
+    }
+
+    /// The ctx enqueue paths stamp the DISPATCHING tree's id when inside a
+    /// dispatch scope (and `None` outside one).
+    #[test]
+    fn ctx_class_ops_stamp_dispatching_tree() {
+        let _ = take_widget_commands();
+
+        let (_tree, root) = build_probe_tree(1);
+
+        // Outside any dispatch scope: unstamped (active-tree resolution).
+        let mut ev = EventCtx::default();
+        let mut wctx = WidgetCtx::new(root, &mut ev);
+        wctx.add_class("outside");
+        drop(wctx);
+
+        // Inside a dispatch scope: stamped with the dispatching tree's id.
+        {
+            let _guard = crate::runtime::dispatch_ctx::set_dispatch_tree(4242);
+            let mut ev = EventCtx::default();
+            let mut wctx = WidgetCtx::new(root, &mut ev);
+            wctx.add_class("inside");
+        }
+
+        let stamps: Vec<Option<u64>> = take_widget_commands()
+            .into_iter()
+            .map(|cmd| match cmd {
+                crate::runtime::commands::WidgetCommand::AddClass {
+                    target: crate::runtime::commands::CommandTarget::Node { tree, .. },
+                    ..
+                } => tree,
+                _ => panic!("expected AddClass Node commands"),
+            })
+            .collect();
+        assert_eq!(stamps, vec![None, Some(4242)]);
+    }
 }

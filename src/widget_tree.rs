@@ -297,6 +297,11 @@ impl WidgetTree {
     /// the real root); its `on_mount()` is a no-op and the real root's lifecycle
     /// is driven separately, so it is skipped.
     pub fn fire_mount_callbacks(&mut self, root_stub: NodeId) {
+        // Stamp this tree as the dispatching tree so `CommandTarget::Node`s
+        // enqueued from `on_mount` carry their owning tree's identity (a
+        // build-time mount can run while a DIFFERENT tree is the active one,
+        // e.g. a screen tree built before it is pushed).
+        let _dispatch_tree_guard = crate::runtime::dispatch_ctx::set_dispatch_tree(self.tree_id);
         let mount_nodes: Vec<NodeId> = std::mem::take(&mut self.pending_lifecycle)
             .into_iter()
             .filter_map(|evt| match evt {

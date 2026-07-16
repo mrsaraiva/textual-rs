@@ -9197,7 +9197,10 @@ mod tests {
             if let Event::Action(Action::Toggle) = event {
                 crate::runtime::commands::enqueue_widget_command(
                     crate::runtime::commands::WidgetCommand::AddClass {
-                        target: crate::runtime::commands::CommandTarget::Node(ctx.node_id()),
+                        target: crate::runtime::commands::CommandTarget::Node {
+                            node: ctx.node_id(),
+                            tree: crate::runtime::dispatch_ctx::dispatch_tree_id(),
+                        },
                         class: "active".to_string(),
                     },
                 );

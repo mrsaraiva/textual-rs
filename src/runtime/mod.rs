@@ -1363,6 +1363,22 @@ impl App {
         self.widget_tree.as_mut()
     }
 
+    /// Find a widget tree by its process-unique [`WidgetTree::tree_id`], over
+    /// the screen stack (top-down) plus the app-root tree. `None` when no live
+    /// tree carries that id (e.g. its screen was popped).
+    pub(crate) fn tree_by_id(&self, tree_id: u64) -> Option<&WidgetTree> {
+        for index in (0..self.screen_stack.len()).rev() {
+            if let Some(entry) = self.screen_stack.get(index)
+                && entry.widget_tree.tree_id() == tree_id
+            {
+                return Some(&entry.widget_tree);
+            }
+        }
+        self.widget_tree
+            .as_ref()
+            .filter(|tree| tree.tree_id() == tree_id)
+    }
+
     /// Return active screen stylesheet override, when a screen is pushed.
     pub(super) fn active_screen_stylesheet(&self) -> Option<&StyleSheet> {
         self.screen_stack

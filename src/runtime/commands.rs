@@ -80,7 +80,15 @@ pub(crate) enum CommandTarget {
     /// An already-resolved node identity (generational — a stale id resolves to
     /// `None` at drain and the command is dropped, never panics). Used by
     /// `Handle::update_via` and self-targeting `WidgetCtx::add_class`.
-    Node(NodeId),
+    ///
+    /// `tree` is the owning `WidgetTree::tree_id()` when known (`Handle`s carry
+    /// it; ctx paths stamp the dispatching tree's id). Screens own separate
+    /// trees whose slotmap keys collide (same index + generation), so a bare
+    /// `NodeId` captured on one tree passes `contains()` against another tree
+    /// and would mutate an unrelated widget. `None` means "the active tree at
+    /// drain time" (the pre-stamp resolution, kept for enqueue sites that
+    /// legitimately target the active tree).
+    Node { node: NodeId, tree: Option<u64> },
     /// A CSS selector resolved against the subtree rooted at `root` at drain
     /// time. Used by `WidgetCtx::query_one_id("#id")`.
     Selector { root: NodeId, sel: String },
@@ -200,11 +208,11 @@ pub fn drain_class_commands_for_test() -> Vec<(NodeId, crate::event::ClassOp)> {
         .into_iter()
         .filter_map(|cmd| match cmd {
             WidgetCommand::AddClass {
-                target: CommandTarget::Node(node),
+                target: CommandTarget::Node { node, .. },
                 class,
             } => Some((node, crate::event::ClassOp::Add(class))),
             WidgetCommand::RemoveClass {
-                target: CommandTarget::Node(node),
+                target: CommandTarget::Node { node, .. },
                 class,
             } => Some((node, crate::event::ClassOp::Remove(class))),
             _ => None,
@@ -232,13 +240,37 @@ impl App {
     /// longer exists / does not match (drop + debug log, **never panic**).
     pub(crate) fn resolve_command_target(&self, target: &CommandTarget) -> Option<NodeId> {
         match target {
-            CommandTarget::Node(id) => {
-                let tree = self.active_widget_tree()?;
-                if tree.contains(*id) {
-                    Some(*id)
+            CommandTarget::Node { node, tree } => {
+                let active = self.active_widget_tree()?;
+                if let Some(tree_id) = tree
+                    && active.tree_id() != *tree_id
+                {
+                    // The stamped owning tree is not the tree this command
+                    // would be applied against. Resolving the bare NodeId
+                    // against the active tree is the cross-tree aliasing bug
+                    // (slotmap keys collide across independent trees), so DROP
+                    // — never fall back. Cross-screen APPLY is Phase B2 of the
+                    // cross-screen design; until then the command is dropped
+                    // whether the owning tree is merely non-active or gone.
+                    if self.tree_by_id(*tree_id).is_some() {
+                        crate::debug::debug_message(&format!(
+                            "[widget-command] dropped: node {node:?} belongs to tree \
+                             {tree_id} which is not the active tree (cross-screen \
+                             apply is not supported yet)"
+                        ));
+                    } else {
+                        crate::debug::debug_message(&format!(
+                            "[widget-command] dropped: node {node:?}'s owning tree \
+                             {tree_id} no longer exists"
+                        ));
+                    }
+                    return None;
+                }
+                if active.contains(*node) {
+                    Some(*node)
                 } else {
                     crate::debug::debug_message(&format!(
-                        "[widget-command] dropped: node {id:?} no longer mounted"
+                        "[widget-command] dropped: node {node:?} no longer mounted"
                     ));
                     None
                 }
@@ -403,11 +435,14 @@ impl App {
     ) -> Option<R> {
         // Node interaction state for the dispatch guard (so `self.node_id()` /
         // `node_state()` are correct inside the closure).
-        let state = self
-            .active_widget_tree()
-            .and_then(|t| t.get(node))
-            .map(|n| n.state)?;
+        let (state, tree_id) = {
+            let tree = self.active_widget_tree()?;
+            (tree.get(node)?.state, tree.tree_id())
+        };
         let _guard = super::dispatch_ctx::set_dispatch_recipient(node, state);
+        // Stamp the dispatching tree so `CommandTarget::Node`s enqueued from the
+        // closure carry their owning tree's identity (aliasing guard).
+        let _tree_guard = super::dispatch_ctx::set_dispatch_tree(tree_id);
 
         // No live EventCtx exists in the flush; synthesize one (TRAP f: the
         // WidgetCtx borrows it by `&mut`, so its invalidation flags survive to

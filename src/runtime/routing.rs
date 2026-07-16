@@ -6,7 +6,7 @@ use crate::node_id::NodeId;
 use crate::widget_tree::WidgetTree;
 use crate::widgets::Widget;
 
-use super::dispatch_ctx::set_dispatch_recipient;
+use super::dispatch_ctx::{set_dispatch_recipient, set_dispatch_tree};
 use super::types::DispatchOutcome;
 use crate::event::ClassOp;
 
@@ -166,6 +166,9 @@ pub fn dispatch_event_tree(
     event: &Event,
 ) -> DispatchOutcome {
     let event_debug = format!("{event:?}");
+    // Stamp the dispatching tree for the whole dispatch: `CommandTarget::Node`s
+    // enqueued by handlers carry this tree's identity (cross-tree alias guard).
+    let _dispatch_tree_guard = set_dispatch_tree(tree.tree_id());
     let mut ctx = EventCtx::default();
     let always_bubble = matches!(event, Event::MouseUp(..));
 
@@ -241,6 +244,7 @@ pub fn dispatch_event_to_target_tree(
     target: NodeId,
     event: &Event,
 ) -> DispatchOutcome {
+    let _dispatch_tree_guard = set_dispatch_tree(tree.tree_id());
     let mut ctx = EventCtx::default();
     let path = build_path_to_node(tree, target);
 
@@ -302,6 +306,7 @@ pub fn dispatch_event_to_target_tree(
 /// This is used for runtime-global state updates (e.g. binding-hint payload
 /// changes) where non-focused widgets such as `Footer` still need notification.
 pub fn dispatch_event_broadcast_tree(tree: &mut WidgetTree, event: &Event) -> DispatchOutcome {
+    let _dispatch_tree_guard = set_dispatch_tree(tree.tree_id());
     let Some(root) = tree.root() else {
         return DispatchOutcome::default();
     };
@@ -384,6 +389,7 @@ pub(crate) fn dispatch_mouse_scroll_to_target_tree(
     delta_x: i32,
     delta_y: i32,
 ) -> DispatchOutcome {
+    let _dispatch_tree_guard = set_dispatch_tree(tree.tree_id());
     let mut ctx = EventCtx::default();
     let path = build_path_to_node(tree, target);
 
@@ -482,6 +488,7 @@ pub fn dispatch_message_queue_tree(
 ) -> DispatchOutcome {
     use std::collections::VecDeque;
 
+    let _dispatch_tree_guard = set_dispatch_tree(tree.tree_id());
     let mut handled = false;
     let mut repaint_requested = false;
     let mut invalidation = crate::event::InvalidationFlags::default();
