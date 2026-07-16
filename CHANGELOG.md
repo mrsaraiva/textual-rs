@@ -7,6 +7,13 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-07-16
+
+Second patch release. Ten confirmed correctness bugs from a parity audit against
+Python Textual's own test suite, verified in-source and each backed by a ported
+regression test. Bundles a coordinated `textual-macros` 1.0.1 bump (the `@on`
+selector fix changes macro codegen).
+
 ### Fixed: `#[on(Msg, selector = "...")]` selector filtering is enforced
 
 The `selector = "..."` argument of `#[on(..)]` was parsed and surfaced as a

@@ -5,10 +5,10 @@ on:
     tags:
       - "v*"
 
-# NOTE: textual depends on the in-repo `textual-macros` crate. To publish `textual` to
-# crates.io, publish `textual-macros` first (manual one-time publish), then tag a release.
-# Test suite is fully green (2500 pass, 0 fail). The compose-render regressions
-# (markdown/help_panel/welcome) and the ScrollView horizontal intrinsic-width scroll were all fixed.
+# NOTE: textual depends on the in-repo `textual-macros` crate. The publish job below
+# publishes `textual-macros` first (idempotently, skipping versions already on crates.io)
+# and waits for the index to propagate before publishing `textual`, so a tag push that
+# bumps both crates releases them in the correct order with no manual step.
 
 jobs:
   test:
@@ -77,36 +77,49 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - name: Read crate version
-        id: crate_version
+      - name: Read crate versions
+        id: versions
         run: |
           set -euo pipefail
-          version=$(cargo metadata --no-deps --format-version 1 | \
-            python3 -c "import json,sys; pkgs=json.load(sys.stdin)['packages']; print(next(p['version'] for p in pkgs if p['name']=='textual'))")
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-      - name: Check if version exists on crates.io
-        id: version_check
-        run: |
-          set -euo pipefail
-          version="${{ steps.crate_version.outputs.version }}"
-          if curl -sfL -A "release-workflow (https://github.com/mrsaraiva)" "https://crates.io/api/v1/crates/textual/${version}"; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
-          fi
-      - name: Skip publish (version exists)
-        if: steps.version_check.outputs.exists == 'true'
-        run: echo "crate version already published; skipping cargo publish"
+          meta=$(cargo metadata --no-deps --format-version 1)
+          tv=$(echo "$meta" | python3 -c "import json,sys; pkgs=json.load(sys.stdin)['packages']; print(next(p['version'] for p in pkgs if p['name']=='textual'))")
+          mv=$(echo "$meta" | python3 -c "import json,sys; pkgs=json.load(sys.stdin)['packages']; print(next(p['version'] for p in pkgs if p['name']=='textual-macros'))")
+          echo "textual=$tv" >> "$GITHUB_OUTPUT"
+          echo "macros=$mv" >> "$GITHUB_OUTPUT"
       - name: Authenticate with crates.io
         id: auth
         uses: rust-lang/crates-io-auth-action@v1
-        if: steps.version_check.outputs.exists != 'true'
-      - name: Publish to crates.io
+      - name: Publish textual-macros (if new)
         env:
           CARGO_INCREMENTAL: "0"
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
-        run: cargo publish -p textual --locked
-        if: steps.version_check.outputs.exists != 'true'
+        run: |
+          set -euo pipefail
+          v="${{ steps.versions.outputs.macros }}"
+          if curl -sfL -A "release-workflow (https://github.com/mrsaraiva)" "https://crates.io/api/v1/crates/textual-macros/${v}" >/dev/null; then
+            echo "textual-macros ${v} already published; skipping"
+          else
+            cargo publish -p textual-macros --locked
+            # Wait for the sparse index to propagate so the textual publish resolves it.
+            for i in $(seq 1 30); do
+              if curl -sfL "https://index.crates.io/te/xt/textual-macros" | grep -q "\"vers\":\"${v}\""; then
+                echo "index has textual-macros ${v}"; break
+              fi
+              echo "waiting for textual-macros ${v} on the index..."; sleep 10
+            done
+          fi
+      - name: Publish textual (if new)
+        env:
+          CARGO_INCREMENTAL: "0"
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+        run: |
+          set -euo pipefail
+          v="${{ steps.versions.outputs.textual }}"
+          if curl -sfL -A "release-workflow (https://github.com/mrsaraiva)" "https://crates.io/api/v1/crates/textual/${v}" >/dev/null; then
+            echo "textual ${v} already published; skipping"
+          else
+            cargo publish -p textual --locked
+          fi
 
   create-release:
     runs-on: ubuntu-latest
