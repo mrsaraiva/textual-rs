@@ -250,6 +250,13 @@ impl ListView {
             self.disabled.remove(index);
         }
         self.invalidate_children();
+        // Python `ListView.pop`: removing an item before the highlight shifts
+        // the highlight down by one so the same logical item stays
+        // highlighted; removing the highlighted item itself re-validates
+        // (clamps) the index, which `clamp_offsets` below handles.
+        if index < self.selected {
+            self.selected -= 1;
+        }
         self.clamp_offsets();
         self.ensure_visible();
         Some(text)
@@ -1087,6 +1094,19 @@ mod tests {
         let mut list = ListView::new(vec!["A".into()]);
         assert!(list.remove(5).is_none());
         assert_eq!(list.items().len(), 1);
+    }
+
+    #[test]
+    fn remove_earlier_item_keeps_same_logical_item_highlighted() {
+        // Python `ListView.pop`: removing an item before the highlight
+        // decrements the index so the highlighted item does not change.
+        let mut list = ListView::new(vec!["A".into(), "B".into(), "C".into()]);
+        list.set_selected(2);
+        assert_eq!(list.selected_item(), Some("C"));
+
+        list.remove(0);
+        assert_eq!(list.selected(), 1);
+        assert_eq!(list.selected_item(), Some("C"));
     }
 
     #[test]

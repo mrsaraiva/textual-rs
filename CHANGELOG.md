@@ -51,6 +51,38 @@ single-character non-alphanumeric alternatives through the canonical
 character-to-key-name table (Python `_character_to_key` parity), so `"."`,
 `"~"`, `"?"` etc. match their pressed keys. Ports
 `test_keys.py::test_character_bindings`.
+### Fixed — OptionList single-step navigation wraps around the ends
+
+`cursor_up` / `cursor_down` reused the page-navigation routine and clamped at
+the first/last option; Python wraps single-step movement
+(`_widget_navigation.find_next_enabled`) and clamps only page navigation
+(`find_next_enabled_no_wrap`). Single-step movement now wraps around the ends,
+skipping separators and disabled options, while page up/down keeps clamping.
+This also fixes wrap-around in the `Select` dropdown overlay, which rides
+`OptionList` navigation.
+
+### Fixed — ListView `remove(index)` keeps the highlighted item stable
+
+Removing an item before the highlight did not shift the stored index, so the
+highlight silently jumped to the previous logical item (`insert()` already
+shifted correctly; `remove()` was the asymmetric oversight). Matching Python
+`ListView.pop`: removing an earlier item decrements the highlight index, and
+removing the highlighted item itself re-validates (clamps) it.
+
+### Fixed — DataTable `sort_by_columns(&[])` sorts by all columns
+
+An empty column list was a silent no-op, where Python `table.sort()` with no
+arguments sorts by every column. `sort_by_columns` now falls back to all
+columns, matching the fallback `sort_by` already had.
+
+### Fixed — DataTable hover past the last column no longer clamps to the last cell
+
+Hovering (or clicking) the blank fill right of the last column mapped to the
+last cell instead of nothing (Python regression #2909). The column-at-x mapping
+now reports out of bounds past the last column's padded extent: hover yields no
+cell and clicks are ignored, except with a row cursor, where the out-of-bounds
+area still targets the row (column 0), mirroring Python's
+`{"row": row, "column": 0, "out_of_bounds": True}` segment meta.
 
 ## [1.0.1] - 2026-07-16
 

@@ -637,7 +637,43 @@ impl OptionList {
         }
     }
 
-    /// Move highlight by `delta`, skipping separators and disabled items.
+    /// Move highlight by a single step, wrapping around the ends of the list
+    /// and skipping separators and disabled items (Python
+    /// `_widget_navigation.find_next_enabled`, used by `action_cursor_up` /
+    /// `action_cursor_down`). If no other option is enabled the highlight
+    /// stays on the anchor.
+    fn step_highlight(&mut self, direction: isize, ctx: &mut crate::event::WidgetCtx) {
+        if self.selectable_count() == 0 {
+            return;
+        }
+        let Some(current) = self.cursor.highlighted() else {
+            let target = if direction.is_negative() {
+                self.last_selectable()
+            } else {
+                self.first_selectable()
+            };
+            if let Some(target) = target {
+                self.highlight_index(target, ctx);
+            }
+            return;
+        };
+        let len = self.items.len() as isize;
+        let step: isize = if direction.is_negative() { -1 } else { 1 };
+        let mut index = current as isize;
+        for _ in 0..len {
+            index = (index + step).rem_euclid(len);
+            if self.items[index as usize].is_selectable() {
+                self.highlight_index(index as usize, ctx);
+                return;
+            }
+        }
+    }
+
+    /// Move highlight by `delta` without wrapping, skipping separators and
+    /// disabled items; clamps at the ends (Python
+    /// `_widget_navigation.find_next_enabled_no_wrap`, used by page
+    /// navigation). Single-step cursor movement wraps instead — see
+    /// [`Self::step_highlight`].
     fn move_highlight(&mut self, delta: isize, ctx: &mut crate::event::WidgetCtx) {
         if self.selectable_count() == 0 {
             return;
@@ -757,12 +793,12 @@ impl crate::widgets::Focus for OptionList {
         }
         match action.name.as_str() {
             "cursor_up" => {
-                self.move_highlight(-1, ctx);
+                self.step_highlight(-1, ctx);
                 ctx.set_handled();
                 true
             }
             "cursor_down" => {
-                self.move_highlight(1, ctx);
+                self.step_highlight(1, ctx);
                 ctx.set_handled();
                 true
             }
@@ -1278,7 +1314,7 @@ mod tests {
         assert_eq!(list.highlighted(), Some(0));
 
         let mut ctx = EventCtx::default();
-        { let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx); list.move_highlight(1, &mut __w) };
+        { let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx); list.step_highlight(1, &mut __w) };
         // Should skip the separator and land on Beta (index 2).
         assert_eq!(list.highlighted(), Some(2));
     }
@@ -1296,7 +1332,7 @@ mod tests {
         assert_eq!(list.highlighted(), Some(0));
 
         let mut ctx = EventCtx::default();
-        { let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx); list.move_highlight(1, &mut __w) };
+        { let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx); list.step_highlight(1, &mut __w) };
         assert_eq!(list.highlighted(), Some(2));
     }
 
@@ -1404,8 +1440,56 @@ mod tests {
         list.on_layout(40, 10);
 
         let mut ctx = EventCtx::default();
-        { let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx); list.move_highlight(-1, &mut __w) };
+        { let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx); list.step_highlight(-1, &mut __w) };
         assert_eq!(list.highlighted(), Some(2));
+    }
+
+    #[test]
+    fn option_list_step_navigation_wraps_and_page_navigation_clamps() {
+        // Python: `action_cursor_up`/`action_cursor_down` use
+        // `find_next_enabled` (wraps around the ends, skipping disabled
+        // options); page navigation uses `find_next_enabled_no_wrap` (clamps).
+        let items = vec![
+            OptionItem::disabled("Zero"),
+            OptionItem::new("Alpha"),
+            OptionItem::new("Bravo"),
+            OptionItem::disabled("Omega"),
+        ];
+        let mut list = OptionList::with_items(items);
+        let id = make_node_id();
+        let _guard = set_dispatch_recipient(id, focused_state());
+        list.on_layout(40, 10);
+
+        // Highlight starts on the first enabled option.
+        assert_eq!(list.highlighted(), Some(1));
+
+        // Step-up from the first enabled option wraps to the last enabled one.
+        let mut ctx = EventCtx::default();
+        assert!(run_action(&mut list, "cursor_up", &mut ctx));
+        assert_eq!(list.highlighted(), Some(2));
+
+        // Step-down from the last enabled option wraps back to the first.
+        let mut ctx = EventCtx::default();
+        assert!(run_action(&mut list, "cursor_down", &mut ctx));
+        assert_eq!(list.highlighted(), Some(1));
+
+        // Page navigation clamps at the ends instead of wrapping.
+        let items = vec![OptionItem::new("Alpha"), OptionItem::new("Bravo")];
+        let mut list = OptionList::with_items(items);
+        list.on_layout(40, 10);
+        assert_eq!(list.highlighted(), Some(0));
+
+        let mut ctx = EventCtx::default();
+        assert!(run_action(&mut list, "page_up", &mut ctx));
+        assert_eq!(list.highlighted(), Some(0));
+
+        let mut ctx = EventCtx::default();
+        assert!(run_action(&mut list, "page_down", &mut ctx));
+        assert_eq!(list.highlighted(), Some(1));
+
+        let mut ctx = EventCtx::default();
+        assert!(run_action(&mut list, "page_down", &mut ctx));
+        assert_eq!(list.highlighted(), Some(1));
     }
 
     #[test]

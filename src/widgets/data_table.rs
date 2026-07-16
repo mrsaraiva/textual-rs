@@ -750,12 +750,20 @@ impl DataTable {
     /// Multi-column sort (Python `table.sort(*columns)` with no key): rows are
     /// ordered by the tuple of the given columns' values, each compared as a
     /// [`SortKey`] (numeric-aware). `reverse` flips the whole order.
+    ///
+    /// If `columns` is empty, rows are ordered by the tuple of every column's
+    /// value (Python `table.sort()` with no arguments sorts by all columns).
     pub fn sort_by_columns(&mut self, columns: &[usize], reverse: bool) {
         if self.rows.is_empty() {
             return;
         }
+        let cols: Vec<usize> = if columns.is_empty() {
+            (0..self.headers.len()).collect()
+        } else {
+            columns.to_vec()
+        };
         self.sort_with(reverse, |row| {
-            SortKey::tuple(columns.iter().map(|&c| {
+            SortKey::tuple(cols.iter().map(|&c| {
                 SortKey::infer(row.get(c).map(|cell| cell.plain()).unwrap_or(""))
             }))
         });
@@ -983,9 +991,16 @@ impl DataTable {
         }
     }
 
-    fn column_at_x_in_rendered_columns(&self, x: usize, rendered_columns: &[usize]) -> usize {
+    /// Map a content-local `x` to the rendered column under it, or `None` when
+    /// `x` falls past the last column's padded extent (Python #2909: the blank
+    /// area right of the final column is out of bounds, not the last cell).
+    fn column_at_x_in_rendered_columns(
+        &self,
+        x: usize,
+        rendered_columns: &[usize],
+    ) -> Option<usize> {
         if rendered_columns.is_empty() {
-            return 0;
+            return None;
         }
         // Adjust for leading CELL_PADDING space.
         let x = x.saturating_sub(CELL_PADDING);
@@ -997,11 +1012,18 @@ impl DataTable {
             let width = *self.column_widths.get(*col).unwrap_or(&0);
             let end = pos.saturating_add(width);
             if x < end {
-                return *col;
+                return Some(*col);
             }
             pos = end;
         }
-        *rendered_columns.last().unwrap_or(&0)
+        // The last column's trailing pad is rendered in the cell's own style
+        // (Python attaches the cell's meta to its padding), so it still counts
+        // as the last cell; anything beyond it is out of bounds.
+        if x < pos.saturating_add(CELL_PADDING) {
+            rendered_columns.last().copied()
+        } else {
+            None
+        }
     }
 
     fn fixed_section_width(&self) -> usize {
@@ -1544,10 +1566,20 @@ impl crate::widgets::Interactive for DataTable {
         let visible_rows = self.visible_rows();
         let next = if self.show_header && y == 0 {
             // Header row — use usize::MAX as sentinel (mirrors Textual's row_index=-1).
-            Some((usize::MAX, col_idx))
+            col_idx.map(|col| (usize::MAX, col))
         } else {
-            self.row_index_from_y(y as usize, visible_rows)
-                .map(|row_idx| (row_idx, col_idx))
+            match col_idx {
+                Some(col) => self
+                    .row_index_from_y(y as usize, visible_rows)
+                    .map(|row_idx| (row_idx, col)),
+                // Past the last column: no hovered cell (Python #2909), except
+                // with a row cursor, where the out-of-bounds fill still carries
+                // the row (Python meta `{"row": row, "column": 0}`).
+                None if matches!(self.cursor_type, CursorType::Row) => self
+                    .row_index_from_y(y as usize, visible_rows)
+                    .map(|row_idx| (row_idx, 0)),
+                None => None,
+            }
         };
         let changed = next != self.hover_coordinate;
         self.hover_coordinate = next;
@@ -1566,6 +1598,15 @@ impl crate::widgets::Interactive for DataTable {
                 let rendered_columns = self.rendered_column_indices();
                 let clicked_col =
                     self.column_at_x_in_rendered_columns(mouse.x as usize, &rendered_columns);
+                // Clicks past the last column are out of bounds and ignored,
+                // except with a row cursor, where the click still selects the
+                // row (Python `_on_click` out_of_bounds handling).
+                let Some(clicked_col) = clicked_col.or_else(|| {
+                    matches!(self.cursor_type, CursorType::Row).then_some(0)
+                }) else {
+                    ctx.set_handled();
+                    return;
+                };
                 if matches!(self.cursor_type, CursorType::Cell | CursorType::Column)
                     && self.cursor_column != clicked_col {
                         self.cursor_column = clicked_col;
@@ -2596,6 +2637,69 @@ mod tests {
 
         table.on_mouse_move(5, 2);
         assert_eq!(table.hover_coordinate, Some((1, 1)));
+    }
+
+    #[test]
+    fn hover_past_last_column_yields_no_cell() {
+        // Python #2909: hovering the blank area right of the last column
+        // highlights nothing instead of clamping to the last cell.
+        let mut table = DataTable::new(
+            vec!["ABC".into(), "D".into()],
+            vec![vec!["row0".into(), "x".into()]],
+        );
+        table.on_layout(30, 4);
+
+        // Layout: [pad][col0 w=4][pad][pad][col1 w=1][pad] -> extent ends at x=9.
+        // The last column's trailing pad (x=8) still belongs to it.
+        table.on_mouse_move(8, 1);
+        assert_eq!(table.hover_coordinate, Some((0, 1)));
+
+        // Past the last column's padded extent: no hovered cell.
+        table.on_mouse_move(9, 1);
+        assert_eq!(table.hover_coordinate, None);
+
+        // Same for the header row.
+        table.on_mouse_move(9, 0);
+        assert_eq!(table.hover_coordinate, None);
+
+        // With a row cursor the out-of-bounds area still hovers the row
+        // (Python renders it with meta `{"row": row, "column": 0}`).
+        let mut table = DataTable::new(
+            vec!["ABC".into(), "D".into()],
+            vec![vec!["row0".into(), "x".into()]],
+        )
+        .cursor_type(CursorType::Row);
+        table.on_layout(30, 4);
+        table.on_mouse_move(9, 1);
+        assert_eq!(table.hover_coordinate, Some((0, 0)));
+    }
+
+    #[test]
+    fn sort_by_columns_empty_sorts_all_columns() {
+        // Python `table.sort()` with no columns sorts by every column.
+        let mut table = DataTable::new(
+            vec!["A".into(), "B".into()],
+            vec![
+                vec!["b".into(), "2".into()],
+                vec!["a".into(), "3".into()],
+                vec!["a".into(), "1".into()],
+            ],
+        );
+        table.sort_by_columns(&[], false);
+
+        let order: Vec<(String, String)> = table
+            .rows
+            .iter()
+            .map(|row| (row[0].plain().to_string(), row[1].plain().to_string()))
+            .collect();
+        assert_eq!(
+            order,
+            vec![
+                ("a".to_string(), "1".to_string()),
+                ("a".to_string(), "3".to_string()),
+                ("b".to_string(), "2".to_string()),
+            ]
+        );
     }
 
     #[test]
