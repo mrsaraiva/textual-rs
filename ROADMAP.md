@@ -40,7 +40,7 @@ maintainer review before implementation; the rest go direct to implementation.
 - [ ] Cross-screen widget access: App-level sync (`query_on`/`with_widget_mut_on`)
   + deferred `ctx.query_one_on` (Gap 7 B1/B2). Design done
   (`docs/devel/DESIGN_mount_and_cross_screen.md`). [M/L]
-- [ ] Component classes for custom widgets: `COMPONENT_CLASSES` +
+- [x] Component classes for custom widgets: `COMPONENT_CLASSES` +
   `get_component_rich_style`, so third-party widgets expose restylable internals
   instead of hardcoding RGB. **[spec]** [M]
 - [x] Render-time resolved-style / theme-var access + a public timer API seam
