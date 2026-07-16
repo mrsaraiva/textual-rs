@@ -971,9 +971,7 @@ impl crate::widgets::Interactive for MaskedInput {
                     | EditCommand::DeleteToEnd
                     | EditCommand::DeleteLine
                     | EditCommand::SelectAll
-                    | EditCommand::SelectLine
-                    | EditCommand::Undo
-                    | EditCommand::Redo => {}
+                    | EditCommand::SelectLine => {}
                 }
 
                 if value_changed {

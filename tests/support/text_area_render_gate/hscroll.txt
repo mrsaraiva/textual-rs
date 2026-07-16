@@ -1,0 +1,70 @@
+Segments(
+    [
+        Segment {
+            text: "lows the view width",
+            style: Some(
+                Style {
+                    color: None,
+                    bgcolor: None,
+                    bold: None,
+                    dim: None,
+                    italic: None,
+                    underline: None,
+                    blink: None,
+                    blink2: None,
+                    reverse: None,
+                    conceal: None,
+                    strike: None,
+                    underline2: None,
+                    frame: None,
+                    encircle: None,
+                    overline: None,
+                },
+            ),
+            meta: None,
+            control: None,
+        },
+        Segment {
+            text: " ",
+            style: None,
+            meta: None,
+            control: None,
+        },
+        Segment {
+            text: "\n",
+            style: None,
+            meta: None,
+            control: None,
+        },
+        Segment {
+            text: "                    ",
+            style: None,
+            meta: None,
+            control: None,
+        },
+        Segment {
+            text: "\n",
+            style: None,
+            meta: None,
+            control: None,
+        },
+        Segment {
+            text: "                    ",
+            style: None,
+            meta: None,
+            control: None,
+        },
+        Segment {
+            text: "\n",
+            style: None,
+            meta: None,
+            control: None,
+        },
+        Segment {
+            text: "                    ",
+            style: None,
+            meta: None,
+            control: None,
+        },
+    ],
+)

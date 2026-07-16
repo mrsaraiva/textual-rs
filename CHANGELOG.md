@@ -280,6 +280,66 @@ BREAKING (1.1):
 
 Perf: plain single-line prompts that fit the content width skip the Console
 render in `item_height`, keeping `total_lines` cheap for the common case.
+### Added — TextArea Document subsystem (Python `textual.document` port)
+
+New `crate::document` framework module (widget-independent):
+
+- `Document` text storage with the single `replace_range` mutation primitive,
+  `get_text_range`, index<->location conversion, and `get_size`. `Location`
+  columns are byte offsets clamped to grapheme cluster boundaries (documented
+  deviation from Python's codepoint columns; identical for ASCII).
+  `Cursor`/`Selection` definitions moved here; `widgets::text_area` re-exports
+  them unchanged.
+- `Edit` delta edits and `EditHistory` with Python-parity batching rules
+  (time window, character cap, newline/paste isolation, insert-vs-delete
+  splits, forced checkpoints) and an injectable `HistoryClock`
+  (`MockClock` test seam; replace the whole history via
+  `*text_area.history_mut() = EditHistory::with_clock(...)`).
+
+### Changed — TextArea undo/redo is delta-based (breaking)
+
+- The full-document-snapshot undo stack is gone. Every mutation now routes
+  through a single `TextArea::edit(Edit)` funnel and is recorded as a delta
+  batch: memory is O(edit), batching matches Python (typing runs coalesce;
+  pastes, newlines, and delete-vs-insert transitions checkpoint; cursor
+  moves, mouse clicks, and focus gain create checkpoints).
+- New public API: `insert` (now returns `EditResult`), `insert_at`,
+  `replace`, `delete`, `clear`, `load_text`/`set_text` (clears history),
+  `undo`, `redo`, `document()`, `history()`/`history_mut()`.
+- Undo/redo are no longer gated on `read_only` (Python parity; previously
+  they worked in read-only mode only via a key-fallthrough accident).
+- `ctrl+z`/`ctrl+y` are handled solely by the bindings/action path; a
+  `ctrl+shift+z` -> `redo` binding was added so that chord survives the
+  removal of the duplicate `EditCommand::Undo/Redo` key path.
+
+### Added — TextArea soft wrap is real (and on by default)
+
+`WrappedDocument` (incremental wrap caches with `wrap_range` re-wrapping
+only the edited lines) and `DocumentNavigator` (wrap-aware movement) are
+wired into `TextArea`:
+
+- The default `soft_wrap(true)` now actually wraps long lines (previously a
+  no-op flag that overflowed horizontally). This closes a Python parity gap
+  but IS a visible change for every default `TextArea`; `soft_wrap(false)`
+  (and `code_editor()`) render byte-identically to before (gated by golden
+  tests). Wrapped documents never scroll horizontally (Python parity).
+- Rendering draws one wrapped section per visual row; line numbers appear
+  only on a line's first section. Vertical scrolling and hit-testing work
+  in visual-offset space (clicks past the end clamp).
+- Up/Down/Home/End are wrap-aware: vertical movement walks visual sections
+  (possibly within one document line); Home/End go to section boundaries.
+  Wrap folding never splits a grapheme cluster and keeps wide clusters
+  atomic; the pinned degenerate tab model counts `'\t'` as 1 cell
+  consistently across wrap, offset mapping, and render.
+- The remembered column for vertical movement follows Python's
+  `max(current visual x, last recorded x)` rule and is no longer updated by
+  Up/Down themselves.
+
+### Changed — TextArea Up/Down boundary navigation (Python parity)
+
+Pressing Up on the first (wrapped) line now moves the cursor to `(0, 0)`,
+and Down on the last (wrapped) line moves to the end of the line, in both
+wrap modes. Previously both were no-ops at the document boundaries.
 
 ## [1.0.3] - 2026-07-16
 

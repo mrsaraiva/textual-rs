@@ -26,6 +26,11 @@ use super::{
     },
 };
 
+use crate::document::{Document, DocumentNavigator, EditHistory, WrappedDocument};
+// The document model types are defined in `crate::document` (a framework
+// primitive); re-exported here for the existing `TextArea` API surface.
+pub use crate::document::{Cursor, Edit, EditResult, Location, Selection};
+
 #[derive(Debug, Clone)]
 pub struct TextAreaTheme {
     pub name: String,
@@ -82,90 +87,10 @@ impl Default for SyntaxCache {
     }
 }
 
-#[derive(Debug, Clone)]
-struct UndoEntry {
-    lines: Vec<String>,
-    cursor: Cursor,
-    selection: Selection,
-}
-
-#[derive(Debug, Clone, Default)]
-struct UndoStack {
-    entries: Vec<UndoEntry>,
-    position: usize,
-    max_entries: usize,
-}
-
-impl UndoStack {
-    fn new(max: usize) -> Self {
-        Self {
-            entries: Vec::new(),
-            position: 0,
-            max_entries: max,
-        }
-    }
-
-    fn push(&mut self, entry: UndoEntry) {
-        // Truncate any redo entries after current position.
-        self.entries.truncate(self.position);
-        self.entries.push(entry);
-        if self.entries.len() > self.max_entries {
-            self.entries.remove(0);
-        }
-        self.position = self.entries.len();
-    }
-
-    fn undo(&mut self) -> Option<&UndoEntry> {
-        if self.position > 0 {
-            self.position -= 1;
-            self.entries.get(self.position)
-        } else {
-            None
-        }
-    }
-
-    fn redo(&mut self) -> Option<&UndoEntry> {
-        if self.position < self.entries.len() {
-            let entry = self.entries.get(self.position);
-            self.position += 1;
-            entry
-        } else {
-            None
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct Cursor {
-    pub row: usize,
-    pub col: usize, // byte index in line
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct Selection {
-    pub start: Cursor,
-    pub end: Cursor,
-}
-
-impl Selection {
-    pub fn cursor(pos: Cursor) -> Self {
-        Self {
-            start: pos,
-            end: pos,
-        }
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.start == self.end
-    }
-}
-
 #[widget(Focus, Interactive, Selectable)]
 pub struct TextArea {
-    lines: Vec<String>,
-    /// The newline style used by the document (Python `Document._newline`):
-    /// detected from the initial text and preserved on `text()` read-back.
-    newline: &'static str,
+    /// The document model (lines + newline style + `replace_range`).
+    document: Document,
     cursor: Cursor,
     selection: Selection,
     language: Option<String>,
@@ -175,19 +100,27 @@ pub struct TextArea {
     indent_width: usize,
     soft_wrap: bool,
     placeholder: String,
+    /// Vertical scroll position in VISUAL rows (wrapped sections).
     scroll_row: usize,
-    scroll_col: usize, // cell offset
+    /// Horizontal scroll position in cells; only used when the wrap width
+    /// is 0 (wrapped documents never scroll horizontally, matching Python).
+    scroll_col: usize,
     layout_w: u16,
     layout_h: u16,
     layout_initialized: bool,
-    preferred_col_cells: Option<usize>,
+    /// The wrapped view over `document`; kept in sync by the edit funnel
+    /// (`wrap_range`) and full re-wraps on layout/gutter changes.
+    wrapped: WrappedDocument,
+    /// Wrap-aware navigation state (`last_x_offset` is the remembered
+    /// visual x for vertical movement, replacing `preferred_col_cells`).
+    navigator: DocumentNavigator,
     mouse_down: bool,
     app_active: bool,
     cursor_visible: bool,
     cursor_blink_next_at: Option<Instant>,
     cursor_blink_enabled: bool,
     doc_revision: u64,
-    undo_stack: UndoStack,
+    history: EditHistory,
     syntax_cache: std::sync::Mutex<SyntaxCache>,
     languages: HashMap<String, LanguageDef>,
     themes: HashMap<String, TextAreaTheme>,
@@ -234,9 +167,12 @@ impl TextArea {
 
     pub fn new(text: impl Into<String>) -> Self {
         let text = text.into();
+        let document = Document::new(&text);
+        // Wrap width starts at 0 (no wrapping); the first `on_layout`
+        // computes the real wrap width.
+        let wrapped = WrappedDocument::new(&document, 0, 4);
         let mut out = Self {
-            newline: detect_newline_style(&text),
-            lines: split_lines(text),
+            document,
             cursor: Cursor::default(),
             selection: Selection::cursor(Cursor::default()),
             language: None,
@@ -251,14 +187,15 @@ impl TextArea {
             layout_w: 1,
             layout_h: 1,
             layout_initialized: false,
-            preferred_col_cells: None,
+            wrapped,
+            navigator: DocumentNavigator::new(),
             mouse_down: false,
             app_active: true,
             cursor_visible: false,
             cursor_blink_next_at: None,
             cursor_blink_enabled: true,
             doc_revision: 0,
-            undo_stack: UndoStack::new(100),
+            history: EditHistory::new(50, Duration::from_secs_f64(2.0), 100),
             syntax_cache: std::sync::Mutex::new(SyntaxCache::default()),
             languages: HashMap::new(),
             themes: HashMap::new(),
@@ -513,7 +450,7 @@ impl TextArea {
         let end = self.clamp_cursor_pos(selection.end);
         self.selection = Selection { start, end };
         self.cursor = end;
-        self.preferred_col_cells = Some(self.cursor_cell_x());
+        self.record_cursor_width();
         self.adjust_scroll_to_cursor();
         self.reset_blink();
     }
@@ -523,39 +460,298 @@ impl TextArea {
         self
     }
 
-    pub fn insert(&mut self, text: &str) {
-        if !self.insert_multiline(text) {
-            return;
-        }
-        self.preferred_col_cells = Some(self.cursor_cell_x());
-        self.adjust_scroll_to_cursor();
-        self.reset_blink();
+    /// Insert text at the cursor location (Python `TextArea.insert` with
+    /// `location=None`). The edit is recorded in the undo history.
+    pub fn insert(&mut self, text: &str) -> EditResult {
+        let at = self.cursor.location();
+        self.edit(Edit::new(text, at, at, true))
+    }
+
+    /// Insert text at `location` (Python `TextArea.insert`).
+    pub fn insert_at(&mut self, text: &str, location: Location) -> EditResult {
+        self.edit(Edit::new(text, location, location, true))
+    }
+
+    /// Replace the text between `start` and `end` with `insert` (Python
+    /// `TextArea.replace`).
+    pub fn replace(&mut self, insert: &str, start: Location, end: Location) -> EditResult {
+        self.edit(Edit::new(insert, start, end, true))
+    }
+
+    /// Delete the text between `start` and `end` (Python `TextArea.delete`).
+    pub fn delete(&mut self, start: Location, end: Location) -> EditResult {
+        self.edit(Edit::new("", start, end, true))
+    }
+
+    /// Delete all text from the document (Python `TextArea.clear`).
+    pub fn clear(&mut self) -> EditResult {
+        self.edit(Edit::new("", (0, 0), self.document.end(), false))
     }
 
     pub fn move_cursor_relative(&mut self, columns: isize, rows: isize) {
-        if self.lines.is_empty() {
-            return;
-        }
         let row = (self.cursor.row as isize + rows)
-            .clamp(0, self.lines.len().saturating_sub(1) as isize) as usize;
+            .clamp(0, self.document.line_count().saturating_sub(1) as isize)
+            as usize;
         let cur_cells = self.cursor_cell_x() as isize;
         let target_cells = (cur_cells + columns).max(0) as usize;
         let col = self.cursor_from_cell_x(row, target_cells);
         self.cursor = Cursor { row, col };
         self.selection = Selection::cursor(self.cursor);
-        self.preferred_col_cells = Some(self.cursor_cell_x());
+        self.record_cursor_width();
         self.adjust_scroll_to_cursor();
         self.reset_blink();
+        // Cursor movement creates an undo checkpoint (Python `move_cursor`).
+        self.history.checkpoint();
     }
 
     pub fn text(&self) -> String {
-        self.lines.join(self.newline)
+        self.document.text()
     }
 
     /// The newline style used by this document (Python `Document.newline`):
     /// `"\n"` by default, `"\r\n"` or `"\r"` if the initial text used it.
     pub fn newline(&self) -> &'static str {
-        self.newline
+        self.document.newline()
+    }
+
+    /// Read access to the document model.
+    pub fn document(&self) -> &Document {
+        &self.document
+    }
+
+    /// The edit history (undo/redo batches).
+    pub fn history(&self) -> &EditHistory {
+        &self.history
+    }
+
+    /// Mutable access to the edit history.
+    ///
+    /// Whole-history replacement is legal and is the test seam for
+    /// injecting a mock clock:
+    /// `*ta.history_mut() = EditHistory::with_clock(..., MockClock::new())`.
+    pub fn history_mut(&mut self) -> &mut EditHistory {
+        &mut self.history
+    }
+
+    /// Load new text into the text area, clearing the edit history
+    /// (Python `TextArea.load_text`).
+    pub fn load_text(&mut self, text: &str) {
+        self.history.clear();
+        self.document = Document::new(text);
+        self.doc_revision = self.doc_revision.wrapping_add(1);
+        self.cursor = Cursor::default();
+        self.selection = Selection::cursor(self.cursor);
+        self.navigator.last_x_offset = 0;
+        self.scroll_row = 0;
+        self.scroll_col = 0;
+        self.rewrap_full();
+    }
+
+    /// Alias of [`TextArea::load_text`] (Python `TextArea.text` setter).
+    pub fn set_text(&mut self, text: &str) {
+        self.load_text(text);
+    }
+
+    /// Perform an [`Edit`]: the single mutation funnel (Python
+    /// `TextArea.edit`). Applies the edit to the document, records it in
+    /// the history, and applies the resulting selection.
+    pub fn edit(&mut self, mut edit: Edit) -> EditResult {
+        let old_gutter_width = self.line_number_gutter_width();
+        let edit_top = edit.top();
+        let edit_bottom = edit.bottom();
+        let result = edit.apply(&mut self.document, self.selection, true);
+        self.doc_revision = self.doc_revision.wrapping_add(1);
+        let updated_selection = edit.updated_selection();
+        self.history.record(edit);
+        // Re-wrap BETWEEN the edit and the selection restore (Python
+        // ordering: selection assignment scrolls using wrapped geometry).
+        if old_gutter_width != self.line_number_gutter_width() {
+            // The gutter width changed (line count digit transition), so
+            // the wrap width changed: full re-wrap.
+            self.rewrap_full();
+        } else {
+            self.wrapped
+                .wrap_range(&self.document, edit_top, edit_bottom, result.end_location);
+            self.clamp_scroll_to_wrapped_height();
+        }
+        if let Some(selection) = updated_selection {
+            self.set_selection(selection);
+        }
+        result
+    }
+
+    /// Undo the edits since the last checkpoint (the most recent batch).
+    /// Returns true when a batch was replayed.
+    pub fn undo(&mut self) -> bool {
+        if let Some(mut edits) = self.history.pop_undo() {
+            self.undo_batch(&mut edits);
+            // Unconditional: Python moves the batch across stacks before
+            // replaying (`test_redo_stack` pins the resulting lengths).
+            self.history.push_redone(edits);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Redo the most recently undone batch of edits.
+    pub fn redo(&mut self) -> bool {
+        if let Some(mut edits) = self.history.pop_redo() {
+            self.redo_batch(&mut edits);
+            self.history.push_undone(edits);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Undo a batch of edits in reverse chronological order (Python
+    /// `_undo_batch`), accumulating the dirty region for one `wrap_range`.
+    fn undo_batch(&mut self, edits: &mut [Edit]) {
+        if edits.is_empty() {
+            return;
+        }
+        let old_gutter_width = self.line_number_gutter_width();
+        let mut minimum_top = edits.last().expect("non-empty").top();
+        let mut maximum_old_bottom: Location = (0, 0);
+        let mut maximum_new_bottom: Location = (0, 0);
+        for edit in edits.iter_mut().rev() {
+            edit.undo(&mut self.document);
+            let end_location = edit
+                .edit_result()
+                .map(|result| result.end_location)
+                .unwrap_or((0, 0));
+            if edit.top() < minimum_top {
+                minimum_top = edit.top();
+            }
+            if end_location > maximum_old_bottom {
+                maximum_old_bottom = end_location;
+            }
+            if edit.bottom() > maximum_new_bottom {
+                maximum_new_bottom = edit.bottom();
+            }
+        }
+        self.doc_revision = self.doc_revision.wrapping_add(1);
+        if old_gutter_width != self.line_number_gutter_width() {
+            self.rewrap_full();
+        } else {
+            self.wrapped.wrap_range(
+                &self.document,
+                minimum_top,
+                maximum_old_bottom,
+                maximum_new_bottom,
+            );
+            self.clamp_scroll_to_wrapped_height();
+        }
+        for edit in edits.iter_mut().rev() {
+            if let Some(selection) = edit.updated_selection() {
+                self.set_selection(selection);
+            }
+        }
+    }
+
+    /// Redo a batch of edits in chronological order (Python `_redo_batch`).
+    fn redo_batch(&mut self, edits: &mut [Edit]) {
+        if edits.is_empty() {
+            return;
+        }
+        let old_gutter_width = self.line_number_gutter_width();
+        let mut minimum_top = edits.first().expect("non-empty").top();
+        let mut maximum_old_bottom: Location = (0, 0);
+        let mut maximum_new_bottom: Location = (0, 0);
+        for edit in edits.iter_mut() {
+            edit.apply(&mut self.document, self.selection, false);
+            let end_location = edit
+                .edit_result()
+                .map(|result| result.end_location)
+                .unwrap_or((0, 0));
+            if edit.top() < minimum_top {
+                minimum_top = edit.top();
+            }
+            if end_location > maximum_new_bottom {
+                maximum_new_bottom = end_location;
+            }
+            if edit.bottom() > maximum_old_bottom {
+                maximum_old_bottom = edit.bottom();
+            }
+        }
+        self.doc_revision = self.doc_revision.wrapping_add(1);
+        if old_gutter_width != self.line_number_gutter_width() {
+            self.rewrap_full();
+        } else {
+            self.wrapped.wrap_range(
+                &self.document,
+                minimum_top,
+                maximum_old_bottom,
+                maximum_new_bottom,
+            );
+            self.clamp_scroll_to_wrapped_height();
+        }
+        for edit in edits.iter_mut() {
+            if let Some(selection) = edit.updated_selection() {
+                self.set_selection(selection);
+            }
+        }
+    }
+
+    /// The width the document wraps at: content width minus gutter and one
+    /// cursor cell (Python `wrap_width`), or 0 when soft wrap is off.
+    fn wrap_width(&self) -> usize {
+        if !self.soft_wrap {
+            return 0;
+        }
+        let cursor_width = 1;
+        (self.layout_w.max(1) as usize)
+            .saturating_sub(self.line_number_gutter_width() + cursor_width)
+    }
+
+    /// Fully re-wrap the document at the current wrap width and clamp the
+    /// vertical scroll to the new wrapped height.
+    fn rewrap_full(&mut self) {
+        let wrap_width = self.wrap_width();
+        self.wrapped
+            .wrap(&self.document, wrap_width, Some(self.indent_width));
+        self.clamp_scroll_to_wrapped_height();
+    }
+
+    /// Clamp `scroll_row` (a visual offset) so that deleting wrapped lines
+    /// near the bottom cannot leave the viewport past the end (the maximum
+    /// scroll is `wrapped height - viewport height`, ScrollView semantics).
+    fn clamp_scroll_to_wrapped_height(&mut self) {
+        let view_height = if self.layout_initialized {
+            self.layout_h.max(1) as usize
+        } else {
+            1
+        };
+        self.scroll_row = self
+            .scroll_row
+            .min(self.wrapped.height().saturating_sub(view_height));
+    }
+
+    /// Record the current visual x of the cursor as the remembered offset
+    /// for vertical movement (Python `record_cursor_width`).
+    fn record_cursor_width(&mut self) {
+        let (x_offset, _) = self
+            .wrapped
+            .location_to_offset(&self.document, self.cursor.location());
+        self.navigator.last_x_offset = x_offset;
+    }
+
+    /// Map widget-local mouse coordinates to a document location through
+    /// the wrapped view (clamps click-past-end automatically).
+    fn hit_test_location(&self, x: u16, y: u16) -> Cursor {
+        let gutter = self.line_number_gutter_width() as u16;
+        let local_x = x.saturating_sub(gutter) as usize;
+        let cell_x = if self.wrapped.width() == 0 {
+            self.scroll_col.saturating_add(local_x)
+        } else {
+            local_x
+        };
+        let visual_y = self.scroll_row.saturating_add(y as usize);
+        let (row, col) =
+            self.wrapped
+                .offset_to_location(&self.document, cell_x as isize, visual_y as isize);
+        Cursor { row, col }
     }
 
     fn post_changed(&self, ctx: &mut crate::event::WidgetCtx) {
@@ -570,48 +766,13 @@ impl TextArea {
         });
     }
 
-    fn save_undo_checkpoint(&mut self) {
-        self.undo_stack.push(UndoEntry {
-            lines: self.lines.clone(),
-            cursor: self.cursor,
-            selection: self.selection,
-        });
-    }
-
-    fn undo(&mut self) -> bool {
-        if let Some(entry) = self.undo_stack.undo() {
-            self.lines = entry.lines.clone();
-            self.cursor = entry.cursor;
-            self.selection = entry.selection;
-            self.doc_revision = self.doc_revision.wrapping_add(1);
-            true
-        } else {
-            false
-        }
-    }
-
-    fn redo(&mut self) -> bool {
-        if let Some(entry) = self.undo_stack.redo() {
-            self.lines = entry.lines.clone();
-            self.cursor = entry.cursor;
-            self.selection = entry.selection;
-            self.doc_revision = self.doc_revision.wrapping_add(1);
-            true
-        } else {
-            false
-        }
-    }
-
     fn delete_to_start_of_line(&mut self) {
         if self.delete_selection_if_any() {
             return;
         }
         if self.cursor.col > 0 {
             let row = self.cursor.row;
-            self.lines[row].drain(..self.cursor.col);
-            self.cursor.col = 0;
-            self.selection = Selection::cursor(self.cursor);
-            self.doc_revision = self.doc_revision.wrapping_add(1);
+            self.edit(Edit::new("", (row, 0), (row, self.cursor.col), false));
         }
     }
 
@@ -620,39 +781,43 @@ impl TextArea {
             return;
         }
         let row = self.cursor.row;
-        let line_len = self.lines[row].len();
+        let line_len = self.document.line(row).len();
         if self.cursor.col < line_len {
-            self.lines[row].truncate(self.cursor.col);
-            self.selection = Selection::cursor(self.cursor);
-            self.doc_revision = self.doc_revision.wrapping_add(1);
+            self.edit(Edit::new(
+                "",
+                (row, self.cursor.col),
+                (row, line_len),
+                false,
+            ));
         }
     }
 
     fn delete_current_line(&mut self) {
-        if self.lines.is_empty() {
-            return;
-        }
-        let row = self.cursor.row.min(self.lines.len().saturating_sub(1));
-        if self.lines.len() > 1 {
-            self.lines.remove(row);
+        let line_count = self.document.line_count();
+        let row = self.cursor.row.min(line_count.saturating_sub(1));
+        if line_count > 1 {
+            if row + 1 < line_count {
+                // Remove the line together with its trailing newline.
+                self.edit(Edit::new("", (row, 0), (row + 1, 0), false));
+            } else {
+                // Last line: remove the preceding newline and the line.
+                let prev_len = self.document.line(row - 1).len();
+                let row_len = self.document.line(row).len();
+                self.edit(Edit::new("", (row - 1, prev_len), (row, row_len), false));
+            }
         } else {
-            self.lines[0].clear();
+            let row_len = self.document.line(0).len();
+            self.edit(Edit::new("", (0, 0), (0, row_len), false));
         }
-        if self.lines.is_empty() {
-            self.lines.push(String::new());
-        }
-        self.cursor.row = self.cursor.row.min(self.lines.len().saturating_sub(1));
-        self.cursor.col = self.cursor.col.min(self.lines[self.cursor.row].len());
-        self.selection = Selection::cursor(self.cursor);
-        self.doc_revision = self.doc_revision.wrapping_add(1);
     }
 
     fn select_all(&mut self) -> bool {
-        if self.lines.is_empty() || (self.lines.len() == 1 && self.lines[0].is_empty()) {
+        let line_count = self.document.line_count();
+        if line_count == 1 && self.document.line(0).is_empty() {
             return false;
         }
-        let last_row = self.lines.len().saturating_sub(1);
-        let last_col = self.lines[last_row].len();
+        let last_row = line_count.saturating_sub(1);
+        let last_col = self.document.line(last_row).len();
         let start = Cursor { row: 0, col: 0 };
         let end = Cursor {
             row: last_row,
@@ -665,10 +830,10 @@ impl TextArea {
 
     fn select_line(&mut self) -> bool {
         let row = self.cursor.row;
-        if row >= self.lines.len() {
+        if row >= self.document.line_count() {
             return false;
         }
-        let line_len = self.lines[row].len();
+        let line_len = self.document.line(row).len();
         self.selection = Selection {
             start: Cursor { row, col: 0 },
             end: Cursor { row, col: line_len },
@@ -716,13 +881,14 @@ impl TextArea {
     }
 
     fn rebuild_line_offsets(&self) -> Vec<usize> {
-        let mut offsets = Vec::with_capacity(self.lines.len().max(1));
+        let lines = self.document.lines();
+        let mut offsets = Vec::with_capacity(lines.len().max(1));
         let mut cur = 0usize;
-        for (i, line) in self.lines.iter().enumerate() {
+        for (i, line) in lines.iter().enumerate() {
             offsets.push(cur);
             cur = cur.saturating_add(line.len());
             // Join adds '\n' between lines, but not after the last one.
-            if i + 1 < self.lines.len() {
+            if i + 1 < lines.len() {
                 cur = cur.saturating_add(1);
             }
         }
@@ -763,7 +929,7 @@ impl TextArea {
         // The syntax source is always LF-joined regardless of the document's
         // newline style: `rebuild_line_offsets` assumes a 1-byte separator
         // when mapping tree-sitter byte ranges back to (row, col).
-        let text = self.lines.join("\n");
+        let text = self.document.lines().join("\n");
         let mut parser = Parser::new();
         if parser.set_language(&def.language).is_err() {
             return;
@@ -806,22 +972,18 @@ impl TextArea {
     }
 
     fn clamp_cursor(&mut self) {
-        if self.lines.is_empty() {
-            self.lines.push(String::new());
-        }
-        self.cursor.row = self.cursor.row.min(self.lines.len().saturating_sub(1));
-        let line_len = self.lines[self.cursor.row].len();
-        self.cursor.col = self.cursor.col.min(line_len);
-        self.cursor.col = clamp_grapheme_boundary(&self.lines[self.cursor.row], self.cursor.col);
+        self.cursor.row = self
+            .cursor
+            .row
+            .min(self.document.line_count().saturating_sub(1));
+        let line = self.document.line(self.cursor.row);
+        self.cursor.col = clamp_grapheme_boundary(line, self.cursor.col.min(line.len()));
         self.selection = Selection::cursor(self.cursor);
     }
 
     fn clamp_cursor_pos(&self, cursor: Cursor) -> Cursor {
-        if self.lines.is_empty() {
-            return Cursor::default();
-        }
-        let row = cursor.row.min(self.lines.len().saturating_sub(1));
-        let line = self.lines.get(row).map(String::as_str).unwrap_or("");
+        let row = cursor.row.min(self.document.line_count().saturating_sub(1));
+        let line = self.document.line(row);
         let mut col = cursor.col.min(line.len());
         col = clamp_grapheme_boundary(line, col);
         Cursor { row, col }
@@ -831,37 +993,30 @@ impl TextArea {
         if !self.show_line_numbers {
             return 0;
         }
-        let digits = self.lines.len().max(1).to_string().len();
+        let digits = self.document.line_count().max(1).to_string().len();
         // Right aligned number + 2-cell margin (matches Python Textual gutter_margin).
         digits + 2
     }
 
     fn cursor_cell_x(&self) -> usize {
-        let line = self
-            .lines
-            .get(self.cursor.row)
-            .map(String::as_str)
-            .unwrap_or("");
+        let line = self.document.line(self.cursor.row);
         grapheme_cell_len_prefix(line, self.cursor.col)
     }
 
     fn cursor_from_cell_x(&self, row: usize, cell_x: usize) -> usize {
-        let line = self.lines.get(row).map(String::as_str).unwrap_or("");
+        let line = self.document.line(row);
         grapheme_byte_index_from_cell_x(line, cell_x)
     }
 
     fn cursor_left_pos(&self, from: Cursor) -> Cursor {
-        if self.lines.is_empty() {
-            return from;
-        }
-        let row = from.row.min(self.lines.len().saturating_sub(1));
+        let row = from.row.min(self.document.line_count().saturating_sub(1));
         if from.col > 0 {
-            let line = &self.lines[row];
+            let line = self.document.line(row);
             let col = prev_grapheme_boundary(line, from.col);
             Cursor { row, col }
         } else if row > 0 {
             let row = row - 1;
-            let col = self.lines[row].len();
+            let col = self.document.line(row).len();
             Cursor { row, col }
         } else {
             Cursor { row, col: 0 }
@@ -869,15 +1024,12 @@ impl TextArea {
     }
 
     fn cursor_right_pos(&self, from: Cursor) -> Cursor {
-        if self.lines.is_empty() {
-            return from;
-        }
-        let row = from.row.min(self.lines.len().saturating_sub(1));
-        let line_len = self.lines[row].len();
+        let row = from.row.min(self.document.line_count().saturating_sub(1));
+        let line_len = self.document.line(row).len();
         if from.col < line_len {
-            let next = next_grapheme_boundary(&self.lines[row], from.col);
+            let next = next_grapheme_boundary(self.document.line(row), from.col);
             Cursor { row, col: next }
-        } else if row + 1 < self.lines.len() {
+        } else if row + 1 < self.document.line_count() {
             Cursor {
                 row: row + 1,
                 col: 0,
@@ -887,19 +1039,25 @@ impl TextArea {
         }
     }
 
+    /// Scroll so the cursor is visible. Vertical scrolling moves in
+    /// visual-offset space; horizontal scrolling applies only when the wrap
+    /// width is 0 (wrapped documents never scroll horizontally).
     fn ensure_cursor_visible(&mut self, view_height: usize, view_width: usize) {
-        self.scroll_row = self.scroll_row.min(self.cursor.row);
-        if self.cursor.row >= self.scroll_row + view_height {
-            self.scroll_row = self
-                .cursor
-                .row
-                .saturating_sub(view_height.saturating_sub(1));
+        let (cursor_x, cursor_y) = self
+            .wrapped
+            .location_to_offset(&self.document, self.cursor.location());
+        self.scroll_row = self.scroll_row.min(cursor_y);
+        if cursor_y >= self.scroll_row + view_height {
+            self.scroll_row = cursor_y.saturating_sub(view_height.saturating_sub(1));
         }
 
-        let cur_x = self.cursor_cell_x();
-        self.scroll_col = self.scroll_col.min(cur_x);
-        if cur_x >= self.scroll_col + view_width {
-            self.scroll_col = cur_x.saturating_sub(view_width.saturating_sub(1));
+        if self.wrapped.width() == 0 {
+            self.scroll_col = self.scroll_col.min(cursor_x);
+            if cursor_x >= self.scroll_col + view_width {
+                self.scroll_col = cursor_x.saturating_sub(view_width.saturating_sub(1));
+            }
+        } else {
+            self.scroll_col = 0;
         }
     }
 
@@ -909,7 +1067,10 @@ impl TextArea {
         }
         if !self.selection.is_empty() {
             let (a, _b) = normalized_selection(self.selection);
-            self.scroll_row = self.scroll_row.min(a.row);
+            let (_, top_y) = self
+                .wrapped
+                .location_to_offset(&self.document, a.location());
+            self.scroll_row = self.scroll_row.min(top_y);
         }
         let gutter_w = self.line_number_gutter_width();
         let view_w = (self.layout_w.max(1) as usize)
@@ -931,117 +1092,60 @@ impl TextArea {
         }
     }
 
+    /// Delete the selected text as a single history-recorded edit, if any.
     fn delete_selection_if_any(&mut self) -> bool {
         if self.selection.is_empty() {
             return false;
         }
         let (a, b) = normalized_selection(self.selection);
-        if a.row == b.row {
-            let line = &mut self.lines[a.row];
-            line.drain(a.col..b.col);
-            self.cursor = a;
-        } else {
-            let first = self.lines[a.row][..a.col].to_string();
-            let last = self.lines[b.row][b.col..].to_string();
-            self.lines[a.row] = format!("{first}{last}");
-            // Remove middle lines inclusive of end row.
-            self.lines.drain(a.row + 1..=b.row);
-            self.cursor = a;
-        }
-        self.selection = Selection::cursor(self.cursor);
-        self.doc_revision = self.doc_revision.wrapping_add(1);
+        self.edit(Edit::new("", a.location(), b.location(), false));
         true
     }
 
-    fn insert_str(&mut self, text: &str) {
-        if self.delete_selection_if_any() {
-            // proceed with insertion at cursor
-        }
-        if text.is_empty() {
-            return;
-        }
-        let row = self.cursor.row;
-        let col = self.cursor.col;
-        let line = &mut self.lines[row];
-        line.insert_str(col, text);
-        self.cursor.col += text.len();
-        self.cursor.col = clamp_grapheme_boundary(line, self.cursor.col);
-        self.selection = Selection::cursor(self.cursor);
-        self.doc_revision = self.doc_revision.wrapping_add(1);
-    }
-
-    fn insert_newline(&mut self) {
-        if self.delete_selection_if_any() {
-            // proceed with insertion at cursor
-        }
-        let row = self.cursor.row;
-        let col = self.cursor.col;
-        let current = self.lines[row].clone();
-        let (left, right) = current.split_at(col);
-        self.lines[row] = left.to_string();
-        self.lines.insert(row + 1, right.to_string());
-        self.cursor.row += 1;
-        self.cursor.col = 0;
-        self.selection = Selection::cursor(self.cursor);
-        self.doc_revision = self.doc_revision.wrapping_add(1);
-    }
-
+    /// Keyboard backspace (Python `action_delete_left`).
     fn backspace(&mut self) {
         if self.delete_selection_if_any() {
             return;
         }
-        if self.cursor.col > 0 {
-            let row = self.cursor.row;
-            let line = &mut self.lines[row];
-            let prev = prev_grapheme_boundary(line, self.cursor.col);
-            line.drain(prev..self.cursor.col);
-            self.cursor.col = prev;
-            self.selection = Selection::cursor(self.cursor);
-            self.doc_revision = self.doc_revision.wrapping_add(1);
-        } else if self.cursor.row > 0 {
-            let row = self.cursor.row;
-            let prev_row = row - 1;
-            let prev_len = self.lines[prev_row].len();
-            let current = self.lines.remove(row);
-            self.lines[prev_row].push_str(&current);
-            self.cursor.row = prev_row;
-            self.cursor.col = prev_len;
-            self.selection = Selection::cursor(self.cursor);
-            self.doc_revision = self.doc_revision.wrapping_add(1);
+        let left = self.cursor_left_pos(self.cursor);
+        if left == self.cursor {
+            return;
         }
+        self.edit(Edit::new(
+            "",
+            self.cursor.location(),
+            left.location(),
+            false,
+        ));
     }
 
-    fn delete(&mut self) {
+    /// Keyboard forward delete (Python `action_delete_right`).
+    fn delete_right(&mut self) {
         if self.delete_selection_if_any() {
             return;
         }
-        let row = self.cursor.row;
-        let col = self.cursor.col;
-        let line_len = self.lines[row].len();
-        if col < line_len {
-            let next = next_grapheme_boundary(&self.lines[row], col);
-            self.lines[row].drain(col..next);
-            self.doc_revision = self.doc_revision.wrapping_add(1);
-        } else if row + 1 < self.lines.len() {
-            let next_line = self.lines.remove(row + 1);
-            self.lines[row].push_str(&next_line);
-            self.doc_revision = self.doc_revision.wrapping_add(1);
+        let right = self.cursor_right_pos(self.cursor);
+        if right == self.cursor {
+            return;
         }
-        self.selection = Selection::cursor(self.cursor);
+        self.edit(Edit::new(
+            "",
+            self.cursor.location(),
+            right.location(),
+            false,
+        ));
     }
 
     fn cursor_word_left_pos(&self, from: Cursor) -> Cursor {
-        if self.lines.is_empty() {
-            return from;
-        }
-        let row = from.row.min(self.lines.len().saturating_sub(1));
+        let row = from.row.min(self.document.line_count().saturating_sub(1));
         if from.col > 0 {
-            let line = &self.lines[row];
+            let line = self.document.line(row);
             let col = prev_word_boundary(line, from.col);
             Cursor { row, col }
         } else if row > 0 {
             let row = row - 1;
-            let col = prev_word_boundary(&self.lines[row], self.lines[row].len());
+            let line = self.document.line(row);
+            let col = prev_word_boundary(line, line.len());
             Cursor { row, col }
         } else {
             Cursor { row: 0, col: 0 }
@@ -1049,17 +1153,14 @@ impl TextArea {
     }
 
     fn cursor_word_right_pos(&self, from: Cursor) -> Cursor {
-        if self.lines.is_empty() {
-            return from;
-        }
-        let row = from.row.min(self.lines.len().saturating_sub(1));
-        let line = &self.lines[row];
+        let row = from.row.min(self.document.line_count().saturating_sub(1));
+        let line = self.document.line(row);
         if from.col < line.len() {
             let col = next_word_boundary(line, from.col);
             Cursor { row, col }
-        } else if row + 1 < self.lines.len() {
+        } else if row + 1 < self.document.line_count() {
             let row = row + 1;
-            let col = next_word_boundary(&self.lines[row], 0);
+            let col = next_word_boundary(self.document.line(row), 0);
             Cursor { row, col }
         } else {
             Cursor {
@@ -1086,6 +1187,9 @@ impl TextArea {
             self.selection = Selection::cursor(next);
         }
         self.cursor = next;
+        // Every non-edit cursor movement creates an undo checkpoint (Python
+        // `move_cursor`).
+        self.history.checkpoint();
         self.cursor != old_cursor || self.selection != old_selection
     }
 
@@ -1097,17 +1201,12 @@ impl TextArea {
         if start == self.cursor {
             return;
         }
-        if start.row == self.cursor.row {
-            self.lines[self.cursor.row].drain(start.col..self.cursor.col);
-        } else {
-            let right = self.lines[self.cursor.row][self.cursor.col..].to_string();
-            self.lines[start.row].truncate(start.col);
-            self.lines[start.row].push_str(&right);
-            self.lines.drain(start.row + 1..=self.cursor.row);
-        }
-        self.cursor = start;
-        self.selection = Selection::cursor(self.cursor);
-        self.doc_revision = self.doc_revision.wrapping_add(1);
+        self.edit(Edit::new(
+            "",
+            self.cursor.location(),
+            start.location(),
+            false,
+        ));
     }
 
     fn delete_word(&mut self) {
@@ -1118,16 +1217,7 @@ impl TextArea {
         if end == self.cursor {
             return;
         }
-        if end.row == self.cursor.row {
-            self.lines[self.cursor.row].drain(self.cursor.col..end.col);
-        } else {
-            let suffix = self.lines[end.row][end.col..].to_string();
-            self.lines[self.cursor.row].truncate(self.cursor.col);
-            self.lines[self.cursor.row].push_str(&suffix);
-            self.lines.drain(self.cursor.row + 1..=end.row);
-        }
-        self.selection = Selection::cursor(self.cursor);
-        self.doc_revision = self.doc_revision.wrapping_add(1);
+        self.edit(Edit::new("", self.cursor.location(), end.location(), false));
     }
 
     fn selected_text(&self) -> Option<String> {
@@ -1135,68 +1225,44 @@ impl TextArea {
             return None;
         }
         let (a, b) = normalized_selection(self.selection);
-        if a.row == b.row {
-            return Some(self.lines[a.row][a.col..b.col].to_string());
-        }
-        let mut out = String::new();
-        out.push_str(&self.lines[a.row][a.col..]);
-        out.push_str(self.newline);
-        for row in a.row + 1..b.row {
-            out.push_str(&self.lines[row]);
-            out.push_str(self.newline);
-        }
-        out.push_str(&self.lines[b.row][..b.col]);
-        Some(out)
+        Some(self.document.get_text_range(a.location(), b.location()))
     }
 
     fn cut_current_line(&mut self) -> Option<String> {
-        if self.lines.is_empty() {
-            return None;
-        }
-        let row = self.cursor.row.min(self.lines.len().saturating_sub(1));
-        let mut copied = self.lines[row].clone();
-        if self.lines.len() > 1 {
-            self.lines.remove(row);
-            if row < self.lines.len() {
-                copied.push_str(self.newline);
+        let line_count = self.document.line_count();
+        let row = self.cursor.row.min(line_count.saturating_sub(1));
+        let mut copied = self.document.line(row).to_string();
+        if line_count > 1 {
+            if row + 1 < line_count {
+                copied.push_str(self.document.newline());
+                self.edit(Edit::new("", (row, 0), (row + 1, 0), false));
+            } else {
+                let prev_len = self.document.line(row - 1).len();
+                let row_len = self.document.line(row).len();
+                self.edit(Edit::new("", (row - 1, prev_len), (row, row_len), false));
             }
         } else {
-            self.lines[0].clear();
+            let row_len = self.document.line(0).len();
+            self.edit(Edit::new("", (0, 0), (0, row_len), false));
         }
-        if self.lines.is_empty() {
-            self.lines.push(String::new());
-        }
-        self.cursor.row = self.cursor.row.min(self.lines.len().saturating_sub(1));
-        self.cursor.col = self.cursor.col.min(self.lines[self.cursor.row].len());
-        self.selection = Selection::cursor(self.cursor);
-        self.doc_revision = self.doc_revision.wrapping_add(1);
         Some(copied)
     }
 
-    /// Insert text that may span multiple lines. Newlines in the inserted
-    /// text (any style) are normalized into document lines; the document's
-    /// own newline style governs `text()` read-back (Python
-    /// `Document.replace_range` splits inserted text the same way).
+    /// Replace the selection with text that may span multiple lines, as a
+    /// single history-recorded edit (Python `_on_paste` ->
+    /// `_replace_via_keyboard`). Newlines of any style are normalized into
+    /// document lines by `Document::replace_range`; the document's own
+    /// newline style governs `text()` read-back.
     fn insert_multiline(&mut self, text: &str) -> bool {
         if text.is_empty() {
             return false;
         }
-        let normalized = text.replace("\r\n", "\n").replace('\r', "\n");
-        if normalized.is_empty() {
-            return false;
-        }
-        if self.delete_selection_if_any() {
-            // Insert replacement text at cursor.
-        }
-        let mut parts = normalized.split('\n').peekable();
-        while let Some(part) = parts.next() {
-            if !part.is_empty() {
-                self.insert_str(part);
-            }
-            if parts.peek().is_some() {
-                self.insert_newline();
-            }
-        }
+        self.edit(Edit::new(
+            text,
+            self.selection.start.location(),
+            self.selection.end.location(),
+            false,
+        ));
         true
     }
 
@@ -1207,7 +1273,11 @@ impl TextArea {
     }
 
     fn watch_soft_wrap(&mut self, _old: &bool, _new: &bool, _ctx: &mut ReactiveCtx) {
-        // Layout invalidation is handled by ReactiveFlags::reactive_layout().
+        // Layout invalidation is handled by ReactiveFlags::reactive_layout();
+        // re-wrap now so navigation stays in sync (Python
+        // `_watch_soft_wrap` -> `_rewrap_and_refresh_virtual_size`).
+        self.rewrap_full();
+        self.adjust_scroll_to_cursor();
     }
 
     fn watch_language(
@@ -1309,18 +1379,17 @@ impl crate::widgets::Focus for TextArea {
         vec![
             BindingDecl::new("ctrl+z", "undo", "Undo").hidden(),
             BindingDecl::new("ctrl+y", "redo", "Redo").hidden(),
+            BindingDecl::new("ctrl+shift+z", "redo", "Redo").hidden(),
         ]
     }
 
     fn execute_action(&mut self, action: &ParsedAction, ctx: &mut crate::event::WidgetCtx) -> bool {
-        if self.read_only {
-            return false;
-        }
+        // Undo/redo are deliberately NOT gated on `read_only` (Python does
+        // not gate `action_undo`/`action_redo` either).
         match action.name.as_str() {
             "undo" => {
-                self.save_undo_checkpoint();
                 if self.undo() {
-                    self.preferred_col_cells = Some(self.cursor_cell_x());
+                    self.record_cursor_width();
                     self.adjust_scroll_to_cursor();
                     self.reset_blink();
                     self.post_changed(ctx);
@@ -1331,7 +1400,7 @@ impl crate::widgets::Focus for TextArea {
             }
             "redo" => {
                 if self.redo() {
-                    self.preferred_col_cells = Some(self.cursor_cell_x());
+                    self.record_cursor_width();
                     self.adjust_scroll_to_cursor();
                     self.reset_blink();
                     self.post_changed(ctx);
@@ -1354,6 +1423,9 @@ impl crate::widgets::Interactive for TextArea {
                 self.cursor_blink_next_at = None;
             } else {
                 self.reset_blink();
+                // Gaining focus creates an undo checkpoint (Python
+                // `_watch_has_focus`).
+                self.history.checkpoint();
             }
         }
     }
@@ -1362,13 +1434,7 @@ impl crate::widgets::Interactive for TextArea {
         if !self.mouse_down {
             return false;
         }
-        let gutter = self.line_number_gutter_width() as u16;
-        let row = self.scroll_row.saturating_add(y as usize);
-        let row = row.min(self.lines.len().saturating_sub(1));
-        let local_x = x.saturating_sub(gutter) as usize;
-        let cell_x = self.scroll_col.saturating_add(local_x);
-        let col = self.cursor_from_cell_x(row, cell_x);
-        let next = Cursor { row, col };
+        let next = self.hit_test_location(x, y);
         if next == self.selection.end && next == self.cursor {
             return false;
         }
@@ -1405,32 +1471,27 @@ impl crate::widgets::Interactive for TextArea {
                 }
             }
             Event::MouseDown(mouse) if mouse.target == self.node_id() => {
-                let gutter = self.line_number_gutter_width() as u16;
-                let row = self.scroll_row.saturating_add(mouse.y as usize);
-                let row = row.min(self.lines.len().saturating_sub(1));
-                let local_x = mouse.x.saturating_sub(gutter) as usize;
-                let cell_x = self.scroll_col.saturating_add(local_x);
-                let col = self.cursor_from_cell_x(row, cell_x);
-                self.cursor = Cursor { row, col };
+                self.cursor = self.hit_test_location(mouse.x, mouse.y);
                 self.selection = Selection::cursor(self.cursor);
                 self.mouse_down = true;
-                self.preferred_col_cells = Some(self.cursor_cell_x());
+                self.record_cursor_width();
                 self.adjust_scroll_to_cursor();
                 self.reset_blink();
+                // A mouse click creates an undo checkpoint (Python
+                // `_on_mouse_down`).
+                self.history.checkpoint();
                 ctx.request_repaint();
                 ctx.set_handled();
             }
-            Event::MouseUp(_)
-                if self.mouse_down => {
-                    self.mouse_down = false;
-                    ctx.request_repaint();
-                }
+            Event::MouseUp(_) if self.mouse_down => {
+                self.mouse_down = false;
+                ctx.request_repaint();
+            }
             Event::Key(key) if self.node_state().focused => {
                 if !self.read_only && matches!(key.code, KeyCode::Char('\u{7f}' | '\u{08}')) {
-                    self.save_undo_checkpoint();
                     self.backspace();
                     self.post_changed(ctx);
-                    self.preferred_col_cells = Some(self.cursor_cell_x());
+                    self.record_cursor_width();
                     self.adjust_scroll_to_cursor();
                     self.reset_blink();
                     ctx.request_repaint();
@@ -1465,27 +1526,34 @@ impl crate::widgets::Interactive for TextArea {
                 let old_selection = self.selection;
                 let mut changed = false;
                 let mut value_changed = false;
-                let mut next_preferred = self.preferred_col_cells;
-
-                // Save undo checkpoint before mutations.
-                if is_mutation {
-                    self.save_undo_checkpoint();
-                }
+                // Python `move_cursor(record_width=...)`: vertical moves keep
+                // the remembered visual x; everything else records it.
+                let mut record_width = true;
 
                 match cmd {
                     EditCommand::InsertChar(ch) => {
                         if ch != '\t' {
-                            self.insert_str(&ch.to_string());
+                            // Replace the selection with the typed character
+                            // as a single edit (Python `_replace_via_keyboard`).
+                            self.edit(Edit::new(
+                                ch.to_string(),
+                                self.selection.start.location(),
+                                self.selection.end.location(),
+                                false,
+                            ));
                             changed = true;
                             value_changed = true;
-                            next_preferred = Some(self.cursor_cell_x());
                         }
                     }
                     EditCommand::InsertNewline => {
-                        self.insert_newline();
+                        self.edit(Edit::new(
+                            "\n",
+                            self.selection.start.location(),
+                            self.selection.end.location(),
+                            false,
+                        ));
                         changed = true;
                         value_changed = true;
-                        next_preferred = Some(0);
                     }
                     EditCommand::Backspace { unit } => {
                         let before = self.text();
@@ -1495,59 +1563,38 @@ impl crate::widgets::Interactive for TextArea {
                         }
                         changed = before != self.text();
                         value_changed = changed;
-                        next_preferred = Some(self.cursor_cell_x());
                     }
                     EditCommand::Delete { unit } => {
                         let before = self.text();
                         match unit {
-                            MoveUnit::Grapheme => self.delete(),
+                            MoveUnit::Grapheme => self.delete_right(),
                             MoveUnit::Word => self.delete_word(),
                         }
                         changed = before != self.text();
                         value_changed = changed;
-                        next_preferred = Some(self.cursor_cell_x());
                     }
                     EditCommand::DeleteToStart => {
                         let before = self.text();
                         self.delete_to_start_of_line();
                         changed = before != self.text();
                         value_changed = changed;
-                        next_preferred = Some(self.cursor_cell_x());
                     }
                     EditCommand::DeleteToEnd => {
                         let before = self.text();
                         self.delete_to_end_of_line();
                         changed = before != self.text();
                         value_changed = changed;
-                        next_preferred = Some(self.cursor_cell_x());
                     }
                     EditCommand::DeleteLine => {
                         self.delete_current_line();
                         changed = true;
                         value_changed = true;
-                        next_preferred = Some(self.cursor_cell_x());
                     }
                     EditCommand::SelectAll => {
                         changed = self.select_all();
-                        next_preferred = Some(self.cursor_cell_x());
                     }
                     EditCommand::SelectLine => {
                         changed = self.select_line();
-                        next_preferred = Some(self.cursor_cell_x());
-                    }
-                    EditCommand::Undo => {
-                        if self.undo() {
-                            changed = true;
-                            value_changed = true;
-                            next_preferred = Some(self.cursor_cell_x());
-                        }
-                    }
-                    EditCommand::Redo => {
-                        if self.redo() {
-                            changed = true;
-                            value_changed = true;
-                            next_preferred = Some(self.cursor_cell_x());
-                        }
                     }
                     EditCommand::MoveLeft { select, unit } => {
                         let next = match unit {
@@ -1555,7 +1602,6 @@ impl crate::widgets::Interactive for TextArea {
                             MoveUnit::Word => self.cursor_word_left_pos(self.cursor),
                         };
                         changed = self.move_cursor_with_selection(next, select);
-                        next_preferred = Some(self.cursor_cell_x());
                     }
                     EditCommand::MoveRight { select, unit } => {
                         let next = match unit {
@@ -1563,50 +1609,49 @@ impl crate::widgets::Interactive for TextArea {
                             MoveUnit::Word => self.cursor_word_right_pos(self.cursor),
                         };
                         changed = self.move_cursor_with_selection(next, select);
-                        next_preferred = Some(self.cursor_cell_x());
                     }
                     EditCommand::MoveUp { select } => {
-                        if self.cursor.row > 0 {
-                            let desired = self
-                                .preferred_col_cells
-                                .unwrap_or_else(|| self.cursor_cell_x());
-                            let row = self.cursor.row - 1;
-                            let col = self.cursor_from_cell_x(row, desired);
-                            changed = self.move_cursor_with_selection(Cursor { row, col }, select);
-                            next_preferred = Some(desired);
-                        }
+                        // Wrap-aware movement (Python `get_location_above`):
+                        // Up on the first wrapped line moves to (0, 0).
+                        let next = self.navigator.get_location_above(
+                            &self.document,
+                            &self.wrapped,
+                            self.cursor.location(),
+                        );
+                        changed = self.move_cursor_with_selection(next.into(), select);
+                        record_width = false;
                     }
                     EditCommand::MoveDown { select } => {
-                        if self.cursor.row + 1 < self.lines.len() {
-                            let desired = self
-                                .preferred_col_cells
-                                .unwrap_or_else(|| self.cursor_cell_x());
-                            let row = self.cursor.row + 1;
-                            let col = self.cursor_from_cell_x(row, desired);
-                            changed = self.move_cursor_with_selection(Cursor { row, col }, select);
-                            next_preferred = Some(desired);
-                        }
+                        // Wrap-aware movement (Python `get_location_below`):
+                        // Down on the last wrapped line moves to the line end.
+                        let next = self.navigator.get_location_below(
+                            &self.document,
+                            &self.wrapped,
+                            self.cursor.location(),
+                        );
+                        changed = self.move_cursor_with_selection(next.into(), select);
+                        record_width = false;
                     }
                     EditCommand::MoveHome { select } => {
-                        changed = self.move_cursor_with_selection(
-                            Cursor {
-                                row: self.cursor.row,
-                                col: 0,
-                            },
-                            select,
+                        // Home moves to the previous wrap offset when the
+                        // line is wrapped, else column 0.
+                        let next = self.navigator.get_location_home(
+                            &self.document,
+                            &self.wrapped,
+                            self.cursor.location(),
+                            false,
                         );
-                        next_preferred = Some(0);
+                        changed = self.move_cursor_with_selection(next.into(), select);
                     }
                     EditCommand::MoveEnd { select } => {
-                        let end = self.lines[self.cursor.row].len();
-                        changed = self.move_cursor_with_selection(
-                            Cursor {
-                                row: self.cursor.row,
-                                col: end,
-                            },
-                            select,
+                        // End moves to the end of the current wrapped
+                        // section, else the line end.
+                        let next = self.navigator.get_location_end(
+                            &self.document,
+                            &self.wrapped,
+                            self.cursor.location(),
                         );
-                        next_preferred = Some(self.cursor_cell_x());
+                        changed = self.move_cursor_with_selection(next.into(), select);
                     }
                     EditCommand::Copy => {
                         if let Some(text) = self.selected_text() {
@@ -1624,7 +1669,6 @@ impl crate::widgets::Interactive for TextArea {
                             ctx.post_message(TextEditClipboardCopyRequested { text, cut: true });
                             changed = true;
                             value_changed = true;
-                            next_preferred = Some(self.cursor_cell_x());
                         }
                     }
                     EditCommand::Paste => {
@@ -1642,7 +1686,9 @@ impl crate::widgets::Interactive for TextArea {
                     self.post_selection_changed(ctx);
                 }
                 if changed || value_changed {
-                    self.preferred_col_cells = next_preferred;
+                    if record_width {
+                        self.record_cursor_width();
+                    }
                     self.adjust_scroll_to_cursor();
                     self.reset_blink();
                     ctx.request_repaint();
@@ -1661,10 +1707,9 @@ impl crate::widgets::Interactive for TextArea {
             if self.read_only {
                 return;
             }
-            self.save_undo_checkpoint();
             if self.insert_multiline(&m.text) {
                 self.post_changed(ctx);
-                self.preferred_col_cells = Some(self.cursor_cell_x());
+                self.record_cursor_width();
                 self.adjust_scroll_to_cursor();
                 self.reset_blink();
                 ctx.request_repaint();
@@ -1679,6 +1724,11 @@ impl crate::widgets::Interactive for TextArea {
         if self.layout_w != width || self.layout_h != height {
             self.layout_w = width;
             self.layout_h = height;
+        }
+        // Re-wrap when the effective wrap width changed (content width or
+        // gutter width change; Python `_on_resize`).
+        if self.wrapped.width() != self.wrap_width() {
+            self.rewrap_full();
         }
         self.layout_initialized = true;
         self.adjust_scroll_to_cursor();
@@ -1718,7 +1768,10 @@ impl crate::widgets::Render for TextArea {
                     return override_style;
                 }
             }
-            let meta = crate::css::selector_meta_component(crate::widgets::Widget::style_type(self), &[class]);
+            let meta = crate::css::selector_meta_component(
+                crate::widgets::Widget::style_type(self),
+                &[class],
+            );
             crate::css::resolve_style_for_meta(&meta)
         };
 
@@ -1736,7 +1789,7 @@ impl crate::widgets::Render for TextArea {
         let placeholder_rich = compose_rich(&placeholder_style, base_bg);
 
         // Show placeholder when empty.
-        let is_empty = self.lines.len() == 1 && self.lines[0].is_empty();
+        let is_empty = self.document.line_count() == 1 && self.document.line(0).is_empty();
         if is_empty && !self.placeholder.is_empty() {
             let mut out = Segments::new();
             for y in 0..height {
@@ -1764,27 +1817,51 @@ impl crate::widgets::Render for TextArea {
             guard.clone()
         };
 
+        // Render one wrapped SECTION per visual row. The widget-owned
+        // wrapped view is kept in sync by the edit funnel and `on_layout`;
+        // if this render sees a different width (first frame before layout,
+        // or direct renders in tests), build a consistent local view.
+        let render_wrap_width = if self.soft_wrap {
+            text_w.saturating_sub(1)
+        } else {
+            0
+        };
+        let fallback_wrapped;
+        let wrapped: &WrappedDocument = if self.wrapped.width() == render_wrap_width {
+            &self.wrapped
+        } else {
+            fallback_wrapped =
+                WrappedDocument::new(&self.document, render_wrap_width, self.indent_width);
+            &fallback_wrapped
+        };
+
         let (sel_a, sel_b) = normalized_selection(self.selection);
 
         let mut out = Segments::new();
         for y in 0..height {
-            let row = self.scroll_row + y;
-            let is_cursor_line =
-                self.node_state().focused && self.app_active && row == self.cursor.row;
+            let visual_row = self.scroll_row + y;
+            let line_info = wrapped.offset_line_info(visual_row);
+            let row_for_style = line_info.map(|(row, _)| row);
+            let is_cursor_line = self.node_state().focused
+                && self.app_active
+                && row_for_style == Some(self.cursor.row);
             let line_bg_style = if is_cursor_line {
                 Some(cursor_line_style.clone())
             } else {
                 None
             };
             if gutter_w > 0 {
-                let gutter_text = if row < self.lines.len() {
-                    let line_no = row.saturating_add(1);
-                    let digits = gutter_w.saturating_sub(2).max(1);
-                    format!("{line_no:>digits$}  ")
-                } else {
-                    " ".repeat(gutter_w)
+                // Line numbers appear on the FIRST section of a line only;
+                // continuation sections and padding rows get a blank gutter.
+                let gutter_text = match line_info {
+                    Some((row, 0)) => {
+                        let line_no = row.saturating_add(1);
+                        let digits = gutter_w.saturating_sub(2).max(1);
+                        format!("{line_no:>digits$}  ")
+                    }
+                    _ => " ".repeat(gutter_w),
                 };
-                let style = if self.node_state().focused && row == self.cursor.row {
+                let style = if self.node_state().focused && row_for_style == Some(self.cursor.row) {
                     gutter_active_rich
                 } else {
                     gutter_rich
@@ -1795,16 +1872,27 @@ impl crate::widgets::Render for TextArea {
                 ));
             }
 
-            if row >= self.lines.len() {
+            let Some((row, section_index)) = line_info else {
                 out.push(Segment::new(" ".repeat(text_w)));
                 if y + 1 < height {
                     out.push(Segment::line());
                 }
                 continue;
-            }
+            };
 
-            let line = &self.lines[row];
-            let eol_in_sel = !self.selection.is_empty()
+            let line = self.document.line(row);
+            let offsets: &[usize] = wrapped.get_offsets(row).unwrap_or(&[]);
+            let section_start = if section_index == 0 {
+                0
+            } else {
+                offsets[section_index - 1]
+            };
+            let section_end = offsets.get(section_index).copied().unwrap_or(line.len());
+            let is_last_section = section_index == offsets.len();
+            let section = &line[section_start..section_end];
+
+            let eol_in_sel = is_last_section
+                && !self.selection.is_empty()
                 && cursor_le(
                     sel_a,
                     Cursor {
@@ -1820,7 +1908,12 @@ impl crate::widgets::Render for TextArea {
                     sel_b,
                 );
             let line_abs_offset = syntax_cache.line_offsets.get(row).copied().unwrap_or(0);
-            let start_cell = self.scroll_col;
+            // Horizontal scrolling applies only when unwrapped.
+            let start_cell = if render_wrap_width == 0 {
+                self.scroll_col
+            } else {
+                0
+            };
             let mut cell_x = 0usize;
             let mut pending_style: Option<rich_rs::Style> = None;
             let mut pending_text = String::new();
@@ -1835,11 +1928,12 @@ impl crate::widgets::Render for TextArea {
                 out.push(Segment::styled(std::mem::take(pending_text), style));
             };
 
-            let mut idx = 0usize;
-            for (byte_idx, grapheme) in line.grapheme_indices(true) {
-                idx = byte_idx;
+            for (section_byte_idx, grapheme) in section.grapheme_indices(true) {
+                // Document-space byte position (cursor/selection/syntax all
+                // key off document space, agnostic to the visual break).
+                let byte_idx = section_start + section_byte_idx;
                 let w = grapheme_width(grapheme);
-                let ch_cell_start = grapheme_cell_len_prefix(line, byte_idx);
+                let ch_cell_start = grapheme_cell_len_prefix(section, section_byte_idx);
                 let ch_cell_end = ch_cell_start + w;
 
                 if ch_cell_end <= start_cell {
@@ -1899,12 +1993,16 @@ impl crate::widgets::Render for TextArea {
                 pending_text.push_str(grapheme);
                 cell_x += w;
             }
-            let _ = idx;
             flush(&mut out, &mut pending_style, &mut pending_text);
 
-            // Cursor at end of line: paint a single cell with cursor style.
-            if self.node_state().focused && self.cursor_visible && row == self.cursor.row {
-                let end_cell = grapheme_cell_len_prefix(line, line.len());
+            // Cursor at end of line: paint a single cell with cursor style
+            // (the cursor rests past the end only on the final section).
+            if is_last_section
+                && self.node_state().focused
+                && self.cursor_visible
+                && row == self.cursor.row
+            {
+                let end_cell = grapheme_cell_len_prefix(section, section.len());
                 if self.cursor.col == line.len() && end_cell >= start_cell && cell_x < text_w {
                     out.push(Segment::styled(" ".to_string(), cursor_rich));
                     cell_x += 1;
@@ -1936,9 +2034,7 @@ impl crate::widgets::Render for TextArea {
 }
 
 fn compose_rich(style: &Style, base_bg: Color) -> rich_rs::Style {
-    let mut rich = style
-        .to_rich_without_colors()
-        .unwrap_or_default();
+    let mut rich = style.to_rich_without_colors().unwrap_or_default();
     let mut under_bg = base_bg;
     if let Some(bg) = style.bg {
         let flat = bg.flatten_over(under_bg);
@@ -1950,47 +2046,6 @@ fn compose_rich(style: &Style, base_bg: Color) -> rich_rs::Style {
         rich = rich.with_color(flat.to_simple_opaque());
     }
     rich
-}
-
-/// Detect the document's newline style (Python `_detect_newline_style`):
-/// `"\r\n"` (Windows) wins over `"\n"` (Unix), then `"\r"` (old MacOS),
-/// defaulting to `"\n"`.
-fn detect_newline_style(text: &str) -> &'static str {
-    if text.contains("\r\n") {
-        "\r\n"
-    } else if text.contains('\n') {
-        "\n"
-    } else if text.contains('\r') {
-        "\r"
-    } else {
-        "\n"
-    }
-}
-
-/// Split text into lines on any of `\r\n`, `\n`, `\r` (Python
-/// `str.splitlines` over `VALID_NEWLINES`). A trailing newline yields a
-/// trailing empty line, mirroring Python's `Document.__init__`.
-fn split_lines(text: String) -> Vec<String> {
-    if text.is_empty() {
-        return vec![String::new()];
-    }
-    let mut lines = Vec::new();
-    let mut current = String::new();
-    let mut chars = text.chars().peekable();
-    while let Some(ch) = chars.next() {
-        match ch {
-            '\n' => lines.push(std::mem::take(&mut current)),
-            '\r' => {
-                if chars.peek() == Some(&'\n') {
-                    chars.next();
-                }
-                lines.push(std::mem::take(&mut current));
-            }
-            _ => current.push(ch),
-        }
-    }
-    lines.push(current);
-    lines
 }
 
 fn normalized_selection(sel: Selection) -> (Cursor, Cursor) {
@@ -2038,13 +2093,17 @@ mod tests {
         let mut ctx = EventCtx::default();
 
         {
-            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(
+                crate::node_id::NodeId::default(),
+                &mut ctx,
+            );
             text_area.on_event(
-            &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
-                KeyCode::Char('x'),
-                KeyModifiers::NONE,
-            ))),
-            &mut __w);
+                &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
+                    KeyCode::Char('x'),
+                    KeyModifiers::NONE,
+                ))),
+                &mut __w,
+            );
         }
 
         let messages = ctx.take_messages();
@@ -2066,13 +2125,17 @@ mod tests {
 
         let mut ctx = EventCtx::default();
         {
-            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(
+                crate::node_id::NodeId::default(),
+                &mut ctx,
+            );
             text_area.on_event(
-            &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
-                KeyCode::Char('c'),
-                KeyModifiers::CONTROL,
-            ))),
-            &mut __w);
+                &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
+                    KeyCode::Char('c'),
+                    KeyModifiers::CONTROL,
+                ))),
+                &mut __w,
+            );
         }
         let copy_messages = ctx.take_messages();
         assert!(copy_messages.iter().any(|m| {
@@ -2082,13 +2145,17 @@ mod tests {
 
         let mut ctx = EventCtx::default();
         {
-            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(
+                crate::node_id::NodeId::default(),
+                &mut ctx,
+            );
             text_area.on_event(
-            &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
-                KeyCode::Char('v'),
-                KeyModifiers::CONTROL,
-            ))),
-            &mut __w);
+                &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
+                    KeyCode::Char('v'),
+                    KeyModifiers::CONTROL,
+                ))),
+                &mut __w,
+            );
         }
         let paste_messages = ctx.take_messages();
         assert!(paste_messages.iter().any(|m| {
@@ -2106,16 +2173,20 @@ mod tests {
 
         let mut ctx = EventCtx::default();
         {
-            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(
+                crate::node_id::NodeId::default(),
+                &mut ctx,
+            );
             text_area.on_message(
-            &MessageEvent::new(
-                NodeId::default(),
-                TextEditClipboardPaste {
-                    target: id,
-                    text: "X\nY".to_string(),
-                },
-            ),
-            &mut __w);
+                &MessageEvent::new(
+                    NodeId::default(),
+                    TextEditClipboardPaste {
+                        target: id,
+                        text: "X\nY".to_string(),
+                    },
+                ),
+                &mut __w,
+            );
         }
 
         assert_eq!(text_area.text(), "aX\nYbc");
@@ -2142,7 +2213,13 @@ mod tests {
             name: "undo".to_string(),
             arguments: vec![],
         };
-        assert!({ let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx); ta.execute_action(&action, &mut __w) });
+        assert!({
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(
+                crate::node_id::NodeId::default(),
+                &mut ctx,
+            );
+            ta.execute_action(&action, &mut __w)
+        });
         assert!(ctx.handled());
     }
 
@@ -2158,16 +2235,20 @@ mod tests {
 
         let mut ctx = EventCtx::default();
         {
-            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(
+                crate::node_id::NodeId::default(),
+                &mut ctx,
+            );
             ta.on_event(
-            &Event::MouseDown(crate::event::MouseDownEvent {
-                target: id,
-                screen_x: 0,
-                screen_y: 0,
-                x: 0,
-                y: 0,
-            }),
-            &mut __w);
+                &Event::MouseDown(crate::event::MouseDownEvent {
+                    target: id,
+                    screen_x: 0,
+                    screen_y: 0,
+                    x: 0,
+                    y: 0,
+                }),
+                &mut __w,
+            );
         }
         assert!(ctx.handled());
     }
@@ -2185,16 +2266,20 @@ mod tests {
 
         let mut ctx = EventCtx::default();
         {
-            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(
+                crate::node_id::NodeId::default(),
+                &mut ctx,
+            );
             ta.on_event(
-            &Event::MouseDown(crate::event::MouseDownEvent {
-                target: other_id,
-                screen_x: 0,
-                screen_y: 0,
-                x: 0,
-                y: 0,
-            }),
-            &mut __w);
+                &Event::MouseDown(crate::event::MouseDownEvent {
+                    target: other_id,
+                    screen_x: 0,
+                    screen_y: 0,
+                    x: 0,
+                    y: 0,
+                }),
+                &mut __w,
+            );
         }
         assert!(!ctx.handled());
     }
@@ -2212,16 +2297,20 @@ mod tests {
 
         let mut ctx = EventCtx::default();
         {
-            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(
+                crate::node_id::NodeId::default(),
+                &mut ctx,
+            );
             ta.on_message(
-            &MessageEvent::new(
-                NodeId::default(),
-                TextEditClipboardPaste {
-                    target: other_id,
-                    text: "XYZ".to_string(),
-                },
-            ),
-            &mut __w);
+                &MessageEvent::new(
+                    NodeId::default(),
+                    TextEditClipboardPaste {
+                        target: other_id,
+                        text: "XYZ".to_string(),
+                    },
+                ),
+                &mut __w,
+            );
         }
         assert!(!ctx.handled());
         assert_eq!(ta.text(), "abc");

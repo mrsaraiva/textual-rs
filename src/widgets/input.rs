@@ -1106,9 +1106,7 @@ impl crate::widgets::Interactive for Input {
                     | EditCommand::MoveUp { .. }
                     | EditCommand::MoveDown { .. }
                     | EditCommand::DeleteLine
-                    | EditCommand::SelectLine
-                    | EditCommand::Undo
-                    | EditCommand::Redo => {}
+                    | EditCommand::SelectLine => {}
                 }
 
                 if value_changed {
