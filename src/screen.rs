@@ -35,6 +35,18 @@ pub trait Screen: Send + Sync {
         "Screen"
     }
 
+    /// CSS type name for this screen: the concrete type's short name.
+    ///
+    /// Python parity (`DOMNode._css_type_names`): a screen subclass participates
+    /// in CSS type matching under its own class name, so a rule like
+    /// `GotoScreen { align: center middle; }` matches a `GotoScreen` instance.
+    /// The base names (`ModalScreen`/`Screen`) keep matching via the screen
+    /// root's type aliases, mirroring the Python MRO. Override only if the CSS
+    /// name must differ from the Rust type name.
+    fn style_type(&self) -> &'static str {
+        crate::widgets::short_type_name::<Self>()
+    }
+
     /// The root widget for this screen. Called once when the screen is mounted.
     fn compose(&self) -> Box<dyn Widget>;
 
@@ -257,7 +269,12 @@ pub enum ScreenResult {
 /// Type-erased callback invoked when a screen is dismissed with a result.
 pub type ScreenResultCallback = Box<dyn FnOnce(ScreenResult) + Send>;
 
-const MODAL_SCREEN_ALIASES: &[&str] = &["Screen"];
+// Base-type aliases for the screen root, mirroring the Python MRO: a concrete
+// screen matches its own type name (carried by `ScreenHost::style_type`) plus
+// every base name (`GotoScreen(ModalScreen)` -> {GotoScreen, ModalScreen,
+// Screen, ...} in `DOMNode._css_type_names`).
+const MODAL_SCREEN_ALIASES: &[&str] = &["ModalScreen", "Screen"];
+const SCREEN_ALIASES: &[&str] = &["Screen"];
 
 /// Shared, interior-mutable slot a screen handler writes its dismissal into.
 ///
@@ -284,6 +301,10 @@ type SharedScreen = Arc<Mutex<Box<dyn Screen>>>;
 /// drives screen handlers with no separate dispatch path.
 struct ScreenHost {
     modal: bool,
+    /// Concrete screen type short name (e.g. `GotoScreen`), captured from
+    /// `Screen::style_type()` at push time so CSS rules keyed on the concrete
+    /// screen type match the screen root (Python `_css_type_names` parity).
+    screen_type: &'static str,
     child: Option<Box<dyn Widget>>,
     screen: SharedScreen,
     dismiss_slot: DismissSlot,
@@ -292,12 +313,14 @@ struct ScreenHost {
 impl ScreenHost {
     fn new(
         modal: bool,
+        screen_type: &'static str,
         child: Box<dyn Widget>,
         screen: SharedScreen,
         dismiss_slot: DismissSlot,
     ) -> Self {
         Self {
             modal,
+            screen_type,
             child: Some(child),
             screen,
             dismiss_slot,
@@ -319,14 +342,14 @@ impl Widget for ScreenHost {
     }
 
     fn style_type(&self) -> &'static str {
-        if self.modal { "ModalScreen" } else { "Screen" }
+        self.screen_type
     }
 
     fn style_type_aliases(&self) -> &[&'static str] {
         if self.modal {
             MODAL_SCREEN_ALIASES
         } else {
-            &[]
+            SCREEN_ALIASES
         }
     }
 
@@ -501,11 +524,13 @@ impl ScreenStack {
         // Build the widget tree from the screen's compose output, extracting
         // composed children/declarations into the arena like the app root path.
         let modal = screen.is_modal();
+        let screen_type = screen.style_type();
         let body = screen.compose();
         let shared: SharedScreen = Arc::new(Mutex::new(screen));
         let dismiss_slot: DismissSlot = Arc::new(Mutex::new(None));
         let root_widget = Box::new(ScreenHost::new(
             modal,
+            screen_type,
             body,
             shared.clone(),
             dismiss_slot.clone(),
@@ -1267,7 +1292,8 @@ mod tests {
     }
 
     #[test]
-    fn pushed_modal_screen_root_uses_modal_screen_type_and_preserves_body_widget() {
+    fn pushed_modal_screen_root_carries_concrete_type_plus_base_aliases_and_preserves_body_widget()
+    {
         struct ScreenBody;
 
         impl Widget for ScreenBody {
@@ -1300,10 +1326,18 @@ mod tests {
             .widget_tree
             .get(root_id)
             .expect("root node should exist");
-        assert_eq!(root.widget.style_type(), "ModalScreen");
+        assert_eq!(
+            root.widget.style_type(),
+            "ModalBodyScreen",
+            "screen root should carry the concrete screen type name"
+        );
+        assert!(
+            root.widget.style_type_aliases().contains(&"ModalScreen"),
+            "modal screen root should also match ModalScreen selectors"
+        );
         assert!(
             root.widget.style_type_aliases().contains(&"Screen"),
-            "ModalScreen root should also match Screen selectors"
+            "modal screen root should also match Screen selectors"
         );
 
         let child_id = *entry
@@ -1320,6 +1354,79 @@ mod tests {
             "QuitScreen",
             "screen body widget type should remain available for screen-specific selectors"
         );
+    }
+
+    /// Regression: a CSS rule keyed on the CONCRETE screen type (e.g.
+    /// `GotoScreen { ... }`) must match the pushed screen's root node, for both
+    /// modal and non-modal screens, while the base `Screen`/`ModalScreen`
+    /// selectors keep matching via aliases (Python `_css_type_names` MRO).
+    #[test]
+    fn concrete_screen_type_css_selector_matches_screen_root() {
+        struct GotoScreen;
+
+        impl Screen for GotoScreen {
+            fn compose(&self) -> Box<dyn Widget> {
+                Box::new(StubWidget)
+            }
+        }
+
+        struct HelpScreen;
+
+        impl Screen for HelpScreen {
+            fn compose(&self) -> Box<dyn Widget> {
+                Box::new(StubWidget)
+            }
+
+            fn is_modal(&self) -> bool {
+                false
+            }
+        }
+
+        let _guard = crate::css::set_style_context(StyleSheet::parse(
+            "GotoScreen { fg: #ff00aa; } HelpScreen { fg: #00ff00; }",
+        ));
+
+        let mut stack = ScreenStack::new();
+        stack.push(Box::new(GotoScreen));
+        {
+            let entry = stack.top().expect("top screen should exist");
+            let root_id = entry.widget_tree.root().expect("screen tree root");
+            let root = entry.widget_tree.get(root_id).expect("root node");
+            assert_eq!(root.widget.style_type(), "GotoScreen");
+            assert!(
+                root.widget.style_type_aliases().contains(&"ModalScreen")
+                    && root.widget.style_type_aliases().contains(&"Screen"),
+                "modal screen root keeps the ModalScreen/Screen base aliases, got {:?}",
+                root.widget.style_type_aliases()
+            );
+            let meta = crate::css::node_selector_meta(&entry.widget_tree, root_id);
+            let style = crate::css::resolve_style_for_meta(&meta);
+            assert_eq!(
+                style.fg,
+                crate::style::parse_color_like("#ff00aa"),
+                "GotoScreen type selector should style the modal screen root"
+            );
+        }
+
+        stack.push(Box::new(HelpScreen));
+        {
+            let entry = stack.top().expect("top screen should exist");
+            let root_id = entry.widget_tree.root().expect("screen tree root");
+            let root = entry.widget_tree.get(root_id).expect("root node");
+            assert_eq!(root.widget.style_type(), "HelpScreen");
+            assert!(
+                root.widget.style_type_aliases().contains(&"Screen"),
+                "non-modal screen root keeps the Screen base alias, got {:?}",
+                root.widget.style_type_aliases()
+            );
+            let meta = crate::css::node_selector_meta(&entry.widget_tree, root_id);
+            let style = crate::css::resolve_style_for_meta(&meta);
+            assert_eq!(
+                style.fg,
+                crate::style::parse_color_like("#00ff00"),
+                "HelpScreen type selector should style the non-modal screen root"
+            );
+        }
     }
 
     // =========================================================================

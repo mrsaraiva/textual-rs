@@ -109,10 +109,7 @@ pub trait Render {
 
     /// CSS type name for this widget (default: concrete type short name).
     fn style_type(&self) -> &'static str {
-        std::any::type_name::<Self>()
-            .rsplit("::")
-            .next()
-            .unwrap_or("Widget")
+        super::short_type_name::<Self>()
     }
 
     /// Optional super-type aliases used for CSS type selector matching.

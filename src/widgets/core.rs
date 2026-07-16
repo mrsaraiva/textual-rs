@@ -86,6 +86,18 @@ pub fn classify_style_change(old: &Style, new: &Style) -> StyleChangeKind {
     StyleChangeKind::Visual
 }
 
+/// Short type name for CSS/debug identity, derived from `std::any::type_name`.
+///
+/// Strips any generic-parameter suffix BEFORE taking the final `::` path
+/// segment, so `::` inside generic arguments is not mistaken for a path
+/// separator (`app::Adapter<my_crate::MyApp>` -> `Adapter`, not `MyApp>`).
+/// Mirrors Python `type(self).__name__` for CSS type matching.
+pub(crate) fn short_type_name<T: ?Sized>() -> &'static str {
+    let full = std::any::type_name::<T>();
+    let base = full.split('<').next().unwrap_or(full);
+    base.rsplit("::").next().unwrap_or(base)
+}
+
 /// A declarative key-binding declaration, analogous to Python Textual's `Binding`.
 ///
 /// Widgets return these from [`Widget::bindings()`] to declare key→action mappings.
@@ -858,10 +870,7 @@ pub trait Widget: Send + Sync + Any {
     fn set_seed_classes(&mut self, _classes: Vec<String>) {}
     #[doc(hidden)]
     fn style_type(&self) -> &'static str {
-        std::any::type_name::<Self>()
-            .rsplit("::")
-            .next()
-            .unwrap_or("Widget")
+        short_type_name::<Self>()
     }
     /// Optional super-type aliases used for CSS type selector matching.
     ///
@@ -1735,6 +1744,33 @@ mod tests {
             leading(&out[1]),
             3,
             "narrow line gets the SAME block offset, not its own per-line center (would be 4)"
+        );
+    }
+
+    #[test]
+    fn default_style_type_strips_generic_parameters() {
+        // Regression: `type_name::<Host<some::Inner>>()` segmented on `::`
+        // WITHOUT stripping the generic suffix first yields the stray `Inner>`
+        // (trailing angle bracket) instead of `GenericHost`.
+        struct Inner;
+        struct GenericHost<T> {
+            _inner: std::marker::PhantomData<T>,
+        }
+
+        impl<T: Send + Sync + 'static> Widget for GenericHost<T> {
+            fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+                Segments::new()
+            }
+        }
+
+        assert_eq!(short_type_name::<GenericHost<Inner>>(), "GenericHost");
+        let host = GenericHost::<Inner> {
+            _inner: std::marker::PhantomData,
+        };
+        assert_eq!(host.style_type(), "GenericHost");
+        assert!(
+            !host.style_type().contains('>'),
+            "CSS/debug type name must not carry a stray angle bracket"
         );
     }
 

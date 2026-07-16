@@ -368,11 +368,9 @@ struct TextualAppAdapter<T: TextualApp> {
 /// `std::any::type_name::<T>()` (e.g. `my_crate::ModalApp` -> `ModalApp`),
 /// stripping any generic-parameter suffix.
 fn app_type_name<T: ?Sized>() -> String {
-    let full = std::any::type_name::<T>();
-    // Strip generic parameters (`Foo<Bar>` -> `Foo`) before taking the segment,
+    // Strips generic parameters (`Foo<Bar>` -> `Foo`) before taking the segment,
     // so `::` inside generics doesn't get mistaken for a path separator.
-    let base = full.split('<').next().unwrap_or(full);
-    base.rsplit("::").next().unwrap_or(base).to_string()
+    crate::widgets::short_type_name::<T>().to_string()
 }
 
 fn build_textual_app_runtime_root<T: TextualApp>(
@@ -697,6 +695,14 @@ impl<T: TextualApp> TextualAppAdapter<T> {
 }
 
 impl<T: TextualApp> Widget for TextualAppAdapter<T> {
+    /// CSS/debug type name of the app node: the concrete app type's short name
+    /// (Python parity: the root DOM node is named after the App subclass, e.g.
+    /// `FiveByFiveApp`). Without this override the `Widget` default would name
+    /// the node after the adapter itself (`TextualAppAdapter`).
+    fn style_type(&self) -> &'static str {
+        crate::widgets::short_type_name::<T>()
+    }
+
     fn bindings(&self) -> Vec<BindingDecl> {
         let mut bindings = vec![
             BindingDecl::new("tab", "focus_next", "Focus Next")
@@ -1491,6 +1497,21 @@ mod tests {
         // bare type name (last `::` segment).
         assert_eq!(app_type_name::<DefaultTitleApp>(), "DefaultTitleApp");
         assert_eq!(app_type_name::<ExplicitTitleApp>(), "ExplicitTitleApp");
+    }
+
+    #[test]
+    fn adapter_style_type_is_app_type_name_without_generic_suffix() {
+        // Regression: the root app node's CSS/debug type name was derived from
+        // `type_name::<TextualAppAdapter<T>>()` without stripping the generic
+        // suffix first, yielding a stray `DefaultTitleApp>` (trailing angle
+        // bracket). The adapter now reports the app type's own short name.
+        let app = Arc::new(Mutex::new(DefaultTitleApp));
+        let adapter = TextualAppAdapter::new(app, NoopWidget::new());
+        assert_eq!(adapter.style_type(), "DefaultTitleApp");
+        assert!(
+            !adapter.style_type().contains('>'),
+            "root type name must not carry a stray angle bracket"
+        );
     }
 
     #[test]

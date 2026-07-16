@@ -82,6 +82,7 @@ pub use containers::{
 };
 pub use content_switcher::ContentSwitcher;
 pub(crate) use core::render_widget_with_meta;
+pub(crate) use core::short_type_name;
 pub use core::{
     BindingDecl, ChildDeclMeta, LayoutConstraints, NodeSeed, NodeState, StyleChangeKind, Widget,
     WidgetSelectionAnchor, WidgetStyles, classify_style_change,
