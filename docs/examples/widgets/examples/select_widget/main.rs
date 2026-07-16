@@ -46,9 +46,9 @@ impl TextualApp for SelectApp {
             .iter()
             .map(|line| (line.to_string(), line.to_string()))
             .collect();
-        // Python `Select(...)` defaults allow_blank=True (shows the "Select"
-        // prompt rather than auto-selecting the first option).
-        let select = Select::new(options, "Select").with_allow_blank(true);
+        // Like Python `Select(...)`, allow_blank defaults to true (shows the
+        // "Select" prompt rather than auto-selecting the first option).
+        let select = Select::new(options, "Select");
         AppRoot::new().with_child(Header::new()).with_child(select)
     }
 
@@ -95,8 +95,9 @@ mod tests {
             .map(|line| (line.to_string(), line.to_string()))
             .collect();
         let sel = Select::new(options, "Select a line...");
-        // Options are present.
-        assert_eq!(sel.value(), Some(&"I must not fear.".to_string()));
+        // Default allow_blank=true (Python parity): starts blank, showing the
+        // prompt rather than auto-selecting the first option.
+        assert!(sel.value().is_none());
     }
 
     #[test]

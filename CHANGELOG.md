@@ -7,6 +7,21 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### Changed (BREAKING): `Select.allow_blank` now defaults to `true` (Python parity)
+
+- `Select::new(..)` now defaults `allow_blank = true`, matching Python
+  Textual's `Select(allow_blank=True)`: a Select constructed without an
+  explicit value starts BLANK, rendering the prompt, and posts no mount-time
+  `SelectChanged`. Previously the Rust default was `false`, which auto-selected
+  the first option (and posted `SelectChanged` for it at startup).
+- To keep the old behavior, opt out explicitly with
+  `.with_allow_blank(false)`; that path is unchanged and still auto-selects
+  the first option when no initial value is set (the forbidden-blank-state
+  guard), including on `set_options` / `set_allow_blank(false)` transitions.
+- Doc examples `widgets/select_widget` and `widgets/select_from_values_widget`
+  drop their now-redundant `.with_allow_blank(true)` calls; they rely on the
+  matching default, exactly like their Python counterparts.
+
 ### Added — keymap subsystem, phase K1: binding identity + `BindingsMap` value type
 
 Port of the `BindingsMap` half of Python Textual's `binding.py`, the

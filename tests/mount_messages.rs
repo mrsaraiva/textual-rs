@@ -76,8 +76,8 @@ fn arena_widget_posts_message_at_mount() {
 
 #[test]
 fn select_allow_blank_false_posts_select_changed_at_mount() {
-    // Default allow_blank=false auto-selects the first option, so Select posts
-    // a SelectChanged for it at mount (Python parity: _watch_value posts Changed
+    // allow_blank=false auto-selects the first option, so Select posts a
+    // SelectChanged for it at mount (Python parity: _watch_value posts Changed
     // for the initial value).
     let _ = drain_mount_posts_for_test();
 

@@ -39,9 +39,9 @@ pub struct Select<T: Clone + PartialEq + Send + Sync + 'static> {
     cursor: OptionCursorState,
     prompt: String,
     disabled: bool,
-    /// When `true` the selection can be blank (a leading dim prompt row is
-    /// added to the overlay). When `false` (default) the first option is
-    /// auto-selected and cannot be cleared.
+    /// When `true` (default, Python parity) the selection can be blank (a
+    /// leading dim prompt row is added to the overlay). When `false` the first
+    /// option is auto-selected and cannot be cleared.
     allow_blank: bool,
     /// Whether the overlay is currently shown.
     expanded: bool,
@@ -58,18 +58,17 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Select<T> {
     /// Create a new `Select` widget.
     ///
     /// `options` is a list of `(label, value)` pairs. `prompt` is shown when
-    /// nothing is selected. Defaults to `allow_blank = false`, which
-    /// auto-selects the first option.
+    /// nothing is selected. Defaults to `allow_blank = true` (Python parity):
+    /// the widget starts blank, showing the prompt. Use
+    /// [`with_allow_blank(false)`](Self::with_allow_blank) to forbid the blank
+    /// state, which auto-selects the first option.
     pub fn new(options: Vec<(String, T)>, prompt: impl Into<String>) -> Self {
         let n = NEXT_SELECT_ID.fetch_add(1, Ordering::Relaxed);
         let focus_id = format!("select-{n}");
         let overlay_id = format!("select-overlay-{n}");
 
-        let mut cursor = OptionCursorState::default();
-        // Default allow_blank = false: auto-select the first option.
-        if !options.is_empty() {
-            cursor.set_selected(Some(0));
-        }
+        // Default allow_blank = true (Python parity): start with no selection.
+        let cursor = OptionCursorState::default();
 
         let seed = NodeSeed {
             css_id: Some(focus_id.clone()),
@@ -81,7 +80,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Select<T> {
             cursor,
             prompt: prompt.into(),
             disabled: false,
-            allow_blank: false,
+            allow_blank: true,
             expanded: false,
             focus_id,
             overlay_id,
@@ -194,9 +193,9 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Select<T> {
 
     /// Builder: set whether blank (no selection) is allowed.
     ///
-    /// When `true`, the initial state is no selection (placeholder shown) and the
-    /// user can deselect. When `false` (default) the first option is
-    /// auto-selected and the user cannot clear the selection.
+    /// When `true` (default, Python parity), the initial state is no selection
+    /// (placeholder shown) and the user can deselect. When `false` the first
+    /// option is auto-selected and the user cannot clear the selection.
     pub fn with_allow_blank(mut self, allow: bool) -> Self {
         self.allow_blank = allow;
         if allow {
@@ -457,9 +456,10 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for Select<T> {
     /// Post a `SelectChanged` for the initially-selected value at mount.
     ///
     /// Python parity: `Select.value` is reactive-set during init and
-    /// `_watch_value` posts `Select.Changed` — including the initial assignment.
+    /// `_watch_value` posts `Select.Changed`, including the initial assignment.
     /// With `allow_blank = false` the first option is auto-selected, so apps
-    /// observe `Changed(first_value)` at startup.
+    /// observe `Changed(first_value)` at startup. With the default
+    /// `allow_blank = true` the widget starts blank and nothing is posted.
     fn on_mount(&mut self, ctx: &mut WidgetCtx) {
         if let Some(index) = self.cursor.selected() {
             if let Some((label, _)) = self.options.get(index) {
@@ -525,27 +525,22 @@ mod tests {
         )
     }
 
-    fn make_select_blank() -> Select<i32> {
-        make_select().with_allow_blank(true)
+    fn make_select_no_blank() -> Select<i32> {
+        make_select().with_allow_blank(false)
     }
 
     #[test]
-    fn select_starts_closed_with_first_selected() {
+    fn select_starts_closed_and_blank_by_default() {
+        // Default allow_blank = true (Python parity): no initial selection.
         let sel = make_select();
         assert!(!sel.is_open());
-        assert_eq!(sel.value(), Some(&1));
-    }
-
-    #[test]
-    fn allow_blank_true_starts_with_no_selection() {
-        let sel = make_select_blank();
         assert!(sel.allow_blank());
         assert!(sel.value().is_none());
     }
 
     #[test]
     fn allow_blank_false_auto_selects_first() {
-        let sel = make_select();
+        let sel = make_select_no_blank();
         assert!(!sel.allow_blank());
         assert_eq!(sel.value(), Some(&1));
     }
@@ -560,7 +555,7 @@ mod tests {
 
     #[test]
     fn clear_resets_when_allow_blank() {
-        let mut sel = make_select_blank();
+        let mut sel = make_select();
         let mut ctx = ReactiveCtx::new(make_node_id());
         sel.set_value(&2, &mut ctx);
         sel.clear();
@@ -569,7 +564,7 @@ mod tests {
 
     #[test]
     fn clear_is_noop_when_not_allow_blank() {
-        let mut sel = make_select();
+        let mut sel = make_select_no_blank();
         assert_eq!(sel.value(), Some(&1));
         sel.clear();
         assert_eq!(sel.value(), Some(&1));
@@ -577,7 +572,7 @@ mod tests {
 
     #[test]
     fn set_allow_blank_auto_selects_when_switching_to_false() {
-        let mut sel = make_select_blank();
+        let mut sel = make_select();
         let mut ctx = ReactiveCtx::new(make_node_id());
         assert!(sel.value().is_none());
         sel.set_allow_blank(false, &mut ctx);
@@ -587,7 +582,7 @@ mod tests {
 
     #[test]
     fn set_options_auto_selects_when_not_allow_blank() {
-        let mut sel = make_select();
+        let mut sel = make_select_no_blank();
         let mut ctx = ReactiveCtx::new(make_node_id());
         sel.set_options(
             vec![("Delta".to_string(), 10), ("Echo".to_string(), 20)],
@@ -598,7 +593,7 @@ mod tests {
 
     #[test]
     fn set_options_does_not_auto_select_when_allow_blank() {
-        let mut sel = make_select_blank();
+        let mut sel = make_select();
         let mut ctx = ReactiveCtx::new(make_node_id());
         sel.set_options(
             vec![("Delta".to_string(), 10), ("Echo".to_string(), 20)],
@@ -628,21 +623,21 @@ mod tests {
 
     #[test]
     fn compose_blank_adds_leading_prompt_row() {
-        let sel = make_select_blank();
+        let sel = make_select();
         // 3 options + 1 blank row.
         assert_eq!(sel.build_overlay_items().len(), 4);
         // No blank row without allow_blank.
-        assert_eq!(make_select().build_overlay_items().len(), 3);
+        assert_eq!(make_select_no_blank().build_overlay_items().len(), 3);
     }
 
     #[test]
     fn overlay_highlight_row_accounts_for_blank_offset() {
         // allow_blank=false, first selected -> row 0.
+        assert_eq!(make_select_no_blank().overlay_highlight_row(), Some(0));
+        // allow_blank=true (default), nothing selected -> blank row 0.
         assert_eq!(make_select().overlay_highlight_row(), Some(0));
-        // allow_blank=true, nothing selected -> blank row 0.
-        assert_eq!(make_select_blank().overlay_highlight_row(), Some(0));
         // allow_blank=true, value at option index 1 -> row 2.
-        let mut sel = make_select_blank();
+        let mut sel = make_select();
         let mut ctx = ReactiveCtx::new(make_node_id());
         sel.set_value(&2, &mut ctx);
         assert_eq!(sel.overlay_highlight_row(), Some(2));
@@ -672,7 +667,7 @@ mod tests {
 
     #[test]
     fn option_selected_updates_value_and_collapses() {
-        let mut sel = make_select_blank();
+        let mut sel = make_select();
         // Open first.
         let mut open = EventCtx::default();
         {
@@ -697,7 +692,7 @@ mod tests {
 
     #[test]
     fn blank_row_selection_clears_value() {
-        let mut sel = make_select_blank();
+        let mut sel = make_select();
         let mut rctx = ReactiveCtx::new(make_node_id());
         sel.set_value(&2, &mut rctx);
         assert_eq!(sel.value(), Some(&2));
@@ -747,9 +742,9 @@ mod tests {
 
     #[test]
     fn child_classes_drive_has_value() {
-        let with = make_select();
+        let with = make_select_no_blank();
         assert!(with.child_classes_for_tree(0).contains(&("-has-value", true)));
-        let without = make_select_blank();
+        let without = make_select();
         assert!(without.child_classes_for_tree(0).contains(&("-has-value", false)));
         // Overlay child carries no driven classes.
         assert!(with.child_classes_for_tree(1).is_empty());

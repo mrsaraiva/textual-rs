@@ -44,7 +44,8 @@ impl TextualApp for SelectApp {
             .iter()
             .map(|line| (line.to_string(), line.to_string()))
             .collect();
-        let select = Select::new(options, "Select").with_allow_blank(true);
+        // Like Python `Select.from_values(...)`, allow_blank defaults to true.
+        let select = Select::new(options, "Select");
         AppRoot::new().with_child(Header::new()).with_child(select)
     }
 
