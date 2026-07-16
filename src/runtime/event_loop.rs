@@ -227,6 +227,55 @@ fn execute_action_with_dispatch_target(
     handled
 }
 
+thread_local! {
+    /// Bounded record of matched-but-unhandled binding actions (newest last),
+    /// observable via [`take_unhandled_binding_reports`]. UI-thread local, so
+    /// tests and tooling drain exactly what their own dispatches produced.
+    static UNHANDLED_BINDING_REPORTS: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Cap on the retained unhandled-binding reports (oldest dropped first), so a
+/// long-lived app repeatedly pressing an unwired binding cannot grow the
+/// buffer unboundedly when nothing drains it.
+const UNHANDLED_BINDING_REPORTS_CAP: usize = 32;
+
+/// Report a matched `BindingDecl` whose action fell through every dispatch
+/// layer unhandled: the source-node `execute_action`, the app-root
+/// `execute_action`, and the `on_app_unhandled_action` fallback all declined.
+///
+/// Without this, such a binding is a silent no-op: the author believes the key
+/// is wired but nothing happens. Python surfaces the same situation via
+/// `App._dispatch_action`'s `log.system("<action> ... has no target. Could not
+/// find methods ...")` (`app.py`). The warning goes to the input debug channel
+/// (`TEXTUAL_DEBUG_INPUT_FILE`) and to a bounded, thread-local buffer for
+/// tests/tooling. Default behavior for the key (falling through to raw key
+/// dispatch) is unchanged.
+fn report_unhandled_binding_action(source_node: NodeId, action_str: &str) {
+    let line = format!(
+        "[input] WARNING: binding matched on node {} but action {:?} was not handled by any \
+         node; expected an `execute_action` arm / `action_registry` entry on the target widget \
+         or an app-level `on_app_action_str` handler",
+        node_id_to_ffi(source_node),
+        action_str,
+    );
+    debug_input(&line);
+    UNHANDLED_BINDING_REPORTS.with(|reports| {
+        let mut reports = reports.borrow_mut();
+        if reports.len() >= UNHANDLED_BINDING_REPORTS_CAP {
+            reports.remove(0);
+        }
+        reports.push(line);
+    });
+}
+
+/// Drain the recorded matched-but-unhandled binding reports (see
+/// [`report_unhandled_binding_action`]). Observability hook for regression
+/// tests and tooling; the runtime never reads it back.
+#[doc(hidden)]
+pub fn take_unhandled_binding_reports() -> Vec<String> {
+    UNHANDLED_BINDING_REPORTS.with(|reports| std::mem::take(&mut *reports.borrow_mut()))
+}
+
 /// Run a string action through the full Python-faithful dispatch chain and merge
 /// the resulting effects into `pass`.
 ///
@@ -520,6 +569,11 @@ fn dispatch_simulated_key_like_input(
                 return;
             }
         }
+
+        // The binding matched but no layer handled its action: report the
+        // silent no-op (debug channel + test-observable buffer) before the key
+        // falls through to raw dispatch.
+        report_unhandled_binding_action(binding_node_id, &action_str);
     }
 
     // Raw key dispatch.
@@ -2876,6 +2930,12 @@ impl App {
                                     continue;
                                 }
                             }
+
+                            // The binding matched but no layer handled its
+                            // action: report the silent no-op (debug channel +
+                            // test-observable buffer) before the key falls
+                            // through to raw dispatch.
+                            report_unhandled_binding_action(binding_node_id, &action_str);
                         }
 
                         // Dispatch the raw key so focused widgets (e.g. Input) can consume it.
@@ -5074,6 +5134,11 @@ impl App {
                 }
                 return;
             }
+
+            // The binding matched but no layer handled its action: report the
+            // silent no-op (debug channel + test-observable buffer) before the
+            // key falls through to raw dispatch.
+            report_unhandled_binding_action(binding_node_id, &action_str);
         }
 
         // Raw key dispatch so focused widgets (Input etc.) can consume it.

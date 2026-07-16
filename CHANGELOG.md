@@ -7,6 +7,34 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### Fixed — app-level query class ops relayout automatically
+
+`app.query_mut(sel)?.add_class(..)` (and `remove_class` / `set_class` /
+`toggle_class` / `set_classes`, plus the `App::action_add_class` family built
+on them) mutated the tree's class sets with NO invalidation: a class whose CSS
+rule flips a layout-affecting property (e.g. `display: none -> block`) resolved
+correctly but the widget stayed invisible/zero-size until the author also
+called an explicit relayout. Python parity: `DOMNode.add_class` etc. funnel
+into `_update_styles()`, which refreshes with `layout=True` (`dom.py`). The
+`DomQueryMut` class helpers now raise the same layout invalidation an explicit
+`request_layout()` does whenever the class set actually changed (matching the
+dispatch-path class-op sites, which already did this); no-op class ops (adding
+a present class, removing an absent one, setting an identical set) request
+nothing.
+
+### Fixed — a matched binding whose action nothing handles is reported, not silent
+
+A `BindingDecl` whose key matched dispatched its action through the source
+node's `execute_action`, the app root, and the `on_app_unhandled_action`
+fallback; if all three declined, the key silently fell through to raw dispatch
+with no trace, so authors believed the binding was wired when it did nothing.
+Python surfaces this via `App._dispatch_action`'s
+`log.system("<action> ... has no target ...")`. The runtime now emits a
+warning on the input debug channel (`TEXTUAL_DEBUG_INPUT_FILE`) naming the
+action and its source node, and records it on a bounded test-observable buffer
+(`runtime::take_unhandled_binding_reports()`, `#[doc(hidden)]`). Default
+behavior for the key (fall-through to raw dispatch) is unchanged.
+
 ## [1.0.0] - 2026-07-14
 
 First stable release. textual-rs is a fundamentals-first Rust port of Python
