@@ -119,6 +119,11 @@ pub struct BindingDecl {
     pub show: bool,
     /// Priority bindings are checked before normal bindings across the whole chain.
     pub priority: bool,
+    /// Optional binding ID (Python `Binding.id`): an opaque handle, intended to
+    /// be globally unique but uniqueness is not enforced. If present in the
+    /// App's keymap, the keymap's key string is substituted for this binding's
+    /// `key`.
+    pub id: Option<String>,
 }
 
 impl BindingDecl {
@@ -131,6 +136,7 @@ impl BindingDecl {
             namespace: None,
             show: true,
             priority: false,
+            id: None,
         }
     }
 
@@ -155,6 +161,13 @@ impl BindingDecl {
     /// Attach an optional namespace/grouping marker for help panel sections.
     pub fn with_namespace(mut self, namespace: impl Into<String>) -> Self {
         self.namespace = Some(namespace.into());
+        self
+    }
+
+    /// Attach a binding ID so the binding can be addressed by the App's keymap
+    /// (mirrors Python `Binding(id=...)`).
+    pub fn with_id(mut self, id: impl Into<String>) -> Self {
+        self.id = Some(id.into());
         self
     }
 }

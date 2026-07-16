@@ -478,14 +478,20 @@ fn dispatch_simulated_key_like_input(
     }
 
     // Declarative bindings before raw key dispatch.
+    let mut binding_clashes = Vec::new();
     let binding_match = app.active_widget_tree().and_then(|tree| {
         match_binding_chain(
             tree,
             app.app_root_tree_when_screen_active(),
             &key,
             app.check_action_fn.as_deref(),
+            &app.keymap,
+            Some(&mut binding_clashes),
         )
     });
+    // Deliver keymap clash reports after the tree borrow ends (Python calls
+    // handle_bindings_clash per chain build, i.e. per clashing keypress).
+    app.deliver_binding_clashes(&binding_clashes);
     if let Some((binding_node_id, action_str, binding_source)) = binding_match
         && let Ok(parsed) = crate::action::parse_action(&action_str)
     {
@@ -2740,6 +2746,7 @@ impl App {
                         // Declarative BINDINGS: walk the active chain (focused→root,
                         // or screen-body root when unfocused) plus App::BINDINGS
                         // beneath an active screen.
+                        let mut binding_clashes = Vec::new();
                         let binding_match = self.active_widget_tree().and_then(|tree| {
                             let root_target = tree.root().unwrap_or_default();
                             match_binding_chain(
@@ -2747,11 +2754,16 @@ impl App {
                                 self.app_root_tree_when_screen_active(),
                                 &key,
                                 self.check_action_fn.as_deref(),
+                                &self.keymap,
+                                Some(&mut binding_clashes),
                             )
                             .map(|(node_id, action_str, source)| {
                                 (node_id, action_str, source, root_target)
                             })
                         });
+                        // Deliver keymap clash reports after the tree borrow
+                        // ends (per clashing keypress, Python cadence).
+                        self.deliver_binding_clashes(&binding_clashes);
                         if let Some((binding_node_id, action_str, binding_source, root_target)) =
                             binding_match
                             && let Ok(parsed) = crate::action::parse_action(&action_str)
@@ -4992,6 +5004,7 @@ impl App {
 
         // Declarative BINDINGS: active chain (focused→root, or screen-body root
         // when unfocused) plus App::BINDINGS beneath an active screen.
+        let mut binding_clashes = Vec::new();
         let binding_match = self.active_widget_tree().and_then(|tree| {
             let root_target = tree.root().unwrap_or_default();
             match_binding_chain(
@@ -4999,9 +5012,14 @@ impl App {
                 self.app_root_tree_when_screen_active(),
                 &key,
                 self.check_action_fn.as_deref(),
+                &self.keymap,
+                Some(&mut binding_clashes),
             )
             .map(|(node_id, action_str, source)| (node_id, action_str, source, root_target))
         });
+        // Deliver keymap clash reports after the tree borrow ends (per
+        // clashing keypress, Python cadence).
+        self.deliver_binding_clashes(&binding_clashes);
         if let Some((binding_node_id, action_str, binding_source, root_target)) = binding_match
             && let Ok(parsed) = crate::action::parse_action(&action_str)
         {
@@ -6638,7 +6656,7 @@ impl App {
         self.ensure_runtime_tree(root);
         let app_root = self.app_root_tree_when_screen_active();
         if let Some(tree) = self.active_widget_tree() {
-            active_binding_hints_tree(tree, app_root)
+            active_binding_hints_tree(tree, app_root, &self.keymap)
         } else {
             (Vec::new(), Vec::new())
         }

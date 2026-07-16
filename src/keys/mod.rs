@@ -392,6 +392,28 @@ pub(crate) fn character_to_key_name(ch: char) -> String {
     apply_key_name_replacements(raw_name)
 }
 
+/// Normalize a comma-separated list of keys (Python `_normalize_key_list`):
+/// split on `,`, trim each alternative, and convert single characters through
+/// [`character_to_key_name`] so `"?,space"` becomes `"question_mark,space"`.
+///
+/// Alphanumeric single characters pass through unchanged, matching Python
+/// `_character_to_key` (identity for alphanumerics) and the guard used by
+/// binding matching (`key_matches_binding`). Used by `App::set_keymap` /
+/// `App::update_keymap` to normalize keymap VALUES at store time.
+pub(crate) fn normalize_key_list(keys: &str) -> String {
+    keys.split(',')
+        .map(|key| {
+            let key = key.trim();
+            let mut chars = key.chars();
+            match (chars.next(), chars.next()) {
+                (Some(ch), None) if !ch.is_alphanumeric() => character_to_key_name(ch),
+                _ => key.to_string(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
 /// Apply [`KEY_NAME_REPLACEMENTS`] to a raw key name.
 fn apply_key_name_replacements(name: &str) -> String {
     for &(from, to) in KEY_NAME_REPLACEMENTS {
@@ -909,5 +931,18 @@ mod tests {
         // Alt chords do not produce a printable character.
         assert_eq!(ch, None);
         assert!(!printable);
+    }
+
+    // -- normalize_key_list (Python _normalize_key_list) --
+
+    #[test]
+    fn normalize_key_list_converts_single_characters() {
+        // test_binding.py::test_keymap_key: "?,space" -> "question_mark,space".
+        assert_eq!(normalize_key_list("?,space"), "question_mark,space");
+        assert_eq!(normalize_key_list("$"), "dollar_sign");
+        // Alphanumeric single characters pass through unchanged.
+        assert_eq!(normalize_key_list("a,right"), "a,right");
+        // Alternatives are trimmed before normalization.
+        assert_eq!(normalize_key_list(" ? , k "), "question_mark,k");
     }
 }

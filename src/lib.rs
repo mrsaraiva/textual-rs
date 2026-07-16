@@ -6,6 +6,7 @@ extern crate self as textual;
 
 pub mod action;
 pub mod animation;
+pub mod bindings;
 pub mod compose;
 pub mod content;
 pub mod css;
@@ -37,6 +38,7 @@ pub mod widget_tree;
 pub mod widgets;
 pub mod worker;
 
+pub use bindings::{BindingsMap, InvalidBinding, Keymap, KeymapApplyResult, NoBinding};
 pub use error::{Error, Result};
 pub use event::BindingHint;
 pub use handle::{Handle, HandleSlot};
@@ -66,6 +68,7 @@ pub mod prelude {
         ActionArgument, ActionDecl, ActionHandler, ActionParseError, ParsedAction, parse_action,
     };
     pub use crate::animation::{Animator, animation_level_from_env};
+    pub use crate::bindings::{BindingsMap, InvalidBinding, Keymap, KeymapApplyResult, NoBinding};
     pub use crate::compose::{ChildDecl, ComposeResult, WidgetBuilder};
     // NOTE: `HandleSink` is intentionally NOT in the prelude (RA2.6b) — it is
     // compose-pipeline plumbing; reach it via `crate::handle::HandleSink`.
@@ -93,8 +96,8 @@ pub mod prelude {
     // API — user apps go through `TextualApp`/`Pilot`/`run_test`. Harness-level code
     // that drives trees directly imports them via `textual::runtime::{...}`.
     pub use crate::runtime::{
-        App, CallFromThreadError, DomQuery, DomQueryMut, PushScreenWaitError,
-        TimerHandle, TimerTick, WidgetQuery,
+        App, BindingClash, BindingSource, CallFromThreadError, DomQuery, DomQueryMut,
+        PushScreenWaitError, TimerHandle, TimerTick, WidgetQuery,
     };
     pub use crate::screen::{
         Screen, ScreenMessageCtx, ScreenResult, ScreenResultCallback, ScreenStack,

@@ -1,10 +1,11 @@
+use crate::bindings::{BindingsMap, Keymap};
 use crate::debug::debug_message;
 use crate::event::{Action, AnimationRequest, BindingHint, Event, EventCtx, WidgetCtx};
 use crate::keys::KeyEventData;
 use crate::message::{MessageEnvelope, MessageEvent};
 use crate::node_id::NodeId;
 use crate::widget_tree::WidgetTree;
-use crate::widgets::Widget;
+use crate::widgets::{BindingDecl, Widget};
 
 use super::dispatch_ctx::{set_dispatch_recipient, set_dispatch_tree};
 use super::types::DispatchOutcome;
@@ -704,7 +705,62 @@ pub(crate) fn match_binding_tree(
     tree: &WidgetTree,
     key: &KeyEventData,
 ) -> Option<(NodeId, String)> {
-    match_binding_chain(tree, None, key, None).map(|(node, action, _src)| (node, action))
+    match_binding_chain(tree, None, key, None, &Keymap::new(), None)
+        .map(|(node, action, _src)| (node, action))
+}
+
+/// Dispatch-path keymap transform (flatten).
+///
+/// With an empty keymap this is the zero-regression fast path: it returns
+/// `widget.bindings()` untouched, so the compiled walk is byte-for-byte
+/// today's behavior. With a keymap set, the node's declared bindings are
+/// expanded into a [`BindingsMap`] (comma expansion BEFORE `apply_keymap` is
+/// load-bearing for the clash algorithm), overlaid with the keymap, and
+/// flattened back to `Vec<BindingDecl>` in map order (each entry single-key).
+///
+/// Mirrors Python applying `apply_keymap` to a throwaway copy of each node's
+/// bindings inside `Screen._binding_chain` (screen.py). Clashed bindings are
+/// appended to `clashed`; the caller decides whether to deliver them (the
+/// key-dispatch walks do, via `App::deliver_binding_clashes`).
+fn effective_bindings(
+    widget: &dyn Widget,
+    keymap: &Keymap,
+    clashed: &mut Vec<BindingDecl>,
+) -> Vec<BindingDecl> {
+    if keymap.is_empty() {
+        return widget.bindings();
+    }
+    let mut map = BindingsMap::from_decls_lossy(widget.bindings());
+    clashed.extend(map.apply_keymap(keymap).clashed_bindings);
+    map.into_flattened()
+}
+
+/// Hint-path keymap transform (per-decl key SUBSTITUTION, shape-preserving).
+///
+/// The hint collectors emit ONE `BindingHint` per decl carrying the raw
+/// comma-joined key spec, and the Footer renders the FIRST alternative of
+/// that spec. Feeding the hint path flattened per-key entries would DOUBLE
+/// the footer rows for every multi-key decl, so this transform must NOT
+/// flatten: a decl whose `id` is present in the keymap gets its `key`
+/// replaced with the stored (already-normalized) keymap value, preserving
+/// the comma-list shape; every other decl passes through unchanged. No clash
+/// computation (substitution has no clash semantics; clash reporting belongs
+/// to the key-dispatch walks).
+fn remap_decl_keys(decls: Vec<BindingDecl>, keymap: &Keymap) -> Vec<BindingDecl> {
+    if keymap.is_empty() {
+        return decls;
+    }
+    decls
+        .into_iter()
+        .map(|mut decl| {
+            if let Some(id) = decl.id.as_deref().filter(|id| !id.is_empty())
+                && let Some(keys) = keymap.get(id).filter(|keys| !keys.is_empty())
+            {
+                decl.key = keys.clone();
+            }
+            decl
+        })
+        .collect()
 }
 
 /// Build the focused→root binding-resolution path for `tree`.
@@ -738,13 +794,34 @@ fn binding_path(tree: &WidgetTree) -> Vec<NodeId> {
 }
 
 /// Source tree of a matched binding, so the caller can route execution.
+///
+/// Also the two-tree discriminant carried by [`BindingClash`]:
+/// `match_binding_chain` walks TWO trees (active + app-root), so a bare
+/// `NodeId` would be ambiguous between them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum BindingSource {
+pub enum BindingSource {
     /// Binding declared in the active (screen or app) tree.
     Active,
     /// Binding declared on the app-root tree (e.g. `App::BINDINGS`), consulted
     /// only when a separate screen tree is active.
     AppRoot,
+}
+
+/// A keymap-induced binding clash (the payload of
+/// `TextualApp::handle_bindings_clash`, mirroring Python
+/// `App.handle_bindings_clash(clashed_bindings, node)`).
+///
+/// Produced by the key-dispatch chain walks when `BindingsMap::apply_keymap`
+/// reports that a keymap override displaced a binding that was not itself
+/// being rebound away (see `apply_keymap` for the exact rule).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BindingClash {
+    /// The node whose bindings clashed (Python's `node` argument).
+    pub node: NodeId,
+    /// Which tree `node` belongs to (active vs app-root).
+    pub source: BindingSource,
+    /// The clashed binding (post-remap key).
+    pub binding: BindingDecl,
 }
 
 /// Result of a binding match: the source node, the action string, and which
@@ -816,6 +893,8 @@ pub(crate) fn match_binding_chain(
     app_root: Option<&WidgetTree>,
     key: &KeyEventData,
     app_check: Option<AppCheckAction<'_>>,
+    keymap: &Keymap,
+    mut clashes: Option<&mut Vec<BindingClash>>,
 ) -> Option<BindingMatch> {
     let active_path = binding_path(active);
     let app_path = app_root.map(binding_path).unwrap_or_default();
@@ -823,83 +902,126 @@ pub(crate) fn match_binding_chain(
     // (the stub mirroring the app adapter's bindings).
     let active_root_is_app = app_root.is_none();
 
+    // Build the per-node effective bindings ONCE per chain build, BEFORE the
+    // priority/normal phase classification. This mirrors Python, where the
+    // keymap is applied inside `Screen._binding_chain` (screen.py) and
+    // `App._check_bindings` phases over the already-built chain. With an
+    // empty keymap `effective_bindings` returns `widget.bindings()`
+    // untouched, so resolution is identical to the pre-keymap walk. Clashes
+    // are therefore collected exactly once per node per chain build (Python
+    // cadence: `handle_bindings_clash` per chain build, never per phase);
+    // only the key-dispatch callers supply a sink, the hint pass has no
+    // clash semantics by construction.
+    let mut collect_node = |node_id: NodeId,
+                            source: BindingSource,
+                            widget: &dyn Widget|
+     -> Vec<BindingDecl> {
+        let mut clashed = Vec::new();
+        let bindings = effective_bindings(widget, keymap, &mut clashed);
+        if let Some(sink) = clashes.as_deref_mut() {
+            sink.extend(clashed.into_iter().map(|binding| BindingClash {
+                node: node_id,
+                source,
+                binding,
+            }));
+        }
+        bindings
+    };
+    let active_chain: Vec<(NodeId, Vec<BindingDecl>)> = active_path
+        .iter()
+        .filter_map(|&node_id| {
+            active.get(node_id).map(|node| {
+                (
+                    node_id,
+                    collect_node(node_id, BindingSource::Active, &*node.widget),
+                )
+            })
+        })
+        .collect();
+    let app_chain: Vec<(NodeId, Vec<BindingDecl>)> = match app_root {
+        Some(app_tree) => app_path
+            .iter()
+            .filter_map(|&node_id| {
+                app_tree.get(node_id).map(|node| {
+                    (
+                        node_id,
+                        collect_node(node_id, BindingSource::AppRoot, &*node.widget),
+                    )
+                })
+            })
+            .collect(),
+        None => Vec::new(),
+    };
+
     // Phase 1: priority bindings, root→focused (Python: `reversed(binding_chain)`
     // = app → screen → ... → focused). The app-root chain comes first so
     // App-level priority bindings beat screen/widget priority bindings.
     if let Some(app_tree) = app_root {
-        for &node_id in app_path.iter() {
-            if let Some(node) = app_tree.get(node_id) {
-                for binding in node.widget.bindings() {
-                    if binding.priority
-                        && key_matches_binding(key, &binding.key)
-                        && binding_check_allows(
-                            app_tree,
-                            node_id,
-                            Some(node_id) == app_tree.root(),
-                            &binding.action,
-                            app_check,
-                        )
-                    {
-                        return Some((node_id, binding.action.clone(), BindingSource::AppRoot));
-                    }
-                }
-            }
-        }
-    }
-    for &node_id in active_path.iter() {
-        if let Some(node) = active.get(node_id) {
-            for binding in node.widget.bindings() {
+        for (node_id, bindings) in app_chain.iter() {
+            for binding in bindings {
                 if binding.priority
                     && key_matches_binding(key, &binding.key)
                     && binding_check_allows(
-                        active,
-                        node_id,
-                        active_root_is_app && Some(node_id) == active.root(),
+                        app_tree,
+                        *node_id,
+                        Some(*node_id) == app_tree.root(),
                         &binding.action,
                         app_check,
                     )
                 {
-                    return Some((node_id, binding.action.clone(), BindingSource::Active));
+                    return Some((*node_id, binding.action.clone(), BindingSource::AppRoot));
                 }
+            }
+        }
+    }
+    for (node_id, bindings) in active_chain.iter() {
+        for binding in bindings {
+            if binding.priority
+                && key_matches_binding(key, &binding.key)
+                && binding_check_allows(
+                    active,
+                    *node_id,
+                    active_root_is_app && Some(*node_id) == active.root(),
+                    &binding.action,
+                    app_check,
+                )
+            {
+                return Some((*node_id, binding.action.clone(), BindingSource::Active));
             }
         }
     }
 
     // Phase 2: normal bindings, active chain then app-root.
-    for &node_id in active_path.iter().rev() {
-        if let Some(node) = active.get(node_id) {
-            for binding in node.widget.bindings() {
-                if !binding.priority
-                    && key_matches_binding(key, &binding.key)
-                    && binding_check_allows(
-                        active,
-                        node_id,
-                        active_root_is_app && Some(node_id) == active.root(),
-                        &binding.action,
-                        app_check,
-                    )
-                {
-                    return Some((node_id, binding.action.clone(), BindingSource::Active));
-                }
+    for (node_id, bindings) in active_chain.iter().rev() {
+        for binding in bindings {
+            if !binding.priority
+                && key_matches_binding(key, &binding.key)
+                && binding_check_allows(
+                    active,
+                    *node_id,
+                    active_root_is_app && Some(*node_id) == active.root(),
+                    &binding.action,
+                    app_check,
+                )
+            {
+                return Some((*node_id, binding.action.clone(), BindingSource::Active));
             }
         }
     }
     if let Some(app_tree) = app_root {
-        for &node_id in app_path.iter().rev() {
-            if let Some(node) = app_tree.get(node_id) {
-                for binding in node.widget.bindings() {
-                    if !binding.priority
-                        && key_matches_binding(key, &binding.key)
-                        && binding_check_allows(
-                            app_tree,
-                            node_id,
-                            Some(node_id) == app_tree.root(),
-                            &binding.action,
-                            app_check,
-                        )
-                    {
-                        return Some((node_id, binding.action.clone(), BindingSource::AppRoot));
-                    }
+        for (node_id, bindings) in app_chain.iter().rev() {
+            for binding in bindings {
+                if !binding.priority
+                    && key_matches_binding(key, &binding.key)
+                    && binding_check_allows(
+                        app_tree,
+                        *node_id,
+                        Some(*node_id) == app_tree.root(),
+                        &binding.action,
+                        app_check,
+                    )
+                {
+                    return Some((*node_id, binding.action.clone(), BindingSource::AppRoot));
                 }
             }
         }
@@ -916,6 +1038,7 @@ fn collect_node_binding_hints(
     node_id: NodeId,
     hints: &mut Vec<BindingHint>,
     sources: &mut Vec<NodeId>,
+    keymap: &Keymap,
 ) {
     let Some(node) = tree.get(node_id) else {
         return;
@@ -931,8 +1054,9 @@ fn collect_node_binding_hints(
                 None => hint.with_namespace(namespace),
             }),
     );
-    // Also include hints derived from declarative bindings.
-    for decl in node.widget.bindings() {
+    // Also include hints derived from declarative bindings, with keymap key
+    // substitution applied (shape-preserving; see `remap_decl_keys`).
+    for decl in remap_decl_keys(node.widget.bindings(), keymap) {
         let mut hint = BindingHint::new(&decl.key, &decl.description)
             .hidden(!decl.show)
             .with_priority(decl.priority)
@@ -965,18 +1089,19 @@ fn collect_node_binding_hints(
 pub(crate) fn active_binding_hints_tree(
     tree: &WidgetTree,
     app_root: Option<&WidgetTree>,
+    keymap: &Keymap,
 ) -> (Vec<BindingHint>, Vec<NodeId>) {
     let (mut hints, mut sources) = if let Some(focus_id) = focused_node_id_tree(tree) {
         let path = build_path_to_node(tree, focus_id);
         let mut hints = Vec::new();
         let mut sources = Vec::new();
         for &node_id in path.iter().rev() {
-            collect_node_binding_hints(tree, node_id, &mut hints, &mut sources);
+            collect_node_binding_hints(tree, node_id, &mut hints, &mut sources, keymap);
         }
         (hints, sources)
     } else {
         // No focus — walk root + single-child chain (matches old `collect_no_focus_scope`).
-        collect_root_scope_hints(tree)
+        collect_root_scope_hints(tree, keymap)
     };
 
     // Append the app-root namespace bindings (Python appends the App node's own
@@ -986,14 +1111,14 @@ pub(crate) fn active_binding_hints_tree(
     if let Some(app_tree) = app_root
         && let Some(root) = app_tree.root()
     {
-        collect_node_binding_hints(app_tree, root, &mut hints, &mut sources);
+        collect_node_binding_hints(app_tree, root, &mut hints, &mut sources, keymap);
     }
 
     (hints, sources)
 }
 
 /// Walk from root along single-child chains collecting hints (no-focus fallback).
-fn collect_root_scope_hints(tree: &WidgetTree) -> (Vec<BindingHint>, Vec<NodeId>) {
+fn collect_root_scope_hints(tree: &WidgetTree, keymap: &Keymap) -> (Vec<BindingHint>, Vec<NodeId>) {
     let mut hints = Vec::new();
     let mut sources = Vec::new();
     let Some(root) = tree.root() else {
@@ -1012,7 +1137,7 @@ fn collect_root_scope_hints(tree: &WidgetTree) -> (Vec<BindingHint>, Vec<NodeId>
                     None => hint.with_namespace(namespace),
                 },
             ));
-            for decl in node.widget.bindings() {
+            for decl in remap_decl_keys(node.widget.bindings(), keymap) {
                 let mut hint = BindingHint::new(&decl.key, &decl.description)
                     .hidden(!decl.show)
                     .with_priority(decl.priority)
@@ -1469,7 +1594,7 @@ mod message_tests {
         );
         tree.set_focus_state(_leaf_id, true);
 
-        let (hints, _sources) = active_binding_hints_tree(&tree, None);
+        let (hints, _sources) = active_binding_hints_tree(&tree, None, &Keymap::new());
         assert_eq!(
             hints,
             vec![
@@ -1496,7 +1621,7 @@ mod message_tests {
         );
 
         // No focused node — falls back to root scope (single-child chain).
-        let (hints, _) = active_binding_hints_tree(&tree, None);
+        let (hints, _) = active_binding_hints_tree(&tree, None, &Keymap::new());
         // Returns root + leaf hints via single-child fallback.
         assert!(!hints.is_empty());
     }
@@ -1558,7 +1683,7 @@ mod message_tests {
         );
         tree.set_focus_state(child_id, true);
 
-        let (first, _) = active_binding_hints_tree(&tree, None);
+        let (first, _) = active_binding_hints_tree(&tree, None, &Keymap::new());
         assert_eq!(
             first,
             vec![
@@ -1571,7 +1696,7 @@ mod message_tests {
         tree.set_focus_state(child_id, false);
         tree.set_focus_state(root_id, true);
 
-        let (second, _) = active_binding_hints_tree(&tree, None);
+        let (second, _) = active_binding_hints_tree(&tree, None, &Keymap::new());
         assert_eq!(
             second,
             vec![BindingHint::new("tab", "next focus").with_namespace("")]
@@ -1642,7 +1767,7 @@ mod message_tests {
         );
         tree.set_focus_state(_leaf_id, true);
 
-        let (hints, sources) = active_binding_hints_tree(&tree, None);
+        let (hints, sources) = active_binding_hints_tree(&tree, None, &Keymap::new());
         assert_eq!(
             hints,
             vec![
@@ -1666,7 +1791,7 @@ mod message_tests {
             Box::new(HintNode::new(false, vec![BindingHint::new("f1", "help")])),
         );
 
-        let (hints, sources) = active_binding_hints_tree(&tree, None);
+        let (hints, sources) = active_binding_hints_tree(&tree, None, &Keymap::new());
         assert_eq!(
             hints,
             vec![
@@ -1738,7 +1863,7 @@ mod message_tests {
         let _tree_id = tree.mount(root_id, Box::new(HintNode::new(true, vec![])));
         tree.set_focus_state(_tree_id, true);
 
-        let (hints, sources) = active_binding_hints_tree(&tree, None);
+        let (hints, sources) = active_binding_hints_tree(&tree, None, &Keymap::new());
         assert!(
             hints.iter().any(|h| h.key == "a"),
             "app-level 'a' binding hint must appear in active hints when Tree is focused"
@@ -2926,7 +3051,7 @@ mod binding_tests {
         tree.mount(root_id, Box::new(BindingWidget::new(false, vec![])));
 
         let key = KeyEventData::from_crossterm(key_event(KeyCode::Esc, KeyModifiers::empty()));
-        let result = match_binding_chain(&tree, None, &key, None);
+        let result = match_binding_chain(&tree, None, &key, None, &Keymap::new(), None);
         assert_eq!(result, Some((body_id, "app.pop_screen".to_string(), BindingSource::Active)));
     }
 
@@ -2950,7 +3075,7 @@ mod binding_tests {
         )));
 
         let key = KeyEventData::from_crossterm(key_event(KeyCode::Char('s'), KeyModifiers::empty()));
-        let result = match_binding_chain(&screen, Some(&app_root), &key, None);
+        let result = match_binding_chain(&screen, Some(&app_root), &key, None, &Keymap::new(), None);
         assert_eq!(
             result,
             Some((app_node, "app.switch_mode('settings')".to_string(), BindingSource::AppRoot)),
@@ -2979,7 +3104,7 @@ mod binding_tests {
         )));
 
         let key = KeyEventData::from_crossterm(key_event(KeyCode::Char('s'), KeyModifiers::empty()));
-        let result = match_binding_chain(&screen, Some(&app_root), &key, None);
+        let result = match_binding_chain(&screen, Some(&app_root), &key, None, &Keymap::new(), None);
         assert_eq!(
             result,
             Some((body_id, "screen_action".to_string(), BindingSource::Active)),
@@ -3033,7 +3158,7 @@ mod binding_tests {
         // Key `d`: App priority vs Screen priority: App wins.
         let d = KeyEventData::from_crossterm(key_event(KeyCode::Char('d'), KeyModifiers::empty()));
         assert_eq!(
-            match_binding_chain(&screen, Some(&app_root), &d, None),
+            match_binding_chain(&screen, Some(&app_root), &d, None, &Keymap::new(), None),
             Some((
                 app_node,
                 "record('app_d')".to_string(),
@@ -3045,7 +3170,7 @@ mod binding_tests {
         // Key `e`: App priority vs focused Widget priority: App wins.
         let e = KeyEventData::from_crossterm(key_event(KeyCode::Char('e'), KeyModifiers::empty()));
         assert_eq!(
-            match_binding_chain(&screen, Some(&app_root), &e, None),
+            match_binding_chain(&screen, Some(&app_root), &e, None, &Keymap::new(), None),
             Some((
                 app_node,
                 "record('app_e')".to_string(),
@@ -3057,7 +3182,7 @@ mod binding_tests {
         // Key `n` (normal phase untouched): focused widget wins over the app.
         let n = KeyEventData::from_crossterm(key_event(KeyCode::Char('n'), KeyModifiers::empty()));
         assert_eq!(
-            match_binding_chain(&screen, Some(&app_root), &n, None),
+            match_binding_chain(&screen, Some(&app_root), &n, None, &Keymap::new(), None),
             Some((
                 widget_id,
                 "app.record('widget_n')".to_string(),
@@ -3088,7 +3213,7 @@ mod binding_tests {
         );
         tree.set_focus_state(_child_id, true);
 
-        let (hints, _sources) = active_binding_hints_tree(&tree, None);
+        let (hints, _sources) = active_binding_hints_tree(&tree, None, &Keymap::new());
         // Root has 1 binding, child has 2 bindings = 3 total hints.
         assert_eq!(hints.len(), 3);
 

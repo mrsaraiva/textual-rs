@@ -7,6 +7,81 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### Added — keymap subsystem, phase K1: binding identity + `BindingsMap` value type
+
+Port of the `BindingsMap` half of Python Textual's `binding.py`, the
+foundation for user key remapping:
+
+- `BindingDecl` gains `id: Option<String>` and a `with_id(..)` builder
+  (Python `Binding.id`): an opaque, globally-unique-by-convention handle that
+  the App keymap uses to address bindings. Note: the new field joins the
+  derived `PartialEq`/`Eq`, so two decls differing only by `id` now compare
+  unequal. The field addition is technically source-breaking for exhaustive
+  `BindingDecl` struct literals; builders (`BindingDecl::new(..)` + method
+  chaining) are the documented construction path and are unaffected.
+- New `textual::bindings` module (re-exported from the prelude):
+  `BindingsMap` (ordered `key -> Vec<BindingDecl>` map with Python-dict
+  positional semantics), `Keymap` (binding-id -> comma-separated key list),
+  `KeymapApplyResult`, and the typed errors `NoBinding` / `InvalidBinding`.
+  `BindingsMap::from_decls` ports `Binding.make_bindings` (comma-list
+  expansion, single-character key normalization, `show = description && show`,
+  id propagation); `merge`, `get_bindings_for_key`, `shown_keys`, and
+  `apply_keymap` port their Python namesakes, including the exact clash
+  semantics ("clash unless the occupying binding is itself being rebound
+  away") and Python's observable self-clash/duplicate-append behavior for
+  comma-expanded entries sharing one id.
+- `keys::normalize_key_list` (crate-internal): the `_normalize_key_list`
+  port used by `App::set_keymap`/`update_keymap` (phase K2) to normalize
+  keymap values (`"?,space"` -> `"question_mark,space"`).
+
+### Added — keymap subsystem, phase K2: `App` keymap storage + dispatch/hint overlay
+
+Users can now remap key bindings by id, mirroring Python `App.set_keymap`:
+
+- `App::set_keymap(..)` / `App::update_keymap(..)` (merge, argument wins) /
+  `App::keymap()` accessor. Values are normalized at store time
+  (`"?,space"` is stored as `"question_mark,space"`), and both trigger
+  `refresh_bindings()` so the Footer/help surfaces rebroadcast.
+- New declarative `TextualApp::keymap()` hook (default empty), read once at
+  app startup: the Rust analog of configuring the keymap before mount
+  (Python issue #5742).
+- The keymap reaches every consumer of `Widget::bindings()` via two
+  transforms: the key-dispatch chain flattens each node's bindings through
+  `BindingsMap::apply_keymap` (comma expansion before overlay, exactly like
+  Python's `Screen._binding_chain`), while the binding-hint collectors use a
+  shape-preserving per-decl key substitution so Footer/HelpPanel rows keep
+  one entry per declared binding (first alternative displayed, punctuation
+  rendered as its symbol). With no keymap set, both transforms are
+  allocation-free pass-throughs and resolution is byte-identical to 1.0.x
+  (priority ordering, character-key normalization, and `check_action`
+  gating regression-guarded under a non-empty keymap).
+- Ports of `test_keymap.py` (replace / unknown-id noop / inherited same id /
+  different id / set-before-mount) and `test_binding.py`'s keymap
+  normalization case, in `tests/keymap.rs`.
+
+### Added — keymap subsystem, phase K3: binding-clash delivery + signal semantics
+
+- New public `BindingClash { node, source, binding }` payload (with the
+  `BindingSource` active-vs-app-root tree discriminant, now public), reported
+  when a keymap override displaces a binding that is not itself being rebound
+  away. Delivered once per clashing keypress by the key-dispatch chain walks
+  (never from idle/hint passes), matching Python's per-chain-build cadence.
+- `App::set_bindings_clash_fn(..)` registered callback (mirrors
+  `set_check_action_fn`), invoked after the dispatch tree borrow ends;
+  `TextualApp::handle_bindings_clash(&mut self, &[BindingClash])` defaulted
+  hook wired through it by the adapter (Python
+  `App.handle_bindings_clash(clashed_bindings, node)`).
+- Every `App::set_keymap` call rebroadcasts `Event::BindingsChanged`, even
+  for an identical keymap (Python publishes `bindings_updated_signal`
+  unconditionally; `refresh_bindings()` forces the hint-diff rebroadcast).
+  Note: the forced rebroadcast requires a non-empty hint set; the standard
+  `TextualApp` adapter always contributes its default bindings, so this only
+  matters for bare zero-binding harness apps.
+- Ports of `test_keymap.py`'s verbatim self-clash test (clash key `"d"`,
+  action `"increment"`, id `"app.increment"`, node identity) and
+  `test_binding.py`'s two-broadcasts-for-two-`set_keymap`-calls test, plus
+  clash-cadence and active-screen `BindingSource::AppRoot` guards.
+
 ### Changed — validation framework: description-priority ladder (Python parity)
 
 The validation framework now mirrors Python Textual's `validation.py` model.

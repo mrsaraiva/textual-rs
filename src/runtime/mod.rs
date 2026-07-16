@@ -41,8 +41,8 @@ pub use render::{
     run_layout_pass, text_overflow_mode,
 };
 pub use routing::{
-    dispatch_event_to_target_tree, dispatch_event_tree, dispatch_message_queue_tree,
-    focused_node_id_tree,
+    BindingClash, BindingSource, dispatch_event_to_target_tree, dispatch_event_tree,
+    dispatch_message_queue_tree, focused_node_id_tree,
 };
 pub use types::DispatchOutcome;
 pub use widget_ctx::WidgetQuery;
@@ -724,6 +724,20 @@ pub struct App {
     #[allow(clippy::type_complexity)]
     check_action_fn:
         Option<Arc<dyn Fn(&str, &[crate::action::ActionArgument]) -> Option<bool> + Send + Sync>>,
+    /// The App keymap (Python `App._keymap`): binding-id -> key-list overrides
+    /// applied to every consumer of `Widget::bindings()` (the dispatch chain
+    /// flattens through `BindingsMap::apply_keymap`; the hint collectors use a
+    /// shape-preserving key substitution). Values are normalized at store time
+    /// via `keys::normalize_key_list`.
+    keymap: crate::bindings::Keymap,
+    /// Callback for keymap-induced binding clashes — set by `TextualAppAdapter`
+    /// to forward to `TextualApp::handle_bindings_clash()`. Invoked by the
+    /// key-dispatch callers of `match_binding_chain` after the tree borrow
+    /// ends (once per clashing keypress; the hint pass never produces
+    /// clashes), mirroring Python calling `handle_bindings_clash` per chain
+    /// build.
+    #[allow(clippy::type_complexity)]
+    bindings_clash_fn: Option<Arc<dyn Fn(&[routing::BindingClash]) + Send + Sync>>,
     /// Reactive context for app-level reactive fields.
     ///
     /// `TextualApp` hooks call `app.reactive_ctx()` to record field changes via
@@ -915,6 +929,8 @@ impl App {
             modes: HashMap::new(),
             current_mode: None,
             check_action_fn: None,
+            keymap: crate::bindings::Keymap::new(),
+            bindings_clash_fn: None,
             app_reactive_ctx: crate::reactive::ReactiveCtx::new(NodeId::default()),
             app_title: String::new(),
             app_sub_title: None,
@@ -3564,6 +3580,71 @@ impl App {
     pub fn refresh_bindings(&mut self) {
         self.last_binding_hints.clear();
         self.last_binding_hint_sources.clear();
+    }
+
+    /// Set the keymap, a mapping of binding IDs to key strings (Python
+    /// `App.set_keymap`).
+    ///
+    /// Bindings in the keymap are used to override default key bindings: a
+    /// binding whose [`BindingDecl::id`](crate::widgets::BindingDecl) is
+    /// present in the keymap has its key string replaced with the keymap
+    /// value. Values are normalized at store time (`"?,space"` is stored as
+    /// `"question_mark,space"`), and the binding hints are refreshed so the
+    /// Footer/help surfaces rebroadcast.
+    pub fn set_keymap<K, V>(&mut self, keymap: impl IntoIterator<Item = (K, V)>)
+    where
+        K: Into<String>,
+        V: AsRef<str>,
+    {
+        self.keymap = keymap
+            .into_iter()
+            .map(|(id, keys)| (id.into(), crate::keys::normalize_key_list(keys.as_ref())))
+            .collect();
+        self.refresh_bindings();
+    }
+
+    /// Update the keymap, merging with the existing one (Python
+    /// `App.update_keymap`). If a binding ID exists in both, the argument
+    /// takes precedence. Values are normalized like [`App::set_keymap`].
+    pub fn update_keymap<K, V>(&mut self, keymap: impl IntoIterator<Item = (K, V)>)
+    where
+        K: Into<String>,
+        V: AsRef<str>,
+    {
+        for (id, keys) in keymap {
+            self.keymap
+                .insert(id.into(), crate::keys::normalize_key_list(keys.as_ref()));
+        }
+        self.refresh_bindings();
+    }
+
+    /// The current keymap (normalized values), for introspection and tests.
+    pub fn keymap(&self) -> &crate::bindings::Keymap {
+        &self.keymap
+    }
+
+    /// Register the bindings-clash callback (mirrors [`App::set_check_action_fn`]).
+    /// Called by `TextualAppAdapter` during initialization to forward keymap
+    /// clash reports to the app's `TextualApp::handle_bindings_clash` method.
+    #[allow(clippy::type_complexity)]
+    pub fn set_bindings_clash_fn(
+        &mut self,
+        f: Arc<dyn Fn(&[routing::BindingClash]) + Send + Sync>,
+    ) {
+        self.bindings_clash_fn = Some(f);
+    }
+
+    /// Deliver keymap clash reports collected by a key-dispatch chain walk to
+    /// the registered callback, if any. Called AFTER the tree borrow of the
+    /// walk ends (the callback re-enters user code, which must never run under
+    /// a live tree borrow). No-op when `clashes` is empty.
+    pub(super) fn deliver_binding_clashes(&self, clashes: &[routing::BindingClash]) {
+        if clashes.is_empty() {
+            return;
+        }
+        if let Some(clash_fn) = &self.bindings_clash_fn {
+            clash_fn(clashes);
+        }
     }
 
     /// Apply `check_action` results to a set of binding hints.

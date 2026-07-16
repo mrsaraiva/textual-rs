@@ -75,6 +75,29 @@ pub trait TextualApp: Send + 'static {
         Vec::new()
     }
 
+    /// Declarative app keymap: binding-id -> key-list overrides applied to
+    /// the default key bindings (see [`App::set_keymap`]).
+    ///
+    /// Read once at app startup (the same point where [`bindings`](Self::bindings)
+    /// is first consumed), covering Python's set-the-keymap-before-mount case
+    /// (issue #5742): configure the keymap as constructor state and return it
+    /// here. Imperative changes at runtime go through [`App::set_keymap`] /
+    /// [`App::update_keymap`] from any hook that receives `&mut App` (e.g.
+    /// [`on_mount_with_app`](Self::on_mount_with_app) or `configure`).
+    fn keymap(&self) -> crate::bindings::Keymap {
+        crate::bindings::Keymap::new()
+    }
+
+    /// Handle a clash between bindings (Python `App.handle_bindings_clash`).
+    ///
+    /// Binding clashes are likely due to users setting conflicting keys via
+    /// their keymap. The runtime calls this each time a clash is encountered,
+    /// which may be on each keypress if a clashing widget is focused or is in
+    /// the bindings chain. Each [`BindingClash`](crate::runtime::BindingClash)
+    /// carries the clashed binding plus the node (and source tree) it was
+    /// declared on. Default: no-op; override to observe clashes.
+    fn handle_bindings_clash(&mut self, _clashed: &[crate::runtime::BindingClash]) {}
+
     /// Called after widget mount, before entering the event loop.
     fn on_mount(&mut self) {}
 
@@ -1153,6 +1176,26 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
                 .unwrap_or_else(|e| e.into_inner())
                 .check_action(action, params)
         }));
+
+        // Register the bindings-clash callback (same pattern as check_action)
+        // so keymap clash reports reach `TextualApp::handle_bindings_clash`.
+        let app_ref = Arc::clone(&self.app);
+        app.set_bindings_clash_fn(Arc::new(move |clashes| {
+            app_ref
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .handle_bindings_clash(clashes);
+        }));
+
+        // Read the declarative keymap (Python's set-before-mount case, issue
+        // #5742). Merged via `update_keymap` so entries set earlier (e.g. from
+        // `configure(&mut App)`) survive unless overridden by the declaration.
+        {
+            let declared = self.app.lock().unwrap_or_else(|e| e.into_inner()).keymap();
+            if !declared.is_empty() {
+                app.update_keymap(declared);
+            }
+        }
 
         // Propagate the app-defined title to the runtime before any Header reads it.
         //
