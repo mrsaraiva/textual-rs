@@ -61,7 +61,9 @@ pub use widgets::BindingDecl;
 pub use widgets::WidgetStyles;
 
 pub mod prelude {
-    pub use crate::action::{ActionDecl, ActionHandler, ParsedAction, parse_action};
+    pub use crate::action::{
+        ActionArgument, ActionDecl, ActionHandler, ActionParseError, ParsedAction, parse_action,
+    };
     pub use crate::animation::{Animator, animation_level_from_env};
     pub use crate::compose::{ChildDecl, ComposeResult, WidgetBuilder};
     // NOTE: `HandleSink` is intentionally NOT in the prelude (RA2.6b) — it is

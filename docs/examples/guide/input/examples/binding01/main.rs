@@ -110,14 +110,14 @@ impl TextualApp for BindingApp {
     }
 
     fn on_app_action_str(&mut self, app: &mut App, action: &str, ctx: &mut textual::event::WidgetCtx) {
-        // Parse "add_bar('red')" → name="add_bar", arguments=["red"]
-        let Some(parsed) = parse_action(action) else {
+        // Parse "add_bar('red')" → name="add_bar", arguments=[Str("red")]
+        let Ok(parsed) = parse_action(action) else {
             return;
         };
         if parsed.name != "add_bar" {
             return;
         }
-        let color = match parsed.arguments.first().map(String::as_str) {
+        let color = match parsed.arguments.first().and_then(|a| a.as_str()) {
             Some("red") => "red",
             Some("green") => "green",
             Some("blue") => "blue",

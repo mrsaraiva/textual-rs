@@ -150,7 +150,11 @@ impl TextualApp for MarkdownApp {
         }
     }
 
-    fn check_action(&self, action: &str, _parameters: &[String]) -> Option<bool> {
+    fn check_action(
+        &self,
+        action: &str,
+        _parameters: &[textual::action::ActionArgument],
+    ) -> Option<bool> {
         match action {
             "forward" if self.nav_state.1 => None,
             "back" if self.nav_state.0 => None,

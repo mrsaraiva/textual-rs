@@ -758,7 +758,7 @@ impl MarkdownViewer {
 
     fn execute_action(&mut self, action: &ParsedAction, ctx: &mut crate::event::WidgetCtx) -> bool {
         if action.name == "link"
-            && let Some(href) = action.arguments.first()
+            && let Some(href) = action.arguments.first().and_then(|a| a.as_str())
             && self.follow_link(href)
         {
             ctx.post_message(NavigatorUpdated);

@@ -59,12 +59,17 @@ fn dynamic_disabled_binding_does_not_fire_on_keypress() {
             AppRoot::new().with_child(Label::new("dynamic bindings"))
         }
 
-        fn check_action(&self, action: &str, parameters: &[String]) -> Option<bool> {
+        fn check_action(
+            &self,
+            action: &str,
+            parameters: &[textual::action::ActionArgument],
+        ) -> Option<bool> {
             if action == "register" {
-                if parameters == ["b"] {
+                let first = parameters.first().and_then(|p| p.as_str());
+                if first == Some("b") {
                     return Some(false);
                 }
-                if parameters == ["c"] {
+                if first == Some("c") {
                     return None;
                 }
             }

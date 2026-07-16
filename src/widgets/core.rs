@@ -542,7 +542,11 @@ pub trait Widget: Send + Sync + Any {
     /// dispatch, so a `[@click=...]` span or `run_action(...)` call is gated the
     /// same way a key binding is.
     #[doc(hidden)]
-    fn check_action(&self, _action: &str, _parameters: &[String]) -> Option<bool> {
+    fn check_action(
+        &self,
+        _action: &str,
+        _parameters: &[crate::action::ActionArgument],
+    ) -> Option<bool> {
         Some(true)
     }
     /// Optional focused HELP markup exposed to framework-level help panels.

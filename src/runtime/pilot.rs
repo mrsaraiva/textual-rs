@@ -324,9 +324,9 @@ Horizontal { width: auto; height: auto; }
         }
 
         fn on_app_action_str(&mut self, app: &mut App, action: &str, ctx: &mut crate::event::WidgetCtx) {
-            if let Some(parsed) = crate::action::parse_action(action) {
+            if let Ok(parsed) = crate::action::parse_action(action) {
                 if parsed.name == "switch_color" {
-                    if let Some(name) = parsed.arguments.first() {
+                    if let Some(name) = parsed.arguments.first().and_then(|a| a.as_str()) {
                         if let Some(color) = parse_color_like(name) {
                             let _ = app
                                 .query_mut("Screen")

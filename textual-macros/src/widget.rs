@@ -541,7 +541,7 @@ fn method_table() -> Vec<MethodSpec> {
         ),
         m!(
             "check_action",
-            quote! { fn check_action(&self, action: &str, parameters: &[String]) -> Option<bool> },
+            quote! { fn check_action(&self, action: &str, parameters: &[textual::action::ActionArgument]) -> Option<bool> },
             quote! { check_action(action, parameters) }
         ),
         m!(

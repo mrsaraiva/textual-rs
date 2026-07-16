@@ -39,9 +39,9 @@ impl TextualApp for ActionsApp {
     /// Handle the custom `app.set_background` action fired by the `@click`
     /// links.  Mirrors Python `action_set_background(self, color)`.
     fn on_app_action_str(&mut self, app: &mut App, action: &str, ctx: &mut textual::event::WidgetCtx) {
-        if let Some(parsed) = parse_action(action) {
+        if let Ok(parsed) = parse_action(action) {
             if parsed.name == "set_background" {
-                if let Some(color_name) = parsed.arguments.first() {
+                if let Some(color_name) = parsed.arguments.first().and_then(|a| a.as_str()) {
                     if let Some(color) = textual::style::parse_color_like(color_name) {
                         let _ = app.query_mut("Screen").map(|q| {
                             q.set_styles(|styles| styles.set_bg(color));

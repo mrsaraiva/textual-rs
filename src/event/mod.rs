@@ -391,8 +391,8 @@ pub struct BindingHint {
     /// Parsed positional parameters passed to `check_action`.
     ///
     /// For `BindingDecl::action = "app.push_screen('settings')"`, this stores
-    /// `["settings"]`.
-    pub action_parameters: Vec<String>,
+    /// `[ActionArgument::Str("settings")]`.
+    pub action_parameters: Vec<crate::action::ActionArgument>,
     /// Result of `check_action` for this binding:
     /// - `Some(true)` — enabled (default, rendered normally)
     /// - `Some(false)` — hidden (not shown in footer)
@@ -422,7 +422,7 @@ impl BindingHint {
     pub fn with_action(mut self, action: impl Into<String>) -> Self {
         let action = action.into();
         self.action = Some(action.clone());
-        if let Some(parsed) = crate::action::parse_action(&action) {
+        if let Ok(parsed) = crate::action::parse_action(&action) {
             self.action_name = Some(parsed.name);
             self.action_parameters = parsed.arguments;
         } else {

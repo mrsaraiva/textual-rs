@@ -323,7 +323,7 @@ fn tabbed_content_show_tab_action_switches_active_pane() {
     let action = ParsedAction {
         namespace: None,
         name: "show_tab".to_string(),
-        arguments: vec!["two".to_string()],
+        arguments: vec![textual::action::ActionArgument::Str("two".to_string())],
     };
     let mut ctx = EventCtx::default();
     assert!({ let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx); tabs.execute_action(&action, &mut __w) });

@@ -39,6 +39,38 @@ Breaking notes:
 - `Number`, `Integer`, `Length`, and `Url` gained a `failure_description`
   override slot and therefore no longer derive `Copy` (still `Clone`).
 - `Failure` and `FailureKind` are exported from the prelude.
+### Changed (BREAKING): action-parser fidelity (typed arguments, last-dot namespace, parse errors)
+
+`parse_action` now matches Python `textual.actions.parse` (ported from
+`tests/test_actions.py`, all 4 tests / 27 params):
+
+- **Namespace splits on the last dot** (`rpartition(".")`): `"foo.bar.baz"` now
+  parses as namespace `foo.bar` + name `baz` (previously `foo` + `bar.baz`).
+- **Typed arguments.** `ParsedAction::arguments` is now
+  `Vec<ActionArgument>` (`None`/`Bool`/`Int`/`Float`/`Str`/`Tuple`/`List`), the
+  analogue of Python's `ast.literal_eval` over the argument list, including
+  nested tuples/lists, Python grouping semantics (`f((1))` is the int `1`,
+  `f((1,))` is a tuple), triple-quoted strings, and implicit string
+  concatenation. Accessors: `as_str`/`as_int`/`as_float`/`as_bool`/`is_none`/
+  `as_items`; total `Eq`/`Ord`/`Hash` (floats via `total_cmp`/`to_bits`).
+- **Malformed inputs are errors.** `parse_action` returns
+  `Result<ParsedAction, ActionParseError>` (was lenient `Option`); malformed
+  argument lists like `foo(,,,,,)`, `bar(1 2 3)`, or `ham(not)` now fail
+  exactly where Python raises `ActionError`. Rust additionally rejects empty /
+  invalid action names at parse time (Python only fails these later at
+  dispatch). The runtime dispatch path still logs-and-ignores invalid actions.
+- **`check_action` takes typed parameters.** `Widget::check_action`,
+  `TextualApp::check_action`, `App::set_check_action_fn`, and
+  `BindingHint::action_parameters` now use `&[ActionArgument]` /
+  `Vec<ActionArgument>` (was `&[String]`), matching Python's
+  `check_action(action, parameters: tuple[object, ...])`. The `#[widget]`
+  macro's generated `check_action` forwarding follows suit (requires the
+  matching `textual-macros` bump).
+
+Migration: `parse_action(s)?`/`.ok()` instead of the old `Option`; read string
+arguments via `arg.as_str()` and integers via `arg.as_int()`; update
+`check_action` overrides to the new parameter type. `ActionArgument` and
+`ActionParseError` are exported from the prelude.
 
 ## [1.0.3] - 2026-07-16
 

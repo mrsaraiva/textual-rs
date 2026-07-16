@@ -65,9 +65,9 @@ impl TextualApp for RGBApp {
     ///
     /// Python: `def action_switch_color(self, color: str): self.screen.styles.background = color`
     fn on_app_action_str(&mut self, app: &mut App, action: &str, ctx: &mut textual::event::WidgetCtx) {
-        if let Some(parsed) = parse_action(action) {
+        if let Ok(parsed) = parse_action(action) {
             if parsed.name == "switch_color" {
-                if let Some(color_name) = parsed.arguments.first() {
+                if let Some(color_name) = parsed.arguments.first().and_then(|a| a.as_str()) {
                     switch_screen_color(app, color_name, ctx);
                 }
             }

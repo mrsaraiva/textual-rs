@@ -306,11 +306,14 @@ fn dispatch_action_string(
     default_namespace: NodeId,
     pass: &mut RuntimeMessagePass,
 ) -> bool {
-    let Some(parsed) = crate::action::parse_action(action_str) else {
-        debug_input(&format!(
-            "[runtime] action dispatch ignored invalid action={action_str:?}"
-        ));
-        return false;
+    let parsed = match crate::action::parse_action(action_str) {
+        Ok(parsed) => parsed,
+        Err(err) => {
+            debug_input(&format!(
+                "[runtime] action dispatch ignored invalid action={action_str:?} error={err}"
+            ));
+            return false;
+        }
     };
 
     // --- Widget-tree resolution (focused/sender → root) ---
@@ -484,7 +487,7 @@ fn dispatch_simulated_key_like_input(
         )
     });
     if let Some((binding_node_id, action_str, binding_source)) = binding_match
-        && let Some(parsed) = crate::action::parse_action(&action_str)
+        && let Ok(parsed) = crate::action::parse_action(&action_str)
     {
         // CLUSTER 7: a binding declared on a node whose action is served only
         // by `execute_action` (no `action_registry()` entry) must still run on
@@ -2751,7 +2754,7 @@ impl App {
                         });
                         if let Some((binding_node_id, action_str, binding_source, root_target)) =
                             binding_match
-                            && let Some(parsed) = crate::action::parse_action(&action_str)
+                            && let Ok(parsed) = crate::action::parse_action(&action_str)
                         {
                             // CLUSTER 7: execute the binding on its source node when
                             // no registry owner resolves (binding source IS target).
@@ -5000,7 +5003,7 @@ impl App {
             .map(|(node_id, action_str, source)| (node_id, action_str, source, root_target))
         });
         if let Some((binding_node_id, action_str, binding_source, root_target)) = binding_match
-            && let Some(parsed) = crate::action::parse_action(&action_str)
+            && let Ok(parsed) = crate::action::parse_action(&action_str)
         {
             // CLUSTER 7: execute the binding on its source node when no registry
             // owner resolves (binding source IS target).
@@ -6856,17 +6859,17 @@ mod tests {
                 return false;
             }
             match action.arguments[0].as_str() {
-                "l" => {
+                Some("l") => {
                     self.hits_l.fetch_add(1, Ordering::SeqCst);
                     ctx.set_handled();
                     true
                 }
-                "j" => {
+                Some("j") => {
                     self.hits_j.fetch_add(1, Ordering::SeqCst);
                     ctx.set_handled();
                     true
                 }
-                "p" => {
+                Some("p") => {
                     self.hits_p.fetch_add(1, Ordering::SeqCst);
                     ctx.set_handled();
                     true
@@ -8581,9 +8584,14 @@ mod tests {
             if action.name != "add_class" || action.arguments.len() != 2 {
                 return false;
             }
+            let (Some(selector), Some(class_name)) =
+                (action.arguments[0].as_str(), action.arguments[1].as_str())
+            else {
+                return false;
+            };
             ctx.post_message(crate::message::AppAddClass {
-                selector: action.arguments[0].clone(),
-                class_name: action.arguments[1].clone(),
+                selector: selector.to_string(),
+                class_name: class_name.to_string(),
             });
             ctx.set_handled();
             true

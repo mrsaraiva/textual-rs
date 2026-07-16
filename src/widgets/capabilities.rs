@@ -282,7 +282,11 @@ pub trait Focus {
         false
     }
     /// Gate whether an action may run on this widget.
-    fn check_action(&self, _action: &str, _parameters: &[String]) -> Option<bool> {
+    fn check_action(
+        &self,
+        _action: &str,
+        _parameters: &[crate::action::ActionArgument],
+    ) -> Option<bool> {
         Some(true)
     }
     /// Optional focused HELP markup exposed to framework-level help panels.

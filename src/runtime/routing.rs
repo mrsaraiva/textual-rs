@@ -754,7 +754,8 @@ pub(crate) type BindingMatch = (NodeId, String, BindingSource);
 /// App-level `check_action` callback (the adapter forwards it to
 /// `TextualApp::check_action`), threaded into the binding-chain walk so
 /// app-targeted bindings are gated by the app's dynamic action state.
-pub(crate) type AppCheckAction<'a> = &'a (dyn Fn(&str, &[String]) -> Option<bool> + Send + Sync);
+pub(crate) type AppCheckAction<'a> =
+    &'a (dyn Fn(&str, &[crate::action::ActionArgument]) -> Option<bool> + Send + Sync);
 
 /// `check_action` gate for one matched binding candidate.
 ///
@@ -777,7 +778,7 @@ fn binding_check_allows(
     action: &str,
     app_check: Option<AppCheckAction<'_>>,
 ) -> bool {
-    let Some(parsed) = crate::action::parse_action(action) else {
+    let Ok(parsed) = crate::action::parse_action(action) else {
         // Unparseable action strings are diagnosed at dispatch time.
         return true;
     };

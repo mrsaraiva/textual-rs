@@ -77,8 +77,8 @@ impl Widget for Counter {
         if action.name != "change_count" {
             return false;
         }
-        // Parse the first argument as an integer amount.
-        let amount: i64 = match action.arguments.first().and_then(|s| s.parse().ok()) {
+        // The first argument is a typed integer (Python `change_count(1)`).
+        let amount: i64 = match action.arguments.first().and_then(|a| a.as_int()) {
             Some(v) => v,
             None => return false,
         };

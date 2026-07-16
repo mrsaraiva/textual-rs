@@ -61,7 +61,11 @@ impl TextualApp for PagesApp {
             .with_child(Footer::new())
     }
 
-    fn check_action(&self, action: &str, _parameters: &[String]) -> Option<bool> {
+    fn check_action(
+        &self,
+        action: &str,
+        _parameters: &[textual::action::ActionArgument],
+    ) -> Option<bool> {
         if action == "next" && self.page_no == PAGES_COUNT - 1 {
             return Some(false);
         }

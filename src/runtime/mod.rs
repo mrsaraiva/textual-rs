@@ -722,7 +722,8 @@ pub struct App {
     /// `dispatch_binding_hints_changed` to set enabled/disabled state on each
     /// binding hint.
     #[allow(clippy::type_complexity)]
-    check_action_fn: Option<Arc<dyn Fn(&str, &[String]) -> Option<bool> + Send + Sync>>,
+    check_action_fn:
+        Option<Arc<dyn Fn(&str, &[crate::action::ActionArgument]) -> Option<bool> + Send + Sync>>,
     /// Reactive context for app-level reactive fields.
     ///
     /// `TextualApp` hooks call `app.reactive_ctx()` to record field changes via
@@ -3550,7 +3551,7 @@ impl App {
     #[allow(clippy::type_complexity)]
     pub fn set_check_action_fn(
         &mut self,
-        f: Arc<dyn Fn(&str, &[String]) -> Option<bool> + Send + Sync>,
+        f: Arc<dyn Fn(&str, &[crate::action::ActionArgument]) -> Option<bool> + Send + Sync>,
     ) {
         self.check_action_fn = Some(f);
     }
@@ -6375,7 +6376,9 @@ mod tests {
     fn apply_check_action_uses_parsed_action_name_and_parameters() {
         let mut app = App::new().expect("app should initialize");
         app.set_check_action_fn(Arc::new(|action, parameters| {
-            if action == "push_screen" && parameters == ["settings"] {
+            if action == "push_screen"
+                && parameters == [crate::action::ActionArgument::Str("settings".to_string())]
+            {
                 Some(false)
             } else {
                 Some(true)
@@ -6389,7 +6392,10 @@ mod tests {
         app.apply_check_action(&mut hints);
 
         assert_eq!(hints[0].action_name.as_deref(), Some("push_screen"));
-        assert_eq!(hints[0].action_parameters, vec!["settings".to_string()]);
+        assert_eq!(
+            hints[0].action_parameters,
+            vec![crate::action::ActionArgument::Str("settings".to_string())]
+        );
         assert_eq!(hints[0].enabled, Some(false));
         assert_eq!(hints[1].enabled, Some(true));
     }

@@ -621,7 +621,7 @@ impl crate::widgets::Focus for TabbedContent {
         if action.name != "show_tab" {
             return false;
         }
-        let Some(tab_id) = action.arguments.first() else {
+        let Some(tab_id) = action.arguments.first().and_then(|a| a.as_str()) else {
             return false;
         };
         if !self.set_active_id(tab_id, Some(ctx)) {
@@ -992,7 +992,7 @@ mod tests {
         let parsed = ParsedAction {
             namespace: None,
             name: "show_tab".to_string(),
-            arguments: vec!["paul".to_string()],
+            arguments: vec![crate::action::ActionArgument::Str("paul".to_string())],
         };
         let mut ctx = EventCtx::default();
         assert!({ let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx); tabs.execute_action(&parsed, &mut __w) });
@@ -1040,7 +1040,7 @@ mod tests {
         let parsed = ParsedAction {
             namespace: None,
             name: "show_tab".to_string(),
-            arguments: vec!["paul".to_string()],
+            arguments: vec![crate::action::ActionArgument::Str("paul".to_string())],
         };
         let mut ctx = EventCtx::default();
         assert!({ let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx); tabs.execute_action(&parsed, &mut __w) });

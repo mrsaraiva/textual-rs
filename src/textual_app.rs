@@ -268,7 +268,11 @@ pub trait TextualApp: Send + 'static {
     ///
     /// Mirrors Python Textual's `App.check_action()`. Called during binding hint
     /// collection to set enabled/disabled state on each binding.
-    fn check_action(&self, _action: &str, _parameters: &[String]) -> Option<bool> {
+    fn check_action(
+        &self,
+        _action: &str,
+        _parameters: &[crate::action::ActionArgument],
+    ) -> Option<bool> {
         Some(true)
     }
 
@@ -737,7 +741,11 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
         APP_ACTIONS
     }
 
-    fn check_action(&self, action: &str, parameters: &[String]) -> Option<bool> {
+    fn check_action(
+        &self,
+        action: &str,
+        parameters: &[crate::action::ActionArgument],
+    ) -> Option<bool> {
         self.app
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -749,13 +757,13 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
             if action.arguments.len() != 2 {
                 return None;
             }
-            Some((&action.arguments[0], &action.arguments[1]))
+            Some((action.arguments[0].as_str()?, action.arguments[1].as_str()?))
         }
         fn single_arg(action: &ParsedAction) -> Option<&str> {
             if action.arguments.len() != 1 {
                 return None;
             }
-            Some(&action.arguments[0])
+            action.arguments[0].as_str()
         }
         fn no_args(action: &ParsedAction) -> bool {
             action.arguments.is_empty()
@@ -907,13 +915,21 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
                 if action.arguments.is_empty() || action.arguments.len() > 3 {
                     return false;
                 }
-                let message = action.arguments[0].clone();
-                let title = action.arguments.get(1).cloned().unwrap_or_default();
+                let Some(message) = action.arguments[0].as_str().map(str::to_string) else {
+                    return false;
+                };
+                let title = action
+                    .arguments
+                    .get(1)
+                    .and_then(|a| a.as_str())
+                    .unwrap_or_default()
+                    .to_string();
                 let severity = action
                     .arguments
                     .get(2)
-                    .cloned()
-                    .unwrap_or_else(|| "information".to_string());
+                    .and_then(|a| a.as_str())
+                    .unwrap_or("information")
+                    .to_string();
                 ctx.post_message(crate::message::AppNotify {
                     message,
                     title,
@@ -945,8 +961,16 @@ impl<T: TextualApp> Widget for TextualAppAdapter<T> {
                     return false;
                 }
                 ctx.post_message(crate::message::AppScreenshot {
-                    filename: action.arguments.first().cloned(),
-                    path: action.arguments.get(1).cloned(),
+                    filename: action
+                        .arguments
+                        .first()
+                        .and_then(|a| a.as_str())
+                        .map(str::to_string),
+                    path: action
+                        .arguments
+                        .get(1)
+                        .and_then(|a| a.as_str())
+                        .map(str::to_string),
                 });
                 ctx.set_handled();
                 true
