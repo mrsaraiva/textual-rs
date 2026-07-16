@@ -3,9 +3,6 @@
 /// Demonstrates layered layout: two Static widgets assigned to different
 /// layers so they can visually overlap. box1 is on the "above" layer and
 /// box2 is on the "below" layer, offset so they partially overlap.
-///
-/// Framework gaps: `layers`, `layer`, and `offset` CSS properties may not
-/// be fully supported yet.
 use textual::prelude::*;
 
 const CSS: &str = r##"

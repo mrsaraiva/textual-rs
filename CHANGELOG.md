@@ -7,6 +7,19 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### Fixed — user `Screen { layers }` no longer clobbers the system toast/loading layers
+
+User-facing CSS `layers`/`layer`/`offset` already worked, but a user
+`Screen { layers: ... }` declaration replaced the default `_toastrack` layer via
+the cascade, so notifications could paint under the user's layered widgets. The
+system layers (`_loading`, `_toastrack`, `_tooltips`) are now appended
+programmatically at the screen root after the CSS-derived list (Python
+`Screen.layers` parity), via a shared `effective_layers()` resolver, so they
+survive any user `layers:` declaration. Also aligns the default/unknown layer
+bucket with Python (ties with the first declared layer by DOM order, was
+strictly below), and pins the nested-`layers` nearest-wins semantics as an
+intentional divergence (see KNOWN_GAPS).
+
 ## [1.0.2] - 2026-07-16
 
 Second patch release. Ten confirmed correctness bugs from a parity audit against

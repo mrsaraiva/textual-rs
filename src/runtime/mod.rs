@@ -19,6 +19,7 @@ mod overlay_focus_regression;
 mod pointer_focus_regression;
 mod widget_ctx;
 mod helpers;
+mod layers;
 pub mod pilot;
 mod render;
 mod routing;

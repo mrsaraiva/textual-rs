@@ -1199,7 +1199,12 @@ fn render_tree_node(
     // separate inline-style read is needed.
     let node_keyline = resolved.keyline.clone();
     let node_layout = resolved.layout;
-    let node_declares_layers = resolved.layers.as_ref().is_some_and(|l| !l.is_empty());
+    // Effective layer order, not just the cascaded value: the walk root always
+    // carries the programmatic system layers (`_loading`/`_toastrack`/
+    // `_tooltips`, `super::layers`), so its children sort even without a user
+    // `layers:` declaration.
+    let node_declares_layers =
+        !super::layers::effective_layers_with(tree, node_id, resolved.layers.clone()).is_empty();
     push_style_context(meta, resolved);
 
     // Keyline background canvas (Python `layout.py::render_keyline` ->
@@ -3568,10 +3573,11 @@ pub fn run_layout_pass(tree: &mut WidgetTree, viewport: (u16, u16)) {
 /// or `visibility:hidden`. Nodes with `visibility:hidden` still participate
 /// in layout (their space is preserved) but produce no rendered output.
 ///
-/// Children of each parent are ordered according to the parent's `layers`
-/// CSS property: children assigned to an earlier layer render first (lower
-/// z-index), children assigned to a later layer render last (on top).
-/// Children without a `layer` assignment come before any named layers.
+/// Children of each parent are ordered according to the parent's effective
+/// layer order (`sort_children_by_layer`): children assigned to an earlier
+/// layer render first (lower z-index), children assigned to a later layer
+/// render last (on top). Children without a `layer` assignment map to the
+/// first layer's index (Python `layers_to_index.get(layer, 0)`).
 pub(crate) fn collect_render_nodes(tree: &WidgetTree) -> Vec<(NodeId, bool)> {
     let root = match tree.root() {
         Some(r) => r,
@@ -3604,33 +3610,30 @@ pub(crate) fn collect_render_nodes(tree: &WidgetTree) -> Vec<(NodeId, bool)> {
     result
 }
 
-/// Sort a list of child `NodeId`s according to the parent's `layers` declaration.
+/// Sort a list of child `NodeId`s according to the parent's effective layer
+/// order (`super::layers::effective_layers`: the cascaded `layers` declaration
+/// plus, for the walk root, the programmatic system layers).
 ///
-/// The parent's `layers` property defines named layer ordering. Children are
-/// grouped by their `layer` CSS property:
-/// - Children without a `layer` assignment come first (default layer).
-/// - Children assigned to named layers are ordered according to the parent's
-///   `layers` list (earlier = rendered first = lower z-index).
-/// - Children assigned to a layer name not in the parent's `layers` list are
-///   placed after the default group but before any declared layers.
+/// Children are grouped by their `layer` CSS property following Python
+/// `_compositor.py:638-643` (`layers_to_index.get(sub_widget.layer, 0)`):
+/// - Children on a declared layer are ordered by the parent's layer list
+///   (earlier = rendered first = lower z-index).
+/// - Children without a `layer` assignment are on the implicit `default`
+///   layer; when it is not declared they map to the FIRST layer's index (0),
+///   tying with its children.
+/// - Unknown layer names also map to index 0.
 ///
-/// Within each group, the original DOM order is preserved (stable sort).
+/// Within a group (and across index ties), the original DOM order is
+/// preserved (stable sort), matching Python's `z`/`layer_order` tiebreak.
 fn sort_children_by_layer(tree: &WidgetTree, parent: NodeId, children: &[NodeId]) -> Vec<NodeId> {
-    // Resolve the parent's `layers` declaration using node-record-based meta.
-    let parent_layers: Option<Vec<String>> = tree.get(parent).and_then(|_node| {
-        let meta = node_selector_meta(tree, parent);
-        let style = resolve_node_style(tree, parent, &meta);
-        style.layers
-    });
-
-    let layer_order = match parent_layers {
-        Some(ref layers) if !layers.is_empty() => layers,
+    let layer_order = super::layers::effective_layers(tree, parent);
+    if layer_order.is_empty() {
         // No layers declaration — keep DOM order. The CommandPalette is mounted
         // DOM-last by `AppRoot::compose` and floats on top via that ordering; a
         // real `overlay: screen` surface floats via `paint_deferred_overlays`.
         // No type-string special-case is needed here.
-        _ => return children.to_vec(),
-    };
+        return children.to_vec();
+    }
 
     // Resolve each child's `layer` property using node-record-based meta.
     let child_layers: Vec<Option<String>> = children
@@ -3644,23 +3647,17 @@ fn sort_children_by_layer(tree: &WidgetTree, parent: NodeId, children: &[NodeId]
         })
         .collect();
 
-    // Assign a sort key: (group, original_index)
-    // group 0 = no layer / unknown layer name (default bucket, preserves DOM order),
-    // group 1..N = position in parent's layers list + 1
+    // Assign a sort key: (group, original_index). Python
+    // `layers_to_index.get(sub_widget.layer, 0)`: a child's group is its layer
+    // name's position in the effective list; the implicit `default` layer and
+    // unknown names fall back to index 0 (the FIRST declared layer), with DOM
+    // order as the tiebreak via the stable sort below.
     let mut indexed: Vec<(usize, usize)> = children
         .iter()
         .enumerate()
         .map(|(i, _)| {
-            let group = match &child_layers[i] {
-                None => 0,
-                Some(name) => {
-                    if let Some(pos) = layer_order.iter().position(|l| l == name) {
-                        pos + 1
-                    } else {
-                        0 // Unknown layer name falls back to default bucket
-                    }
-                }
-            };
+            let name = child_layers[i].as_deref().unwrap_or("default");
+            let group = layer_order.iter().position(|l| l == name).unwrap_or(0);
             (group, i)
         })
         .collect();
@@ -3984,6 +3981,10 @@ mod tests {
 
     #[test]
     fn sort_children_by_layer_no_layers_preserves_dom_order() {
+        // The walk root always carries the programmatic system layers
+        // (`effective_layers`), so the sorting path runs even without a user
+        // `layers:` declaration; layer-less children all sit on the implicit
+        // `default` layer and keep DOM order.
         use crate::widget_tree::WidgetTree;
         use crate::widgets::{AppRoot, Label};
 
@@ -4110,7 +4111,8 @@ mod tests {
 
         let children = tree.children(root).to_vec();
         let sorted = sort_children_by_layer(&tree, root, &children);
-        // Expected: B (no layer=0), C (base=2), A (overlay=3)
+        // Expected: B (default -> index 0) ties with C (base = index 0) and
+        // DOM order breaks the tie; A (overlay = index 1) paints last.
         assert_eq!(sorted, vec![b, c, a]);
     }
 
@@ -4129,20 +4131,21 @@ mod tests {
             s.style.layers = Some(vec!["base".into(), "overlay".into()]);
         });
 
-        // Child A: no layer (group 0 = default)
+        // Child A: no layer (implicit default -> index 0)
         let a = tree.mount(root, Box::new(Label::new("A")));
 
-        // Child B: layer = "unknown" (group 0 = falls back to default, preserves DOM order)
+        // Child B: layer = "unknown" (unknown name -> index 0, Python
+        // `layers_to_index.get(layer, 0)`)
         let b = tree.mount(root, Box::new(Label::new("B")));
         tree.update_styles(b, |s| s.style.layer = Some("unknown".into()));
 
-        // Child C: layer = "base" (group 1 = named)
+        // Child C: layer = "base" (the FIRST declared layer -> index 0 too)
         let c = tree.mount(root, Box::new(Label::new("C")));
         tree.update_styles(c, |s| s.style.layer = Some("base".into()));
 
         let children = tree.children(root).to_vec();
         let sorted = sort_children_by_layer(&tree, root, &children);
-        // Expected: A (default=0), B (unknown→default=0, DOM order), C (base=1)
+        // Expected: all three tie at index 0; DOM order breaks the tie.
         assert_eq!(sorted, vec![a, b, c]);
     }
 
@@ -4194,6 +4197,147 @@ mod tests {
             sorted,
             vec![first, other],
             "no layers declaration must preserve DOM order (no widget-type special-case)"
+        );
+    }
+
+    #[test]
+    fn sort_children_by_layer_toast_rack_sorts_above_user_layers() {
+        // G1 regression: `layers` cascades replace-wins, so a user
+        // `Screen { layers: below above; }` used to CLOBBER the system
+        // `_toastrack` layer and the ToastRack fell into the default bucket,
+        // sorting UNDER the user's layered widgets. The system layers are now
+        // appended programmatically after the CSS-derived list
+        // (`super::super::layers::effective_layers`), mirroring Python
+        // `Screen.layers` (screen.py:359-371).
+        use crate::widget_tree::WidgetTree;
+        use crate::widgets::{AppRoot, Label, ToastRack};
+
+        let sheet = crate::css::default_widget_stylesheet();
+        let _guard = crate::css::set_style_context(sheet);
+
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(Box::new(AppRoot::new()));
+        tree.update_styles(root, |s| {
+            s.style.layers = Some(vec!["below".into(), "above".into()]);
+        });
+
+        // Rack mounted FIRST so DOM order cannot mask the layer sort; its
+        // `layer: _toastrack` comes from its default CSS, as in a real app.
+        let rack = tree.mount(root, Box::new(ToastRack::new()));
+        let above = tree.mount(root, Box::new(Label::new("above")));
+        tree.update_styles(above, |s| s.style.layer = Some("above".into()));
+        let below = tree.mount(root, Box::new(Label::new("below")));
+        tree.update_styles(below, |s| s.style.layer = Some("below".into()));
+
+        let children = tree.children(root).to_vec();
+        let sorted = sort_children_by_layer(&tree, root, &children);
+        assert_eq!(
+            sorted,
+            vec![below, above, rack],
+            "the system ToastRack must sort above every user layer"
+        );
+    }
+
+    #[test]
+    fn sort_children_by_layer_loading_layer_sorts_above_user_layers() {
+        // `_loading` is a programmatic system layer too (it was previously not
+        // even declared in the Screen default CSS and fell into the
+        // unknown-name fallback).
+        use crate::widget_tree::WidgetTree;
+        use crate::widgets::{AppRoot, Label};
+
+        let sheet = crate::css::default_widget_stylesheet();
+        let _guard = crate::css::set_style_context(sheet);
+
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(Box::new(AppRoot::new()));
+        tree.update_styles(root, |s| {
+            s.style.layers = Some(vec!["below".into(), "above".into()]);
+        });
+
+        let loading = tree.mount(root, Box::new(Label::new("loading")));
+        tree.update_styles(loading, |s| s.style.layer = Some("_loading".into()));
+        let above = tree.mount(root, Box::new(Label::new("above")));
+        tree.update_styles(above, |s| s.style.layer = Some("above".into()));
+
+        let children = tree.children(root).to_vec();
+        let sorted = sort_children_by_layer(&tree, root, &children);
+        assert_eq!(
+            sorted,
+            vec![above, loading],
+            "`_loading` must sort above every user layer"
+        );
+    }
+
+    #[test]
+    fn sort_children_by_layer_default_bucket_ties_with_first_declared_layer() {
+        // G2 (Python `_compositor.py:638-643`): `layers_to_index.get(layer, 0)`
+        // maps the implicit default layer to the index of the FIRST declared
+        // layer, so a layer-less child ties with first-layer children and DOM
+        // order decides. (Previously the default bucket sorted strictly BELOW
+        // all declared layers.)
+        use crate::widget_tree::WidgetTree;
+        use crate::widgets::{AppRoot, Label};
+
+        let sheet = crate::css::default_widget_stylesheet();
+        let _guard = crate::css::set_style_context(sheet);
+
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(Box::new(AppRoot::new()));
+        tree.update_styles(root, |s| {
+            s.style.layers = Some(vec!["base".into(), "overlay".into()]);
+        });
+
+        // DOM order: z (overlay), x (base), y (layer-less).
+        let z = tree.mount(root, Box::new(Label::new("Z")));
+        tree.update_styles(z, |s| s.style.layer = Some("overlay".into()));
+        let x = tree.mount(root, Box::new(Label::new("X")));
+        tree.update_styles(x, |s| s.style.layer = Some("base".into()));
+        let y = tree.mount(root, Box::new(Label::new("Y")));
+
+        let children = tree.children(root).to_vec();
+        let sorted = sort_children_by_layer(&tree, root, &children);
+        // x (base = 0) and y (default -> 0) tie and keep DOM order; the old
+        // strictly-lower default bucket would have produced [y, x, z].
+        assert_eq!(sorted, vec![x, y, z]);
+    }
+
+    #[test]
+    fn nested_layers_declarations_are_nearest_wins() {
+        // G3 decision (KNOWN_GAPS.md): when nested containers BOTH declare
+        // `layers`, Rust resolves nearest-wins (the inner container's own
+        // declaration orders its children). Python `Widget.layers`
+        // (widget.py:2613-2626) lets the ROOT-most declaration win instead;
+        // this test pins the intended Rust semantics.
+        use crate::widget_tree::WidgetTree;
+        use crate::widgets::{AppRoot, Container, Label};
+
+        let sheet = crate::css::default_widget_stylesheet();
+        let _guard = crate::css::set_style_context(sheet);
+
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(Box::new(AppRoot::new()));
+        tree.update_styles(root, |s| {
+            s.style.layers = Some(vec!["red".into(), "blue".into()]);
+        });
+        // Inner container declares the SAME names in the opposite order.
+        let inner = tree.mount(root, Box::new(Container::new()));
+        tree.update_styles(inner, |s| {
+            s.style.layers = Some(vec!["blue".into(), "red".into()]);
+        });
+
+        let c_red = tree.mount(inner, Box::new(Label::new("red")));
+        tree.update_styles(c_red, |s| s.style.layer = Some("red".into()));
+        let c_blue = tree.mount(inner, Box::new(Label::new("blue")));
+        tree.update_styles(c_blue, |s| s.style.layer = Some("blue".into()));
+
+        let children = tree.children(inner).to_vec();
+        let sorted = sort_children_by_layer(&tree, inner, &children);
+        assert_eq!(
+            sorted,
+            vec![c_blue, c_red],
+            "the NEAREST `layers` declaration (inner container) must order its \
+             children; Python's outermost-wins would give [c_red, c_blue]"
         );
     }
 
