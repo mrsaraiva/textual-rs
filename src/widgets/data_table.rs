@@ -238,7 +238,7 @@ impl ColumnKey {
 }
 
 #[derive(Debug, Clone)]
-#[widget(Focus, Interactive, Layout, Scrollable, StyleIdentity)]
+#[widget(Focus, Interactive, Layout, Scrollable, StyleIdentity, Components)]
 pub struct DataTable {
     column_keys: Vec<ColumnKey>,
     headers: Vec<String>,
@@ -2045,6 +2045,26 @@ impl crate::widgets::StyleIdentity for DataTable {
     }
 }
 
+impl crate::widgets::Components for DataTable {
+    /// Python `DataTable.COMPONENT_CLASSES` (`_data_table.py`): the nine
+    /// `datatable--*` styling hooks. Default rules live in
+    /// `src/css/defaults/data_table.rs`; `render` sources its colours from
+    /// these components (component-classes Phase 2).
+    fn component_classes(&self) -> &[&'static str] {
+        &[
+            "datatable--cursor",
+            "datatable--hover",
+            "datatable--fixed",
+            "datatable--fixed-cursor",
+            "datatable--header",
+            "datatable--header-cursor",
+            "datatable--header-hover",
+            "datatable--odd-row",
+            "datatable--even-row",
+        ]
+    }
+}
+
 impl crate::widgets::Render for DataTable {
     fn compose(&mut self) -> crate::compose::ComposeResult {
         if self.scrollbar_extracted {
@@ -2076,17 +2096,57 @@ impl crate::widgets::Render for DataTable {
         let cursor_coord = (self.selected, self.cursor_column);
         let hover_coord = self.hover_coordinate;
 
-        // Resolve theme colors.
-        let header_bg = parse_color_like("$panel");
+        // Component-sourced colours (component-classes Phase 2, Python
+        // `get_component_styles` parity): resolve the `datatable--*` component
+        // styles once per render through the canonical seam. During a tree
+        // render the widget's LIVE meta (arena id, runtime classes, dispatch
+        // pseudo states) is on top of the selector stack, so type-, id- and
+        // class-qualified user CSS (`DataTable > .datatable--cursor`,
+        // `#my-table > .datatable--cursor`, `DataTable.some-class >
+        // .datatable--cursor`) and the `&:focus > .datatable--cursor` /
+        // `&:dark > .datatable--even-row` parent-state branches all resolve
+        // here. Off-tree renders without a style context (plain
+        // `FrameBuffer::from_renderable` unit tests) resolve to empty styles;
+        // every consumer below falls back to the exact theme tokens the
+        // pre-migration hand-derived block used, byte-for-byte
+        // (tests/data_table_component_restyle.rs pins both sides).
+        let header_comp = crate::css::resolve_component_style(self, &["datatable--header"]);
+        let cursor_comp = crate::css::resolve_component_style(self, &["datatable--cursor"]);
+        let hover_comp = crate::css::resolve_component_style(self, &["datatable--hover"]);
+        let header_hover_comp =
+            crate::css::resolve_component_style(self, &["datatable--header-hover"]);
+        let fixed_comp = crate::css::resolve_component_style(self, &["datatable--fixed"]);
+        let even_row_comp = crate::css::resolve_component_style(self, &["datatable--even-row"]);
+        let odd_row_comp = crate::css::resolve_component_style(self, &["datatable--odd-row"]);
+
         let row_bg = parse_color_like("$surface");
-        let cursor_bg = parse_color_like("$primary");
-        let hover_bg = parse_color_like("$block-hover-background");
-        let header_hover_bg = parse_color_like("$header-hover-background");
-        let fixed_bg = parse_color_like("$secondary-muted");
+        let hover_bg = hover_comp
+            .bg
+            .or_else(|| parse_color_like("$block-hover-background"));
+        let header_hover_bg = header_hover_comp
+            .bg
+            .or_else(|| parse_color_like("$header-hover-background"));
+        let fixed_bg = fixed_comp
+            .bg
+            .or_else(|| parse_color_like("$secondary-muted"));
 
         let fallback_bg = parse_color_like("$background").unwrap_or(Color::rgb(0, 0, 0));
-        let header_base = header_bg.unwrap_or(fallback_bg);
         let row_base = row_bg.unwrap_or(fallback_bg);
+        // The widget's composited surface (own bg + `:focus` background-tint),
+        // used for the header trailing fill, the zebra blend base, and to
+        // flatten any semi-transparent user header background.
+        let composited_bg = crate::css::current_composited_background().unwrap_or(row_base);
+        let header_base = {
+            let c = header_comp
+                .bg
+                .or_else(|| parse_color_like("$panel"))
+                .unwrap_or(fallback_bg);
+            if c.a < 1.0 {
+                c.flatten_over(composited_bg)
+            } else {
+                c
+            }
+        };
         let hover_bg = hover_bg.map(|c| c.flatten_over(row_base));
         let header_hover_bg = header_hover_bg.map(|c| c.flatten_over(header_base));
         let fixed_base = fixed_bg
@@ -2099,13 +2159,16 @@ impl crate::widgets::Render for DataTable {
         //
         // The header carries its OWN `background-tint` rule
         // (`DataTable:focus > .datatable--header { background-tint: $foreground 5% }`),
-        // so Python folds the tint into the header component's own background
-        // (per-node in `rich_style`), NOT via a blanket widget pass. Mirror that
-        // here: fold the resolved `background-tint` (present only on `:focus`)
-        // into `header_base`, stamp the header `$foreground`, and tag the cells
+        // so the tint arrives ON the resolved component style (Python folds it
+        // per-node in `rich_style`), NOT via a blanket widget pass. Fold it into
+        // `header_base`, stamp the header foreground, and tag the cells
         // `no_style` so `apply_style_to_segments` (which now only tints the
         // widget's own surface fill) does not re-tint the opaque header cells.
-        let header_bg_tint = crate::css::current_self_style().and_then(|s| s.background_tint);
+        // The `current_self_style` fallback keeps the widget-level tint for
+        // off-tree contexts without a stylesheet.
+        let header_bg_tint = header_comp
+            .background_tint
+            .or_else(|| crate::css::current_self_style().and_then(|s| s.background_tint));
         let header_final = if let Some(tint) = header_bg_tint {
             crate::renderables::Tint::<()>::blend_color_with_percent(
                 header_base,
@@ -2115,36 +2178,66 @@ impl crate::widgets::Render for DataTable {
         } else {
             header_base
         };
-        let header_fg = parse_color_like("$foreground").unwrap_or(Color::rgb(224, 224, 224));
+        let foreground = parse_color_like("$foreground").unwrap_or(Color::rgb(224, 224, 224));
+        let header_fg = header_comp.fg.unwrap_or(foreground);
         let header_style = CellVisual {
             bg: header_final,
             fg: Some(header_fg),
-            bold: true,
+            bold: header_comp.bold.unwrap_or(true),
             no_style: true,
         };
         let normal_style = CellVisual::new(row_base, false);
         let fixed_style = CellVisual::new(fixed_base, false);
-        // Focused cursor cell: `$block-cursor-background` (opaque `$primary`) with
-        // `$block-cursor-foreground` composed over it (Python `#ddedf9`). Tagged
-        // `no_style` so the `DataTable:focus` `background-tint` is not applied on
-        // top (which would shift the fill from `#0178d4` to `#0c7dd4`).
-        let cursor_base = cursor_bg.unwrap_or(row_base);
-        let cursor_fg = parse_color_like("$block-cursor-foreground")
-            .map(|c| c.flatten_over(cursor_base))
-            .unwrap_or(cursor_base);
-        let selected_style = if focused {
-            CellVisual::new(cursor_base, true).final_fg(cursor_fg)
-        } else {
-            // Blurred cursor: `$block-cursor-blurred-background` ($primary 30%,
-            // alpha) over the row surface, `$block-cursor-blurred-foreground`
-            // ($foreground), `text-style: none`.
-            let blurred_bg = parse_color_like("$block-cursor-blurred-background")
-                .map(|c| c.flatten_over(row_base))
-                .unwrap_or(row_base);
-            let blurred_fg =
-                parse_color_like("$block-cursor-blurred-foreground").unwrap_or(header_fg);
-            CellVisual::new(blurred_bg, false).final_fg(blurred_fg)
+        // Cursor cell: the component style encodes the focus branch — the base
+        // `.datatable--cursor` rule carries the BLURRED tokens
+        // ($block-cursor-blurred-*) and `&:focus > .datatable--cursor` overrides
+        // with the strong ones ($block-cursor-background = opaque $primary,
+        // $block-cursor-foreground composed over it, bold) when the live meta is
+        // focused. Tagged `no_style` (via `final_fg`) so the `DataTable:focus`
+        // `background-tint` is not applied on top (which would shift the fill
+        // from `#0178d4` to `#0c7dd4`).
+        //
+        // Foregrounds flatten over the cursor surface only when
+        // semi-transparent: the blurred foreground ($foreground) is opaque and
+        // stays RAW, byte-for-byte with the pre-migration block.
+        let cursor_base = {
+            let raw = cursor_comp.bg.or_else(|| {
+                if focused {
+                    parse_color_like("$primary")
+                } else {
+                    parse_color_like("$block-cursor-blurred-background")
+                }
+            });
+            raw.map(|c| {
+                if c.a < 1.0 {
+                    c.flatten_over(row_base)
+                } else {
+                    c
+                }
+            })
+            .unwrap_or(row_base)
         };
+        let cursor_fg = {
+            let raw = cursor_comp.fg.or_else(|| {
+                if focused {
+                    parse_color_like("$block-cursor-foreground")
+                } else {
+                    parse_color_like("$block-cursor-blurred-foreground")
+                }
+            });
+            raw.map(|c| {
+                if c.a < 1.0 {
+                    c.flatten_over(cursor_base)
+                } else {
+                    c
+                }
+            })
+            .unwrap_or(cursor_base)
+        };
+        let cursor_bold = cursor_comp
+            .bold
+            .unwrap_or(cursor_comp.bg.is_none() && focused);
+        let selected_style = CellVisual::new(cursor_base, cursor_bold).final_fg(cursor_fg);
         let hover_style = CellVisual::new(hover_bg.unwrap_or(row_base), false);
         let header_hover_style = CellVisual::new(header_hover_bg.unwrap_or(header_base), true);
 
@@ -2153,7 +2246,6 @@ impl crate::widgets::Render for DataTable {
         // from the FINAL (tinted) header + surface backgrounds and tag `no_style`
         // so it is not re-tinted. Only the header shows this (body rows share the
         // surface colour, so the 25% blend is a no-op there).
-        let composited_bg = crate::css::current_composited_background().unwrap_or(row_base);
         let header_fill_bg = composited_bg.blend_over_float(header_final, 0.25);
         let header_fill_style = CellVisual {
             bg: header_fill_bg,
@@ -2175,18 +2267,26 @@ impl crate::widgets::Render for DataTable {
                 }
             };
 
-        // Zebra stripes: alternate (even) row background. Python
-        // `&:dark > .datatable--even-row { bg: $surface-darken-1 40% }` composites
-        // the 40%-alpha darken over the row's base surface — which itself carries
-        // the `:focus` `background-tint` (`#272727`), giving `#1c1c1c`. We compose
-        // the final colour here (over `composited_bg`) and tag it `no_style` so it
-        // is not tinted again; the glyph foreground is baked to `$foreground`.
-        let foreground = parse_color_like("$foreground").unwrap_or(Color::rgb(224, 224, 224));
+        // Zebra stripes: alternate (even) row background. The component style
+        // resolves Python's `&:dark > .datatable--even-row { bg:
+        // $surface-darken-1 40% }` (both the phantom and the live parent meta
+        // carry `:dark`, and the extra pseudo outranks the light-theme `& >
+        // .datatable--even-row { bg: $surface-lighten-1 50% }` rule). The
+        // 40%-alpha darken composites over the row's base surface — which
+        // itself carries the `:focus` `background-tint` (`#272727`), giving
+        // `#1c1c1c`. We compose the final colour here (over `composited_bg`)
+        // and tag it `no_style` so it is not tinted again; the glyph foreground
+        // is baked to `$foreground` (pre-migration behaviour: component fg
+        // inheritance is not consumed here).
         let zebra_stripes = self.zebra_stripes;
         let (zebra_style, zebra_fill_style) = if zebra_stripes {
-            let even_bg = parse_color_like("$surface-darken-1")
-                .unwrap_or(row_base)
-                .with_alpha(0.4)
+            let even_bg = even_row_comp
+                .bg
+                .unwrap_or_else(|| {
+                    parse_color_like("$surface-darken-1")
+                        .unwrap_or(row_base)
+                        .with_alpha(0.4)
+                })
                 .flatten_over(composited_bg);
             let even_style = CellVisual {
                 bg: even_bg,
@@ -2205,6 +2305,29 @@ impl crate::widgets::Render for DataTable {
             (even_style, even_fill_style)
         } else {
             (normal_style, normal_style)
+        };
+        // Odd rows have no default rule (Python parity: `datatable--odd-row` is
+        // declared but unstyled), but a user-CSS background must be consumable
+        // under zebra stripes, with the same composition as the even rows.
+        let (odd_style, odd_fill_style) = match odd_row_comp.bg.filter(|_| zebra_stripes) {
+            Some(bg) => {
+                let odd_bg = bg.flatten_over(composited_bg);
+                (
+                    CellVisual {
+                        bg: odd_bg,
+                        fg: Some(foreground),
+                        bold: false,
+                        no_style: true,
+                    },
+                    CellVisual {
+                        bg: composited_bg.blend_over_float(odd_bg, 0.25),
+                        fg: None,
+                        bold: false,
+                        no_style: true,
+                    },
+                )
+            }
+            None => (normal_style, normal_style),
         };
 
         let fixed_data_rows = self.fixed_data_rows();
@@ -2254,7 +2377,7 @@ impl crate::widgets::Render for DataTable {
             let (row_base_style, row_fill_style) = if zebra_stripes && is_even_row {
                 (zebra_style, zebra_fill_style)
             } else {
-                (normal_style, normal_style)
+                (odd_style, odd_fill_style)
             };
             let empty_label = Content::empty();
             let row_label = self

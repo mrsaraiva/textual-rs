@@ -5595,6 +5595,20 @@ impl App {
             .map(crate::style::color_from_simple)
     }
 
+    /// Read the resolved foreground color of the rendered cell at `(x, y)` in
+    /// the in-memory frame (companion to [`App::frame_cell_bg`]). Used by
+    /// Pilot-driven tests to assert visible text colour.
+    pub fn frame_cell_fg(&self, x: usize, y: usize) -> Option<crate::style::Color> {
+        if x >= self.frame.width || y >= self.frame.height {
+            return None;
+        }
+        self.frame
+            .get(x, y)
+            .style
+            .and_then(|s| s.color)
+            .map(crate::style::color_from_simple)
+    }
+
     pub(super) fn dispatch_binding_hints_changed(
         &mut self,
         root: &mut dyn Widget,

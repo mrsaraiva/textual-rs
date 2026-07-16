@@ -7,6 +7,43 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### Added: DataTable rides the component-class seam (component-classes Phase 2)
+
+DataTable's internal colours are now sourced from its `datatable--*` component
+classes instead of hand-derived theme tokens, so user CSS restyles the table
+(Python parity):
+
+- `DataTable` declares the nine Python `COMPONENT_CLASSES`
+  (`datatable--cursor`, `--hover`, `--fixed`, `--fixed-cursor`, `--header`,
+  `--header-cursor`, `--header-hover`, `--odd-row`, `--even-row`) via the
+  `Components` capability.
+- `render` resolves `datatable--header` / `--cursor` / `--hover` /
+  `--header-hover` / `--fixed` / `--even-row` / `--odd-row` through
+  `resolve_component_style` per frame. All three qualification forms work:
+  `DataTable > .datatable--cursor { ... }`, `#my-table > .datatable--cursor`,
+  and `DataTable.some-class > .datatable--cursor`.
+- State provenance moved onto CSS: the cursor focus branch now resolves via
+  `&:focus > .datatable--cursor` (dispatch `:focus`, which also gates on the
+  app being active, like Python), the header `background-tint` arrives on the
+  resolved `datatable--header` component (`&:focus > .datatable--header`),
+  and zebra even rows resolve `&:dark > .datatable--even-row`
+  ($surface-darken-1 40%) vs the light-theme `$surface-lighten-1 50%` rule.
+  `datatable--odd-row` (no default rule, Python parity) is consumable from
+  user CSS under zebra stripes.
+- Composition preserved byte-for-byte with the previous hand-derived block
+  under default CSS: no_style tagging, header trailing-fill 25% blend, cursor
+  foreground flatten (the opaque blurred foreground stays raw), zebra float
+  blend over the composited surface. Off-tree renders without a style context
+  fall back to the identical legacy tokens.
+- One-byte parity fix: header hover now paints `$accent 30%` with Python's
+  round-tripped `$accent` design token (`#FEA62B`); the legacy Rust-only
+  `$header-hover-background` token used the raw accent source (`#FFA62B`).
+- New public `App::frame_cell_fg(x, y)` accessor (companion to
+  `frame_cell_bg`) for Pilot-driven colour assertions.
+- Regression suite: `tests/data_table_component_restyle.rs` (type/id/class
+  qualified restyles, header restyle, default-colour goldens, focus-tint
+  provenance, blurred-cursor foreground, zebra `:dark` parity).
+
 ### Added: devtools hooks (log streaming, debug-channel introspection, inactive-screen ticks)
 
 Framework-side hooks for the external `textual-dev-rs` harness (devtools
