@@ -31,7 +31,7 @@ mod option_list;
 mod placeholder;
 mod pretty;
 mod preview;
-mod progress_bar;
+pub mod progress_bar;
 mod radio_button;
 mod radio_set;
 mod rich_log;

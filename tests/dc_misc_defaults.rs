@@ -28,6 +28,27 @@ fn find_type_style(sheet: &StyleSheet, type_name: &str) -> textual::style::Style
     panic!("no rule found for type `{type_name}`");
 }
 
+/// Find the style of a two-part descendant rule `Ancestor Type { ... }`
+/// (used for scoped sub-widget defaults, e.g. `ProgressBar Bar { width: 32 }`).
+fn find_scoped_type_style(
+    sheet: &StyleSheet,
+    ancestor: &str,
+    type_name: &str,
+) -> textual::style::Style {
+    for rule in sheet.rules() {
+        let parts = rule.selector_chain().parts();
+        if parts.len() == 2
+            && parts[0].type_name() == Some(ancestor)
+            && parts[1].type_name() == Some(type_name)
+            && parts[1].classes().is_empty()
+            && parts[1].pseudos().is_empty()
+        {
+            return rule.style();
+        }
+    }
+    panic!("no rule found for `{ancestor} {type_name}`");
+}
+
 fn find_type_class_style(
     sheet: &StyleSheet,
     type_name: &str,
@@ -316,22 +337,24 @@ fn dc_22_progressbar_has_layout_horizontal() {
 
 #[test]
 fn dc_22_bar_has_width_32() {
+    // Scoped under ProgressBar (Python scoped DEFAULT_CSS): a bare `Bar`
+    // type rule would leak onto user widgets named `Bar`.
     let sheet = default_widget_stylesheet();
-    let style = find_type_style(&sheet, "Bar");
+    let style = find_scoped_type_style(&sheet, "ProgressBar", "Bar");
     assert_eq!(style.width, Some(Scalar::Cells(32)));
 }
 
 #[test]
 fn dc_22_percentage_status_has_width_5() {
     let sheet = default_widget_stylesheet();
-    let style = find_type_style(&sheet, "PercentageStatus");
+    let style = find_scoped_type_style(&sheet, "ProgressBar", "PercentageStatus");
     assert_eq!(style.width, Some(Scalar::Cells(5)));
 }
 
 #[test]
 fn dc_22_eta_status_has_width_9() {
     let sheet = default_widget_stylesheet();
-    let style = find_type_style(&sheet, "ETAStatus");
+    let style = find_scoped_type_style(&sheet, "ProgressBar", "ETAStatus");
     assert_eq!(style.width, Some(Scalar::Cells(9)));
 }
 

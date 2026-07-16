@@ -21,8 +21,7 @@ impl TextualApp for MissionControl {
             60.0,
         ];
 
-        let mut disk_bar = ProgressBar::new(Some(100.0));
-        disk_bar.advance(73.0);
+        let disk_bar = ProgressBar::new(Some(100.0)).with_progress(73.0);
 
         let mut proc_table = DataTable::empty();
         proc_table.add_columns(["PID", "Name", "CPU%", "Mem"]);

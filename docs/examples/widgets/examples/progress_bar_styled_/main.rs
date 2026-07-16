@@ -71,9 +71,11 @@ impl TextualApp for StyledProgressBar {
     fn on_app_action_str(&mut self, app: &mut App, action: &str, ctx: &mut textual::event::WidgetCtx) {
         if action == "start" {
             // Set total=100 and start advancing progress.
-            let _ = app.with_query_one_mut_as::<ProgressBar, _>("ProgressBar", |bar| {
-                bar.update(Some(Some(100.0)), Some(0.0), None);
-            });
+            if let Ok(handle) = app.query_one_typed::<ProgressBar>("ProgressBar") {
+                let _ = handle.update(app, |bar, rctx| {
+                    bar.update(Some(Some(100.0)), Some(0.0), None, rctx);
+                });
+            }
             self.running = true;
             self.tick_count = 0;
             ctx.request_repaint();
@@ -85,9 +87,11 @@ impl TextualApp for StyledProgressBar {
         match key.key.as_str() {
             "u" => {
                 // Jump to 100% complete.
-                let _ = app.with_query_one_mut_as::<ProgressBar, _>("ProgressBar", |bar| {
-                    bar.update(Some(Some(100.0)), Some(100.0), None);
-                });
+                if let Ok(handle) = app.query_one_typed::<ProgressBar>("ProgressBar") {
+                    let _ = handle.update(app, |bar, rctx| {
+                        bar.update(Some(Some(100.0)), Some(100.0), None, rctx);
+                    });
+                }
                 ctx.request_repaint();
                 ctx.set_handled();
             }
@@ -105,12 +109,13 @@ impl TextualApp for StyledProgressBar {
         // so advance every 3 ticks ≈ 10 Hz.
         if self.tick_count % 3 == 0 {
             let mut stop = false;
-            let _ = app.with_query_one_mut_as::<ProgressBar, _>("ProgressBar", |bar| {
-                bar.advance(1.0);
-                if bar.percentage().map(|p| p >= 1.0).unwrap_or(false) {
-                    stop = true;
-                }
-            });
+            if let Ok(handle) = app.query_one_typed::<ProgressBar>("ProgressBar") {
+                let done = handle.update(app, |bar, rctx| {
+                    bar.advance(1.0, rctx);
+                    bar.percentage().map(|p| p >= 1.0).unwrap_or(false)
+                });
+                stop = done.unwrap_or(false);
+            }
             if stop {
                 self.running = false;
             }

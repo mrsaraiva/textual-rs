@@ -43,6 +43,47 @@ classes instead of hand-derived theme tokens, so user CSS restyles the table
 - Regression suite: `tests/data_table_component_restyle.rs` (type/id/class
   qualified restyles, header restyle, default-colour goldens, focus-tint
   provenance, blurred-cursor foreground, zebra `:dark` parity).
+### Changed (BREAKING): ProgressBar split into real sub-widgets (component-classes Phase 3 / D8)
+
+`ProgressBar` now composes real arena children mirroring Python
+`_progress_bar.py`, replacing the monolithic single-node render:
+
+- New sub-widgets (module `textual::widgets::progress_bar`): `Bar` (id
+  `bar`, composed when `show_bar`), `PercentageStatus` (id `percentage`,
+  when `show_percentage`), `ETAStatus` (id `eta`, when `show_eta`). They are
+  addressable (`#bar` / `#percentage` / `#eta`, `ProgressBar Bar`, ...) and
+  restylable per widget.
+- The `bar--bar` / `bar--complete` / `bar--indeterminate` component classes
+  moved from `ProgressBar` to `Bar`, which resolves them against itself. The
+  scoped defaults (`ProgressBar Bar > .bar--bar { ... }`) and Python-shaped
+  user CSS (`Bar > .bar--indeterminate { ... }`) are now live without
+  selector rewrites. Bar renders the Python way: highlight glyphs carry the
+  component's `color`, track glyphs carry the component's `background` as
+  their foreground; the per-cell gradient recolor moved into `Bar` and now
+  recolors only the highlighted cells (Python `_apply_gradient` parity).
+- Layout is real child layout: the scoped defaults `ProgressBar Bar
+  { width: 32 }`, `PercentageStatus { width: 5 }`, `ETAStatus { width: 9 }`
+  drive the horizontal arrangement and the `width: auto` measurement (46
+  columns with all three parts); the hardcoded `content_width()` is retired.
+- BREAKING: `advance` and `update` now take `&mut ReactiveCtx`
+  (`bar.advance(1.0, rctx)`); the recorded change recomposes the sub-widgets
+  with the new values (the Rust analogue of Python's `data_bind`). Post-mount,
+  call them through `Handle::update` / `query_one_typed`. For pre-mount
+  configuration use the new `with_progress(f64)` builder. `set_gradient` /
+  `set_animation_level` stay ctx-less (pre-mount configuration; post-mount
+  changes apply on the next recompose).
+- The indeterminate animation lives on the `Bar` child (`is_active`
+  per-frame repaint, time-based phase on the parent's clock, stable across
+  recomposes); no per-frame recompose is involved. A 1-second interval
+  (Python `set_interval(1, self.update)` parity) keeps the displayed ETA
+  counting down between progress updates, recomposing only when the
+  displayed value changes.
+- New `App::frame_cell_fg(x, y)` accessor (symmetric with `frame_cell_bg`)
+  for Pilot-driven color assertions.
+- Doc examples migrated to the reactive update path (`Handle::update`):
+  `progress_bar`, `progress_bar_gradient`, `progress_bar_styled(_)`,
+  `progress_bar_isolated(_)`, `hello`, `guide/reactivity/dynamic_watch`,
+  `readme_screens`.
 
 ### Added: devtools hooks (log streaming, debug-channel introspection, inactive-screen ticks)
 

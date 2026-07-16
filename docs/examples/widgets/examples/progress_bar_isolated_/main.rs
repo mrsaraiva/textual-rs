@@ -40,18 +40,20 @@ impl TextualApp for IndeterminateProgressBar {
 
     fn on_tick_with_app(&mut self, app: &mut App, _tick: u64, ctx: &mut textual::event::WidgetCtx) {
         if self.started {
-            let _ = app.with_query_one_mut_as::<ProgressBar, _>("#progress_bar", |bar| {
-                bar.advance(1.0);
-            });
+            if let Ok(handle) = app.query_one_typed::<ProgressBar>("#progress_bar") {
+                let _ = handle.update(app, |bar, rctx| bar.advance(1.0, rctx));
+            }
             ctx.request_repaint();
         }
     }
 
     fn on_app_action_str(&mut self, app: &mut App, action: &str, ctx: &mut textual::event::WidgetCtx) {
         if action == "start" {
-            let _ = app.with_query_one_mut_as::<ProgressBar, _>("#progress_bar", |bar| {
-                bar.update(Some(Some(100.0)), Some(0.0), None);
-            });
+            if let Ok(handle) = app.query_one_typed::<ProgressBar>("#progress_bar") {
+                let _ = handle.update(app, |bar, rctx| {
+                    bar.update(Some(Some(100.0)), Some(0.0), None, rctx);
+                });
+            }
             self.started = true;
             ctx.request_repaint();
             ctx.set_handled();
@@ -68,18 +70,22 @@ impl TextualApp for IndeterminateProgressBar {
             }
             "t" => {
                 // Freeze to show a known ETA (Python: clock.set_time(0), update, clock.set_time(3.9), update(progress=39))
-                let _ = app.with_query_one_mut_as::<ProgressBar, _>("#progress_bar", |bar| {
-                    bar.update(Some(Some(100.0)), Some(39.0), None);
-                });
+                if let Ok(handle) = app.query_one_typed::<ProgressBar>("#progress_bar") {
+                    let _ = handle.update(app, |bar, rctx| {
+                        bar.update(Some(Some(100.0)), Some(39.0), None, rctx);
+                    });
+                }
                 self.started = false;
                 ctx.request_repaint();
                 ctx.set_handled();
             }
             "u" => {
                 // Show completed state (Python: update(total=100, progress=100))
-                let _ = app.with_query_one_mut_as::<ProgressBar, _>("#progress_bar", |bar| {
-                    bar.update(Some(Some(100.0)), Some(100.0), None);
-                });
+                if let Ok(handle) = app.query_one_typed::<ProgressBar>("#progress_bar") {
+                    let _ = handle.update(app, |bar, rctx| {
+                        bar.update(Some(Some(100.0)), Some(100.0), None, rctx);
+                    });
+                }
                 self.started = false;
                 ctx.request_repaint();
                 ctx.set_handled();

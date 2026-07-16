@@ -55,9 +55,11 @@ impl TextualApp for ProgressApp {
     }
 
     fn on_mount_with_app(&mut self, app: &mut App, ctx: &mut textual::event::WidgetCtx) {
-        let _ = app.with_query_one_mut_as::<ProgressBar, _>("ProgressBar", |bar| {
-            bar.update(None, Some(70.0), None);
-        });
+        if let Ok(handle) = app.query_one_typed::<ProgressBar>("ProgressBar") {
+            let _ = handle.update(app, |bar, rctx| {
+                bar.update(None, Some(70.0), None, rctx);
+            });
+        }
         ctx.request_repaint();
     }
 }

@@ -110,10 +110,13 @@ impl FundingProgressApp {
             Err(_) => return,
         };
 
-        // Advance the progress bar.
-        let _ = app.with_query_one_mut_as::<ProgressBar, _>("#progress", |bar| {
-            bar.advance(value as f64);
-        });
+        // Advance the progress bar (reactive path: the recorded change
+        // recomposes the bar's sub-widgets with the new value).
+        if let Ok(handle) = app.query_one_typed::<ProgressBar>("#progress") {
+            let _ = handle.update(app, |bar, rctx| {
+                bar.advance(value as f64, rctx);
+            });
+        }
 
         // Append a message to the history list. `ListView` composes its items
         // as arena `ListItem` children, so the newly appended item must be

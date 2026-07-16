@@ -88,9 +88,9 @@ impl TextualApp for StyledProgressBar {
             None,
             true, // pause=True
             Box::new(|app, _ctx| {
-                let _ = app.with_query_one_mut_as::<ProgressBar, _>("#progress_bar", |bar| {
-                    bar.advance(1.0);
-                });
+                if let Ok(handle) = app.query_one_typed::<ProgressBar>("#progress_bar") {
+                    let _ = handle.update(app, |bar, rctx| bar.advance(1.0, rctx));
+                }
             }),
         ));
     }
@@ -98,9 +98,11 @@ impl TextualApp for StyledProgressBar {
     fn on_app_action_str(&mut self, app: &mut App, action: &str, ctx: &mut textual::event::WidgetCtx) {
         if action == "start" {
             // Python action_start: query_one(ProgressBar).update(total=100); timer.resume().
-            let _ = app.with_query_one_mut_as::<ProgressBar, _>("#progress_bar", |bar| {
-                bar.update(Some(Some(100.0)), Some(0.0), None);
-            });
+            if let Ok(handle) = app.query_one_typed::<ProgressBar>("#progress_bar") {
+                let _ = handle.update(app, |bar, rctx| {
+                    bar.update(Some(Some(100.0)), Some(0.0), None, rctx);
+                });
+            }
             if let Some(handle) = self.progress_timer {
                 app.resume_timer(handle);
             }
@@ -142,9 +144,9 @@ mod tests {
             None,
             true,
             Box::new(|app, _ctx| {
-                let _ = app.with_query_one_mut_as::<ProgressBar, _>("#progress_bar", |bar| {
-                    bar.advance(1.0);
-                });
+                if let Ok(handle) = app.query_one_typed::<ProgressBar>("#progress_bar") {
+                    let _ = handle.update(app, |bar, rctx| bar.advance(1.0, rctx));
+                }
             }),
         );
         assert!(app.timer_is_active(handle), "interval is registered at mount");
@@ -156,7 +158,8 @@ mod tests {
 
         let mut bar = ProgressBar::new(Some(100.0));
         let before = bar.progress();
-        bar.advance(1.0);
+        let mut rctx = textual::reactive::ReactiveCtx::new(textual::node_id::NodeId::default());
+        bar.advance(1.0, &mut rctx);
         assert_eq!(bar.progress(), before + 1.0, "make_progress advances by 1");
     }
 

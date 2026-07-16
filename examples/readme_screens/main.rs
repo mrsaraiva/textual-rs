@@ -19,8 +19,7 @@ const HERO_CSS: &str = concat!(
 
 /// The composed hero screen: widget variety in one small dashboard.
 fn hero_screen() -> AppRoot {
-    let mut progress = ProgressBar::new(Some(100.0));
-    progress.advance(65.0);
+    let progress = ProgressBar::new(Some(100.0)).with_progress(65.0);
 
     let table = DataTable::new(
         vec!["Widget".into(), "Kind".into(), "Since".into()],

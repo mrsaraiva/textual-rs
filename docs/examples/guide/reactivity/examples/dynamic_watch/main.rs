@@ -125,10 +125,9 @@ impl TextualApp for WatchApp {
 
     fn on_mount_with_app(&mut self, app: &mut App, ctx: &mut textual::event::WidgetCtx) {
         // Python `ProgressBar(total=100, show_eta=False)`: disable ETA display.
-        if let Ok(progress_id) = app.query_one("#progress") {
-            let mut rctx = ReactiveCtx::new(progress_id);
-            let _ = app.with_query_one_mut_as::<ProgressBar, _>("#progress", |bar| {
-                bar.set_show_eta(false, &mut rctx);
+        if let Ok(handle) = app.query_one_typed::<ProgressBar>("#progress") {
+            let _ = handle.update(app, |bar, rctx| {
+                bar.set_show_eta(false, rctx);
             });
         }
 
@@ -138,11 +137,10 @@ impl TextualApp for WatchApp {
         if let Ok(counter_id) = app.query_one("Counter") {
             app.watch_reactive(counter_id, "counter", |app, value| {
                 if let Some(v) = value.downcast_ref::<i64>() {
-                    if let Ok(progress_id) = app.query_one("#progress") {
-                        let mut rctx = ReactiveCtx::new(progress_id);
-                        let progress = *v as f64;
-                        let _ = app.with_query_one_mut_as::<ProgressBar, _>("#progress", |bar| {
-                            bar.set_progress(progress, &mut rctx);
+                    let progress = *v as f64;
+                    if let Ok(handle) = app.query_one_typed::<ProgressBar>("#progress") {
+                        let _ = handle.update(app, |bar, rctx| {
+                            bar.set_progress(progress, rctx);
                         });
                     }
                 }
@@ -174,7 +172,7 @@ mod tests {
 
     #[test]
     fn counter_composes_label_and_button() {
-        let c = Counter::new();
+        let mut c = Counter::new();
         assert_eq!(c.compose().len(), 2);
     }
 
