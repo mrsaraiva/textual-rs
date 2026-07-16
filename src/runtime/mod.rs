@@ -28,6 +28,8 @@ mod types;
 
 // Public re-exports for integration testing via `textual::runtime::*`.
 pub use event_loop::resolve_transition_for_property;
+#[doc(hidden)]
+pub use event_loop::take_unhandled_binding_reports;
 pub use pilot::{Pilot, parse_key};
 pub use helpers::{call_on_mouse_move_tree, tree_content_local_coords, widget_at_tree_layout};
 pub use render::{
@@ -293,18 +295,27 @@ impl<'a> DomQueryMut<'a> {
     }
 
     pub fn set_class(self, add: bool, class_names: &[&str]) -> Self {
+        let mut changed_nodes: Vec<NodeId> = Vec::new();
         if let Some(tree) = self.app.widget_tree.as_mut() {
             for &id in &self.nodes {
+                let mut changed = false;
                 for class in class_names {
                     if add {
-                        tree.add_class(id, class);
-                    } else {
+                        if !tree.has_class(id, class) && tree.contains(id) {
+                            tree.add_class(id, class);
+                            changed = true;
+                        }
+                    } else if tree.has_class(id, class) {
                         tree.remove_class(id, class);
+                        changed = true;
                     }
+                }
+                if changed {
+                    changed_nodes.push(id);
                 }
             }
         }
-        self
+        self.absorb_class_change(changed_nodes)
     }
 
     pub fn add_class(self, class: &str) -> Self {
@@ -328,21 +339,60 @@ impl<'a> DomQueryMut<'a> {
     }
 
     pub fn toggle_classes(self, class_names: &[&str]) -> Self {
+        let mut changed_nodes: Vec<NodeId> = Vec::new();
         if let Some(tree) = self.app.widget_tree.as_mut() {
             for &id in &self.nodes {
+                let mut changed = false;
                 for class in class_names {
-                    tree.toggle_class(id, class);
+                    if tree.contains(id) {
+                        tree.toggle_class(id, class);
+                        changed = true;
+                    }
+                }
+                if changed {
+                    changed_nodes.push(id);
                 }
             }
         }
-        self
+        self.absorb_class_change(changed_nodes)
     }
 
     pub fn set_classes(self, classes: &[&str]) -> Self {
+        let mut changed_nodes: Vec<NodeId> = Vec::new();
         if let Some(tree) = self.app.widget_tree.as_mut() {
+            let target: std::collections::HashSet<&str> = classes.iter().copied().collect();
             for &id in &self.nodes {
-                tree.set_classes(id, classes);
+                let same = tree.get(id).is_some_and(|node| {
+                    node.classes.len() == target.len()
+                        && node.classes.iter().all(|c| target.contains(c.as_str()))
+                });
+                if !same && tree.contains(id) {
+                    tree.set_classes(id, classes);
+                    changed_nodes.push(id);
+                }
             }
+        }
+        self.absorb_class_change(changed_nodes)
+    }
+
+    /// Shared invalidation for the class-mutation helpers above.
+    ///
+    /// Python parity: `DOMNode.add_class`/`remove_class`/`toggle_class` funnel
+    /// into `_update_styles()`, which re-applies the stylesheet and refreshes
+    /// with `layout=True` when the resolved rules changed (`dom.py`). A class
+    /// flip can change `display`/`visibility` and any other layout-affecting
+    /// CSS on the matched nodes or their descendants (via descendant
+    /// selectors), so raise the same signal an explicit `request_layout()`
+    /// does. This matches every dispatch-path class-op site (`absorb_outcome`,
+    /// `apply_widget_command`, the reactive drain), which already relayout on
+    /// class change; before this helper the app-level query path requested no
+    /// invalidation at all, leaving a `display` flip invisible until an
+    /// unrelated relayout. A no-op class op (class set unchanged) requests
+    /// nothing.
+    fn absorb_class_change(self, changed_nodes: Vec<NodeId>) -> Self {
+        if !changed_nodes.is_empty() {
+            self.app.pending_force_relayout = true;
+            self.app.request_query_refresh(&changed_nodes);
         }
         self
     }
@@ -6026,6 +6076,57 @@ mod tests {
         assert!(!tree.contains(inner), "subtree torn down");
         assert!(tree.children(parent).is_empty());
         assert!(app.pending_force_relayout);
+    }
+
+    #[test]
+    fn query_class_ops_invalidate_layout_only_on_real_change() {
+        let (mut app, _parent) = app_with_root();
+        app.pending_force_relayout = false;
+
+        // A real class change must raise the same signal an explicit
+        // request_layout() does (a class rule can flip display/visibility or
+        // any other layout-affecting property).
+        app.query_mut("#timers").unwrap().add_class("visible");
+        assert!(
+            app.pending_force_relayout,
+            "add_class that changes the class set must force a relayout"
+        );
+
+        // Re-adding a present class is a no-op and must not re-invalidate.
+        app.pending_force_relayout = false;
+        app.query_mut("#timers").unwrap().add_class("visible");
+        assert!(
+            !app.pending_force_relayout,
+            "no-op add_class (class already present) must not force a relayout"
+        );
+
+        // Removing an absent class is a no-op too.
+        app.query_mut("#timers").unwrap().remove_class("absent");
+        assert!(
+            !app.pending_force_relayout,
+            "no-op remove_class (class absent) must not force a relayout"
+        );
+
+        // toggle_class always changes the class set.
+        app.query_mut("#timers").unwrap().toggle_class("visible");
+        assert!(
+            app.pending_force_relayout,
+            "toggle_class must force a relayout"
+        );
+
+        // set_classes to the identical set is a no-op ("visible" was toggled
+        // off above, so the node's class set is empty here).
+        app.pending_force_relayout = false;
+        app.query_mut("#timers").unwrap().set_classes(&[]);
+        assert!(
+            !app.pending_force_relayout,
+            "set_classes to an identical set must not force a relayout"
+        );
+        app.query_mut("#timers").unwrap().set_classes(&["a", "b"]);
+        assert!(
+            app.pending_force_relayout,
+            "set_classes that changes the class set must force a relayout"
+        );
     }
 
     #[test]
