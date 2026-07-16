@@ -7,6 +7,37 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### Changed (BREAKING-ish): fine-grained widget messages (Python message parity)
+
+Rust now emits the granular per-widget message types Python apps expect, so
+`#[on(Type)]` handlers dispatch at Python granularity. Three collapsed Rust-only
+message types were REMOVED in favour of the granular set:
+
+- `DataTable` — moving the cursor posts the `*Highlighted` message matching the
+  cursor type (`DataTableCellHighlighted` / `DataTableRowHighlighted` /
+  `DataTableColumnHighlighted`), and activating it (enter/space, or clicking the
+  already-highlighted position, Python `highlight_click`) posts the matching
+  `*Selected` (`DataTableCellSelected` / `DataTableRowSelected` /
+  `DataTableColumnSelected`). New `DataTableRowLabelSelected` is posted when a
+  row label is clicked (which, as in Python, does not move the cursor); the
+  row-label prefix column is now correctly excluded from column hit-testing for
+  clicks and hover. Programmatic `set_selected` / `set_cursor` moves post the
+  highlight message too (Python `watch_cursor_coordinate`). Messages carry
+  `usize` row/column indices (the DataTable cursor is coordinate-addressed;
+  resolve stable keys via `row_key_at` / `column_key_at`).
+  REMOVED: `DataTableCursorMoved` (use the `*Highlighted` messages) and
+  `DataTableCellActivated` (use the `*Selected` messages). `DataTableHeaderSelected`
+  is unchanged (it already matched Python).
+- `Collapsible` — posts state-specific `CollapsibleExpanded` /
+  `CollapsibleCollapsed` (Python `Collapsible.Expanded` / `.Collapsed`) on user
+  toggles AND on programmatic `set_collapsed`.
+  REMOVED: `CollapsibleToggled` (match on the state-specific message instead).
+- `SelectionList` — new `SelectionListHighlighted { index, option_id }` (Python
+  `SelectionList.SelectionHighlighted`) posted whenever the highlight moves
+  (keyboard navigation, clicks) and for the startup highlight on mount. As in
+  Python, the inner `OptionList`'s raw `OptionHighlighted` no longer escapes a
+  `SelectionList`; it is replaced by the `SelectionListHighlighted` message.
+
 ### Added: DataTable rides the component-class seam (component-classes Phase 2)
 
 DataTable's internal colours are now sourced from its `datatable--*` component

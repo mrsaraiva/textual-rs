@@ -99,6 +99,8 @@ pub type SelectionListString = SelectionList<String>;
 ///
 /// # Messages
 ///
+/// - [`SelectionListHighlighted`] — posted when the highlighted item changes
+///   (including the startup highlight on mount).
 /// - [`SelectionListToggled`] — posted when an individual item is toggled.
 /// - [`SelectionListSelectedChanged`] — posted when the overall selected set changes.
 pub struct SelectionList<T: Clone + PartialEq + Send + Sync + 'static> {
@@ -436,6 +438,42 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> SelectionList<T> {
             .is_some_and(OptionItem::is_selectable)
     }
 
+    /// Post [`SelectionListHighlighted`] for the currently highlighted item,
+    /// if any (Python `SelectionList.SelectionHighlighted`).
+    fn post_highlighted(&self, ctx: &mut crate::event::WidgetCtx) {
+        if let Some(index) = self.inner.highlighted() {
+            ctx.post_message(SelectionListHighlighted {
+                index,
+                option_id: self
+                    .inner
+                    .get_option(index)
+                    .and_then(|item| item.id().cloned()),
+            });
+        }
+    }
+
+    /// Run `f` (which delegates to the inner [`OptionList`]) with the inner
+    /// list's raw `OptionHighlighted` suppressed, then post
+    /// [`SelectionListHighlighted`] if the highlight moved. Mirrors Python's
+    /// `_on_option_list_option_highlighted`, which stops the `OptionList`
+    /// event and recreates it as a `SelectionList` event.
+    fn relay_highlight<R>(
+        &mut self,
+        ctx: &mut crate::event::WidgetCtx,
+        f: impl FnOnce(&mut Self, &mut crate::event::WidgetCtx) -> R,
+    ) -> R {
+        let before = self.inner.highlighted();
+        let result = {
+            let _scope =
+                crate::message::enter_prevent_scope(&[std::any::TypeId::of::<OptionHighlighted>()]);
+            f(self, ctx)
+        };
+        if self.inner.highlighted() != before {
+            self.post_highlighted(ctx);
+        }
+        result
+    }
+
     /// Width of the toggle button prefix: `▐X▌ ` = 4 cells.
     fn button_width() -> usize {
         4
@@ -516,9 +554,18 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for SelectionList<T> {
                 true
             }
             // Navigation actions (cursor_up/cursor_down/first/last/
-            // page_up/page_down) are inherited from the inner OptionList.
-            _ => Widget::execute_action(&mut self.inner, action, ctx),
+            // page_up/page_down) are inherited from the inner OptionList; a
+            // highlight move is re-posted as `SelectionListHighlighted`.
+            _ => self.relay_highlight(ctx, |list, ctx| {
+                Widget::execute_action(&mut list.inner, action, ctx)
+            }),
         }
+    }
+
+    fn on_mount(&mut self, ctx: &mut crate::event::WidgetCtx) {
+        // Python posts an initial `SelectionHighlighted` when the list mounts
+        // (the reactive `highlighted` initialisation fires its watcher).
+        self.post_highlighted(ctx);
     }
 
     fn on_event(&mut self, event: &Event, ctx: &mut crate::event::WidgetCtx) {
@@ -533,8 +580,13 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for SelectionList<T> {
                     .offset_for_click()
                     .saturating_add(mouse.y as usize);
                 if index < self.inner.option_count() && self.item_is_selectable(index) {
-                    // First, highlight the clicked item via the inner list.
+                    // First, highlight the clicked item via the inner list,
+                    // posting `SelectionListHighlighted` when it moves.
+                    let before = self.inner.highlighted();
                     self.inner.set_highlighted(index);
+                    if self.inner.highlighted() != before {
+                        self.post_highlighted(ctx);
+                    }
                     // Then toggle it.
                     self.toggle(index, ctx);
                     ctx.set_handled();
@@ -548,14 +600,15 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for SelectionList<T> {
                     }
                 }
             }
-            // Delegate action-based scroll to inner list.
+            // Delegate action-based scroll to inner list (these move the
+            // highlight, so relay it as `SelectionListHighlighted`).
             Event::Action(
                 Action::ScrollUp
                 | Action::ScrollDown
                 | Action::ScrollPageUp
                 | Action::ScrollPageDown,
             ) if self.node_state().focused => {
-                self.inner.on_event(event, ctx);
+                self.relay_highlight(ctx, |list, ctx| list.inner.on_event(event, ctx));
             }
             _ => {}
         }
@@ -857,6 +910,123 @@ mod tests {
             .iter()
             .position(|m| m.is::<crate::message::SelectionListSelectedChanged>());
         assert!(toggled_pos.is_some() && changed_pos.is_some() && toggled_pos < changed_pos);
+    }
+
+    /// Highlight moves post `SelectionListHighlighted` and SUPPRESS the inner
+    /// `OptionList`'s raw `OptionHighlighted` (Python
+    /// `_on_option_list_option_highlighted` stops + recreates the event).
+    #[test]
+    fn cursor_navigation_posts_selection_highlighted_not_option_highlighted() {
+        let mut list = SelectionList::with_selections(vec![
+            Selection::new("Alpha", "a".to_string()).with_id("alpha"),
+            Selection::new("Beta", "b".to_string()).with_id("beta"),
+        ]);
+        list.on_layout(40, 5);
+
+        let mut ctx = EventCtx::default();
+        assert!(run_action(&mut list, "cursor_down", &mut ctx));
+        let messages = ctx.take_messages();
+        let highlighted = messages
+            .iter()
+            .find_map(|m| m.downcast_ref::<crate::message::SelectionListHighlighted>())
+            .expect("SelectionListHighlighted posted");
+        assert_eq!(highlighted.index, 1);
+        assert_eq!(
+            highlighted.option_id,
+            Some(crate::widgets::OptionId::new("beta"))
+        );
+        assert!(
+            !messages
+                .iter()
+                .any(|m| m.is::<crate::message::OptionHighlighted>()),
+            "raw OptionHighlighted must not escape a SelectionList"
+        );
+    }
+
+    /// Python posts the startup highlight when the list mounts.
+    #[test]
+    fn on_mount_posts_initial_selection_highlighted() {
+        let mut list = SelectionList::with_selections(vec![
+            Selection::new("Alpha", "a".to_string()).with_id("alpha"),
+            Selection::new("Beta", "b".to_string()),
+        ]);
+
+        let mut ctx = EventCtx::default();
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(
+                crate::node_id::NodeId::default(),
+                &mut ctx,
+            );
+            Widget::on_mount(&mut list, &mut __w);
+        }
+        let messages = ctx.take_messages();
+        let highlighted = messages
+            .iter()
+            .find_map(|m| m.downcast_ref::<crate::message::SelectionListHighlighted>())
+            .expect("initial SelectionListHighlighted posted on mount");
+        assert_eq!(highlighted.index, 0);
+        assert_eq!(
+            highlighted.option_id,
+            Some(crate::widgets::OptionId::new("alpha"))
+        );
+
+        // An empty list posts nothing on mount.
+        let mut empty: SelectionList<String> = SelectionList::new();
+        let mut ctx = EventCtx::default();
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(
+                crate::node_id::NodeId::default(),
+                &mut ctx,
+            );
+            Widget::on_mount(&mut empty, &mut __w);
+        }
+        assert!(ctx.take_messages().is_empty());
+    }
+
+    /// A click that moves the highlight posts `SelectionListHighlighted`
+    /// before the toggle messages.
+    #[test]
+    fn click_posts_highlighted_before_toggled() {
+        let mut list = SelectionList::with_selections(vec![
+            Selection::new("Alpha", "a".to_string()),
+            Selection::new("Beta", "b".to_string()),
+        ]);
+        list.on_layout(40, 5);
+
+        let mut ctx = EventCtx::default();
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(
+                crate::node_id::NodeId::default(),
+                &mut ctx,
+            );
+            list.on_event(
+                &Event::MouseDown(crate::event::MouseDownEvent {
+                    target: NodeId::default(),
+                    screen_x: 0,
+                    screen_y: 1,
+                    x: 0,
+                    y: 1,
+                }),
+                &mut __w,
+            );
+        }
+        let messages = ctx.take_messages();
+        let highlighted_pos = messages
+            .iter()
+            .position(|m| m.is::<crate::message::SelectionListHighlighted>())
+            .expect("SelectionListHighlighted posted");
+        let toggled_pos = messages
+            .iter()
+            .position(|m| m.is::<crate::message::SelectionListToggled>())
+            .expect("SelectionListToggled posted");
+        assert!(highlighted_pos < toggled_pos);
+        assert_eq!(
+            messages[highlighted_pos]
+                .downcast_ref::<crate::message::SelectionListHighlighted>()
+                .unwrap()
+                .index,
+            1
+        );
     }
 
     #[test]

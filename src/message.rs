@@ -301,6 +301,19 @@ pub struct SelectionListToggled {
 }
 crate::impl_message!(SelectionListToggled);
 
+/// Posted when the highlighted selection changes, including the startup
+/// highlight on mount (Python `SelectionList.SelectionHighlighted`). Replaces
+/// the inner `OptionList`'s `OptionHighlighted`, which a `SelectionList`
+/// suppresses (Python `_on_option_list_option_highlighted` stops the event and
+/// re-posts it as a `SelectionHighlighted`).
+#[derive(Debug, Clone)]
+pub struct SelectionListHighlighted {
+    pub index: usize,
+    /// Stable id of the highlighted selection, if it has one.
+    pub option_id: Option<crate::widgets::OptionId>,
+}
+crate::impl_message!(SelectionListHighlighted, replaceable);
+
 // ---------------------------------------------------------------------------
 // Per-message structs — tabs
 // ---------------------------------------------------------------------------
@@ -733,55 +746,76 @@ crate::impl_message!(ScrollbarScrollTo);
 // ---------------------------------------------------------------------------
 // Per-message structs — data table
 // ---------------------------------------------------------------------------
+//
+// Fine-grained cursor messages mirroring Python `DataTable`: moving the cursor
+// posts the `*Highlighted` message matching the cursor type (cell/row/column),
+// and activating it (enter/space, or clicking the already-highlighted
+// position) posts the matching `*Selected`. Identity is coordinate/index
+// based: the Rust `DataTable` cursor is index-addressed, so these messages
+// carry `usize` row/column indices (use `DataTable::row_key_at` /
+// `column_key_at` to resolve stable keys when needed).
 
-#[derive(Debug, Clone)]
-pub struct DataTableCursorMoved {
-    pub row: usize,
-    pub column: usize,
-}
-crate::impl_message!(DataTableCursorMoved, replaceable);
-
+/// Posted when a header cell is clicked (Python `DataTable.HeaderSelected`).
 #[derive(Debug, Clone)]
 pub struct DataTableHeaderSelected {
     pub column: usize,
 }
 crate::impl_message!(DataTableHeaderSelected);
 
+/// Posted when a row label is clicked (Python `DataTable.RowLabelSelected`).
 #[derive(Debug, Clone)]
-pub struct DataTableCellActivated {
+pub struct DataTableRowLabelSelected {
     pub row: usize,
-    pub column: usize,
 }
-crate::impl_message!(DataTableCellActivated);
+crate::impl_message!(DataTableRowLabelSelected);
 
+/// Posted when the cursor (cursor type `cell`) moves to a new coordinate
+/// (Python `DataTable.CellHighlighted`).
 #[derive(Debug, Clone)]
 pub struct DataTableCellHighlighted {
     pub row: usize,
-    pub col: usize,
+    pub column: usize,
 }
 crate::impl_message!(DataTableCellHighlighted, replaceable);
 
+/// Posted when the highlighted cell is activated by enter/space or a click on
+/// the cursor position (Python `DataTable.CellSelected`).
+#[derive(Debug, Clone)]
+pub struct DataTableCellSelected {
+    pub row: usize,
+    pub column: usize,
+}
+crate::impl_message!(DataTableCellSelected);
+
+/// Posted when the cursor (cursor type `row`) moves to a new row (Python
+/// `DataTable.RowHighlighted`).
 #[derive(Debug, Clone)]
 pub struct DataTableRowHighlighted {
     pub row: usize,
 }
 crate::impl_message!(DataTableRowHighlighted, replaceable);
 
+/// Posted when the highlighted row is activated (Python
+/// `DataTable.RowSelected`).
 #[derive(Debug, Clone)]
 pub struct DataTableRowSelected {
     pub row: usize,
 }
 crate::impl_message!(DataTableRowSelected);
 
+/// Posted when the cursor (cursor type `column`) moves to a new column
+/// (Python `DataTable.ColumnHighlighted`).
 #[derive(Debug, Clone)]
 pub struct DataTableColumnHighlighted {
-    pub col: usize,
+    pub column: usize,
 }
 crate::impl_message!(DataTableColumnHighlighted, replaceable);
 
+/// Posted when the highlighted column is activated (Python
+/// `DataTable.ColumnSelected`).
 #[derive(Debug, Clone)]
 pub struct DataTableColumnSelected {
-    pub col: usize,
+    pub column: usize,
 }
 crate::impl_message!(DataTableColumnSelected);
 
@@ -795,11 +829,17 @@ pub struct PlaceholderVariantChanged {
 }
 crate::impl_message!(PlaceholderVariantChanged);
 
+/// Posted when a `Collapsible` transitions to the expanded state, whether via
+/// user interaction or `set_collapsed` (Python `Collapsible.Expanded`).
 #[derive(Debug, Clone)]
-pub struct CollapsibleToggled {
-    pub collapsed: bool,
-}
-crate::impl_message!(CollapsibleToggled);
+pub struct CollapsibleExpanded;
+crate::impl_message!(CollapsibleExpanded);
+
+/// Posted when a `Collapsible` transitions to the collapsed state, whether via
+/// user interaction or `set_collapsed` (Python `Collapsible.Collapsed`).
+#[derive(Debug, Clone)]
+pub struct CollapsibleCollapsed;
+crate::impl_message!(CollapsibleCollapsed);
 
 #[derive(Debug, Clone)]
 pub struct LinkClicked {

@@ -233,3 +233,114 @@ fn multiple_dispatches_accumulate() {
 
     assert_eq!(app.button_count, 3);
 }
+
+// ---------------------------------------------------------------------------
+// Tests — fine-grained widget messages dispatch via #[on(Type)]
+// ---------------------------------------------------------------------------
+
+use textual::message::{
+    CollapsibleCollapsed, CollapsibleExpanded, DataTableCellSelected, DataTableRowHighlighted,
+    DataTableRowLabelSelected, SelectionListHighlighted,
+};
+
+#[derive(Default)]
+struct GranularApp {
+    row_highlighted: Option<usize>,
+    cell_selected: Option<(usize, usize)>,
+    row_label_selected: Option<usize>,
+    expanded_count: u32,
+    collapsed_count: u32,
+    selection_highlighted: Option<usize>,
+}
+
+impl GranularApp {
+    #[on(DataTableRowHighlighted)]
+    fn handle_row_highlighted(&mut self, event: &DataTableRowHighlighted, ctx: &mut WidgetCtx) {
+        let _ = ctx;
+        self.row_highlighted = Some(event.row);
+    }
+
+    #[on(DataTableCellSelected)]
+    fn handle_cell_selected(&mut self, event: &DataTableCellSelected, ctx: &mut WidgetCtx) {
+        let _ = ctx;
+        self.cell_selected = Some((event.row, event.column));
+    }
+
+    #[on(DataTableRowLabelSelected)]
+    fn handle_row_label_selected(
+        &mut self,
+        event: &DataTableRowLabelSelected,
+        ctx: &mut WidgetCtx,
+    ) {
+        let _ = ctx;
+        self.row_label_selected = Some(event.row);
+    }
+
+    #[on(CollapsibleExpanded)]
+    fn handle_expanded(&mut self, event: &CollapsibleExpanded, ctx: &mut WidgetCtx) {
+        let _ = (event, ctx);
+        self.expanded_count += 1;
+    }
+
+    #[on(CollapsibleCollapsed)]
+    fn handle_collapsed(&mut self, event: &CollapsibleCollapsed, ctx: &mut WidgetCtx) {
+        let _ = (event, ctx);
+        self.collapsed_count += 1;
+    }
+
+    #[on(SelectionListHighlighted)]
+    fn handle_selection_highlighted(
+        &mut self,
+        event: &SelectionListHighlighted,
+        ctx: &mut WidgetCtx,
+    ) {
+        let _ = ctx;
+        self.selection_highlighted = Some(event.index);
+    }
+}
+
+/// Each fine-grained message type dispatches to its own `#[on(Type)]` handler
+/// and to no other.
+#[test]
+fn granular_widget_messages_dispatch_via_on() {
+    let mut app = GranularApp::default();
+    let mut ectx = test_ctx();
+    let mut ctx = WidgetCtx::__from_dispatch(dummy_sender(), &mut ectx);
+
+    let row_highlighted = MessageEvent::new(dummy_sender(), DataTableRowHighlighted { row: 3 });
+    let cell_selected =
+        MessageEvent::new(dummy_sender(), DataTableCellSelected { row: 1, column: 2 });
+    let row_label_selected =
+        MessageEvent::new(dummy_sender(), DataTableRowLabelSelected { row: 4 });
+    let expanded = MessageEvent::new(dummy_sender(), CollapsibleExpanded);
+    let collapsed = MessageEvent::new(dummy_sender(), CollapsibleCollapsed);
+    let selection_highlighted = MessageEvent::new(
+        dummy_sender(),
+        SelectionListHighlighted {
+            index: 5,
+            option_id: None,
+        },
+    );
+
+    assert!(app.__on_dispatch_handle_row_highlighted(&row_highlighted, &mut ctx));
+    assert!(app.__on_dispatch_handle_cell_selected(&cell_selected, &mut ctx));
+    assert!(app.__on_dispatch_handle_row_label_selected(&row_label_selected, &mut ctx));
+    assert!(app.__on_dispatch_handle_expanded(&expanded, &mut ctx));
+    assert!(app.__on_dispatch_handle_collapsed(&collapsed, &mut ctx));
+    assert!(app.__on_dispatch_handle_selection_highlighted(&selection_highlighted, &mut ctx));
+
+    assert_eq!(app.row_highlighted, Some(3));
+    assert_eq!(app.cell_selected, Some((1, 2)));
+    assert_eq!(app.row_label_selected, Some(4));
+    assert_eq!(app.expanded_count, 1);
+    assert_eq!(app.collapsed_count, 1);
+    assert_eq!(app.selection_highlighted, Some(5));
+
+    // Cross-type dispatch does not fire: `Expanded` is distinct from
+    // `Collapsed`, and a row highlight is not a cell selection.
+    assert!(!app.__on_dispatch_handle_expanded(&collapsed, &mut ctx));
+    assert!(!app.__on_dispatch_handle_collapsed(&expanded, &mut ctx));
+    assert!(!app.__on_dispatch_handle_cell_selected(&row_highlighted, &mut ctx));
+    assert_eq!(app.expanded_count, 1);
+    assert_eq!(app.collapsed_count, 1);
+}

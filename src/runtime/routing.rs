@@ -2397,8 +2397,8 @@ mod envelope_tests {
                 .can_replace(&crate::message::TextAreaChanged { value: "y".into() })
         );
         assert!(
-            crate::message::DataTableCursorMoved { row: 0, column: 0 }
-                .can_replace(&crate::message::DataTableCursorMoved { row: 1, column: 1 })
+            crate::message::DataTableCellHighlighted { row: 0, column: 0 }
+                .can_replace(&crate::message::DataTableCellHighlighted { row: 1, column: 1 })
         );
         assert!(
             crate::message::OptionHighlighted { index: 0, option_id: None }

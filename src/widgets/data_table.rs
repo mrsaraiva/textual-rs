@@ -538,12 +538,24 @@ impl DataTable {
 
     // ── Reactive setters ─────────────────────────────────────────────────
 
-    /// Reactive setter for `selected`.
+    /// Reactive setter for `selected`. Posts the matching fine-grained
+    /// `*Highlighted` message on change (Python posts highlight messages for
+    /// programmatic cursor moves too, via `watch_cursor_coordinate`).
     pub fn set_selected(&mut self, index: usize, ctx: &mut ReactiveCtx) {
+        if self.apply_selected(index, ctx) {
+            if let Some(message) = self.highlighted_message() {
+                ctx.post_message_boxed(message);
+            }
+        }
+    }
+
+    /// Apply a `selected` change without posting a highlight message. Returns
+    /// whether the selection changed.
+    fn apply_selected(&mut self, index: usize, ctx: &mut ReactiveCtx) -> bool {
         if self.rows.is_empty() {
             self.selected = 0;
             self.offset = 0;
-            return;
+            return false;
         }
         let new_selected = index.min(self.rows.len() - 1);
         if self.selected != new_selected {
@@ -556,12 +568,18 @@ impl DataTable {
                 Box::new(old),
                 Box::new(self.selected),
             );
+            true
+        } else {
+            false
         }
     }
 
-    /// Reactive setter for cursor position (row + column).
+    /// Reactive setter for cursor position (row + column). Posts a single
+    /// fine-grained `*Highlighted` message when the coordinate changes
+    /// (Python `watch_cursor_coordinate`).
     pub fn set_cursor(&mut self, row: usize, column: usize, ctx: &mut ReactiveCtx) {
-        self.set_selected(row, ctx);
+        let row_changed = self.apply_selected(row, ctx);
+        let mut column_changed = false;
         if self.headers.is_empty() {
             self.cursor_column = 0;
         } else {
@@ -569,6 +587,7 @@ impl DataTable {
             if self.cursor_column != new_col {
                 let old = self.cursor_column;
                 self.cursor_column = new_col;
+                column_changed = true;
                 ctx.record_change(
                     "cursor_column",
                     ReactiveFlags::reactive(),
@@ -578,6 +597,11 @@ impl DataTable {
             }
         }
         self.ensure_cursor_column_visible(self.content_width as usize);
+        if row_changed || column_changed {
+            if let Some(message) = self.highlighted_message() {
+                ctx.post_message_boxed(message);
+            }
+        }
     }
 
     /// Reactive setter for `cursor_type`.
@@ -1209,6 +1233,58 @@ impl DataTable {
             .unwrap_or(0)
     }
 
+    /// The fine-grained highlight message for the current cursor position,
+    /// matching the cursor type (Python `watch_cursor_coordinate` routing to
+    /// `_highlight_coordinate` / `_highlight_row` / `_highlight_column`).
+    fn highlighted_message(&self) -> Option<Box<dyn crate::message::Message>> {
+        if self.rows.is_empty() || self.headers.is_empty() {
+            return None;
+        }
+        Some(match self.cursor_type {
+            CursorType::Cell => Box::new(DataTableCellHighlighted {
+                row: self.selected,
+                column: self.cursor_column,
+            }),
+            CursorType::Row => Box::new(DataTableRowHighlighted { row: self.selected }),
+            CursorType::Column => Box::new(DataTableColumnHighlighted {
+                column: self.cursor_column,
+            }),
+            CursorType::None => return None,
+        })
+    }
+
+    /// The fine-grained selection message for the current cursor position,
+    /// matching the cursor type (Python `_post_selected_message`).
+    fn selected_message(&self) -> Option<Box<dyn crate::message::Message>> {
+        if self.rows.is_empty() || self.headers.is_empty() {
+            return None;
+        }
+        Some(match self.cursor_type {
+            CursorType::Cell => Box::new(DataTableCellSelected {
+                row: self.selected,
+                column: self.cursor_column,
+            }),
+            CursorType::Row => Box::new(DataTableRowSelected { row: self.selected }),
+            CursorType::Column => Box::new(DataTableColumnSelected {
+                column: self.cursor_column,
+            }),
+            CursorType::None => return None,
+        })
+    }
+
+    /// Width consumed by the row-label prefix column in content coordinates
+    /// (label width plus its two padding cells), or 0 when no label column is
+    /// shown. Mouse hit-testing must skip this region before mapping x to a
+    /// data column.
+    fn label_region_width(&self) -> usize {
+        let label_width = self.label_col_width();
+        if label_width > 0 {
+            label_width + 2 * CELL_PADDING
+        } else {
+            0
+        }
+    }
+
     fn ensure_visible(&mut self, height: usize) {
         if self.rows.is_empty() || height == 0 {
             self.offset = 0;
@@ -1508,11 +1584,8 @@ impl crate::widgets::Focus for DataTable {
                 true
             }
             "select_cursor" => {
-                if !self.rows.is_empty() && !self.headers.is_empty() {
-                    ctx.post_message(DataTableCellActivated {
-                        row: self.selected,
-                        column: self.cursor_column,
-                    });
+                if let Some(message) = self.selected_message() {
+                    ctx.post_message_boxed(message);
                 }
                 true
             }
@@ -1525,14 +1598,10 @@ impl crate::widgets::Focus for DataTable {
         if cursor_changed {
             self.ensure_cursor_column_visible(width);
         }
-        if (selection_changed || cursor_changed)
-            && !self.rows.is_empty()
-            && !self.headers.is_empty()
-        {
-            ctx.post_message(DataTableCursorMoved {
-                row: self.selected,
-                column: self.cursor_column,
-            });
+        if selection_changed || cursor_changed {
+            if let Some(message) = self.highlighted_message() {
+                ctx.post_message_boxed(message);
+            }
         }
         if handled {
             ctx.set_handled();
@@ -1562,7 +1631,18 @@ impl crate::widgets::Interactive for DataTable {
 
     fn on_mouse_move(&mut self, x: u16, y: u16) -> bool {
         let rendered_columns = self.rendered_column_indices();
-        let col_idx = self.column_at_x_in_rendered_columns(x as usize, &rendered_columns);
+        // The row-label prefix column is not a data column (Python meta
+        // `column == -1`): treat it like the out-of-bounds fill below, and
+        // offset the x used to map data columns.
+        let label_region = self.label_region_width();
+        let col_idx = if label_region > 0 && (x as usize) < label_region {
+            None
+        } else {
+            self.column_at_x_in_rendered_columns(
+                (x as usize).saturating_sub(label_region),
+                &rendered_columns,
+            )
+        };
         let visible_rows = self.visible_rows();
         let next = if self.show_header && y == 0 {
             // Header row — use usize::MAX as sentinel (mirrors Textual's row_index=-1).
@@ -1595,9 +1675,26 @@ impl crate::widgets::Interactive for DataTable {
         // Handle mouse events regardless of focus state.
         match event {
             Event::MouseDown(mouse) if mouse.target == self.node_id() => {
+                // Row-label prefix column: clicking it posts `RowLabelSelected`
+                // and does NOT move the cursor (Python `_on_click` with meta
+                // `column == -1`). The label region also offsets the x used for
+                // data-column hit-testing below.
+                let label_region = self.label_region_width();
+                let header_rows = if self.show_header { 1 } else { 0 };
+                if label_region > 0 && (mouse.x as usize) < label_region {
+                    if mouse.y >= header_rows {
+                        if let Some(row) = self.row_index_from_y(mouse.y as usize, visible_rows) {
+                            ctx.post_message(DataTableRowLabelSelected { row });
+                        }
+                    }
+                    ctx.set_handled();
+                    return;
+                }
                 let rendered_columns = self.rendered_column_indices();
-                let clicked_col =
-                    self.column_at_x_in_rendered_columns(mouse.x as usize, &rendered_columns);
+                let clicked_col = self.column_at_x_in_rendered_columns(
+                    (mouse.x as usize).saturating_sub(label_region),
+                    &rendered_columns,
+                );
                 // Clicks past the last column are out of bounds and ignored,
                 // except with a row cursor, where the click still selects the
                 // row (Python `_on_click` out_of_bounds handling).
@@ -1613,10 +1710,11 @@ impl crate::widgets::Interactive for DataTable {
                         cursor_changed = true;
                     }
 
-                let header_rows = if self.show_header { 1 } else { 0 };
+                let mut data_row_clicked = false;
                 if mouse.y >= header_rows {
                     if let Some(clicked_row) = self.row_index_from_y(mouse.y as usize, visible_rows)
                     {
+                        data_row_clicked = true;
                         if self.selected != clicked_row {
                             self.selected = clicked_row;
                             selection_changed = true;
@@ -1634,10 +1732,16 @@ impl crate::widgets::Interactive for DataTable {
                 if let Some(col) = header_clicked {
                     ctx.post_message(DataTableHeaderSelected { column: col });
                 } else if selection_changed || cursor_changed {
-                    ctx.post_message(DataTableCursorMoved {
-                        row: self.selected,
-                        column: self.cursor_column,
-                    });
+                    if let Some(message) = self.highlighted_message() {
+                        ctx.post_message_boxed(message);
+                    }
+                } else if data_row_clicked {
+                    // Clicking the already-highlighted position activates it
+                    // (Python `_on_click` `highlight_click` posting the
+                    // matching `*Selected` message).
+                    if let Some(message) = self.selected_message() {
+                        ctx.post_message_boxed(message);
+                    }
                 }
                 ctx.set_handled();
                 return;
@@ -1884,10 +1988,9 @@ impl crate::widgets::Interactive for DataTable {
                 }
                 KeyCode::Enter | KeyCode::Char(' ')
                     if !self.rows.is_empty() && !self.headers.is_empty() => {
-                        ctx.post_message(DataTableCellActivated {
-                            row: self.selected,
-                            column: self.cursor_column,
-                        });
+                        if let Some(message) = self.selected_message() {
+                            ctx.post_message_boxed(message);
+                        }
                         handled = true;
                     }
                 _ => {}
@@ -1900,14 +2003,10 @@ impl crate::widgets::Interactive for DataTable {
         if cursor_changed {
             self.ensure_cursor_column_visible(self.content_width as usize);
         }
-        if (selection_changed || cursor_changed)
-            && !self.rows.is_empty()
-            && !self.headers.is_empty()
-        {
-            ctx.post_message(DataTableCursorMoved {
-                row: self.selected,
-                column: self.cursor_column,
-            });
+        if selection_changed || cursor_changed {
+            if let Some(message) = self.highlighted_message() {
+                ctx.post_message_boxed(message);
+            }
         }
         if handled {
             ctx.set_handled();
@@ -3154,7 +3253,7 @@ mod tests {
     }
 
     #[test]
-    fn keyboard_navigation_posts_cursor_moved_message() {
+    fn keyboard_navigation_posts_cell_highlighted_message() {
         let mut table = DataTable::new(
             vec!["A".into(), "B".into()],
             vec![
@@ -3178,13 +3277,84 @@ mod tests {
         assert!(ctx.handled());
         let messages = ctx.take_messages();
         assert_eq!(messages.len(), 1);
-        assert!(messages[0].is::<DataTableCursorMoved>());
-        let m = messages[0].downcast_ref::<DataTableCursorMoved>().unwrap();
+        assert!(messages[0].is::<DataTableCellHighlighted>());
+        let m = messages[0]
+            .downcast_ref::<DataTableCellHighlighted>()
+            .unwrap();
         assert_eq!((m.row, m.column), (1, 0));
     }
 
     #[test]
-    fn enter_posts_cell_activated_message() {
+    fn keyboard_navigation_posts_row_highlighted_for_row_cursor() {
+        let mut table = DataTable::new(
+            vec!["A".into(), "B".into()],
+            vec![
+                vec!["r0".into(), "c0".into()],
+                vec!["r1".into(), "c1".into()],
+            ],
+        )
+        .cursor_type(CursorType::Row);
+        let _guard = set_dispatch_recipient(make_node_id(), focused_state());
+        let mut ctx = EventCtx::default();
+
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            table.on_event(
+            &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
+                KeyCode::Down,
+                KeyModifiers::NONE,
+            ))),
+            &mut __w);
+        }
+
+        assert!(ctx.handled());
+        let messages = ctx.take_messages();
+        assert_eq!(messages.len(), 1);
+        assert!(messages[0].is::<DataTableRowHighlighted>());
+        assert_eq!(
+            messages[0]
+                .downcast_ref::<DataTableRowHighlighted>()
+                .unwrap()
+                .row,
+            1
+        );
+    }
+
+    #[test]
+    fn keyboard_navigation_posts_column_highlighted_for_column_cursor() {
+        let mut table = DataTable::new(
+            vec!["A".into(), "B".into()],
+            vec![vec!["r0".into(), "c0".into()]],
+        )
+        .cursor_type(CursorType::Column);
+        let _guard = set_dispatch_recipient(make_node_id(), focused_state());
+        let mut ctx = EventCtx::default();
+
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            table.on_event(
+            &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
+                KeyCode::Right,
+                KeyModifiers::NONE,
+            ))),
+            &mut __w);
+        }
+
+        assert!(ctx.handled());
+        let messages = ctx.take_messages();
+        assert_eq!(messages.len(), 1);
+        assert!(messages[0].is::<DataTableColumnHighlighted>());
+        assert_eq!(
+            messages[0]
+                .downcast_ref::<DataTableColumnHighlighted>()
+                .unwrap()
+                .column,
+            1
+        );
+    }
+
+    #[test]
+    fn enter_posts_cell_selected_message() {
         let mut table = DataTable::new(
             vec!["A".into(), "B".into()],
             vec![
@@ -3210,11 +3380,166 @@ mod tests {
         assert!(ctx.handled());
         let messages = ctx.take_messages();
         assert_eq!(messages.len(), 1);
-        assert!(messages[0].is::<DataTableCellActivated>());
-        let m = messages[0]
-            .downcast_ref::<DataTableCellActivated>()
-            .unwrap();
+        assert!(messages[0].is::<DataTableCellSelected>());
+        let m = messages[0].downcast_ref::<DataTableCellSelected>().unwrap();
         assert_eq!((m.row, m.column), (1, 1));
+    }
+
+    #[test]
+    fn enter_posts_row_selected_for_row_cursor() {
+        let mut table = DataTable::new(
+            vec!["A".into(), "B".into()],
+            vec![
+                vec!["r0".into(), "c0".into()],
+                vec!["r1".into(), "c1".into()],
+            ],
+        )
+        .cursor_type(CursorType::Row);
+        let _guard = set_dispatch_recipient(make_node_id(), focused_state());
+        let mut rctx = ReactiveCtx::new(NodeId::default());
+        table.set_selected(1, &mut rctx);
+        let mut ctx = EventCtx::default();
+
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            table.on_event(
+            &Event::Key(KeyEventData::from_crossterm(KeyEvent::new(
+                KeyCode::Enter,
+                KeyModifiers::NONE,
+            ))),
+            &mut __w);
+        }
+
+        assert!(ctx.handled());
+        let messages = ctx.take_messages();
+        assert_eq!(messages.len(), 1);
+        assert!(messages[0].is::<DataTableRowSelected>());
+        assert_eq!(
+            messages[0]
+                .downcast_ref::<DataTableRowSelected>()
+                .unwrap()
+                .row,
+            1
+        );
+    }
+
+    #[test]
+    fn clicking_highlighted_cell_posts_cell_selected() {
+        let mut table = DataTable::new(
+            vec!["A".into(), "B".into()],
+            vec![
+                vec!["r0".into(), "c0".into()],
+                vec!["r1".into(), "c1".into()],
+            ],
+        );
+        let id = NodeId::default();
+        table.on_layout(12, 3);
+        let mut ctx = EventCtx::default();
+
+        // First click: moves the cursor to (0, 0)... it is already there, so
+        // the click activates the highlighted cell instead (Python
+        // `highlight_click`).
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            table.on_event(
+            &Event::MouseDown(MouseDownEvent {
+                target: id,
+                screen_x: 1,
+                screen_y: 1,
+                x: 1,
+                y: 1,
+            }),
+            &mut __w);
+        }
+        let messages = ctx.take_messages();
+        assert_eq!(messages.len(), 1);
+        assert!(messages[0].is::<DataTableCellSelected>());
+        let m = messages[0].downcast_ref::<DataTableCellSelected>().unwrap();
+        assert_eq!((m.row, m.column), (0, 0));
+
+        // Clicking a DIFFERENT cell moves the cursor and posts the highlight
+        // message, not the selected one.
+        let mut ctx = EventCtx::default();
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            table.on_event(
+            &Event::MouseDown(MouseDownEvent {
+                target: id,
+                screen_x: 1,
+                screen_y: 2,
+                x: 1,
+                y: 2,
+            }),
+            &mut __w);
+        }
+        let messages = ctx.take_messages();
+        assert_eq!(messages.len(), 1);
+        assert!(messages[0].is::<DataTableCellHighlighted>());
+        let m = messages[0]
+            .downcast_ref::<DataTableCellHighlighted>()
+            .unwrap();
+        assert_eq!((m.row, m.column), (1, 0));
+    }
+
+    #[test]
+    fn clicking_row_label_posts_row_label_selected() {
+        let mut table = DataTable::new(vec!["A".into(), "B".into()], Vec::new());
+        table.add_row_labeled(vec!["r0", "c0"], Content::from_text("L0"));
+        table.add_row_labeled(vec!["r1", "c1"], Content::from_text("L1"));
+        let id = NodeId::default();
+        table.on_layout(16, 3);
+        let mut ctx = EventCtx::default();
+
+        // Label column layout: [pad][label:2][pad] occupies x 0..=3.
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            table.on_event(
+            &Event::MouseDown(MouseDownEvent {
+                target: id,
+                screen_x: 1,
+                screen_y: 2,
+                x: 1,
+                y: 2,
+            }),
+            &mut __w);
+        }
+
+        assert!(ctx.handled());
+        let messages = ctx.take_messages();
+        assert_eq!(messages.len(), 1);
+        assert!(messages[0].is::<DataTableRowLabelSelected>());
+        assert_eq!(
+            messages[0]
+                .downcast_ref::<DataTableRowLabelSelected>()
+                .unwrap()
+                .row,
+            1
+        );
+        // The cursor did not move (Python: label clicks don't move the cursor).
+        assert_eq!(table.cursor(), (0, 0));
+    }
+
+    #[test]
+    fn set_cursor_posts_single_highlighted_message() {
+        let mut table = DataTable::new(
+            vec!["A".into(), "B".into()],
+            vec![
+                vec!["r0".into(), "c0".into()],
+                vec!["r1".into(), "c1".into()],
+            ],
+        );
+        let mut rctx = ReactiveCtx::new(NodeId::default());
+        table.set_cursor(1, 1, &mut rctx);
+        let messages = rctx.take_messages();
+        assert_eq!(messages.len(), 1);
+        let m = messages[0]
+            .downcast_ref::<DataTableCellHighlighted>()
+            .expect("programmatic cursor move posts CellHighlighted");
+        assert_eq!((m.row, m.column), (1, 1));
+
+        // No change, no message.
+        table.set_cursor(1, 1, &mut rctx);
+        assert!(rctx.take_messages().is_empty());
     }
 
     #[test]

@@ -450,6 +450,13 @@ impl Collapsible {
             } else {
                 self.seed.classes.retain(|c| c != "-collapsed");
             }
+            // Python `_watch_collapsed` posts the state-specific message for
+            // programmatic changes too, not just user toggles.
+            if self.collapsed {
+                ctx.post_message(CollapsibleCollapsed);
+            } else {
+                ctx.post_message(CollapsibleExpanded);
+            }
         }
     }
 
@@ -475,9 +482,12 @@ impl Collapsible {
             ctx.remove_class("-collapsed");
             self.seed.classes.retain(|c| c != "-collapsed");
         }
-        ctx.post_message(CollapsibleToggled {
-            collapsed: self.collapsed,
-        });
+        // Python `_watch_collapsed` posts the state-specific message.
+        if self.collapsed {
+            ctx.post_message(CollapsibleCollapsed);
+        } else {
+            ctx.post_message(CollapsibleExpanded);
+        }
         // The body show/hide is CSS-`display`-driven, which is recomputed during
         // the layout pass — request relayout (not just repaint) so the Contents
         // child's `display:none` toggles and the box re-sizes.
@@ -858,5 +868,66 @@ mod tests {
         }
         assert!(!c.is_collapsed(), "toggle message must flip collapsed state");
         assert!(ctx.handled(), "handling the toggle must stop propagation");
+    }
+
+    /// Toggling posts the state-specific `CollapsibleExpanded` /
+    /// `CollapsibleCollapsed` message (Python `Collapsible.Expanded` /
+    /// `Collapsible.Collapsed`).
+    #[test]
+    fn collapsible_toggle_posts_expanded_then_collapsed() {
+        use crate::event::EventCtx;
+        use crate::message::MessageEvent;
+
+        let mut c = Collapsible::new("Section");
+        assert!(c.is_collapsed());
+        let sender = crate::node_id::node_id_from_ffi(1);
+
+        // Collapsed -> expanded posts `CollapsibleExpanded`.
+        let mut ctx = EventCtx::default();
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(
+                crate::node_id::NodeId::default(),
+                &mut ctx,
+            );
+            c.on_message(&MessageEvent::new(sender, CollapsibleTitleToggle), &mut __w);
+        }
+        let messages = ctx.take_messages();
+        assert!(messages.iter().any(|m| m.is::<CollapsibleExpanded>()));
+        assert!(!messages.iter().any(|m| m.is::<CollapsibleCollapsed>()));
+
+        // Expanded -> collapsed posts `CollapsibleCollapsed`.
+        let mut ctx = EventCtx::default();
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(
+                crate::node_id::NodeId::default(),
+                &mut ctx,
+            );
+            c.on_message(&MessageEvent::new(sender, CollapsibleTitleToggle), &mut __w);
+        }
+        let messages = ctx.take_messages();
+        assert!(messages.iter().any(|m| m.is::<CollapsibleCollapsed>()));
+        assert!(!messages.iter().any(|m| m.is::<CollapsibleExpanded>()));
+    }
+
+    /// A programmatic `set_collapsed` posts the state message too (Python
+    /// `_watch_collapsed` fires for reactive assignment, not just toggles),
+    /// and a no-op assignment posts nothing.
+    #[test]
+    fn collapsible_set_collapsed_posts_state_message() {
+        let mut c = Collapsible::new("Section");
+        assert!(c.is_collapsed());
+        let mut rctx = ReactiveCtx::new(crate::node_id::NodeId::default());
+
+        c.set_collapsed(false, &mut rctx);
+        let messages = rctx.take_messages();
+        assert!(messages.iter().any(|m| m.is::<CollapsibleExpanded>()));
+
+        c.set_collapsed(true, &mut rctx);
+        let messages = rctx.take_messages();
+        assert!(messages.iter().any(|m| m.is::<CollapsibleCollapsed>()));
+
+        // No change, no message.
+        c.set_collapsed(true, &mut rctx);
+        assert!(rctx.take_messages().is_empty());
     }
 }
