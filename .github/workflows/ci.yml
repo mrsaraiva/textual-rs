@@ -35,12 +35,15 @@ jobs:
           CARGO_INCREMENTAL: "0"
         run: cargo test --test pty_parity -- --nocapture
 
-  # Full unit/integration suite. Many runtime tests initialize a real terminal
-  # driver and need a controlling TTY (they hit WouldBlock on headless CI), so
-  # this job remains non-blocking until the runtime tests are headless-safe.
+  # Full unit + headless-integration suite (BLOCKING). Runs under a PTY wrapper
+  # (`script`) because many runtime tests initialize a real terminal driver and
+  # need a controlling TTY. Runs the lib suite plus every integration bin EXCEPT
+  # the five that require the Python reference repo or a live Python/PTY harness
+  # (pty_parity is its own blocking job above; visual_parity / pty_interactive /
+  # interactive_parity / visual_parity_interactive need ../textual, absent on CI).
+  # Single-threaded to avoid the process-global-state flakiness of parallel runs.
   test:
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -52,7 +55,18 @@ jobs:
             ~/.cargo/git
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-      - name: Tests
+      - name: Tests (lib + headless integration)
         env:
           CARGO_INCREMENTAL: "0"
-        run: script -qefc 'cargo test --lib -- --test-threads=1' /dev/null
+        run: |
+          script -qefc 'set -e
+            cargo test --lib -- --test-threads=1
+            for f in tests/*.rs; do
+              name=$(basename "$f" .rs)
+              case "$name" in
+                pty_parity|pty_interactive|visual_parity|visual_parity_interactive|interactive_parity) continue ;;
+              esac
+              echo "::group::integration $name"
+              cargo test --test "$name" -- --test-threads=1
+              echo "::endgroup::"
+            done' /dev/null
