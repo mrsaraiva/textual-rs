@@ -15,7 +15,7 @@ use super::{NodeSeed, Widget, option_list::toggle_option::BinaryToggleState};
 /// On its own a RadioButton can be toggled freely. When placed inside a
 /// `RadioSet`, the set enforces that only one button is selected at a time.
 #[derive(Debug, Clone)]
-#[widget(Focus, Interactive, Layout)]
+#[widget(Focus, Interactive, Layout, Components)]
 pub struct RadioButton {
     label: String,
     state: BinaryToggleState,
@@ -181,28 +181,17 @@ impl crate::widgets::Render for RadioButton {
         // glyph *colour* (`.-on > .toggle--button`), not by swapping to `○`.
         let glyph = "●";
 
-        // Resolve the `toggle--button` / `toggle--label` component styles from
-        // the LIVE CSS context. As a real arena node, this node's own meta —
-        // including the `-on` / `-selected` classes the owning `RadioSet` drove
-        // on via `child_classes_for_tree`, plus any `RadioSet:focus` / `:blur`
-        // ancestor — is ALREADY the top of the selector stack (pushed by
-        // `render_widget_with_meta`). So resolve the leaf component class
-        // directly against that live context, rather than
-        // `resolve_component_style(self, …)` which would re-push a meta rebuilt
-        // from this widget's *seed* classes (missing the parent-driven
-        // `-selected`/`-on`) and defeat
-        // `RadioSet:focus > RadioButton.-selected > .toggle--label`.
-        let button_style =
-            crate::css::resolve_style_for_meta(&crate::css::selector_meta_component(
-                "",
-                &["toggle--button"],
-            ));
+        // Resolve the `toggle--button` / `toggle--label` component styles
+        // through the canonical API. As a real arena node, this node's own live
+        // meta — including the `-on` / `-selected` classes the owning `RadioSet`
+        // drove on via `child_classes_for_tree`, plus any `RadioSet:focus` /
+        // `:blur` ancestor — is ALREADY the top of the selector stack, and
+        // `resolve_component_style` resolves the typeless phantom directly
+        // against that live context, so
+        // `RadioSet:focus > RadioButton.-selected > .toggle--label` matches.
+        let button_style = crate::css::resolve_component_style(self, &["toggle--button"]);
         let button_rich = button_style.to_rich().unwrap_or_else(rich_rs::Style::new);
-        let label_style =
-            crate::css::resolve_style_for_meta(&crate::css::selector_meta_component(
-                "",
-                &["toggle--label"],
-            ));
+        let label_style = crate::css::resolve_component_style(self, &["toggle--label"]);
 
         // Flatten a (possibly semi-transparent) selected-label background over
         // the composited ancestor surface — the same `background_colors`
@@ -298,5 +287,14 @@ mod tests {
     fn radio_button_disabled_is_not_focusable() {
         let button = RadioButton::new("A").disabled(true);
         assert!(!button.focusable());
+    }
+}
+
+impl crate::widgets::Components for RadioButton {
+    fn component_classes(&self) -> &[&'static str] {
+        &[
+            "toggle--button",
+            "toggle--label",
+        ]
     }
 }

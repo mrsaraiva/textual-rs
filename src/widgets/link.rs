@@ -186,14 +186,14 @@ impl Render for Link {
         let line = rich_rs::set_cell_size(&self.text, width);
         let state = crate::widgets::Widget::node_state(self);
 
-        // Start with component-resolved base style.
-        let mut style = crate::css::resolve_component_style(self, &["link"])
-            .to_rich()
-            .unwrap_or_default();
-
-        // Overlay CSS link styling properties (P2-32).
+        // Base style: the widget's OWN resolved style (`Link { fg: $text-accent;
+        // text-style: underline }`, `Link:hover`, `Link:focus`). Python `Link`
+        // declares no component classes; the previous `resolve_component_style
+        // (self, ["link"])` call only worked through the widget-typed phantom
+        // leak that the component-classes rework removed.
         let meta = crate::css::selector_meta_generic(self);
         let resolved = crate::css::resolve_style(self, &meta);
+        let mut style = resolved.to_rich().unwrap_or_default();
 
         if !state.disabled && state.hovered {
             // Hover state: use hover variants, falling back to normal variants.

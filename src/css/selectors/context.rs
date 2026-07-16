@@ -21,6 +21,15 @@ thread_local! {
     /// widget and all of its ancestors are inserted into this set.
     pub(super) static FOCUS_WITHIN_IDS: RefCell<HashSet<NodeId>> =
         RefCell::new(HashSet::new());
+    /// Depth of `SELECTOR_STACK` at which the meta of the widget CURRENTLY
+    /// executing its `render()` sits (i.e. the stack length right after the
+    /// render pipeline pushed the widget's own meta). Explicit live-context
+    /// marker for component-class resolution: `resolve_component_style` asks
+    /// "is my widget's live meta already on top of the stack" and, when it is,
+    /// resolves the component phantom directly against the live stack instead
+    /// of re-pushing a mount-seed meta.
+    pub(super) static LIVE_WIDGET_META_DEPTH: std::cell::Cell<Option<usize>> =
+        const { std::cell::Cell::new(None) };
 }
 
 pub struct AppActiveGuard(bool);
@@ -109,6 +118,61 @@ impl Drop for FocusWithinGuard {
 /// Check whether a `NodeId` is in the current `:focus-within` set.
 pub(super) fn is_focus_within(node: NodeId) -> bool {
     FOCUS_WITHIN_IDS.with(|v| v.borrow().contains(&node))
+}
+
+// -- Live widget render context ----------------------------------------------
+
+/// RAII guard restoring the previous live-widget-meta marker on drop.
+pub(crate) struct LiveWidgetMetaGuard(Option<usize>);
+
+/// Mark the current top of `SELECTOR_STACK` as the LIVE meta of the widget
+/// about to execute `render()`. Called by the render pipeline immediately
+/// after it pushes the widget's own meta (see `render_widget_with_meta`).
+///
+/// This is the explicit (non-heuristic) live-context signal consumed by
+/// `resolve_component_style`: the marker matches only while the stack is at
+/// exactly this depth, so any nested push (a widget rendering another widget)
+/// naturally invalidates it until that nested render marks its own context.
+pub(crate) fn mark_live_widget_meta() -> LiveWidgetMetaGuard {
+    let depth = SELECTOR_STACK.with(|stack| stack.borrow().len());
+    let prev = LIVE_WIDGET_META_DEPTH.with(|cell| cell.replace(Some(depth)));
+    LiveWidgetMetaGuard(prev)
+}
+
+impl Drop for LiveWidgetMetaGuard {
+    fn drop(&mut self) {
+        let prev = self.0;
+        LIVE_WIDGET_META_DEPTH.with(|cell| cell.set(prev));
+    }
+}
+
+/// True when the top of `SELECTOR_STACK` is the live meta of the widget
+/// currently rendering AND that meta belongs to the CALLING widget (its
+/// `type_name` equals `caller_type` or one of `caller_aliases`).
+///
+/// The identity check is the R7 guard: a widget that renders ANOTHER widget's
+/// content inline (e.g. `Footer` calling `FooterKey::render_segments`, or a
+/// content-run helper) does so while its OWN live meta is still marked on top.
+/// Without the type match, `resolve_component_style(inner, ...)` would misfire
+/// and resolve `inner`'s phantom against the OUTER widget's stack. Comparing
+/// the top meta's type to the caller keeps the live path to the case Python
+/// guarantees: the stack as the CALLING widget's own `render()` sees it.
+pub(super) fn live_widget_meta_on_top(caller_type: &str, caller_aliases: &[&str]) -> bool {
+    let depth = SELECTOR_STACK.with(|stack| stack.borrow().len());
+    if depth == 0 || LIVE_WIDGET_META_DEPTH.with(|cell| cell.get()) != Some(depth) {
+        return false;
+    }
+    SELECTOR_STACK.with(|stack| {
+        stack
+            .borrow()
+            .last()
+            .map(|meta| {
+                meta.type_name == caller_type
+                    || meta.type_aliases.iter().any(|a| a == caller_type)
+                    || caller_aliases.iter().any(|a| meta.type_name == *a)
+            })
+            .unwrap_or(false)
+    })
 }
 
 // -- Ancestor selector identity ----------------------------------------------

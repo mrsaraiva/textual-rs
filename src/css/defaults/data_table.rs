@@ -8,9 +8,11 @@ DataTable {
     height: auto;
     max-height: 100%;
 
-    &.datatable--fixed-cursor {
-        bg: $block-cursor-blurred-background;
-    }
+    /* NOTE: Python's DEFAULT_CSS carries `&.datatable--fixed-cursor { ... }`
+       (_data_table.py), a compound on the DataTable type itself. It is inert
+       in Python (the component virtual node is typeless and DataTable never
+       adds that literal class to itself) and inert here for the same reason
+       (the component phantom is typeless), so it is intentionally omitted. */
 
     &:focus {
         background-tint: $foreground 5%;

@@ -1,80 +1,33 @@
 use std::time::{Duration, Instant};
 
-use crate::style::{Color, parse_color_like};
+use crate::style::Color;
 
-/// The input widget's painted surface background: the live composited
+/// The input widget's painted surface background (shared
+/// [`crate::css::component_surface_bg`] helper): the live composited
 /// background during a tree render (state-aware, including the `:focus`
-/// `background-tint: $foreground 5%`), or a stateless off-tree fallback with
-/// any `background-tint` applied by hand. Mirrors Python `dom.py`:
-/// `background += styles.background.tint(styles.background_tint)`.
+/// `background-tint: $foreground 5%`), or a stateless off-tree fallback.
 ///
 /// Shared by `Input` and `MaskedInput` so their `input--*` component colours
 /// (which may carry alpha or an `auto <pct>%` contrast token) composite over
 /// the same, correct surface.
 pub(super) fn composited_surface_bg<W: crate::widgets::Widget + ?Sized>(widget: &W) -> Color {
-    let fallback_bg = parse_color_like("$background").unwrap_or(Color::rgb(0, 0, 0));
-    crate::css::current_composited_background().unwrap_or_else(|| {
-        // Off-tree callers (unit tests without a live style stack): resolve
-        // statelessly and apply any `background-tint` by hand.
-        let base_meta = crate::css::selector_meta_generic(widget);
-        let base_style = crate::css::resolve_style(widget, &base_meta);
-        let mut bg = match base_style.bg {
-            Some(bg) if bg.a <= 0.0 => fallback_bg,
-            Some(bg) => bg,
-            None => fallback_bg,
-        };
-        if let Some(tint) = base_style.background_tint {
-            bg = crate::renderables::Tint::<()>::blend_color_with_percent(
-                bg,
-                tint.color,
-                tint.percent,
-            );
-        }
-        bg
-    })
+    crate::css::component_surface_bg(widget)
 }
 
 /// Resolve an `input--*` component class (`input--cursor` / `input--selection`
 /// / `input--placeholder` / `input--suggestion`) as a ready-to-paint
-/// `rich_rs::Style` composited over `base_bg` (see [`composited_surface_bg`]).
-///
-/// `widget_own_bg` is the widget's OWN (untinted) background from the live
-/// style stack: the base `Input { background: $surface }` rule also matches
-/// the component selector meta, so a component background EQUAL to the widget
-/// surface is that leaked base rule, not a genuine override — the segment is
-/// left transparent so the compositor paints (and tints) it against the real
-/// surface. An `auto <pct>%` foreground (e.g. `$text-disabled` = `auto 38%`)
-/// resolves the contrast colour of the under-background at fractional alpha,
-/// matching Python's `background.get_contrast_text(alpha)`.
+/// `rich_rs::Style` composited over `base_bg` via the shared component
+/// compositing helper. The typeless component phantom means the base
+/// `Input { background: $surface }` rule no longer matches the component
+/// selector meta, so the historical own-bg leak filter is gone: any component
+/// background is a genuine override.
 pub(super) fn resolve_input_component_rich<W: crate::widgets::Widget + ?Sized>(
     widget: &W,
     class: &str,
     base_bg: Color,
-    widget_own_bg: Option<Color>,
 ) -> rich_rs::Style {
     let style = crate::css::resolve_component_style(widget, &[class]);
-    let mut rich = style.to_rich_without_colors().unwrap_or_default();
-    let mut under_bg = base_bg;
-
-    if let Some(bg) = style.bg {
-        if bg.a <= 0.0 {
-            return rich;
-        }
-        if Some(bg) != widget_own_bg {
-            let flat = bg.flatten_over(under_bg);
-            under_bg = flat;
-            rich = rich.with_bgcolor(flat.to_simple_opaque());
-        }
-    }
-    if let Some(fg) = style.fg {
-        let flat = fg.flatten_over(under_bg);
-        rich = rich.with_color(flat.to_simple_opaque());
-    } else if let Some(auto) = style.fg_auto {
-        let contrast = crate::style::contrast_text(under_bg);
-        let flat = contrast.blend_over_float(under_bg, auto.alpha());
-        rich = rich.with_color(flat.to_simple_opaque());
-    }
-    rich
+    crate::css::component_style_to_rich(&style, base_bg).unwrap_or_default()
 }
 
 #[derive(Debug, Clone)]

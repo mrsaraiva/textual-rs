@@ -16,7 +16,7 @@ use super::{NodeSeed, ScrollBar, ScrollView};
 pub(crate) const KEY_PANEL_VSCROLLBAR_ID: &str = "__key_panel_vscrollbar";
 
 #[derive(Debug, Clone)]
-#[widget(Layout)]
+#[widget(Layout, Components)]
 pub struct BindingsTable {
     bindings: Vec<FooterBinding>,
     seed: NodeSeed,
@@ -57,8 +57,11 @@ impl BindingsTable {
     }
 
     fn component_style(&self, classes: &[&str], fallback: rich_rs::Style) -> rich_rs::Style {
-        let meta = crate::css::selector_meta_component("KeyPanel", classes);
-        let resolved = crate::css::resolve_style_for_meta(&meta);
+        // Canonical typeless-phantom resolution: the default rules are
+        // `KeyPanel > BindingsTable > .bindings-table--*` chains, which match
+        // via the live selector stack (KeyPanel ancestor + this BindingsTable
+        // node), not via any type carried on the phantom.
+        let resolved = crate::css::resolve_component_style(self, classes);
         if resolved.is_empty() {
             fallback
         } else {
@@ -696,5 +699,16 @@ mod tests {
         }
         assert!(ctx.handled());
         assert_eq!(panel.offset_y, 2);
+    }
+}
+
+impl crate::widgets::Components for BindingsTable {
+    fn component_classes(&self) -> &[&'static str] {
+        &[
+            "bindings-table--key",
+            "bindings-table--description",
+            "bindings-table--divider",
+            "bindings-table--header",
+        ]
     }
 }

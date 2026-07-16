@@ -1,4 +1,5 @@
 mod ast;
+mod component;
 mod context;
 mod debug;
 mod matching;
@@ -20,15 +21,21 @@ pub(crate) use context::ancestor_selector_fingerprint;
 pub(crate) use parser::parse_selector_list;
 
 // Public re-export: component-class resolution for custom widgets.
-pub use resolver::resolve_component_style;
+pub use resolver::{
+    resolve_component_style, resolve_component_style_merged, resolve_component_style_partial,
+};
 // Crate-internal re-exports
+pub(crate) use component::{
+    component_style_to_rich, component_surface_bg, resolve_component_rich_style,
+};
+pub(crate) use context::mark_live_widget_meta;
 pub(crate) use resolver::{
     apply_display_visibility_to_tree, begin_style_render_pass, cover_selector_meta,
     current_ancestor_composited_background, current_composited_background,
     current_host_style, current_parent_style, current_self_style, frozen_ancestor_bg_override,
     layout_fields_equal, node_selector_meta, node_selector_meta_from_node, pop_style_context,
     push_style_context, resolve_node_style, resolve_style, resolve_style_for_meta,
-    selector_meta_component, selector_meta_generic, set_frozen_ancestor_bg_override,
+    selector_meta_generic, set_frozen_ancestor_bg_override,
     take_layout_affected_style_changes, with_style_stack,
 };
 pub(crate) use segments::{

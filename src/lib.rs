@@ -74,7 +74,10 @@ pub mod prelude {
     // NOTE: `HandleSink` is intentionally NOT in the prelude (RA2.6b) — it is
     // compose-pipeline plumbing; reach it via `crate::handle::HandleSink`.
     pub use crate::handle::{Handle, HandleSlot};
-    pub use crate::css::{StyleSelector, StyleSheet, resolve_component_style, set_style_context};
+    pub use crate::css::{
+        StyleSelector, StyleSheet, resolve_component_style, resolve_component_style_merged,
+        resolve_component_style_partial, set_style_context,
+    };
     pub use crate::debug::DebugLayout;
     // NOTE: `EventCtx` is intentionally NOT in the prelude (RA2.2). It is now
     // internal/structural — the runtime synthesizes it and `WidgetCtx` wraps it;

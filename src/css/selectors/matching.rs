@@ -4,6 +4,13 @@ use super::context::SELECTOR_STACK;
 impl StyleSelector {
     pub(crate) fn matches(&self, meta: &SelectorMeta) -> bool {
         if let Some(type_name) = &self.type_name {
+            // Component-class phantoms are Python's typeless virtual DOMNodes:
+            // NO type selector matches them — not the widget's own type, and
+            // not the `Widget` universal below (Python's virtual node is a bare
+            // `DOMNode`, which `Widget { ... }` rules do not match).
+            if meta.component_phantom {
+                return false;
+            }
             // "Widget" is the universal base type in Python Textual: every widget's
             // MRO includes `Widget`, so `Widget { ... }` CSS rules apply to all
             // widgets.  Rust widgets have concrete type names (never "Widget"),
@@ -145,6 +152,7 @@ mod tests {
             id: None,
             classes: Vec::new(),
             states,
+            component_phantom: false,
         }
     }
 
@@ -220,6 +228,7 @@ mod tests {
                 id: None,
                 classes: Vec::new(),
                 states: SelectorStates::default(),
+                component_phantom: false,
             };
             assert!(
                 selector.matches(&meta),
@@ -248,6 +257,7 @@ mod tests {
             id: None,
             classes: Vec::new(),
             states: SelectorStates::default(),
+            component_phantom: false,
         };
         assert!(selector.matches(&meta));
     }

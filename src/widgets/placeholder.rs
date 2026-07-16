@@ -297,7 +297,13 @@ impl crate::widgets::Render for Placeholder {
         let text = self.render_text(width, height);
         let mut out = Segments::new();
 
-        let style = crate::css::resolve_component_style(self, &["placeholder"])
+        // The widget's OWN resolved style (`Placeholder { ... }`,
+        // `Placeholder:disabled`). Python `Placeholder` declares no component
+        // classes; the previous `resolve_component_style(self, ["placeholder"])`
+        // call only worked through the widget-typed phantom leak that the
+        // component-classes rework removed.
+        let meta = crate::css::selector_meta_generic(self);
+        let style = crate::css::resolve_style(self, &meta)
             .to_rich()
             .unwrap_or_default();
 

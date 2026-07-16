@@ -116,6 +116,7 @@ pub(crate) fn selector_meta_generic<T: Widget + ?Sized>(widget: &T) -> SelectorM
         id: widget.style_id().map(|s| s.to_string()),
         classes: widget.style_classes().to_vec(),
         states: dispatch_states(widget),
+        component_phantom: false,
     }
 }
 
@@ -133,30 +134,35 @@ pub(crate) fn cover_selector_meta<T: Widget + ?Sized>(widget: &T) -> SelectorMet
     meta
 }
 
-pub(crate) fn selector_meta_component(parent_type: &str, classes: &[&str]) -> SelectorMeta {
+/// The component-class virtual node (Python's typeless `DOMNode(classes=...)`
+/// from `Stylesheet._process_component_classes`).
+///
+/// Identity mirrors Python exactly:
+/// - NO type name and `component_phantom = true`: no type selector matches it,
+///   including the `Widget` universal special case (matching.rs).
+/// - NO id.
+/// - classes = the component name(s) under resolution.
+/// - states: global runtime pseudos only (`:dark`/`:inline`/`:ansi`/`:nocolor`),
+///   never the widget's interaction states — `.part:hover` must not match a
+///   hovered widget's part, while the NEGATIVE pseudos `.part:blur` /
+///   `.part:light` keep matching (stateless-node semantics, same as Python).
+///   Widget-state styling flows through the live parent meta on
+///   `SELECTOR_STACK` (`&:focus > .part { ... }`).
+pub(crate) fn selector_meta_component_phantom(classes: &[&str]) -> SelectorMeta {
+    let pseudos = app_runtime_pseudos();
     SelectorMeta {
-        type_name: parent_type.to_string(),
+        type_name: String::new(),
         type_aliases: Vec::new(),
         id: None,
         classes: classes.iter().map(|s| (*s).to_string()).collect(),
-        states: SelectorStates::default(),
-    }
-}
-
-pub(crate) fn selector_meta_component_for<T: Widget + ?Sized>(
-    widget: &T,
-    classes: &[&str],
-) -> SelectorMeta {
-    SelectorMeta {
-        type_name: widget.style_type().to_string(),
-        type_aliases: widget
-            .style_type_aliases()
-            .iter()
-            .map(|name| (*name).to_string())
-            .collect(),
-        id: None,
-        classes: classes.iter().map(|s| (*s).to_string()).collect(),
-        states: dispatch_states(widget),
+        states: SelectorStates {
+            dark: pseudos.dark,
+            inline: pseudos.inline,
+            ansi: pseudos.ansi,
+            nocolor: pseudos.nocolor,
+            ..Default::default()
+        },
+        component_phantom: true,
     }
 }
 
@@ -214,6 +220,7 @@ pub(crate) fn node_selector_meta_from_node(node: &WidgetNode, node_id: NodeId) -
             focus_within: is_focus_within(node_id),
             ..Default::default()
         },
+        component_phantom: false,
     }
 }
 
@@ -493,15 +500,85 @@ pub(crate) fn resolve_style_for_meta(meta: &SelectorMeta) -> Style {
 /// Resolve the component-class CSS for `widget` into a [`Style`].
 ///
 /// Public so external/custom widgets can read component-class styling from CSS
-/// (Python parity: `Widget.get_component_styles`). The widget's own selector
-/// meta is pushed as the parent context so descendant component-class rules
-/// (`SelfType .name` / `SelfType > .name`) match against the live widget state.
+/// (Python parity: `Widget.get_component_styles`). The component name(s) are
+/// resolved on a typeless virtual phantom node
+/// ([`selector_meta_component_phantom`]).
+///
+/// Multi-name semantics: all `classes` go onto ONE phantom (the COMPOUND
+/// form), so compound rules like `.a.b { ... }` match. This is the right form
+/// for STATE-MARKER usage (e.g. `["tabs--underline", "-active"]`). For
+/// Python's `get_component_styles(*names)` sequential-merge semantics use
+/// [`resolve_component_style_merged`].
+///
+/// Parent context (the live-stack contract):
+/// - During a widget's `render()` the widget's own LIVE meta (real arena id,
+///   runtime classes, dispatch pseudo states) is already the top of the
+///   selector stack, pushed by the render pipeline. The phantom resolves
+///   DIRECTLY against that stack, so id-, class- and pseudo-qualified parent
+///   rules (`#my-table > .part`, `Type.some-class > .part`,
+///   `Type:focus > .part`) all match, exactly as Python's virtual node (whose
+///   parent IS the live node).
+/// - Off-tree (unit tests via `set_style_context`, cold renderable paths) the
+///   widget's SEED meta is pushed as a fallback parent so type-qualified rules
+///   still resolve.
 pub fn resolve_component_style<T: Widget + ?Sized>(widget: &T, classes: &[&str]) -> Style {
+    let meta = selector_meta_component_phantom(classes);
+    if widget_live_meta_on_top(widget) {
+        return resolve_style_for_meta(&meta);
+    }
     let parent_meta = selector_meta_generic(widget);
-    let meta = selector_meta_component_for(widget, classes);
     SELECTOR_STACK.with(|stack| {
         stack.borrow_mut().push(parent_meta);
         let out = resolve_style_for_meta(&meta);
+        stack.borrow_mut().pop();
+        out
+    })
+}
+
+/// True when `widget`'s own live meta is the marked top of `SELECTOR_STACK`
+/// (arena render path). The identity check disambiguates a widget rendering
+/// another widget's content inline (R7).
+fn widget_live_meta_on_top<T: Widget + ?Sized>(widget: &T) -> bool {
+    super::context::live_widget_meta_on_top(widget.style_type(), widget.style_type_aliases())
+}
+
+/// Python `get_component_styles(*names)` parity: resolve each name against its
+/// OWN phantom and merge the results sequentially in argument order — a later
+/// name's properties win regardless of rule specificity (`dom.py`), and
+/// compound `.a.b` rules never match (each phantom carries one name).
+pub fn resolve_component_style_merged<T: Widget + ?Sized>(widget: &T, names: &[&str]) -> Style {
+    let mut out = Style::new();
+    for name in names {
+        out = out.combine(&resolve_component_style(widget, &[name]));
+    }
+    out
+}
+
+/// Partial variant of [`resolve_component_style`]: only properties explicitly
+/// set by matching sheet rules, WITHOUT the inherit-from-parent step (Python
+/// `partial_rich_style` semantics). The [`Style`]'s `Option` fields express
+/// the partiality directly.
+pub fn resolve_component_style_partial<T: Widget + ?Sized>(
+    widget: &T,
+    classes: &[&str],
+) -> Style {
+    let meta = selector_meta_component_phantom(classes);
+    let resolve = || {
+        STYLE_CONTEXT
+            .with(|ctx| {
+                ctx.borrow()
+                    .as_ref()
+                    .map(|sheet| sheet.style_for_meta(&meta))
+            })
+            .unwrap_or_default()
+    };
+    if widget_live_meta_on_top(widget) {
+        return resolve();
+    }
+    let parent_meta = selector_meta_generic(widget);
+    SELECTOR_STACK.with(|stack| {
+        stack.borrow_mut().push(parent_meta);
+        let out = resolve();
         stack.borrow_mut().pop();
         out
     })

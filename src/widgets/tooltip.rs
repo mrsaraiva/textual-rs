@@ -21,7 +21,7 @@ pub const SYSTEM_TOOLTIP_STYLE_ID: &str = "textual-tooltip";
 /// The widget owns only its text + visibility + the owner it is currently
 /// describing. All geometry (size, centering, viewport constraint) is done by
 /// layout + the overlay:screen paint pass, not by the widget.
-#[widget(Focus, Interactive, Layout)]
+#[widget(Focus, Interactive, Layout, Components)]
 pub struct Tooltip {
     text: String,
     visible: bool,
@@ -334,5 +334,13 @@ mod tests {
             tooltip.auto_content_width(),
             Some("much longer line".len())
         );
+    }
+}
+
+impl crate::widgets::Components for Tooltip {
+    fn component_classes(&self) -> &[&'static str] {
+        &[
+            "tooltip--text",
+        ]
     }
 }

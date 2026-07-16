@@ -17,7 +17,7 @@ use node::TreeNodeData;
 use render::VisibleNode;
 
 #[derive(Debug, Clone)]
-#[widget(Focus, Interactive, Layout, Scrollable)]
+#[widget(Focus, Interactive, Layout, Scrollable, Components)]
 pub struct Tree {
     /// Per-widget node arena: the slotmap IS the id registry (Python's
     /// `_tree_nodes` dict + `_new_id()` counter folded into insertion).
@@ -2188,5 +2188,19 @@ mod tests {
             .find_map(|m| m.downcast_ref::<TreeNodeCollapsed>())
             .expect("TreeNodeCollapsed posted");
         assert_eq!(collapsed.node_id, root_id);
+    }
+}
+
+impl crate::widgets::Components for Tree {
+    fn component_classes(&self) -> &[&'static str] {
+        &[
+            "tree--cursor",
+            "tree--guides",
+            "tree--guides-hover",
+            "tree--guides-selected",
+            "tree--highlight",
+            "tree--highlight-line",
+            "tree--label",
+        ]
     }
 }

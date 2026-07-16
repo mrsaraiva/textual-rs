@@ -134,3 +134,146 @@ fn component_classes_are_declared() {
         &["checkerboard--white-square", "checkerboard--black-square"]
     );
 }
+
+// ── Phantom identity (Python virtual-node semantics) ────────────────────────
+
+/// G2a regression: a `CheckerBoard { color: ... }` TYPE rule must NOT leak
+/// into the component style (Python's virtual node is typeless).
+#[test]
+fn widget_type_rule_does_not_leak_into_component_style() {
+    let _guard = set_style_context(StyleSheet::parse(
+        "CheckerBoard { color: #ff0000; } CheckerBoard .checkerboard--white-square { background: #A5BAC9; }",
+    ));
+    let board = CheckerBoard;
+    let style = resolve_component_style(&board, &["checkerboard--white-square"]);
+    assert_eq!(
+        style.fg, None,
+        "type rules must not match the typeless component phantom"
+    );
+    assert_eq!(style.bg, Some(Color::parse("#A5BAC9").unwrap()));
+}
+
+/// G2b regression: a `Widget { color: ... }` UNIVERSAL rule must NOT match a
+/// component phantom (Python's bare DOMNode is not matched by Widget rules).
+#[test]
+fn widget_universal_rule_does_not_leak_into_component_style() {
+    let _guard = set_style_context(StyleSheet::parse("Widget { color: #ff0000; }"));
+    let board = CheckerBoard;
+    let style = resolve_component_style(&board, &["checkerboard--white-square"]);
+    assert_eq!(
+        style.fg, None,
+        "Widget universal rules must not match component phantoms"
+    );
+}
+
+/// G2c regression: a compound `CheckerBoard.checkerboard--white-square` rule
+/// (type + component class on ONE selector) must not style the part — the
+/// phantom is typeless, exactly like Python's virtual node.
+#[test]
+fn type_class_compound_rule_does_not_style_component() {
+    let _guard = set_style_context(StyleSheet::parse(
+        "CheckerBoard.checkerboard--white-square { background: #00ff00; }",
+    ));
+    let board = CheckerBoard;
+    let style = resolve_component_style(&board, &["checkerboard--white-square"]);
+    assert_eq!(style.bg, None);
+}
+
+/// Negative pseudos match the stateless phantom (Python parity): `.part:blur`
+/// and `.part:light` style the part; positive `.part:focus` does not.
+#[test]
+fn stateless_phantom_matches_negative_pseudos_only() {
+    let _guard = set_style_context(StyleSheet::parse(
+        r#"
+        .checkerboard--white-square:blur { color: #ff0000; }
+        .checkerboard--white-square:light { background: #00ff00; }
+        .checkerboard--black-square:focus { color: #0000ff; }
+        "#,
+    ));
+    let board = CheckerBoard;
+    let white = resolve_component_style(&board, &["checkerboard--white-square"]);
+    assert_eq!(white.fg, Some(Color::parse("#ff0000").unwrap()));
+    assert_eq!(white.bg, Some(Color::parse("#00ff00").unwrap()));
+    let black = resolve_component_style(&board, &["checkerboard--black-square"]);
+    assert_eq!(black.fg, None, ".part:focus must never match the phantom");
+}
+
+// ── Multi-name semantics (D4) ────────────────────────────────────────────────
+
+/// Merged form (Python `get_component_styles(*names)`): per-name resolution
+/// combined in ARGUMENT order — a later name wins even against a rule of
+/// higher specificity for an earlier name.
+#[test]
+fn merged_multi_name_later_name_wins_regardless_of_specificity() {
+    let _guard = set_style_context(StyleSheet::parse(
+        r#"
+        CheckerBoard > .checkerboard--white-square { color: #ff0000; background: #111111; }
+        .checkerboard--black-square { color: #0000ff; }
+        "#,
+    ));
+    let board = CheckerBoard;
+    let merged = textual::css::resolve_component_style_merged(
+        &board,
+        &["checkerboard--white-square", "checkerboard--black-square"],
+    );
+    assert_eq!(
+        merged.fg,
+        Some(Color::parse("#0000ff").unwrap()),
+        "later argument must win over the earlier name's higher-specificity rule"
+    );
+    assert_eq!(
+        merged.bg,
+        Some(Color::parse("#111111").unwrap()),
+        "properties only set by the earlier name are kept"
+    );
+}
+
+/// Compound form (state-marker usage): all names on ONE phantom, so compound
+/// `.a.b` rules match — and they do NOT match under the merged form.
+#[test]
+fn compound_form_matches_compound_class_rules() {
+    let _guard = set_style_context(StyleSheet::parse(
+        ".checkerboard--white-square.-active { color: #00ff00; }",
+    ));
+    let board = CheckerBoard;
+    let compound = resolve_component_style(&board, &["checkerboard--white-square", "-active"]);
+    assert_eq!(compound.fg, Some(Color::parse("#00ff00").unwrap()));
+
+    let merged = textual::css::resolve_component_style_merged(
+        &board,
+        &["checkerboard--white-square", "-active"],
+    );
+    assert_eq!(
+        merged.fg, None,
+        "merged form resolves per name, so compound rules never match"
+    );
+}
+
+/// Partial form: only sheet-set properties, no inherit-from-parent step.
+#[test]
+fn partial_form_returns_only_sheet_set_properties() {
+    let _guard = set_style_context(StyleSheet::parse(
+        "CheckerBoard .checkerboard--white-square { background: #A5BAC9; }",
+    ));
+    let board = CheckerBoard;
+    let partial =
+        textual::css::resolve_component_style_partial(&board, &["checkerboard--white-square"]);
+    assert_eq!(partial.bg, Some(Color::parse("#A5BAC9").unwrap()));
+    assert_eq!(partial.fg, None);
+}
+
+// ── Declaration validation (D1) ──────────────────────────────────────────────
+
+/// An undeclared name fired through the validated trait method asserts in
+/// debug builds (Python raises `KeyError`).
+#[test]
+#[cfg_attr(debug_assertions, should_panic(expected = "not declared in component_classes"))]
+fn undeclared_component_name_fails_debug_validation() {
+    let _guard = set_style_context(StyleSheet::parse(""));
+    let board = CheckerBoard;
+    let _ = board.get_component_styles("checkerboard--no-such-part");
+    // In release builds the resolution proceeds (logged via the style debug
+    // facility); nothing to assert here.
+    #[cfg(debug_assertions)]
+    unreachable!();
+}

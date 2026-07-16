@@ -35,7 +35,7 @@ fn tag_segment_no_text_style(seg: &mut Segment) {
 }
 
 #[derive(Debug, Clone)]
-#[widget(Focus, Interactive, Layout, reactive)]
+#[widget(Focus, Interactive, Layout, Components, reactive)]
 pub struct Checkbox {
     label: String,
     checked: bool,
@@ -272,19 +272,13 @@ impl Render for Checkbox {
         // brightens via `&.-on > .toggle--button` since `self` carries `-on` when
         // checked), not by swapping the glyph.
         //
-        // Resolve the component styles against the LIVE CSS context (this node's
-        // meta — real classes like `-on` plus interaction states — is already the
-        // top of the selector stack, pushed by `render_widget_with_meta`), the
-        // same way `RadioButton` does. `resolve_component_style(self, …)` would
-        // re-push a meta built from `Widget::style_classes()`, which is EMPTY for
-        // `Checkbox` (no `StyleIdentity` capability), so `&.-on > .toggle--button`
-        // never matched and the checked mark kept the unchecked colour.
-        let button_style = crate::css::resolve_style_for_meta(
-            &crate::css::selector_meta_component("", &["toggle--button"]),
-        );
-        let label_style = crate::css::resolve_style_for_meta(
-            &crate::css::selector_meta_component("", &["toggle--label"]),
-        );
+        // Resolve the component styles through the canonical API: during a tree
+        // render this node's LIVE meta (real classes like `-on` plus interaction
+        // states) is already the top of the selector stack, and
+        // `resolve_component_style` resolves the typeless phantom directly
+        // against it, so `&.-on > .toggle--button` matches the checked state.
+        let button_style = crate::css::resolve_component_style(self, &["toggle--button"]);
+        let label_style = crate::css::resolve_component_style(self, &["toggle--label"]);
 
         // Side half-blocks use the button background as their foreground.
         // Python: `side_style = Style(foreground=button_style.background, background=self.background_colors[1])`
@@ -445,5 +439,14 @@ mod tests {
     fn checkbox_compose_returns_empty() {
         let mut checkbox = Checkbox::new("Test");
         assert!(checkbox.compose().is_empty());
+    }
+}
+
+impl crate::widgets::Components for Checkbox {
+    fn component_classes(&self) -> &[&'static str] {
+        &[
+            "toggle--button",
+            "toggle--label",
+        ]
     }
 }

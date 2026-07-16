@@ -925,23 +925,42 @@ pub trait Widget: Send + Sync + Any {
     /// Resolve the CSS [`Style`] for a declared component class.
     ///
     /// Mirrors Python `Widget.get_component_styles(name)`: it resolves the
-    /// stylesheet rules for `SelfType .name` against the current style context
-    /// (so the widget's own pseudo-classes / ancestor context apply), combined
-    /// with the widget's own resolved style as the base surface.
+    /// stylesheet rules for `.name` on a typeless virtual phantom node against
+    /// the current style context (so the widget's own id/classes/pseudo state
+    /// qualify parent rules like `#my-id > .name`), combined with the widget's
+    /// own resolved style as the base surface.
+    ///
+    /// Python raises `KeyError` for a name missing from `COMPONENT_CLASSES`;
+    /// here an undeclared name fires a `debug_assert!` (declaration is the
+    /// styling contract) and, in release builds, logs via the
+    /// `TEXTUAL_DEBUG_STYLE_FILE` facility and resolves anyway.
     ///
     /// This is the canonical, public entry point for custom widgets to read
     /// component-class colours/attributes from CSS instead of hardcoding them.
     #[doc(hidden)]
     fn get_component_styles(&self, name: &str) -> Style {
+        debug_component_class_declared(self.style_type(), self.component_classes(), name);
         crate::css::resolve_component_style(self, &[name])
+    }
+    /// Python `get_component_styles(*names)` parity: resolve each declared
+    /// name and merge sequentially in argument order — a later name's
+    /// properties win regardless of rule specificity.
+    #[doc(hidden)]
+    fn get_component_styles_merged(&self, names: &[&str]) -> Style {
+        for name in names {
+            debug_component_class_declared(self.style_type(), self.component_classes(), name);
+        }
+        crate::css::resolve_component_style_merged(self, names)
     }
     /// Resolve a declared component class as a ready-to-paint `rich_rs::Style`.
     ///
     /// Mirrors Python `Widget.get_component_rich_style(name)`: resolve the
-    /// component-class CSS, then convert to a Rich style (flattening any
-    /// semi-transparent colours over the effective background). Returns `None`
-    /// only when the resolved style carries no paintable attributes (no fg/bg
-    /// and no text attributes) — equivalent to an empty Rich style.
+    /// component-class CSS, then composite over the widget's effective painted
+    /// surface (semi-transparent backgrounds flatten, component
+    /// `background-tint` folds in, `auto <pct>%` foregrounds resolve contrast,
+    /// `text-opacity` folds into the foreground). Returns `None` only when the
+    /// resolved style carries no paintable attributes (no fg/bg and no text
+    /// attributes) — equivalent to an empty Rich style.
     ///
     /// Custom widgets use this directly inside `render` / `render_line`:
     /// ```ignore
@@ -949,7 +968,8 @@ pub trait Widget: Send + Sync + Any {
     /// ```
     #[doc(hidden)]
     fn get_component_rich_style(&self, name: &str) -> Option<rich_rs::Style> {
-        self.get_component_styles(name).to_rich()
+        debug_component_class_declared(self.style_type(), self.component_classes(), name);
+        crate::css::resolve_component_rich_style(self, &[name])
     }
     /// Type-meta-only styled render wrapper for off-tree (non-arena) rendering.
     ///
@@ -961,6 +981,27 @@ pub trait Widget: Send + Sync + Any {
     fn render_styled(&self, console: &Console, options: &ConsoleOptions) -> Segments {
         self.render_styled_dyn_obj(console, options, None, NodeId::default())
     }
+}
+
+/// Validate a component-class name against the widget's declared set
+/// (Python raises `KeyError`; Rust asserts in debug, logs + resolves in
+/// release — a render-path panic is not acceptable where Python used a
+/// catchable exception).
+pub(crate) fn debug_component_class_declared(
+    style_type: &str,
+    declared: &[&'static str],
+    name: &str,
+) {
+    if declared.contains(&name) {
+        return;
+    }
+    debug_assert!(
+        false,
+        "{style_type}::get_component_styles: '{name}' is not declared in component_classes() {declared:?}",
+    );
+    crate::debug::debug_style(&format!(
+        "[component] WARNING: {style_type} resolved undeclared component class '{name}' (declared: {declared:?})",
+    ));
 }
 
 /// Tag all segments that lack a `textual:widget_id` metadata entry with the
@@ -1063,9 +1104,16 @@ pub(crate) fn render_widget_with_meta<W: Widget + ?Sized>(
         });
     }
 
-    let segments = crate::css::with_style_stack(meta.clone(), resolved.clone(), || match debug {
-        Some(debug) => widget.render_with_debug(console, &content_options, debug),
-        None => widget.render(console, &content_options),
+    let segments = crate::css::with_style_stack(meta.clone(), resolved.clone(), || {
+        // Mark the widget's own meta (now top-of-stack) as the LIVE render
+        // context so component-class resolution inside `render()` resolves
+        // directly against the live selector stack (id/classes/pseudo states),
+        // not a mount-seed re-push. See `resolve_component_style`.
+        let _live = crate::css::mark_live_widget_meta();
+        match debug {
+            Some(debug) => widget.render_with_debug(console, &content_options, debug),
+            None => widget.render(console, &content_options),
+        }
     });
     let segments = tag_widget_meta(node_id, segments);
     let segments_empty = segments.is_empty();

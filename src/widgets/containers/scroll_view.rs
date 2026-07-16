@@ -29,7 +29,7 @@ pub(crate) const SCROLL_VIEW_VSCROLLBAR_ID: &str = "__scrollview_vscrollbar";
 pub(crate) const SCROLL_VIEW_HSCROLLBAR_ID: &str = "__scrollview_hscrollbar";
 pub(crate) const SCROLL_VIEW_SCROLLBAR_CORNER_ID: &str = "__scrollview_scrollbar_corner";
 
-#[widget(Focus, Interactive, Layout, Scrollable, StyleIdentity)]
+#[widget(Focus, Interactive, Layout, Scrollable, StyleIdentity, Components)]
 pub struct ScrollView {
     child: Box<dyn Widget>,
     child_extracted: bool,
@@ -2152,5 +2152,13 @@ mod tests {
         view.content_width.store(120, Ordering::Relaxed);
         view.content_height.store(80, Ordering::Relaxed);
         assert_eq!(view.scroll_virtual_content_size(), Some((120, 80)));
+    }
+}
+
+impl crate::widgets::Components for ScrollView {
+    fn component_classes(&self) -> &[&'static str] {
+        &[
+            "scrollview--content",
+        ]
     }
 }

@@ -447,6 +447,20 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for SelectionList<T> {
         self.border_title_text.as_deref()
     }
 
+    fn component_classes(&self) -> &[&'static str] {
+        &[
+            "option-list--option",
+            "option-list--option-disabled",
+            "option-list--option-highlighted",
+            "option-list--option-hover",
+            "option-list--separator",
+            "selection-list--button",
+            "selection-list--button-highlighted",
+            "selection-list--button-selected",
+            "selection-list--button-selected-highlighted",
+        ]
+    }
+
     fn focusable(&self) -> bool {
         !self.disabled
     }
@@ -587,7 +601,7 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> Widget for SelectionList<T> {
             crate::style::parse_color_like("$surface").unwrap_or(crate::style::Color::rgb(0, 0, 0))
         });
         let resolve_comp = |classes: &[&str]| -> crate::style::Style {
-            crate::css::resolve_style_for_meta(&crate::css::selector_meta_component("", classes))
+            crate::css::resolve_component_style_merged(self, classes)
         };
         let base_style = resolve_comp(&["option-list--option"])
             .to_rich_over(surface_flat)

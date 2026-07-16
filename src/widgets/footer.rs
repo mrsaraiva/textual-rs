@@ -67,7 +67,7 @@ impl FooterBinding {
 }
 
 #[derive(Debug, Clone)]
-#[widget(Interactive, StyleIdentity)]
+#[widget(Interactive, StyleIdentity, Components)]
 pub struct FooterKey {
     key: String,
     description: String,
@@ -286,7 +286,7 @@ impl crate::widgets::Render for FooterLabel {
     }
 }
 #[derive(Debug, Clone)]
-#[widget(Interactive, Layout, HasTooltip)]
+#[widget(Interactive, Layout, HasTooltip, Components)]
 pub struct Footer {
     bindings: Vec<FooterBinding>,
     compact: bool,
@@ -1696,5 +1696,25 @@ mod tests {
 
         assert_eq!(footer.bindings.len(), 1);
         assert_eq!(footer.bindings[0].enabled, Some(true));
+    }
+}
+
+impl crate::widgets::Components for FooterKey {
+    fn component_classes(&self) -> &[&'static str] {
+        &[
+            "footer-key--key",
+            "footer-key--description",
+            "footer-key--palette-separator",
+        ]
+    }
+}
+
+impl crate::widgets::Components for Footer {
+    fn component_classes(&self) -> &[&'static str] {
+        &[
+            "footer-key--key",
+            "footer-key--description",
+            "footer-key--palette-separator",
+        ]
     }
 }

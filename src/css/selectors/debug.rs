@@ -196,6 +196,7 @@ mod tests {
                 nocolor: true,
                 ..Default::default()
             },
+            component_phantom: false,
         };
         let label = style_debug_meta_label(&meta);
         assert!(label.contains(":blur"));

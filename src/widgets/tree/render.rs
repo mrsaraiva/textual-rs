@@ -299,15 +299,18 @@ impl crate::widgets::Render for Tree {
         let nodes = self.visible_nodes();
         let mut out = Segments::new();
 
-        // Resolve component styles once per render.
-        let parent_meta = crate::css::selector_meta_generic(self);
-        let parent_resolved = crate::css::resolve_style(self, &parent_meta);
-        let resolve_component = |classes: &[&str]| {
-            let meta = crate::css::selector_meta_component("", classes);
-            crate::css::with_style_stack(parent_meta.clone(), parent_resolved.clone(), || {
-                crate::css::resolve_style_for_meta(&meta)
-            })
-        };
+        // Resolve component styles once per render, through the canonical API
+        // with per-name MERGE semantics for stacked node class lists (Python
+        // stylize order: DirectoryTree stacks `directory-tree--file` +
+        // `--extension` + `--hidden` in application order). During a tree
+        // render the Tree's live meta is already the top of the selector
+        // stack; off-tree the seed fallback applies.
+        let parent_resolved = crate::css::current_self_style().unwrap_or_else(|| {
+            let parent_meta = crate::css::selector_meta_generic(self);
+            crate::css::resolve_style(self, &parent_meta)
+        });
+        let resolve_component =
+            |classes: &[&str]| crate::css::resolve_component_style_merged(self, classes);
         let default_bg = crate::style::parse_color_like("$background")
             .unwrap_or(crate::style::Color::rgb(0, 0, 0));
         let component_bg_base = crate::css::current_composited_background()

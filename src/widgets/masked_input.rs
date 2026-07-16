@@ -464,7 +464,7 @@ impl Template {
 // MaskedInput
 // ---------------------------------------------------------------------------
 
-#[widget(Focus, Interactive, Layout, Selectable)]
+#[widget(Focus, Interactive, Layout, Selectable, Components)]
 pub struct MaskedInput {
     template: Template,
     /// Current value as a char vec (positions correspond 1:1 with template defs).
@@ -1036,10 +1036,9 @@ impl crate::widgets::Render for MaskedInput {
         // suffix painted with the plain foreground instead of Python's faded
         // placeholder colour.
         let base_bg = super::input_chrome::composited_surface_bg(self);
-        let widget_own_bg = crate::css::current_self_style().and_then(|s| s.bg);
 
         let resolve_component_rich = |class: &str| -> rich_rs::Style {
-            super::input_chrome::resolve_input_component_rich(self, class, base_bg, widget_own_bg)
+            super::input_chrome::resolve_input_component_rich(self, class, base_bg)
         };
 
         let cursor_style = resolve_component_rich("input--cursor");
@@ -1600,5 +1599,16 @@ mod tests {
                 .any(|(_, op)| matches!(op, ClassOp::Remove(c) if c == "-invalid")),
             "completing the template must queue an -invalid class remove, got {ops:?}"
         );
+    }
+}
+
+impl crate::widgets::Components for MaskedInput {
+    fn component_classes(&self) -> &[&'static str] {
+        &[
+            "input--cursor",
+            "input--placeholder",
+            "input--selection",
+            "input--suggestion",
+        ]
     }
 }

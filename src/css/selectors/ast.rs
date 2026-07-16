@@ -171,6 +171,14 @@ pub(crate) struct SelectorMeta {
     pub(super) id: Option<String>,
     pub(super) classes: Vec<String>,
     pub(super) states: SelectorStates,
+    /// True for the virtual component-class phantom node (Python's typeless
+    /// virtual `DOMNode(classes=component)` from `Stylesheet.apply`).
+    ///
+    /// A phantom is matched by class/pseudo selectors only: NO type selector
+    /// matches it, including the `Widget` universal special case in
+    /// `matching.rs` (Python's virtual node is a bare `DOMNode`, which
+    /// `Widget { ... }` rules do not match).
+    pub(super) component_phantom: bool,
 }
 
 impl SelectorMeta {
@@ -185,6 +193,7 @@ impl SelectorMeta {
             id,
             classes,
             states: SelectorStates::default(),
+            component_phantom: false,
         }
     }
 }

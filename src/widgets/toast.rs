@@ -52,7 +52,7 @@ impl ToastSeverity {
 /// [`NotificationExpired`](crate::message::NotificationExpired) so the runtime
 /// removes the notification (a real node unmount). Not focusable.
 #[derive(Debug, Clone)]
-#[widget(Focus, Interactive, Layout, StyleIdentity)]
+#[widget(Focus, Interactive, Layout, StyleIdentity, Components)]
 pub struct Toast {
     /// Stable notification id (mirrors Python `Notification.identity`). Posted in
     /// `NotificationExpired` on click so the runtime removes the right entry.
@@ -481,5 +481,13 @@ mod tests {
             rows.iter().any(|r| r.contains("OPERATIONAL battle station!")),
             "wrapped continuation line should be present: {rows:?}"
         );
+    }
+}
+
+impl crate::widgets::Components for Toast {
+    fn component_classes(&self) -> &[&'static str] {
+        &[
+            "toast--title",
+        ]
     }
 }

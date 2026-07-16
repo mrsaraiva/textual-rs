@@ -259,7 +259,7 @@ impl Selection {
     }
 }
 
-#[widget(Focus, Interactive, Layout, Selectable, StyleIdentity)]
+#[widget(Focus, Interactive, Layout, Selectable, StyleIdentity, Components)]
 pub struct Input {
     text: String,
     cursor: usize,
@@ -1189,10 +1189,9 @@ impl crate::widgets::Render for Input {
         // against `#272727`, not the untinted `$surface` (shared with MaskedInput; see
         // `input_chrome::composited_surface_bg` / `resolve_input_component_rich`).
         let base_bg = super::input_chrome::composited_surface_bg(self);
-        let widget_own_bg = crate::css::current_self_style().and_then(|s| s.bg);
 
         let resolve_component_rich = |class: &str| -> rich_rs::Style {
-            super::input_chrome::resolve_input_component_rich(self, class, base_bg, widget_own_bg)
+            super::input_chrome::resolve_input_component_rich(self, class, base_bg)
         };
 
         let cursor_style = resolve_component_rich("input--cursor");
@@ -2348,5 +2347,16 @@ mod tests {
                 .any(|(_, op)| matches!(op, ClassOp::Remove(c) if c == "-invalid")),
             "typing a now-passing value must queue an -invalid class remove, got {ops:?}"
         );
+    }
+}
+
+impl crate::widgets::Components for Input {
+    fn component_classes(&self) -> &[&'static str] {
+        &[
+            "input--cursor",
+            "input--placeholder",
+            "input--selection",
+            "input--suggestion",
+        ]
     }
 }

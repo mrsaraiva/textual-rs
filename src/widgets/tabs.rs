@@ -216,7 +216,7 @@ pub(crate) struct UnderlineState {
 }
 
 #[derive(Clone)]
-#[widget()]
+#[widget(Components)]
 pub struct Underline {
     state: Arc<Mutex<UnderlineState>>,
     seed: NodeSeed,
@@ -263,7 +263,7 @@ impl crate::widgets::Render for Underline {
 }
 static NEXT_TABS_SCOPE_ID: AtomicU64 = AtomicU64::new(1);
 
-#[widget(Focus, Interactive, Layout)]
+#[widget(Focus, Interactive, Layout, Components)]
 pub struct Tabs {
     state: Arc<Mutex<TabsState>>,
     focused: bool,
@@ -1469,5 +1469,19 @@ mod tests {
         assert!(tabs.activate(2, None));
         let (start, end) = tabs.current_underline_range();
         assert_eq!((end - start).round() as usize, rich_rs::cell_len("Paul"));
+    }
+}
+
+impl crate::widgets::Components for Underline {
+    fn component_classes(&self) -> &[&'static str] {
+        &[
+            "underline--bar",
+        ]
+    }
+}
+
+impl crate::widgets::Components for Tabs {
+    fn component_classes(&self) -> &[&'static str] {
+        &["tabs--underline"]
     }
 }

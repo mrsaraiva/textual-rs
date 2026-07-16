@@ -87,7 +87,7 @@ impl Default for SyntaxCache {
     }
 }
 
-#[widget(Focus, Interactive, Selectable)]
+#[widget(Focus, Interactive, Selectable, Components)]
 pub struct TextArea {
     /// The document model (lines + newline style + `replace_range`).
     document: Document,
@@ -1768,11 +1768,11 @@ impl crate::widgets::Render for TextArea {
                     return override_style;
                 }
             }
-            let meta = crate::css::selector_meta_component(
-                crate::widgets::Widget::style_type(self),
-                &[class],
-            );
-            crate::css::resolve_style_for_meta(&meta)
+            // TextAreaTheme override (above) wins when non-empty; otherwise the
+            // canonical typeless-phantom CSS resolution applies (the previous
+            // self-typed phantom leaked `TextArea { ... }` type rules into the
+            // component parts).
+            crate::css::resolve_component_style(self, &[class])
         };
 
         let cursor_style = resolve_component_style("text-area--cursor");
@@ -2314,5 +2314,21 @@ mod tests {
         }
         assert!(!ctx.handled());
         assert_eq!(ta.text(), "abc");
+    }
+}
+
+impl crate::widgets::Components for TextArea {
+    fn component_classes(&self) -> &[&'static str] {
+        &[
+            "text-area--cursor",
+            "text-area--cursor-gutter",
+            "text-area--cursor-line",
+            "text-area--gutter",
+            "text-area--gutter-active",
+            "text-area--matching-bracket",
+            "text-area--placeholder",
+            "text-area--selection",
+            "text-area--suggestion",
+        ]
     }
 }

@@ -67,7 +67,7 @@ pub fn summary_mean(data: &[f64]) -> f64 {
 /// Sparkline > .sparkline--min-color { fg: $primary 30%; }
 /// ```
 #[derive(Debug, Clone)]
-#[widget(Focus, Layout)]
+#[widget(Focus, Layout, Components)]
 pub struct Sparkline {
     data: Vec<f64>,
     summary_function: SummaryFunction,
@@ -557,5 +557,14 @@ mod tests {
         let b = Color::rgb(100, 100, 100);
         let result = blend_rgb(a, b, -0.5); // clamped to 0.0
         assert_eq!(result.r, 50);
+    }
+}
+
+impl crate::widgets::Components for Sparkline {
+    fn component_classes(&self) -> &[&'static str] {
+        &[
+            "sparkline--min-color",
+            "sparkline--max-color",
+        ]
     }
 }

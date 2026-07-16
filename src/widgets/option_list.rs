@@ -119,7 +119,7 @@ fn finalize_highlight_line(line: &[Segment], width: usize, fill: rich_rs::Style)
 /// Supports separators between groups, disabled items, keyboard and mouse navigation,
 /// and emits [`OptionHighlighted`] / [`OptionSelected`] messages.
 #[derive(Debug, Clone)]
-#[widget(Focus, Interactive, Layout, Scrollable)]
+#[widget(Focus, Interactive, Layout, Scrollable, Components)]
 pub struct OptionList {
     items: Vec<OptionItem>,
     /// Stable-id registry: option id -> current index in `items`. Python folds
@@ -1300,17 +1300,16 @@ impl crate::widgets::Render for OptionList {
                 .unwrap_or(crate::style::Color::rgb(0, 0, 0))
         });
 
-        // Resolve an option component style. Uses an empty-type leaf meta so
-        // only the component-class rules (`.option-list--option*`,
+        // Resolve option component styles through the canonical API with
+        // per-name MERGE semantics (Python `get_component_styles(*names)`:
+        // base first, state class wins). The typeless phantom means only the
+        // component-class rules (`.option-list--option*`,
         // `.option-list--separator`) match — NOT the `OptionList { background:
-        // $surface }` base rule, which would otherwise stamp an opaque surface
-        // background on every component and cause semi-transparent foregrounds
-        // (separators, disabled) to flatten over the untinted surface. The
-        // OptionList node meta is already on the selector stack (pushed by
-        // `render_widget_with_meta`), so `OptionList:focus > .X` descendant
-        // rules still resolve, exactly like Python's `get_visual_style`.
+        // $surface }` base rule — and the live OptionList meta on the selector
+        // stack keeps `OptionList:focus > .X` rules resolving, exactly like
+        // Python's `get_visual_style`.
         let resolve_comp = |classes: &[&str]| -> crate::style::Style {
-            crate::css::resolve_style_for_meta(&crate::css::selector_meta_component("", classes))
+            crate::css::resolve_component_style_merged(self, classes)
         };
 
         let base_style = resolve_comp(&["option-list--option"])
@@ -2254,5 +2253,17 @@ mod tests {
         }
         assert!(!ctx.handled());
         assert_eq!(list.offset_for_click(), 0);
+    }
+}
+
+impl crate::widgets::Components for OptionList {
+    fn component_classes(&self) -> &[&'static str] {
+        &[
+            "option-list--option",
+            "option-list--option-disabled",
+            "option-list--option-highlighted",
+            "option-list--option-hover",
+            "option-list--separator",
+        ]
     }
 }

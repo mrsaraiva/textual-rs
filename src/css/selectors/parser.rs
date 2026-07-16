@@ -3024,6 +3024,7 @@ mod tests {
             id: Some("bar".to_string()),
             classes: vec!["foo".to_string()],
             states: SelectorStates::default(),
+            component_phantom: false,
         };
         let style = sheet.style_for_meta(&meta);
         // "red" should win because of !important.
@@ -3042,6 +3043,7 @@ mod tests {
             id: Some("bar".to_string()),
             classes: vec!["foo".to_string()],
             states: SelectorStates::default(),
+            component_phantom: false,
         };
         let style = sheet.style_for_meta(&meta);
         assert_eq!(style.fg, Some(crate::style::Color::parse("green").unwrap()));
@@ -3058,6 +3060,7 @@ mod tests {
             id: None,
             classes: vec!["a".to_string(), "b".to_string()],
             states: SelectorStates::default(),
+            component_phantom: false,
         };
         let style = sheet.style_for_meta(&meta);
         assert_eq!(style.fg, Some(crate::style::Color::parse("green").unwrap()));
@@ -3083,6 +3086,7 @@ mod tests {
                 focused: true,
                 ..Default::default()
             },
+            component_phantom: false,
         };
         let style = sheet.style_for_meta(&meta);
         assert_eq!(style.fg, Some(crate::style::Color::parse("green").unwrap()));

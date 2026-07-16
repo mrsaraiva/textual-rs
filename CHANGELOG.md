@@ -80,6 +80,54 @@ targets resolved at drain time:
   (documented on `query_one_on`): messages posted from the closure, reactive
   `watch_*` dispatch, and recompose requests are dropped with a debug log;
   direct widget mutation, class ops, styles, and repaint apply fully.
+### Changed — component-classes system, phase 1: Python virtual-node semantics (BREAKING)
+
+Widget internals are now CSS-addressable the Python way. The component-class
+resolution seam (`Widget::get_component_styles` / `get_component_rich_style` /
+`textual::css::resolve_component_style`) was corrected to match Python
+Textual's virtual-node model:
+
+- **Typeless phantom (BREAKING).** Component classes resolve on a typeless
+  virtual node, exactly like Python's `DOMNode(classes=component)`. Widget
+  TYPE rules (`Input { ... }`, `TextArea { ... }`) no longer leak into
+  component styles; `Widget { ... }` universal rules no longer match them
+  (new matcher guard); compound `Type.part` selectors no longer match. User
+  CSS relying on those accidental semantics must move to the documented
+  parent-qualified forms (`Type > .part`, `Type.class > .part`).
+- **Live selector-stack resolution.** During `render()`, component classes
+  resolve against the widget's LIVE selector context (real arena id, runtime
+  classes, pseudo states), so id-, class- and pseudo-qualified user CSS now
+  works: `#my-input > .input--cursor`, `Input.compact > .input--cursor`,
+  `RadioSet:focus > RadioButton.-selected > .toggle--label`. Off-tree
+  contexts keep the seed-meta fallback. The Checkbox / RadioButton / Switch /
+  OptionList / SelectionList / Tree / KeyPanel / TextArea hand-rolled
+  bypasses collapsed into the canonical API.
+- **Part-level pseudo direction (BREAKING).** Positive pseudos on a part
+  (`.part:hover`) never match (write `Type:hover > .part`); negative pseudos
+  (`.part:blur`, `.part:light`) keep matching (stateless-node semantics,
+  Python parity).
+- **Multi-name semantics.** New `resolve_component_style_merged` (and
+  `Widget::get_component_styles_merged`): per-name resolution merged in
+  argument order (Python `get_component_styles(*names)` — later name wins
+  regardless of specificity). The existing compound form (all names on one
+  phantom) remains for state-marker usage (e.g. Tabs'
+  `["tabs--underline", "-active"]`). New `resolve_component_style_partial`
+  returns only sheet-set properties (Python `partial_rich_style`).
+- **Shared surface compositing.** `Widget::get_component_rich_style` now
+  composites over the widget's effective painted surface: alpha backgrounds
+  flatten over the composited ancestor surface, a component-carried
+  `background-tint` folds into its background, `auto <pct>%` foregrounds
+  resolve contrast at fractional alpha, and `text-opacity` folds into the
+  foreground. Input's private leak-filter helper was retired.
+- **Load-bearing declarations.** Built-in widgets declare their
+  `component_classes()` sets (Input, MaskedInput, Toast, ScrollView,
+  BindingsTable, Tree, Footer, FooterKey, Tabs, Underline, Checkbox,
+  RadioButton, Switch, OptionList, SelectionList, TextArea, Tooltip, Link,
+  Placeholder, Sparkline, ProgressBar). `get_component_styles` /
+  `get_component_rich_style` validate the name in debug builds (Python's
+  `KeyError` parity) and log + resolve in release.
+- The inert `&.datatable--fixed-cursor` default rule was dropped (inert in
+  Python too: the virtual node is typeless).
 
 ### Added — keymap subsystem, phase K1: binding identity + `BindingsMap` value type
 

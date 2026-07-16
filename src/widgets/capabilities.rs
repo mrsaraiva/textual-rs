@@ -415,11 +415,19 @@ pub trait Components: Widget {
     }
     /// Resolve the CSS [`Style`] for a declared component class.
     fn get_component_styles(&self, name: &str) -> Style {
+        super::core::debug_component_class_declared(
+            self.style_type(),
+            Components::component_classes(self),
+            name,
+        );
         crate::css::resolve_component_style(self, &[name])
     }
-    /// Resolve a declared component class as a ready-to-paint `rich_rs::Style`.
+    /// Resolve a declared component class as a ready-to-paint `rich_rs::Style`
+    /// (composited over the widget's effective painted surface).
     fn get_component_rich_style(&self, name: &str) -> Option<rich_rs::Style> {
-        Components::get_component_styles(self, name).to_rich()
+        let style = Components::get_component_styles(self, name);
+        let surface = crate::css::component_surface_bg(self);
+        crate::css::component_style_to_rich(&style, surface)
     }
 }
 

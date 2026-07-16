@@ -31,7 +31,7 @@ const ANIMATION_DURATION: Duration = Duration::from_millis(300);
 /// Renders as a slider track with a knob that smoothly animates left/right.
 /// Toggled via click, Enter, or Space.
 #[derive(Debug, Clone)]
-#[widget(Focus, Interactive, Layout, reactive, style_type = "Switch")]
+#[widget(Focus, Interactive, Layout, Components, reactive, style_type = "Switch")]
 pub struct Switch {
     value: bool,
     pressed: bool,
@@ -293,18 +293,14 @@ impl Render for Switch {
         // half (on). Colors come from the `switch--slider` component style;
         // in plain text the thumb and track are both spaces (the distinction
         // is purely color/reverse), matching Python.
-        // Resolve the `switch--slider` component style against the LIVE CSS
-        // context: this node's meta (real arena classes like `-on`, its css id,
-        // and interaction states) is already the top of the selector stack,
-        // pushed by `render_widget_with_meta` — the same pattern Checkbox and
-        // RadioButton use. `resolve_component_style(self, ...)` would re-push a
-        // meta rebuilt from the (consumed-at-mount) seed, so an id rule like
-        // `#custom-design > .switch--slider { background: darkslateblue }`
-        // (child combinator against the id) and the post-toggle `-on` colour
-        // never matched.
-        let slider = crate::css::resolve_style_for_meta(
-            &crate::css::selector_meta_component("", &["switch--slider"]),
-        );
+        // Resolve the `switch--slider` component style through the canonical
+        // API: during a tree render this node's live meta (real arena classes
+        // like `-on`, its css id, and interaction states) is already the top of
+        // the selector stack, and `resolve_component_style` resolves the
+        // typeless phantom directly against it, so an id rule like
+        // `#custom-design > .switch--slider { background: darkslateblue }` and
+        // the post-toggle `-on` colour both match.
+        let slider = crate::css::resolve_component_style(self, &["switch--slider"]);
         let base_bg = crate::css::current_self_style()
             .and_then(|s| s.bg)
             .or_else(|| crate::style::parse_color_like("$surface"))
@@ -539,5 +535,13 @@ mod tests {
         assert!(ctx.has_changes());
         // var fields should not request repaint
         assert!(!ctx.needs_repaint());
+    }
+}
+
+impl crate::widgets::Components for Switch {
+    fn component_classes(&self) -> &[&'static str] {
+        &[
+            "switch--slider",
+        ]
     }
 }

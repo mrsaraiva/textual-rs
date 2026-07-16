@@ -189,7 +189,7 @@ fn format_eta(eta_secs: Option<u64>) -> String {
 /// | `bar--complete` | The bar when progress reaches 100%. |
 /// | `bar--indeterminate` | The bar when total is unknown. |
 #[derive(Debug, Clone)]
-#[widget(Focus, Interactive, Layout)]
+#[widget(Focus, Interactive, Layout, Components)]
 pub struct ProgressBar {
     /// Total number of steps, or `None` for indeterminate.
     total: Option<f64>,
@@ -1307,5 +1307,15 @@ mod tests {
              leftmost r={leftmost_r} should be > rightmost r={rightmost_r}. \
              fg_reds: {highlighted_fg_reds:?}"
         );
+    }
+}
+
+impl crate::widgets::Components for ProgressBar {
+    fn component_classes(&self) -> &[&'static str] {
+        &[
+            "bar--bar",
+            "bar--complete",
+            "bar--indeterminate",
+        ]
     }
 }
