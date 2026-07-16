@@ -99,6 +99,7 @@ fn directory_tree_lazy_loads_children_on_expand_message_flow() {
                 index: 1,
                 label: "nested".to_string(),
                 expanded: true,
+                node_id: textual::widgets::TreeNodeId::default(),
             },
         ),
         &mut __w) };
@@ -156,6 +157,7 @@ fn directory_tree_refresh_preserves_expanded_paths() {
                 index: 1,
                 label: "nested".to_string(),
                 expanded: true,
+                node_id: textual::widgets::TreeNodeId::default(),
             },
         ),
         &mut __w) };
@@ -189,6 +191,7 @@ fn directory_tree_collapsing_node_cancels_pending_lazy_load() {
                 index: 1,
                 label: "nested".to_string(),
                 expanded: true,
+                node_id: textual::widgets::TreeNodeId::default(),
             },
         ),
         &mut __w) };
@@ -202,6 +205,7 @@ fn directory_tree_collapsing_node_cancels_pending_lazy_load() {
                 index: 1,
                 label: "nested".to_string(),
                 expanded: false,
+                node_id: textual::widgets::TreeNodeId::default(),
             },
         ),
         &mut __w) };
@@ -249,6 +253,7 @@ fn directory_tree_handles_forwarded_selection_messages() {
                 index: 1,
                 label: "alpha.txt".to_string(),
                 data: None,
+                node_id: textual::widgets::TreeNodeId::default(),
             },
         ),
         &mut __w) };
@@ -272,6 +277,7 @@ fn directory_tree_emits_directory_selected_message_for_directory_nodes() {
                 index: 1,
                 label: "nested".to_string(),
                 data: None,
+                node_id: textual::widgets::TreeNodeId::default(),
             },
         ),
         &mut __w) };
@@ -337,6 +343,7 @@ fn directory_tree_unmount_clears_focus_hover_and_pending_loads() {
                 index: 1,
                 label: "nested".to_string(),
                 expanded: true,
+                node_id: textual::widgets::TreeNodeId::default(),
             },
         ),
         &mut __w) };
@@ -408,6 +415,7 @@ fn directory_tree_filter_applies_on_async_lazy_subdir_load() {
                 index: 1,
                 label: "nested".to_string(),
                 expanded: false,
+                node_id: textual::widgets::TreeNodeId::default(),
             },
         ),
         &mut __w) };
@@ -420,6 +428,7 @@ fn directory_tree_filter_applies_on_async_lazy_subdir_load() {
                 index: 1,
                 label: "nested".to_string(),
                 expanded: true,
+                node_id: textual::widgets::TreeNodeId::default(),
             },
         ),
         &mut __w) };

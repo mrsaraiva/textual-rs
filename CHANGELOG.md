@@ -199,6 +199,87 @@ returned from the `cache()` hook. `SuggestFromList` caches by default
 Breaking for custom suggesters: rename your `suggest` impl to
 `get_suggestion` (the compiler will point at it). The `suggest` shape stays
 synchronous; async `SuggestionReady` delivery remains a separate item.
+### Added - Tree stable node identity: slotmap arena, TreeNodeId, key-based CRUD (1.1 key-identity work, phase B)
+
+`Tree` stores its nodes in a per-widget slotmap arena keyed by a new stable
+`TreeNodeId` (generational: a removed node's id reliably misses, stronger
+than Python's reusable int `NodeID`). New identity API mirroring Python
+`_tree.py`: `get_node_by_id` (typed `TreeError::UnknownNode`), `node()`,
+`parent_of` / `children_of` / `next_sibling` / `previous_sibling` /
+`is_root` / `is_last` / `root_id` / `root_ids`, a read-only `NodeRef` view,
+per-node accessors (`label_of`/`set_label`, `data_of`/`set_data`,
+`expand`/`collapse`/`toggle_node`, `set_allow_expand`), and key-based CRUD:
+`add(parent, seed)` (inserts a whole declarative subtree, returns its root
+id), `add_leaf`, `add_before`/`add_after` (anchor-node sibling insertion,
+`TreeError::InvalidAnchor` on stale/root anchors), `remove`
+(`TreeError::RemoveRoot` for roots, purges all descendant slots), and
+`remove_children`. `reset_with_data(label, data)` complements `reset`.
+
+The cursor is now node-anchored (Python `_cursor_node`): it follows its
+node across sibling insertion/removal and expansion changes, with hidden
+cursor nodes re-anchoring to the nearest visible ancestor. The reactive
+`selected` key is unchanged and still records `usize` visible-line
+projections (always_update preserved); `set_selected`/`select_node` stay
+line-oriented, with new `cursor_node_id`/`move_cursor`/`select_node_by_id`
+and `node_at_line`/`line_of` bridging lines and ids. All `TreeNode*`
+messages gain a `node_id: TreeNodeId` field filled at the emit sites, so
+handlers can round-trip ids into deferred mutations.
+
+BREAKING (1.1):
+
+- `Tree::root()` returns a `NodeRef` view instead of `&TreeNode`;
+  `Tree::root_mut()` is removed. Post-construction mutation goes through
+  the id API (`tree.add(root_id, seed)`, `set_label(id, ..)`, ...);
+  declarative `TreeNode` seed construction is unchanged.
+- `TreeNodeSelected` / `TreeNodeActivated` / `TreeNodeToggled` /
+  `TreeNodeCollapsed` / `TreeNodeExpanded` / `TreeNodeHighlighted` struct
+  literals need the new `node_id` field (`TreeNodeId::default()`, the null
+  key, preserves the old shape where identity does not matter).
+- `Tree::selected()` is now a per-frame projection of the node-anchored
+  cursor (it shifts when nodes above the cursor appear/disappear, and
+  keeps pointing at the cursor node's line).
+- `Tree::clear()` purges cleared descendants from the arena so their ids
+  no longer resolve (deliberate divergence from Python, whose `clear()`
+  leaves stale ids resolvable).
+
+`DirectoryTree` deliberately stays index/path-based internally this pass
+(it rebuilds its inner tree wholesale, minting fresh ids per rebuild);
+converting it to in-place arena mutation is a tracked follow-up.
+
+### Added - OptionList/SelectionList stable key identity (1.1 key-identity work, phase A)
+
+`OptionList` now maintains a stable-id registry (`HashMap<OptionId, usize>`,
+Python's `_id_to_option`/`_option_to_index` folded into one map) and grows the
+full Python identity API: `get_option_by_id` / `get_option_index` /
+`get_option_at_index`, `remove_option` / `remove_option_at_index` (with
+highlight revalidation and registry shift), `replace_option_prompt(_at_index)`,
+`enable_option` / `disable_option` (+ `_at_index`), and a batch `add_options`
+with whole-batch pre-validation (a failing batch adds nothing). Typed
+`OptionListError { DuplicateId, UnknownId, IndexOutOfBounds }` replaces
+Python's `DuplicateID`/`OptionDoesNotExist` raises; `OptionId` implements
+`Borrow<str>` so lookups take `&str`. `SelectionList` gains `Selection::with_id`
+/ `Selection.id`, `add_selection` / `add_selections`, id/index getters, and
+`remove_option(_at_index)` that repairs its parallel value/selected bookkeeping
+in lockstep (the wrapper is Python's `_pre_remove_option` hook). Messages
+`OptionHighlighted` / `OptionSelected` / `SelectionListToggled` carry a new
+`option_id: Option<OptionId>` field (Python `OptionMessage.option_id` parity).
+
+BREAKING (1.1):
+
+- The incremental add family (`OptionList::add_option`, `add_rich_option`,
+  `add_renderable_option`, new `add_item`/`add_options`) now returns
+  `Result<(), OptionListError>`, rejecting duplicate ids before mutation.
+  Constructors and wholesale replacement (`with_items`, `set_items`,
+  `SelectionList::with_selections`) stay infallible and panic on duplicate ids
+  (Python raises `DuplicateID` out of `__init__`).
+- `OptionHighlighted` / `OptionSelected` / `SelectionListToggled` struct
+  literals need the new `option_id` field (`option_id: None` preserves the old
+  shape).
+- `Selection<T>` struct literals need the new `id` field (constructors
+  `new`/`selected`/`disabled` are unchanged).
+
+Perf: plain single-line prompts that fit the content width skip the Console
+render in `item_height`, keeping `total_lines` cheap for the common case.
 
 ## [1.0.3] - 2026-07-16
 

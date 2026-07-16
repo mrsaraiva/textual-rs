@@ -145,7 +145,7 @@ pub mod prelude {
         InputType, ItemGrid, KeyPanel, Label, LabelVariant, LayoutConstraints, LineStyle, Link,
         ListItem, ListView, LoadingIndicator, Log, Markdown, MarkdownTableOfContents,
         MarkdownViewer, MaskedInput, Middle, NodeSeed, NodeState, OptionContent, OptionId,
-        OptionItem, OptionList,
+        OptionItem, OptionList, OptionListError,
         Overlay, PaletteCommand, Panel, Placeholder, PlaceholderVariant, Pretty, ProgressBar,
         RadioButton, RadioSet, RichLog, Right, Row, RowAlign, Rule, RuleOrientation, ScrollBar,
         ScrollBarCorner, ScrollBarRender, ScrollDirectionMessage, ScrollTo, ScrollView,
@@ -154,7 +154,7 @@ pub mod prelude {
         SummaryFunction,
         Switch, SystemModalScreen, TabPane, TabbedContent, Tabs, TextArea, TextAreaCursor,
         TextAreaSelection, TextAreaTheme, Toast, ToastHolder, ToastRack, ToastSeverity, Tooltip,
-        Tree, TreeNode, Vertical,
+        Tree, TreeError, TreeNode, TreeNodeId, Vertical,
         VerticalGroup, VerticalScroll, Welcome, Widget, WidgetRenderable, WidgetStyles,
         // NOTE (RA2.6b): the legacy delegate macros (`delegate_widget_to`,
         // `delegate_widget_method`, `delegate_renderable`) and

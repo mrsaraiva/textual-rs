@@ -447,7 +447,7 @@ mod tests {
         let mut ectx = EventCtx::default();
         let mut ctx = crate::event::WidgetCtx::__from_dispatch(NodeId::default(), &mut ectx);
         body.on_message(
-            &MessageEvent::new(NodeId::default(), OptionSelected { index: 1 }),
+            &MessageEvent::new(NodeId::default(), OptionSelected { index: 1, option_id: None }),
             &mut ctx,
         );
         let msgs = ectx.take_messages();

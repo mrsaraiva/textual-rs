@@ -112,7 +112,7 @@ pub use log::Log;
 pub use markdown_viewer::{MarkdownTableOfContents, MarkdownViewer, Navigator};
 pub use masked_input::MaskedInput;
 pub(crate) use option_list::OPTION_LIST_VSCROLLBAR_ID;
-pub use option_list::{OptionContent, OptionId, OptionItem, OptionList};
+pub use option_list::{OptionContent, OptionId, OptionItem, OptionList, OptionListError};
 pub use placeholder::{Placeholder, PlaceholderVariant};
 pub use pretty::Pretty;
 pub use preview::{preview_root, preview_root_with_bottom, preview_root_with_top_bottom};
@@ -144,7 +144,7 @@ pub use toast_rack::{NotificationSnapshot, ToastHolder, ToastRack};
 pub(crate) use toast_rack::SYSTEM_TOAST_RACK_ID;
 pub(crate) use tooltip::SYSTEM_TOOLTIP_STYLE_ID;
 pub use tooltip::Tooltip;
-pub use tree::{Tree, TreeNode};
+pub use tree::{NodeRef, Tree, TreeError, TreeNode, TreeNodeId};
 pub use welcome::Welcome;
 
 pub use crate::renderables::{

@@ -3,7 +3,7 @@ use rich_rs::{Console, ConsoleOptions, Renderable, Segment, Segments};
 use crate::event::{Action, Event};
 use crate::message::*;
 
-use super::option_list::{OptionItem, OptionList};
+use super::option_list::{OptionId, OptionItem, OptionList, OptionListError};
 use super::{NodeSeed, Widget, helpers::adjust_line_length_no_bg};
 
 // ── Toggle-button characters (matching Python Textual's ToggleButton) ───
@@ -29,6 +29,9 @@ pub struct Selection<T: Clone + PartialEq> {
     pub initially_selected: bool,
     /// Whether this selection is disabled.
     pub disabled: bool,
+    /// Optional stable id, passed through to the underlying [`OptionItem`]
+    /// (Python parity: `Selection(..., id=...)`, distinct from `value`).
+    pub id: Option<OptionId>,
 }
 
 impl<T: Clone + PartialEq> Selection<T> {
@@ -39,6 +42,7 @@ impl<T: Clone + PartialEq> Selection<T> {
             value,
             initially_selected: false,
             disabled: false,
+            id: None,
         }
     }
 
@@ -49,6 +53,7 @@ impl<T: Clone + PartialEq> Selection<T> {
             value,
             initially_selected: true,
             disabled: false,
+            id: None,
         }
     }
 
@@ -59,6 +64,23 @@ impl<T: Clone + PartialEq> Selection<T> {
             value,
             initially_selected: false,
             disabled: true,
+            id: None,
+        }
+    }
+
+    /// Builder: attach a stable id to this selection.
+    pub fn with_id(mut self, id: impl Into<OptionId>) -> Self {
+        self.id = Some(id.into());
+        self
+    }
+
+    /// The underlying option row for this selection.
+    fn to_option_item(&self) -> OptionItem {
+        OptionItem::Option {
+            prompt: self.prompt.clone(),
+            content: None,
+            id: self.id.clone(),
+            disabled: self.disabled,
         }
     }
 }
@@ -123,18 +145,14 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> SelectionList<T> {
     }
 
     /// Create a `SelectionList` pre-populated with selections.
+    ///
+    /// # Panics
+    ///
+    /// Panics if two selections carry the same id (same constructor policy as
+    /// [`OptionList::with_items`]).
     pub fn with_selections(selections: Vec<Selection<T>>) -> Self {
         let mut list = Self::new();
-        let items: Vec<OptionItem> = selections
-            .iter()
-            .map(|s| {
-                if s.disabled {
-                    OptionItem::disabled(&s.prompt)
-                } else {
-                    OptionItem::new(&s.prompt)
-                }
-            })
-            .collect();
+        let items: Vec<OptionItem> = selections.iter().map(Selection::to_option_item).collect();
         let values: Vec<T> = selections.iter().map(|s| s.value.clone()).collect();
         let selected: Vec<bool> = selections
             .iter()
@@ -177,7 +195,14 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> SelectionList<T> {
         } else {
             self.selected_order.retain(|&i| i != index);
         }
-        ctx.post_message(SelectionListToggled { index, selected });
+        ctx.post_message(SelectionListToggled {
+            index,
+            selected,
+            option_id: self
+                .inner
+                .get_option(index)
+                .and_then(|item| item.id().cloned()),
+        });
         ctx.post_message(SelectionListSelectedChanged);
         ctx.request_repaint();
     }
@@ -306,6 +331,101 @@ impl<T: Clone + PartialEq + Send + Sync + 'static> SelectionList<T> {
     /// Number of items.
     pub fn item_count(&self) -> usize {
         self.inner.option_count()
+    }
+
+    // ── Identity CRUD (rides the inner OptionList registry) ───────────
+
+    /// Add a selection to the end of the list (Python `add_option`).
+    ///
+    /// Returns `Err(OptionListError::DuplicateId)` on id collision; the list
+    /// is not modified.
+    pub fn add_selection(&mut self, selection: Selection<T>) -> Result<(), OptionListError> {
+        self.inner.add_item(selection.to_option_item())?;
+        self.values.push(selection.value);
+        let selected = selection.initially_selected && !selection.disabled;
+        self.selected_set.push(selected);
+        if selected {
+            self.selected_order.push(self.selected_set.len() - 1);
+        }
+        Ok(())
+    }
+
+    /// Add a batch of selections (Python `add_options`): the whole batch is
+    /// validated first; a failing batch adds NOTHING.
+    pub fn add_selections(
+        &mut self,
+        selections: Vec<Selection<T>>,
+    ) -> Result<(), OptionListError> {
+        let items: Vec<OptionItem> = selections.iter().map(Selection::to_option_item).collect();
+        self.inner.add_options(items)?;
+        for selection in selections {
+            self.values.push(selection.value);
+            let selected = selection.initially_selected && !selection.disabled;
+            self.selected_set.push(selected);
+            if selected {
+                self.selected_order.push(self.selected_set.len() - 1);
+            }
+        }
+        Ok(())
+    }
+
+    /// Get a selection's option row by stable id.
+    pub fn get_option_by_id(&self, id: &str) -> Result<&OptionItem, OptionListError> {
+        self.inner.get_option_by_id(id)
+    }
+
+    /// Get the current index of the selection with the given id.
+    pub fn get_option_index(&self, id: &str) -> Result<usize, OptionListError> {
+        self.inner.get_option_index(id)
+    }
+
+    /// Get a selection's option row by index, with a typed error.
+    pub fn get_option_at_index(&self, index: usize) -> Result<&OptionItem, OptionListError> {
+        self.inner.get_option_at_index(index)
+    }
+
+    /// Remove the selection with the given id, repairing the parallel
+    /// value/selected bookkeeping in lockstep (the Rust wrapper owns `inner`,
+    /// so it IS Python's `_pre_remove_option` hook).
+    pub fn remove_option(&mut self, id: &str) -> Result<(), OptionListError> {
+        let index = self.inner.get_option_index(id)?;
+        self.remove_option_at_index(index)
+    }
+
+    /// Remove the selection at the given index, repairing the parallel
+    /// value/selected bookkeeping in lockstep.
+    pub fn remove_option_at_index(&mut self, index: usize) -> Result<(), OptionListError> {
+        self.inner.remove_option_at_index(index)?;
+        if index < self.values.len() {
+            self.values.remove(index);
+        }
+        if index < self.selected_set.len() {
+            self.selected_set.remove(index);
+        }
+        self.selected_order.retain(|&i| i != index);
+        for stored in self.selected_order.iter_mut() {
+            if *stored > index {
+                *stored -= 1;
+            }
+        }
+        if self.hovered_index == Some(index) {
+            self.hovered_index = None;
+        } else if let Some(hovered) = self.hovered_index {
+            if hovered > index {
+                self.hovered_index = Some(hovered - 1);
+            }
+        }
+        Ok(())
+    }
+
+    /// Remove all selections, clearing values and selected state too
+    /// (Python: clearing the options clears the selections).
+    pub fn clear_options(&mut self) {
+        self.inner.clear_options();
+        self.values.clear();
+        self.selected_set.clear();
+        self.selected_order.clear();
+        self.hovered_index = None;
     }
 
     // ── Internals ───────────────────────────────────────────────────
@@ -672,6 +792,40 @@ mod tests {
 
         { let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx); list.toggle(0, &mut __w) };
         assert!(!list.is_selected(0));
+    }
+
+    /// `SelectionListToggled` carries the toggled selection's stable id.
+    #[test]
+    fn selection_list_toggled_message_carries_option_id() {
+        let selections = vec![
+            Selection::new("Alpha", "a".to_string()).with_id("alpha"),
+            Selection::new("Beta", "b".to_string()),
+        ];
+        let mut list = SelectionList::with_selections(selections);
+        let mut ctx = EventCtx::default();
+
+        { let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx); list.toggle(0, &mut __w) };
+        let messages = ctx.take_messages();
+        let toggled = messages
+            .iter()
+            .find_map(|m| m.downcast_ref::<crate::message::SelectionListToggled>())
+            .expect("SelectionListToggled posted");
+        assert_eq!(toggled.index, 0);
+        assert!(toggled.selected);
+        assert_eq!(
+            toggled.option_id,
+            Some(crate::widgets::OptionId::new("alpha"))
+        );
+
+        // Anonymous selections carry no id.
+        let mut ctx = EventCtx::default();
+        { let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx); list.toggle(1, &mut __w) };
+        let messages = ctx.take_messages();
+        let toggled = messages
+            .iter()
+            .find_map(|m| m.downcast_ref::<crate::message::SelectionListToggled>())
+            .expect("SelectionListToggled posted");
+        assert_eq!(toggled.option_id, None);
     }
 
     #[test]

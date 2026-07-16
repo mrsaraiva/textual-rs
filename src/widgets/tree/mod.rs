@@ -1,5 +1,4 @@
 use crossterm::event::{KeyCode, KeyModifiers};
-use rich_rs::{Console, ConsoleOptions, MetaValue, Renderable, Segment, Segments};
 use textual_macros::widget;
 
 use crate::event::{Action, Event};
@@ -8,154 +7,26 @@ use crate::message::*;
 use crate::action::ParsedAction;
 use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
 
-use super::{BindingDecl, NodeSeed, ScrollView, Widget, helpers::adjust_line_length_no_bg};
+use super::{BindingDecl, NodeSeed, ScrollView, Widget};
 
-/// Tag a segment with `textual:no_style = true` so `apply_style_to_segments`
-/// leaves it untouched. Used for the cursor row's label/twisty cells, whose
-/// background/foreground are already fully composed here (matching Python's
-/// per-component `get_component_rich_style`). Without this, the widget-level
-/// `background-tint: $foreground 5%` from `Tree:focus` would be re-applied to
-/// the opaque `$block-cursor-background` fill, shifting `#0178d4` to `#0c7dd4`
-/// (Python does not tint component-painted backgrounds).
-fn tag_segment_no_style(seg: &mut Segment) {
-    let mut meta = seg.meta.take().unwrap_or_default();
-    let mut map: std::collections::BTreeMap<String, MetaValue> = meta
-        .meta
-        .as_ref()
-        .map(|m| (**m).clone())
-        .unwrap_or_default();
-    map.insert("textual:no_style".to_string(), MetaValue::Bool(true));
-    meta.meta = Some(std::sync::Arc::new(map));
-    seg.meta = Some(meta);
-}
+mod node;
+mod render;
 
-#[derive(Debug, Clone)]
-pub struct TreeNode {
-    label: String,
-    expanded: bool,
-    allow_expand: bool,
-    disabled: bool,
-    component_classes: Vec<String>,
-    children: Vec<TreeNode>,
-    /// Optional user data associated with this node (e.g. block_id for TOC headings).
-    data: Option<String>,
-}
-
-impl TreeNode {
-    pub fn new(label: impl Into<String>) -> Self {
-        Self {
-            label: label.into(),
-            expanded: false,
-            allow_expand: false,
-            disabled: false,
-            component_classes: Vec::new(),
-            children: Vec::new(),
-            data: None,
-        }
-    }
-
-    pub fn expanded(mut self, value: bool) -> Self {
-        self.expanded = value;
-        self
-    }
-
-    pub fn with_child(mut self, child: TreeNode) -> Self {
-        self.children.push(child);
-        self
-    }
-
-    pub fn allow_expand(mut self, value: bool) -> Self {
-        self.allow_expand = value;
-        self
-    }
-
-    pub fn disabled(mut self, value: bool) -> Self {
-        self.disabled = value;
-        self
-    }
-
-    pub fn with_component_class(mut self, class: impl Into<String>) -> Self {
-        self.component_classes.push(class.into());
-        self
-    }
-
-    /// Set optional user data on this node (builder pattern).
-    pub fn with_data(mut self, data: impl Into<String>) -> Self {
-        self.data = Some(data.into());
-        self
-    }
-
-    /// Read-only access to the node's data.
-    pub fn data(&self) -> Option<&str> {
-        self.data.as_deref()
-    }
-
-    /// Read-only access to this node's children.
-    pub fn children_slice(&self) -> &[TreeNode] {
-        &self.children
-    }
-
-    /// Add a child node, returning a mutable reference to the newly added child.
-    ///
-    /// This enables the Python pattern of incremental tree construction:
-    /// ```ignore
-    /// let child = parent.add_child(TreeNode::new("child"));
-    /// child.add_child(TreeNode::new("grandchild"));
-    /// ```
-    pub fn add_child(&mut self, child: TreeNode) -> &mut TreeNode {
-        self.children.push(child);
-        self.children.last_mut().expect("just pushed")
-    }
-
-    /// Add a leaf node (convenience for `add_child(TreeNode::new(label))`).
-    pub fn add_leaf(&mut self, label: impl Into<String>) -> &mut TreeNode {
-        self.add_child(TreeNode::new(label))
-    }
-
-    /// Mutate the node's label after construction.
-    ///
-    /// Mirrors Python's `node.set_label(text)`.
-    pub fn set_label(&mut self, label: impl Into<String>) {
-        self.label = label.into();
-    }
-
-    /// Read-only access to the node's label.
-    pub fn label(&self) -> &str {
-        &self.label
-    }
-
-    /// Expand this node (make children visible).
-    ///
-    /// Mirrors Python's `node.expand()`.
-    pub fn expand(&mut self) {
-        self.expanded = true;
-    }
-
-    /// Collapse this node (hide children).
-    ///
-    /// Mirrors Python's `node.collapse()`.
-    pub fn collapse(&mut self) {
-        self.expanded = false;
-    }
-
-    /// Whether this node is currently expanded.
-    pub fn is_expanded(&self) -> bool {
-        self.expanded
-    }
-
-    /// Set whether this node can be expanded by the user.
-    ///
-    /// Mirrors Python's `node.allow_expand = value`.
-    pub fn set_allow_expand(&mut self, value: bool) {
-        self.allow_expand = value;
-    }
-}
+pub use node::{NodeRef, TreeError, TreeNode, TreeNodeId};
+use node::TreeNodeData;
+use render::VisibleNode;
 
 #[derive(Debug, Clone)]
 #[widget(Focus, Interactive, Layout, Scrollable)]
 pub struct Tree {
-    roots: Vec<TreeNode>,
-    selected: usize,
+    /// Per-widget node arena: the slotmap IS the id registry (Python's
+    /// `_tree_nodes` dict + `_new_id()` counter folded into insertion).
+    nodes: slotmap::SlotMap<TreeNodeId, TreeNodeData>,
+    /// Ordered root ids (multi-root superset of Python's single root).
+    roots: Vec<TreeNodeId>,
+    /// Node-anchored cursor (Python's `_cursor_node`). The visible-line
+    /// projection is derived per frame; see [`Tree::selected`].
+    cursor: Option<TreeNodeId>,
     offset: usize,
     hovered_index: Option<usize>,
     pressed_activation_index: Option<usize>,
@@ -178,29 +49,20 @@ pub struct Tree {
     seed: NodeSeed,
 }
 
-#[derive(Debug, Clone)]
-struct VisibleNode {
-    path: Vec<usize>,
-    depth: usize,
-    label: String,
-    expanded: bool,
-    disabled: bool,
-    expandable: bool,
-    component_classes: Vec<String>,
-    /// Optional user data associated with the underlying TreeNode.
-    data: Option<String>,
-    /// For each visual depth level, whether the ancestor at that level is the last sibling.
-    /// Used for rendering tree guide lines (│, ├, └).
-    is_last_at_depth: Vec<bool>,
-}
-
 impl Tree {
     crate::seed_ident_methods!();
 
     pub fn new(roots: Vec<TreeNode>) -> Self {
+        let mut nodes = slotmap::SlotMap::with_key();
+        let root_ids: Vec<TreeNodeId> = roots
+            .into_iter()
+            .map(|seed| Self::insert_seed(&mut nodes, None, seed))
+            .collect();
+        let cursor = root_ids.first().copied();
         Self {
-            roots,
-            selected: 0,
+            nodes,
+            roots: root_ids,
+            cursor,
             offset: 0,
             hovered_index: None,
             pressed_activation_index: None,
@@ -211,6 +73,52 @@ impl Tree {
             guide_depth: 4,
             hide_twisty: false,
             seed: NodeSeed::default(),
+        }
+    }
+
+    /// Flatten a declarative [`TreeNode`] seed (and its subtree) into the
+    /// arena, returning the subtree root's id.
+    fn insert_seed(
+        nodes: &mut slotmap::SlotMap<TreeNodeId, TreeNodeData>,
+        parent: Option<TreeNodeId>,
+        seed: TreeNode,
+    ) -> TreeNodeId {
+        let TreeNode {
+            label,
+            expanded,
+            allow_expand,
+            disabled,
+            component_classes,
+            children,
+            data,
+        } = seed;
+        let id = nodes.insert(TreeNodeData {
+            label,
+            data,
+            expanded,
+            allow_expand,
+            disabled,
+            component_classes,
+            parent,
+            children: Vec::new(),
+        });
+        for child in children {
+            let child_id = Self::insert_seed(nodes, Some(id), child);
+            nodes[id].children.push(child_id);
+        }
+        id
+    }
+
+    /// Remove `id` and its whole subtree from the arena (does NOT touch the
+    /// parent's child list; callers own that edge).
+    fn purge_subtree(&mut self, id: TreeNodeId) {
+        if let Some(data) = self.nodes.remove(id) {
+            for child in data.children {
+                self.purge_subtree(child);
+            }
+        }
+        if self.cursor == Some(id) {
+            self.cursor = None;
         }
     }
 
@@ -227,10 +135,42 @@ impl Tree {
         self.hide_twisty
     }
 
+    // ── Cursor projection ────────────────────────────────────────────────
+
+    /// Project the node-anchored cursor onto the given visible-node stream.
+    ///
+    /// A hidden cursor node (collapsed ancestor) projects onto its nearest
+    /// visible ancestor; a missing/None cursor projects to line 0 (matching
+    /// the previous line-cursor default of highlighting the first row).
+    fn selected_line_in(&self, nodes: &[VisibleNode]) -> usize {
+        let Some(mut cursor) = self.cursor else {
+            return 0;
+        };
+        loop {
+            if let Some(line) = nodes.iter().position(|n| n.id == cursor) {
+                return line;
+            }
+            match self.nodes.get(cursor).and_then(|n| n.parent) {
+                Some(parent) => cursor = parent,
+                None => return 0,
+            }
+        }
+    }
+
+    /// Current cursor line (projection of the node-anchored cursor).
+    fn selected_line(&self) -> usize {
+        self.selected_line_in(&self.visible_nodes())
+    }
+
     // ── Reactive getters ─────────────────────────────────────────────────
 
+    /// The cursor position as a visible-line index (Python `cursor_line`).
+    ///
+    /// This is a per-frame projection of the node-anchored cursor
+    /// ([`Tree::cursor_node_id`]); it shifts when nodes above the cursor are
+    /// inserted/removed/expanded, while the cursor keeps following its node.
     pub fn selected(&self) -> usize {
-        self.selected
+        self.selected_line()
     }
 
     pub fn showing_root(&self) -> bool {
@@ -251,22 +191,27 @@ impl Tree {
     ///
     /// Matches Python's `cursor_line = var(-1, always_update=True)` — setting
     /// the cursor to the same position still triggers scroll-into-view and repaint.
+    /// Line-oriented entry point (spec 3.1.1): resolves the line to a node id
+    /// for the node-anchored cursor, while the reactive record keeps the
+    /// `usize` visible-line projection as its old/new values, computed at
+    /// record time (watchers keep observing line numbers, like Python's
+    /// `cursor_line` watcher).
     pub fn set_selected(&mut self, index: usize, ctx: &mut ReactiveCtx) {
-        let total = self.visible_count();
-        if total == 0 {
-            self.selected = 0;
+        let nodes = self.visible_nodes();
+        if nodes.is_empty() {
+            self.cursor = None;
             self.offset = 0;
             return;
         }
-        let old = self.selected;
-        let new_selected = index.min(total - 1);
-        self.selected = new_selected;
+        let old = self.selected_line_in(&nodes);
+        let new_selected = index.min(nodes.len() - 1);
+        self.cursor = Some(nodes[new_selected].id);
         self.ensure_visible();
         ctx.record_change(
             "selected",
             ReactiveFlags::reactive_always_update(),
             Box::new(old),
-            Box::new(self.selected),
+            Box::new(new_selected),
         );
     }
 
@@ -323,19 +268,259 @@ impl Tree {
 
     // ── Root access ────────────────────────────────────────────────────
 
-    /// Access the root node (first root) immutably.
+    /// Read-only view of the root node (first root).
     ///
     /// Mirrors Python's `tree.root` property. Python's Tree always has exactly
     /// one root; Rust's multi-root Vec is an implementation detail.
-    pub fn root(&self) -> Option<&TreeNode> {
-        self.roots.first()
+    pub fn root(&self) -> Option<NodeRef<'_>> {
+        self.roots.first().map(|&id| NodeRef { tree: self, id })
     }
 
-    /// Access the root node (first root) mutably.
+    /// Stable id of the root node (first root).
+    pub fn root_id(&self) -> Option<TreeNodeId> {
+        self.roots.first().copied()
+    }
+
+    /// Stable ids of all roots, in order.
+    pub fn root_ids(&self) -> &[TreeNodeId] {
+        &self.roots
+    }
+
+    // ── Lookup and topology (Python `_tree.py` identity API) ───────────
+
+    /// Read-only view of a node by id, or `None` for a stale/unknown id
+    /// (non-erroring twin of [`Tree::get_node_by_id`]).
+    pub fn node(&self, id: TreeNodeId) -> Option<NodeRef<'_>> {
+        self.nodes.contains_key(id).then_some(NodeRef { tree: self, id })
+    }
+
+    /// Look up a node by id (Python `get_node_by_id`, typed
+    /// `TreeError::UnknownNode` instead of `UnknownNodeID`).
+    pub fn get_node_by_id(&self, id: TreeNodeId) -> Result<NodeRef<'_>, TreeError> {
+        self.node(id).ok_or(TreeError::UnknownNode(id))
+    }
+
+    /// The parent of `id`, or `None` for a root or unknown id.
+    pub fn parent_of(&self, id: TreeNodeId) -> Option<TreeNodeId> {
+        self.nodes.get(id).and_then(|n| n.parent)
+    }
+
+    /// The ordered children of `id` (empty for a leaf or unknown id).
+    pub fn children_of(&self, id: TreeNodeId) -> &[TreeNodeId] {
+        self.nodes
+            .get(id)
+            .map(|n| n.children.as_slice())
+            .unwrap_or(&[])
+    }
+
+    /// The sibling list containing `id`: its parent's children, or the root
+    /// list for a root.
+    fn sibling_list(&self, id: TreeNodeId) -> &[TreeNodeId] {
+        match self.nodes.get(id).and_then(|n| n.parent) {
+            Some(parent) => self.children_of(parent),
+            None if self.nodes.contains_key(id) => &self.roots,
+            None => &[],
+        }
+    }
+
+    /// The next sibling of `id`, if any (Python `next_sibling`).
+    pub fn next_sibling(&self, id: TreeNodeId) -> Option<TreeNodeId> {
+        let siblings = self.sibling_list(id);
+        let pos = siblings.iter().position(|&s| s == id)?;
+        siblings.get(pos + 1).copied()
+    }
+
+    /// The previous sibling of `id`, if any (Python `previous_sibling`).
+    pub fn previous_sibling(&self, id: TreeNodeId) -> Option<TreeNodeId> {
+        let siblings = self.sibling_list(id);
+        let pos = siblings.iter().position(|&s| s == id)?;
+        pos.checked_sub(1).and_then(|p| siblings.get(p)).copied()
+    }
+
+    /// Whether `id` is a live root node (Python `is_root`).
+    pub fn is_root(&self, id: TreeNodeId) -> bool {
+        self.nodes
+            .get(id)
+            .is_some_and(|n| n.parent.is_none())
+    }
+
+    /// Whether `id` is the last of its siblings (Python `is_last`).
+    pub fn is_last(&self, id: TreeNodeId) -> bool {
+        self.sibling_list(id).last() == Some(&id)
+    }
+
+    // ── Per-node accessors (replace the retired `root_mut()` surgery) ──
+
+    /// The label of `id`, if it resolves.
+    pub fn label_of(&self, id: TreeNodeId) -> Option<&str> {
+        self.nodes.get(id).map(|n| n.label.as_str())
+    }
+
+    /// Set the label of `id` (Python `node.set_label`).
+    pub fn set_label(&mut self, id: TreeNodeId, label: impl Into<String>) -> Result<(), TreeError> {
+        match self.nodes.get_mut(id) {
+            Some(node) => {
+                node.label = label.into();
+                Ok(())
+            }
+            None => Err(TreeError::UnknownNode(id)),
+        }
+    }
+
+    /// The user data of `id`, if it resolves and has data.
+    pub fn data_of(&self, id: TreeNodeId) -> Option<&str> {
+        self.nodes.get(id).and_then(|n| n.data.as_deref())
+    }
+
+    /// Set the user data of `id`.
+    pub fn set_data(&mut self, id: TreeNodeId, data: Option<String>) -> Result<(), TreeError> {
+        match self.nodes.get_mut(id) {
+            Some(node) => {
+                node.data = data;
+                Ok(())
+            }
+            None => Err(TreeError::UnknownNode(id)),
+        }
+    }
+
+    /// Expand `id` (Python `node.expand()`).
+    pub fn expand(&mut self, id: TreeNodeId) -> Result<(), TreeError> {
+        match self.nodes.get_mut(id) {
+            Some(node) => {
+                node.expanded = true;
+                Ok(())
+            }
+            None => Err(TreeError::UnknownNode(id)),
+        }
+    }
+
+    /// Collapse `id` (Python `node.collapse()`).
+    pub fn collapse(&mut self, id: TreeNodeId) -> Result<(), TreeError> {
+        match self.nodes.get_mut(id) {
+            Some(node) => {
+                node.expanded = false;
+                Ok(())
+            }
+            None => Err(TreeError::UnknownNode(id)),
+        }
+    }
+
+    /// Toggle expansion of `id` (Python `node.toggle()`).
+    pub fn toggle_node(&mut self, id: TreeNodeId) -> Result<bool, TreeError> {
+        match self.nodes.get_mut(id) {
+            Some(node) => {
+                node.expanded = !node.expanded;
+                Ok(node.expanded)
+            }
+            None => Err(TreeError::UnknownNode(id)),
+        }
+    }
+
+    /// Set whether `id` can be expanded by the user.
+    pub fn set_allow_expand(&mut self, id: TreeNodeId, value: bool) -> Result<(), TreeError> {
+        match self.nodes.get_mut(id) {
+            Some(node) => {
+                node.allow_expand = value;
+                Ok(())
+            }
+            None => Err(TreeError::UnknownNode(id)),
+        }
+    }
+
+    // ── Key-based CRUD (Python `_tree.py:359-508`) ──────────────────────
+
+    /// Add a seed (and its whole subtree) as the last child of `parent`,
+    /// returning the subtree root's id (Python `node.add`).
+    pub fn add(&mut self, parent: TreeNodeId, node: TreeNode) -> Result<TreeNodeId, TreeError> {
+        if !self.nodes.contains_key(parent) {
+            return Err(TreeError::UnknownNode(parent));
+        }
+        let id = Self::insert_seed(&mut self.nodes, Some(parent), node);
+        self.nodes[parent].children.push(id);
+        Ok(id)
+    }
+
+    /// Add a seed as a leaf child of `parent` (Python `node.add_leaf`).
+    pub fn add_leaf(
+        &mut self,
+        parent: TreeNodeId,
+        label: impl Into<String>,
+    ) -> Result<TreeNodeId, TreeError> {
+        self.add(parent, TreeNode::new(label))
+    }
+
+    /// Insert a seed as a sibling of `sibling`, immediately before it
+    /// (Python `add(before=node)`). The anchor must be a live non-root node;
+    /// a root anchor is `TreeError::InvalidAnchor` (roots have no
+    /// node-addressed sibling insertion; use the index form via
+    /// `children_of(parent)`), a stale anchor is `TreeError::InvalidAnchor`
+    /// like Python's `AddNodeError` for a removed anchor.
+    pub fn add_before(
+        &mut self,
+        sibling: TreeNodeId,
+        node: TreeNode,
+    ) -> Result<TreeNodeId, TreeError> {
+        self.add_relative(sibling, node, 0)
+    }
+
+    /// Insert a seed as a sibling of `sibling`, immediately after it
+    /// (Python `add(after=node)`).
+    pub fn add_after(
+        &mut self,
+        sibling: TreeNodeId,
+        node: TreeNode,
+    ) -> Result<TreeNodeId, TreeError> {
+        self.add_relative(sibling, node, 1)
+    }
+
+    fn add_relative(
+        &mut self,
+        sibling: TreeNodeId,
+        node: TreeNode,
+        offset: usize,
+    ) -> Result<TreeNodeId, TreeError> {
+        let Some(parent) = self.nodes.get(sibling).and_then(|n| n.parent) else {
+            return Err(TreeError::InvalidAnchor(sibling));
+        };
+        let position = self.nodes[parent]
+            .children
+            .iter()
+            .position(|&c| c == sibling)
+            .ok_or(TreeError::InvalidAnchor(sibling))?;
+        let id = Self::insert_seed(&mut self.nodes, Some(parent), node);
+        self.nodes[parent].children.insert(position + offset, id);
+        Ok(id)
+    }
+
+    /// Remove `id` and its whole subtree (Python `node.remove()`).
     ///
-    /// Mirrors Python's `tree.root` property.
-    pub fn root_mut(&mut self) -> Option<&mut TreeNode> {
-        self.roots.first_mut()
+    /// Refuses roots with `TreeError::RemoveRoot`. All descendant slots are
+    /// purged, so stale ids reliably miss every lookup afterwards.
+    pub fn remove(&mut self, id: TreeNodeId) -> Result<(), TreeError> {
+        let Some(node) = self.nodes.get(id) else {
+            return Err(TreeError::UnknownNode(id));
+        };
+        let Some(parent) = node.parent else {
+            return Err(TreeError::RemoveRoot);
+        };
+        self.nodes[parent].children.retain(|&c| c != id);
+        self.purge_subtree(id);
+        self.clamp_offsets();
+        Ok(())
+    }
+
+    /// Remove all children of `id`, keeping the node itself
+    /// (Python `node.remove_children()`).
+    pub fn remove_children(&mut self, id: TreeNodeId) -> Result<(), TreeError> {
+        let Some(node) = self.nodes.get_mut(id) else {
+            return Err(TreeError::UnknownNode(id));
+        };
+        let children = std::mem::take(&mut node.children);
+        for child in children {
+            self.purge_subtree(child);
+        }
+        self.clamp_offsets();
+        Ok(())
     }
 
     // ── API methods (QW-19) ──────────────────────────────────────────────
@@ -343,23 +528,47 @@ impl Tree {
     /// Clear all children under the root node.
     ///
     /// Mirrors Python's `tree.clear()` which preserves the root node (label,
-    /// expanded state) and only removes its children.
+    /// data, expanded state) and only removes its children.
+    ///
+    /// DELIBERATE divergence from Python: cleared descendants are purged from
+    /// the arena, so their ids no longer resolve (Python's `clear()` leaves
+    /// `_tree_nodes` stale and resets the id counter, letting stale ids
+    /// resolve to unrelated nodes).
     pub fn clear(&mut self) {
-        if let Some(root) = self.roots.first_mut() {
-            root.children.clear();
+        if let Some(&root) = self.roots.first() {
+            let _ = self.remove_children(root);
+            self.cursor = Some(root);
+        } else {
+            self.cursor = None;
         }
-        self.selected = 0;
         self.offset = 0;
         self.hovered_index = None;
         self.pressed_activation_index = None;
     }
 
-    /// Clear the tree and reset the root node with a new label.
+    /// Clear the tree and reset the root node with a new label
+    /// (data cleared). Mirrors Python's `tree.reset(label)`.
+    pub fn reset(&mut self, label: impl Into<String>) {
+        self.reset_with_data(label, None);
+    }
+
+    /// Clear the tree and reset the root node with a new label and data.
     ///
     /// Mirrors Python's `tree.reset(label, data)`.
-    pub fn reset(&mut self, label: impl Into<String>) {
-        self.roots = vec![TreeNode::new(label)];
-        self.selected = 0;
+    pub fn reset_with_data(&mut self, label: impl Into<String>, data: Option<String>) {
+        self.nodes.clear();
+        let root = self.nodes.insert(TreeNodeData {
+            label: label.into(),
+            data,
+            expanded: false,
+            allow_expand: false,
+            disabled: false,
+            component_classes: Vec::new(),
+            parent: None,
+            children: Vec::new(),
+        });
+        self.roots = vec![root];
+        self.cursor = Some(root);
         self.offset = 0;
         self.hovered_index = None;
         self.pressed_activation_index = None;
@@ -369,8 +578,9 @@ impl Tree {
     ///
     /// Resets cursor/selection since the tree structure changed.
     pub fn add_root(&mut self, node: TreeNode) {
-        self.roots.push(node);
-        self.selected = 0;
+        let id = Self::insert_seed(&mut self.nodes, None, node);
+        self.roots.push(id);
+        self.cursor = self.roots.first().copied();
         self.offset = 0;
     }
 
@@ -380,7 +590,7 @@ impl Tree {
     /// is available.  Repaint must be requested separately via `ctx.request_repaint()`.
     pub fn toggle_show_root(&mut self) {
         self.show_root = !self.show_root;
-        self.selected = 0;
+        self.cursor = self.visible_nodes().first().map(|n| n.id);
         self.offset = 0;
     }
 
@@ -392,26 +602,81 @@ impl Tree {
         self.show_root = value;
     }
 
-    /// Programmatically select a node: moves cursor and emits `TreeNodeSelected`.
+    /// Programmatically select a node by visible line: moves the cursor and
+    /// emits `TreeNodeSelected` (line-oriented convenience; Python
+    /// `move_cursor_to_line` + select).
     pub fn select_node(&mut self, node_index: usize, ctx: &mut crate::event::WidgetCtx) {
         let nodes = self.visible_nodes();
         let total = nodes.len();
         if total == 0 || node_index >= total {
             return;
         }
-        self.selected = node_index;
+        self.cursor = Some(nodes[node_index].id);
         self.ensure_visible();
         self.emit_selected(ctx, &nodes);
         self.emit_highlighted(ctx, &nodes);
     }
 
+    // ── Node-anchored cursor (Python `_tree.py:962-1003`) ──────────────
+
+    /// Stable id of the cursor node, if any.
+    pub fn cursor_node_id(&self) -> Option<TreeNodeId> {
+        self.cursor.filter(|&id| self.nodes.contains_key(id))
+    }
+
+    /// Move the cursor to a node (or to the first visible node for `None`,
+    /// matching Python `move_cursor(None)` resetting to the top). Does not
+    /// emit messages; use [`Tree::select_node_by_id`] to also select.
+    pub fn move_cursor(&mut self, node: Option<TreeNodeId>) {
+        match node {
+            Some(id) if self.nodes.contains_key(id) => self.cursor = Some(id),
+            _ => self.cursor = self.visible_nodes().first().map(|n| n.id),
+        }
+        self.ensure_visible();
+    }
+
+    /// Move the cursor to `id` and emit `TreeNodeSelected` +
+    /// `TreeNodeHighlighted` (Python `select_node(node)`).
+    pub fn select_node_by_id(
+        &mut self,
+        id: TreeNodeId,
+        ctx: &mut crate::event::WidgetCtx,
+    ) -> Result<(), TreeError> {
+        if !self.nodes.contains_key(id) {
+            return Err(TreeError::UnknownNode(id));
+        }
+        self.cursor = Some(id);
+        self.ensure_visible();
+        let nodes = self.visible_nodes();
+        self.emit_selected(ctx, &nodes);
+        self.emit_highlighted(ctx, &nodes);
+        Ok(())
+    }
+
+    /// The node currently rendered at visible line `line`, if any (bridges
+    /// the line-oriented and id-oriented APIs).
+    pub fn node_at_line(&self, line: usize) -> Option<TreeNodeId> {
+        self.visible_nodes().get(line).map(|n| n.id)
+    }
+
+    /// The current visible line of `id`, or `None` when the node is unknown
+    /// or hidden inside a collapsed ancestor.
+    pub fn line_of(&self, id: TreeNodeId) -> Option<usize> {
+        self.visible_nodes().iter().position(|n| n.id == id)
+    }
+
     /// Expand or collapse all nodes. If any expandable node is expanded, collapse all;
     /// otherwise expand all.
     pub fn toggle_all(&mut self) {
-        let any_expanded = has_any_expanded(&self.roots);
+        let any_expanded = self
+            .nodes
+            .values()
+            .any(|node| node.is_expandable() && node.expanded);
         let target = !any_expanded;
-        for root in &mut self.roots {
-            set_all_expanded(root, target);
+        for node in self.nodes.values_mut() {
+            if node.is_expandable() {
+                node.expanded = target;
+            }
         }
         self.ensure_visible();
     }
@@ -422,8 +687,10 @@ impl Tree {
     /// and marks them so future additions also start expanded.
     pub fn set_auto_expand(&mut self, expand: bool) {
         if expand {
-            for root in &mut self.roots {
-                set_all_expanded(root, true);
+            for node in self.nodes.values_mut() {
+                if node.is_expandable() {
+                    node.expanded = true;
+                }
             }
         }
         self.ensure_visible();
@@ -450,68 +717,8 @@ impl Tree {
     /// Mirrors Python's `Tree.cursor_node` property.
     pub fn cursor_node(&self) -> Option<String> {
         let nodes = self.visible_nodes();
-        nodes.get(self.selected).map(|n| n.label.clone())
-    }
-
-    fn visible_nodes(&self) -> Vec<VisibleNode> {
-        let depth_offset: usize = if self.show_root { 0 } else { 1 };
-
-        fn walk(
-            nodes: &[TreeNode],
-            tree_depth: usize,
-            depth_offset: usize,
-            path: &mut Vec<usize>,
-            is_last: &mut Vec<bool>,
-            out: &mut Vec<VisibleNode>,
-        ) {
-            let count = nodes.len();
-            for (idx, node) in nodes.iter().enumerate() {
-                let last = idx == count - 1;
-                path.push(idx);
-                is_last.push(last);
-
-                if tree_depth >= depth_offset {
-                    let visual_depth = tree_depth - depth_offset;
-                    let visual_is_last = is_last[depth_offset..].to_vec();
-                    out.push(VisibleNode {
-                        path: path.clone(),
-                        depth: visual_depth,
-                        label: node.label.clone(),
-                        expanded: node.expanded,
-                        disabled: node.disabled,
-                        expandable: node.allow_expand || !node.children.is_empty(),
-                        component_classes: node.component_classes.clone(),
-                        data: node.data.clone(),
-                        is_last_at_depth: visual_is_last,
-                    });
-                }
-                if node.expanded {
-                    walk(
-                        &node.children,
-                        tree_depth + 1,
-                        depth_offset,
-                        path,
-                        is_last,
-                        out,
-                    );
-                }
-                path.pop();
-                is_last.pop();
-            }
-        }
-
-        let mut out = Vec::new();
-        let mut path = Vec::new();
-        let mut is_last = Vec::new();
-        walk(
-            &self.roots,
-            0,
-            depth_offset,
-            &mut path,
-            &mut is_last,
-            &mut out,
-        );
-        out
+        let line = self.selected_line_in(&nodes);
+        nodes.get(line).map(|n| n.label.clone())
     }
 
     fn visible_count(&self) -> usize {
@@ -533,20 +740,23 @@ impl Tree {
         let nodes = self.visible_nodes();
         let total = nodes.len();
         if total == 0 {
-            self.selected = 0;
             self.offset = 0;
             self.hovered_index = None;
             self.pressed_activation_index = None;
             return;
         }
-        self.selected = self.selected.min(total - 1);
-        if nodes.get(self.selected).is_some_and(|node| node.disabled) {
-            if let Some(next) = self.closest_selectable(self.selected, 1, &nodes) {
-                self.selected = next;
-            } else if let Some(prev) = self.closest_selectable(self.selected, -1, &nodes) {
-                self.selected = prev;
+        // Re-anchor the cursor to its projected line (hidden cursor nodes
+        // land on their nearest visible ancestor; disabled ones move to the
+        // closest selectable line).
+        let mut line = self.selected_line_in(&nodes).min(total - 1);
+        if nodes.get(line).is_some_and(|node| node.disabled) {
+            if let Some(next) = self.closest_selectable(line, 1, &nodes) {
+                line = next;
+            } else if let Some(prev) = self.closest_selectable(line, -1, &nodes) {
+                line = prev;
             }
         }
+        self.cursor = nodes.get(line).map(|n| n.id);
         self.offset = self.offset.min(self.max_offset());
         if let Some(index) = self.hovered_index {
             if index >= total {
@@ -557,41 +767,31 @@ impl Tree {
 
     fn ensure_visible(&mut self) {
         self.clamp_offsets();
-        let total = self.visible_count();
-        if total == 0 {
+        let nodes = self.visible_nodes();
+        if nodes.is_empty() {
             return;
         }
+        let selected = self.selected_line_in(&nodes);
         let viewport = self.viewport_height.max(1);
-        if self.selected < self.offset {
-            self.offset = self.selected;
-        } else if self.selected >= self.offset + viewport {
-            self.offset = self.selected + 1 - viewport;
+        if selected < self.offset {
+            self.offset = selected;
+        } else if selected >= self.offset + viewport {
+            self.offset = selected + 1 - viewport;
         }
         self.offset = self.offset.min(self.max_offset());
     }
 
-    fn node_mut_by_path<'a>(nodes: &'a mut [TreeNode], path: &[usize]) -> Option<&'a mut TreeNode> {
-        if path.is_empty() {
-            return None;
-        }
-        let idx = path[0];
-        let node = nodes.get_mut(idx)?;
-        if path.len() == 1 {
-            Some(node)
-        } else {
-            Self::node_mut_by_path(&mut node.children, &path[1..])
-        }
-    }
-
     fn emit_selected(&self, ctx: &mut crate::event::WidgetCtx, nodes: &[VisibleNode]) {
-        if let Some(node) = nodes.get(self.selected) {
+        let selected = self.selected_line_in(nodes);
+        if let Some(node) = nodes.get(selected) {
             if node.disabled {
                 return;
             }
             ctx.post_message(TreeNodeSelected {
-                index: self.selected,
+                index: selected,
                 label: node.label.clone(),
                 data: node.data.clone(),
+                node_id: node.id,
             });
         }
     }
@@ -605,29 +805,40 @@ impl Tree {
                 index,
                 label: node.label.clone(),
                 data: node.data.clone(),
+                node_id: node.id,
             });
         }
     }
 
     fn emit_highlighted(&self, ctx: &mut crate::event::WidgetCtx, nodes: &[VisibleNode]) {
-        if let Some(node) = nodes.get(self.selected) {
+        let selected = self.selected_line_in(nodes);
+        if let Some(node) = nodes.get(selected) {
             ctx.post_message(TreeNodeHighlighted {
-                index: self.selected,
+                index: selected,
                 label: node.label.clone(),
+                node_id: node.id,
             });
         }
     }
 
-    fn emit_toggled(&self, ctx: &mut crate::event::WidgetCtx, index: usize, label: String, expanded: bool) {
+    fn emit_toggled(
+        &self,
+        ctx: &mut crate::event::WidgetCtx,
+        index: usize,
+        node_id: TreeNodeId,
+        label: String,
+        expanded: bool,
+    ) {
         ctx.post_message(TreeNodeToggled {
             index,
             label: label.clone(),
             expanded,
+            node_id,
         });
         if expanded {
-            ctx.post_message(TreeNodeExpanded { index, label });
+            ctx.post_message(TreeNodeExpanded { index, label, node_id });
         } else {
-            ctx.post_message(TreeNodeCollapsed { index, label });
+            ctx.post_message(TreeNodeCollapsed { index, label, node_id });
         }
     }
 
@@ -637,12 +848,13 @@ impl Tree {
         if total == 0 {
             return;
         }
+        let selected = self.selected_line_in(&nodes);
         let next = self
             .closest_selectable(index, 1, &nodes)
             .or_else(|| self.closest_selectable(index, -1, &nodes))
-            .unwrap_or(self.selected.min(total - 1));
-        if next != self.selected {
-            self.selected = next;
+            .unwrap_or(selected.min(total - 1));
+        if next != selected {
+            self.cursor = nodes.get(next).map(|n| n.id);
             self.ensure_visible();
             self.emit_selected(ctx, &nodes);
             self.emit_highlighted(ctx, &nodes);
@@ -656,7 +868,7 @@ impl Tree {
         if total == 0 || self.selectable_count() == 0 {
             return;
         }
-        let current = self.selected as isize;
+        let current = self.selected_line_in(&nodes) as isize;
         let max = (total - 1) as isize;
         let mut next = (current + delta).clamp(0, max) as usize;
         let step = if delta >= 0 { 1 } else { -1 };
@@ -676,24 +888,21 @@ impl Tree {
 
     fn toggle_selected(&mut self, ctx: &mut crate::event::WidgetCtx) {
         let nodes = self.visible_nodes();
-        let Some(info) = nodes.get(self.selected).cloned() else {
-            return;
-        };
-        if info.disabled || !info.expandable {
-            return;
-        }
-        let mut expanded = info.expanded;
-        if let Some(node) = Self::node_mut_by_path(&mut self.roots, &info.path) {
-            node.expanded = !node.expanded;
-            expanded = node.expanded;
-        }
-        self.ensure_visible();
-        self.emit_toggled(ctx, self.selected, info.label, expanded);
-        ctx.request_repaint();
+        let selected = self.selected_line_in(&nodes);
+        self.toggle_line(selected, nodes, ctx);
     }
 
     fn toggle_index(&mut self, index: usize, ctx: &mut crate::event::WidgetCtx) {
         let nodes = self.visible_nodes();
+        self.toggle_line(index, nodes, ctx);
+    }
+
+    fn toggle_line(
+        &mut self,
+        index: usize,
+        nodes: Vec<VisibleNode>,
+        ctx: &mut crate::event::WidgetCtx,
+    ) {
         let Some(info) = nodes.get(index).cloned() else {
             return;
         };
@@ -701,18 +910,18 @@ impl Tree {
             return;
         }
         let mut expanded = info.expanded;
-        if let Some(node) = Self::node_mut_by_path(&mut self.roots, &info.path) {
+        if let Some(node) = self.nodes.get_mut(info.id) {
             node.expanded = !node.expanded;
             expanded = node.expanded;
         }
         self.ensure_visible();
-        self.emit_toggled(ctx, index, info.label, expanded);
+        self.emit_toggled(ctx, index, info.id, info.label, expanded);
         ctx.request_repaint();
     }
 
     fn collapse_or_parent(&mut self, ctx: &mut crate::event::WidgetCtx) {
         let nodes = self.visible_nodes();
-        let Some(info) = nodes.get(self.selected).cloned() else {
+        let Some(info) = nodes.get(self.selected_line_in(&nodes)).cloned() else {
             return;
         };
         if info.disabled {
@@ -736,7 +945,8 @@ impl Tree {
 
     fn expand_or_child(&mut self, ctx: &mut crate::event::WidgetCtx) {
         let nodes = self.visible_nodes();
-        let Some(info) = nodes.get(self.selected).cloned() else {
+        let selected = self.selected_line_in(&nodes);
+        let Some(info) = nodes.get(selected).cloned() else {
             return;
         };
         if info.disabled || !info.expandable {
@@ -748,7 +958,7 @@ impl Tree {
         }
         let current_depth = info.depth;
         if let Some(child_index) =
-            (self.selected + 1..nodes.len()).find(|idx| nodes[*idx].depth == current_depth + 1)
+            (selected + 1..nodes.len()).find(|idx| nodes[*idx].depth == current_depth + 1)
         {
             self.select_index(child_index, ctx);
         }
@@ -759,7 +969,8 @@ impl Tree {
     /// Move cursor to the previous sibling; if none, move to parent.
     fn cursor_previous_sibling(&mut self, ctx: &mut crate::event::WidgetCtx) {
         let nodes = self.visible_nodes();
-        let Some(info) = nodes.get(self.selected) else {
+        let selected = self.selected_line_in(&nodes);
+        let Some(info) = nodes.get(selected) else {
             return;
         };
         let target_depth = info.depth;
@@ -769,7 +980,7 @@ impl Tree {
             Vec::new()
         };
 
-        for i in (0..self.selected).rev() {
+        for i in (0..selected).rev() {
             let n = &nodes[i];
             // Same parent and depth → sibling
             if n.depth == target_depth
@@ -796,7 +1007,8 @@ impl Tree {
     /// climb to the parent and try *its* next sibling instead.
     fn cursor_next_sibling(&mut self, ctx: &mut crate::event::WidgetCtx) {
         let nodes = self.visible_nodes();
-        let Some(info) = nodes.get(self.selected) else {
+        let selected = self.selected_line_in(&nodes);
+        let Some(info) = nodes.get(selected) else {
             return;
         };
         let target_depth = info.depth;
@@ -806,7 +1018,7 @@ impl Tree {
             Vec::new()
         };
 
-        for (i, n) in nodes.iter().enumerate().skip(self.selected + 1) {
+        for (i, n) in nodes.iter().enumerate().skip(selected + 1) {
             if n.depth == target_depth
                 && n.path.len() == info.path.len()
                 && (parent_path.is_empty() || n.path[..n.path.len() - 1] == parent_path)
@@ -852,7 +1064,7 @@ impl Tree {
     /// Move cursor directly to the parent node.
     fn cursor_parent(&mut self, ctx: &mut crate::event::WidgetCtx) {
         let nodes = self.visible_nodes();
-        let Some(info) = nodes.get(self.selected) else {
+        let Some(info) = nodes.get(self.selected_line_in(&nodes)) else {
             return;
         };
         if info.path.len() <= 1 {
@@ -871,34 +1083,44 @@ impl Tree {
     /// otherwise collapse them all.  Each sibling's full subtree is also toggled.
     fn toggle_expand_all_selected(&mut self, ctx: &mut crate::event::WidgetCtx) {
         let nodes = self.visible_nodes();
-        let Some(info) = nodes.get(self.selected).cloned() else {
+        let selected = self.selected_line_in(&nodes);
+        let Some(info) = nodes.get(selected).cloned() else {
             return;
         };
         // Need a parent to determine siblings (root-level excluded per Python).
-        if info.path.len() <= 1 {
-            return;
-        }
-        let parent_path = info.path[..info.path.len() - 1].to_vec();
-        let Some(parent) = Self::node_mut_by_path(&mut self.roots, &parent_path) else {
+        let Some(parent) = self.nodes.get(info.id).and_then(|n| n.parent) else {
             return;
         };
+        let siblings: Vec<TreeNodeId> = self.nodes[parent].children.clone();
 
         // Check if all expandable siblings are collapsed.
-        let all_collapsed = parent.children.iter().all(|child| {
-            let expandable = child.allow_expand || !child.children.is_empty();
-            !expandable || !child.expanded
+        let all_collapsed = siblings.iter().all(|&child| {
+            let node = &self.nodes[child];
+            !node.is_expandable() || !node.expanded
         });
         let new_state = all_collapsed; // expand all if all collapsed, else collapse all
 
-        for child in &mut parent.children {
-            if child.allow_expand || !child.children.is_empty() {
-                set_all_expanded(child, new_state);
-            }
+        for child in siblings {
+            self.set_all_expanded(child, new_state);
         }
 
         self.ensure_visible();
-        self.emit_toggled(ctx, self.selected, info.label, new_state);
+        self.emit_toggled(ctx, selected, info.id, info.label, new_state);
         ctx.request_repaint();
+    }
+
+    /// Set `expanded` on `id` and every expandable descendant.
+    fn set_all_expanded(&mut self, id: TreeNodeId, value: bool) {
+        let Some(node) = self.nodes.get_mut(id) else {
+            return;
+        };
+        if node.is_expandable() {
+            node.expanded = value;
+        }
+        let children = node.children.clone();
+        for child in children {
+            self.set_all_expanded(child, value);
+        }
     }
 
     fn scroll_offset(&mut self, delta_rows: isize, ctx: &mut crate::event::WidgetCtx) {
@@ -913,17 +1135,6 @@ impl Tree {
             ctx.request_repaint();
             ctx.set_handled();
         }
-    }
-
-    fn max_line_width(&self) -> usize {
-        let mut max_width = 1usize;
-        for node in self.visible_nodes() {
-            let prefix =
-                Self::row_prefix(&node, false, self.show_guides, self.guide_depth, self.hide_twisty);
-            let width = rich_rs::cell_len(&prefix).saturating_add(rich_rs::cell_len(&node.label));
-            max_width = max_width.max(width);
-        }
-        max_width
     }
 
     fn closest_selectable(
@@ -951,169 +1162,6 @@ impl Tree {
                 return Some(idx);
             }
         }
-    }
-
-    #[allow(dead_code)] // Used by tests; render now resolves per-component styles directly.
-    fn node_classes(
-        node: &VisibleNode,
-        highlighted: bool,
-        hovered: bool,
-        focused: bool,
-    ) -> Vec<String> {
-        let mut classes = vec!["tree--node".to_string()];
-        if highlighted {
-            classes.push("-highlighted".to_string());
-        }
-        if hovered && !highlighted {
-            classes.push("-hover".to_string());
-        }
-        if highlighted && focused {
-            classes.push("-focus".to_string());
-        }
-        if node.expandable {
-            classes.push("-branch".to_string());
-        } else {
-            classes.push("-leaf".to_string());
-        }
-        if node.expanded {
-            classes.push("-expanded".to_string());
-        } else {
-            classes.push("-collapsed".to_string());
-        }
-        if node.disabled {
-            classes.push("-disabled".to_string());
-        }
-        classes.extend(node.component_classes.iter().cloned());
-        classes
-    }
-
-    /// Render a tree node label, parsing Rich markup if present.
-    ///
-    /// Falls back to plain styled text if the label contains no markup or
-    /// if parsing fails. Mirrors Python's `rich.text.Text` label storage
-    /// where per-character styling is preserved.
-    fn render_label_markup(
-        label: &str,
-        base_style: rich_rs::Style,
-        console: &Console,
-    ) -> Vec<Segment> {
-        // Avoid parsing arbitrary bracketed labels as markup.
-        // Parse only when the label has an explicit closing tag pattern.
-        if !(label.contains('[') && label.contains("[/")) {
-            return vec![Segment::styled(label.to_string(), base_style)];
-        }
-        match rich_rs::markup::render(label, false) {
-            Ok(text) => {
-                // Merge the base label style (cursor/highlight/component) with
-                // any inline markup styles. The base style applies to unstyled
-                // portions; markup styles layer on top.
-                let opts = ConsoleOptions {
-                    size: (label.len().max(1) + 20, 1),
-                    max_width: label.len().max(1) + 20,
-                    no_wrap: true,
-                    ..console.options().clone()
-                };
-                let rendered: Vec<Segment> = text.render(console, &opts).into_iter().collect();
-                // Apply base style to segments that have no explicit style.
-                rendered
-                    .into_iter()
-                    .map(|seg| match seg.style {
-                        Some(s) => Segment::styled(seg.text, base_style + s),
-                        None => Segment::styled(seg.text, base_style),
-                    })
-                    .collect()
-            }
-            Err(_) => vec![Segment::styled(label.to_string(), base_style)],
-        }
-    }
-
-    fn twisty(node: &VisibleNode, hide_twisty: bool) -> &'static str {
-        if hide_twisty || !node.expandable {
-            ""
-        } else if node.expanded {
-            "▼ "
-        } else {
-            "▶ "
-        }
-    }
-
-    fn guide_prefix(node: &VisibleNode, show_guides: bool, guide_depth: usize) -> String {
-        if node.depth == 0 {
-            return String::new();
-        }
-        let gd = guide_depth.clamp(2, 10);
-        let mut prefix = String::new();
-
-        // Ancestor continuation lines for visual depths 1..depth-1
-        for level in 1..node.depth {
-            if show_guides && !node.is_last_at_depth[level] {
-                prefix.push('│');
-                for _ in 0..gd - 1 {
-                    prefix.push(' ');
-                }
-            } else {
-                for _ in 0..gd {
-                    prefix.push(' ');
-                }
-            }
-        }
-
-        // Branch connector for this node
-        if show_guides {
-            if node.is_last_at_depth[node.depth] {
-                prefix.push('└');
-            } else {
-                prefix.push('├');
-            }
-            for _ in 0..gd.saturating_sub(2) {
-                prefix.push('─');
-            }
-            prefix.push(' ');
-        } else {
-            for _ in 0..gd {
-                prefix.push(' ');
-            }
-        }
-
-        prefix
-    }
-
-    fn row_prefix(
-        node: &VisibleNode,
-        _highlighted: bool,
-        show_guides: bool,
-        guide_depth: usize,
-        hide_twisty: bool,
-    ) -> String {
-        format!(
-            "{}{}",
-            Self::guide_prefix(node, show_guides, guide_depth),
-            Self::twisty(node, hide_twisty)
-        )
-    }
-
-    fn twisty_hit_max_x(
-        node: &VisibleNode,
-        show_guides: bool,
-        guide_depth: usize,
-        hide_twisty: bool,
-    ) -> usize {
-        let guide = Self::guide_prefix(node, show_guides, guide_depth);
-        let prefix = format!("{}{}", guide, Self::twisty(node, hide_twisty));
-        let mut max_x = rich_rs::cell_len(&prefix);
-        if hide_twisty && node.expandable {
-            // With the twisty hidden (DirectoryTree), the folder emoji that
-            // leads the label is the toggle affordance (Python attaches
-            // TOGGLE_STYLE to that prefix). Extend the hit-zone over the
-            // label's leading icon (up to and including its trailing space).
-            let icon_cells = node
-                .label
-                .find(' ')
-                .map(|byte_idx| rich_rs::cell_len(&node.label[..=byte_idx]))
-                .unwrap_or_else(|| rich_rs::cell_len(&node.label));
-            max_x = max_x.saturating_add(icon_cells);
-        }
-        max_x.saturating_sub(1)
     }
 }
 
@@ -1208,7 +1256,8 @@ impl crate::widgets::Focus for Tree {
             }
             "select_cursor" => {
                 let nodes = self.visible_nodes();
-                self.emit_activated(ctx, self.selected, &nodes);
+                let selected = self.selected_line_in(&nodes);
+                self.emit_activated(ctx, selected, &nodes);
                 ctx.set_handled();
                 true
             }
@@ -1389,7 +1438,8 @@ impl crate::widgets::Interactive for Tree {
                         }
                         KeyCode::Enter => {
                             let nodes = self.visible_nodes();
-                            self.emit_activated(ctx, self.selected, &nodes);
+                            let selected = self.selected_line_in(&nodes);
+                            self.emit_activated(ctx, selected, &nodes);
                             ctx.set_handled();
                         }
                         KeyCode::Char(' ') => {
@@ -1463,234 +1513,12 @@ impl crate::widgets::Scrollable for Tree {
     }
 }
 
-impl crate::widgets::Render for Tree {
-    fn render(&self, console: &Console, options: &ConsoleOptions) -> Segments {
-        let width = options.size.0.max(1);
-        let height = options.size.1.max(1);
-        let nodes = self.visible_nodes();
-        let mut out = Segments::new();
-
-        // Resolve component styles once per render.
-        let parent_meta = crate::css::selector_meta_generic(self);
-        let parent_resolved = crate::css::resolve_style(self, &parent_meta);
-        let resolve_component = |classes: &[&str]| {
-            let meta = crate::css::selector_meta_component("", classes);
-            crate::css::with_style_stack(parent_meta.clone(), parent_resolved.clone(), || {
-                crate::css::resolve_style_for_meta(&meta)
-            })
-        };
-        let default_bg = crate::style::parse_color_like("$background")
-            .unwrap_or(crate::style::Color::rgb(0, 0, 0));
-        let component_bg_base = crate::css::current_composited_background()
-            .or(parent_resolved.bg)
-            .unwrap_or(default_bg);
-        let base_style = parent_resolved
-            .to_rich_over(component_bg_base)
-            .unwrap_or_default();
-        let guide_style = resolve_component(&["tree--guides"])
-            .to_rich_over(component_bg_base)
-            .unwrap_or(base_style);
-        let guide_hover_style = resolve_component(&["tree--guides-hover"])
-            .to_rich_over(component_bg_base)
-            .unwrap_or(guide_style);
-        let guide_selected_style = resolve_component(&["tree--guides-selected"])
-            .to_rich_over(component_bg_base)
-            .unwrap_or(guide_style);
-        let label_style = resolve_component(&["tree--label"])
-            .to_rich_over(component_bg_base)
-            .unwrap_or(base_style);
-        let cursor_style = resolve_component(&["tree--cursor"])
-            .to_rich_over(component_bg_base)
-            .unwrap_or(base_style);
-        let highlight_style = resolve_component(&["tree--highlight"])
-            .to_rich_over(component_bg_base)
-            .unwrap_or(base_style);
-        let highlight_line_style = resolve_component(&["tree--highlight-line"])
-            .to_rich_over(component_bg_base)
-            .unwrap_or(base_style);
-
-        let selected_path: Option<&[usize]> = if self.node_state().focused {
-            nodes.get(self.selected).map(|node| node.path.as_slice())
-        } else {
-            None
-        };
-        let hovered_path: Option<&[usize]> = self
-            .hovered_index
-            .and_then(|index| nodes.get(index))
-            .map(|node| node.path.as_slice());
-
-        for row in 0..height {
-            let index = self.offset + row;
-            if let Some(node) = nodes.get(index) {
-                let highlighted = index == self.selected && !node.disabled;
-                let hovered = self.hovered_index == Some(index);
-                let hover_in_path = hovered_path.is_some_and(|path| node.path.starts_with(path));
-                let row_line_style = if hover_in_path {
-                    highlight_line_style
-                } else {
-                    rich_rs::Style::default()
-                };
-
-                // Per-level guide style, mirroring Python `_tree.py::_render_line`.
-                // A guide at visual `level` is styled selected/hover only when an
-                // ANCESTOR strictly above that level is the cursor/hover node; the
-                // selected style propagates to a node's DESCENDANT guides, not to
-                // the node's own connector. So the cursor row's own `├──`/`│`
-                // guides keep the base (muted `$surface-lighten-3`) colour, while
-                // Python's `$block-cursor-background` only reaches deeper guides.
-                let sel_len = selected_path
-                    .filter(|sp| node.path.starts_with(sp))
-                    .map_or(usize::MAX, <[usize]>::len);
-                let hov_len = hovered_path
-                    .filter(|hp| node.path.starts_with(hp))
-                    .map_or(usize::MAX, <[usize]>::len);
-                let guide_style_at = |level: usize| -> rich_rs::Style {
-                    let base = if sel_len <= level {
-                        guide_selected_style
-                    } else if hov_len <= level {
-                        guide_hover_style
-                    } else {
-                        guide_style
-                    };
-                    base + row_line_style
-                };
-
-                // Build label style: base label + component classes + highlight + cursor.
-                let mut row_label_style = label_style + row_line_style;
-                // Apply node-specific component classes (e.g. directory-tree--file).
-                if !node.component_classes.is_empty() {
-                    let cc_refs: Vec<&str> =
-                        node.component_classes.iter().map(String::as_str).collect();
-                    if let Some(cc_style) =
-                        resolve_component(&cc_refs).to_rich_over(component_bg_base)
-                    {
-                        row_label_style = row_label_style + cc_style;
-                    }
-                }
-                if hovered {
-                    row_label_style = row_label_style + highlight_style;
-                }
-                if highlighted {
-                    row_label_style = row_label_style + cursor_style;
-                }
-
-                // Build segments for this row.
-                let mut row_segments: Vec<Segment> = Vec::new();
-
-                // 1. Guide prefix segments (per-depth styled).
-                if node.depth > 0 {
-                    let gd = self.guide_depth.clamp(2, 10);
-                    // Ancestor continuation lines.
-                    for level in 1..node.depth {
-                        let guide_text = if self.show_guides && !node.is_last_at_depth[level] {
-                            let mut s = String::with_capacity(gd);
-                            s.push('│');
-                            for _ in 0..gd - 1 {
-                                s.push(' ');
-                            }
-                            s
-                        } else {
-                            " ".repeat(gd)
-                        };
-                        row_segments.push(Segment::styled(guide_text, guide_style_at(level)));
-                    }
-                    // Branch connector for this node.
-                    let connector = if self.show_guides {
-                        let ch = if node.is_last_at_depth[node.depth] {
-                            '└'
-                        } else {
-                            '├'
-                        };
-                        let mut s = String::with_capacity(gd);
-                        s.push(ch);
-                        for _ in 0..gd.saturating_sub(2) {
-                            s.push('─');
-                        }
-                        s.push(' ');
-                        s
-                    } else {
-                        " ".repeat(gd)
-                    };
-                    row_segments.push(Segment::styled(connector, guide_style_at(node.depth)));
-                }
-
-                // Cursor label/twisty cells are fully composed above; tag them so
-                // the widget-level `background-tint` pass does not re-tint the
-                // opaque `$block-cursor-background` fill.
-                let label_start = row_segments.len();
-
-                // 2. Twisty (expand/collapse indicator).
-                let twisty = Self::twisty(node, self.hide_twisty);
-                if !twisty.is_empty() {
-                    row_segments.push(Segment::styled(twisty.to_string(), row_label_style));
-                }
-
-                // 3. Label text (with Rich markup support).
-                //
-                // Mirrors Python's TreeNode which stores `rich.text.Text` objects
-                // with per-character styling. Parse Rich markup (e.g. `[b]name[/b]`)
-                // so json_tree can render bold keys like Python does.
-                let label_segs = Self::render_label_markup(&node.label, row_label_style, console);
-                row_segments.extend(label_segs);
-
-                // When this row carries the focused cursor, its label/twisty cells
-                // paint the opaque `$block-cursor-background`; tag them `no_style`
-                // so the `Tree:focus` `background-tint` is not composited on top.
-                if highlighted && self.node_state().focused {
-                    for seg in &mut row_segments[label_start..] {
-                        tag_segment_no_style(seg);
-                    }
-                }
-
-                // Pad/crop to width.
-                // For hover-line rows, fill the entire row width with hover background.
-                // Otherwise keep trailing cells transparent so parent surface composes naturally.
-                let line = if hover_in_path {
-                    Segment::adjust_line_length(&row_segments, width, Some(row_line_style), true)
-                } else {
-                    adjust_line_length_no_bg(&row_segments, width)
-                };
-                out.extend(line);
-            } else {
-                // Empty row beyond visible nodes.
-                let line =
-                    adjust_line_length_no_bg(&[Segment::styled(String::new(), base_style)], width);
-                out.extend(line);
-            }
-            if row + 1 < height {
-                out.push(Segment::line());
-            }
-        }
-
-        out
-    }
-}
 
 // ── Free helpers for recursive tree operations ──────────────────────────
 
-fn has_any_expanded(nodes: &[TreeNode]) -> bool {
-    for node in nodes {
-        if (node.allow_expand || !node.children.is_empty()) && node.expanded {
-            return true;
-        }
-        if has_any_expanded(&node.children) {
-            return true;
-        }
-    }
-    false
-}
-
-fn set_all_expanded(node: &mut TreeNode, value: bool) {
-    if node.allow_expand || !node.children.is_empty() {
-        node.expanded = value;
-    }
-    for child in &mut node.children {
-        set_all_expanded(child, value);
-    }
-}
 #[cfg(test)]
 mod tests {
-    use super::{Tree, TreeNode, VisibleNode};
+    use super::{Tree, TreeNode, TreeNodeId, VisibleNode};
     use crate::event::{Event, EventCtx, MouseDownEvent, MouseUpEvent};
     use crate::keys::KeyEventData;
     use crate::message::*;
@@ -1717,6 +1545,7 @@ mod tests {
     fn highlighted_node_uses_highlight_class_not_hover() {
         let tree = Tree::new(vec![TreeNode::new("Root")]);
         let node = VisibleNode {
+            id: TreeNodeId::default(),
             path: vec![0],
             depth: 0,
             label: "Root".to_string(),
@@ -1738,6 +1567,7 @@ mod tests {
     #[test]
     fn node_classes_include_component_classes() {
         let node = VisibleNode {
+            id: TreeNodeId::default(),
             path: vec![0],
             depth: 0,
             label: "entry.txt".to_string(),
@@ -2129,11 +1959,11 @@ mod tests {
     // ── Phase 1 tests: root access, clear, reset, set_label, expand ──
 
     #[test]
-    fn tree_root_mut_returns_first_root() {
+    fn tree_root_label_mutates_via_id_api() {
         let mut tree = Tree::new(vec![TreeNode::new("Root")]);
-        let root = tree.root_mut().expect("should have a root");
-        assert_eq!(root.label(), "Root");
-        root.set_label("NewRoot");
+        let root_id = tree.root_id().expect("should have a root");
+        assert_eq!(tree.label_of(root_id), Some("Root"));
+        tree.set_label(root_id, "NewRoot").expect("root id resolves");
         assert_eq!(tree.root().unwrap().label(), "NewRoot");
     }
 
@@ -2144,12 +1974,12 @@ mod tests {
                 .with_child(TreeNode::new("A"))
                 .with_child(TreeNode::new("B")),
         ]);
-        assert_eq!(tree.root().unwrap().children.len(), 2);
+        assert_eq!(tree.root().unwrap().child_count(), 2);
         tree.clear();
         // Root preserved, children cleared.
         let root = tree.root().expect("root should survive clear()");
         assert_eq!(root.label(), "Root");
-        assert!(root.children.is_empty());
+        assert_eq!(root.child_count(), 0);
     }
 
     #[test]
@@ -2160,7 +1990,7 @@ mod tests {
         tree.reset("Fresh");
         let root = tree.root().expect("reset should create a root");
         assert_eq!(root.label(), "Fresh");
-        assert!(root.children.is_empty());
+        assert_eq!(root.child_count(), 0);
     }
 
     #[test]
@@ -2250,5 +2080,113 @@ mod tests {
                 binding.key, binding.description
             );
         }
+    }
+
+    // ── Key-identity message/cursor ports (Python tests/tree/test_tree_cursor.py
+    //    and test_tree_messages.py, adapted to the Rust message model) ──────────
+
+    fn cursor_fixture() -> Tree {
+        // Python TreeApp fixture: Tree("tree") with an expanded root and one
+        // "leaf" child.
+        let mut tree = Tree::new(vec![
+            TreeNode::new("tree")
+                .expanded(true)
+                .with_child(TreeNode::new("leaf")),
+        ]);
+        tree.on_layout(24, 4);
+        tree
+    }
+
+    #[test]
+    fn select_node_by_id_posts_selected_and_highlighted_with_node_id() {
+        let mut tree = cursor_fixture();
+        let leaf = tree.root().unwrap().child_ids()[0];
+        let mut ctx = EventCtx::default();
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            tree.select_node_by_id(leaf, &mut __w).expect("live id");
+        }
+        let messages = ctx.take_messages();
+        let selected = messages
+            .iter()
+            .find_map(|m| m.downcast_ref::<TreeNodeSelected>())
+            .expect("TreeNodeSelected posted");
+        assert_eq!(selected.node_id, leaf);
+        assert_eq!(selected.index, 1);
+        let highlighted = messages
+            .iter()
+            .find_map(|m| m.downcast_ref::<TreeNodeHighlighted>())
+            .expect("TreeNodeHighlighted posted");
+        assert_eq!(highlighted.node_id, leaf);
+        // The message id round-trips into a lookup (the live-borrow-safe
+        // handler idiom: capture the Copy key, defer the mutation).
+        assert_eq!(tree.get_node_by_id(selected.node_id).unwrap().label(), "leaf");
+    }
+
+    #[test]
+    fn select_node_by_id_with_stale_id_errors() {
+        let mut tree = cursor_fixture();
+        let leaf = tree.root().unwrap().child_ids()[0];
+        tree.remove(leaf).expect("leaf removable");
+        let mut ctx = EventCtx::default();
+        let result = {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            tree.select_node_by_id(leaf, &mut __w)
+        };
+        assert_eq!(result, Err(super::TreeError::UnknownNode(leaf)));
+        assert!(ctx.take_messages().is_empty());
+    }
+
+    #[test]
+    fn move_cursor_moves_highlight_without_selecting() {
+        // Python test_move_cursor: moving the cursor posts no Selected message.
+        let mut tree = cursor_fixture();
+        let leaf = tree.root().unwrap().child_ids()[0];
+        tree.move_cursor(Some(leaf));
+        assert_eq!(tree.cursor_node_id(), Some(leaf));
+        assert_eq!(tree.selected(), 1);
+        // Python test_move_cursor_reset: move_cursor(None) resets to the top.
+        tree.move_cursor(None);
+        assert_eq!(tree.cursor_node_id(), tree.root_id());
+        assert_eq!(tree.selected(), 0);
+    }
+
+    #[test]
+    fn toggle_posts_toggled_and_expanded_with_node_id() {
+        let mut tree = Tree::new(vec![
+            TreeNode::new("Root").with_child(TreeNode::new("Child")),
+        ]);
+        tree.on_layout(24, 4);
+        let root_id = tree.root_id().expect("root");
+        let mut ctx = EventCtx::default();
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            tree.toggle_selected(&mut __w);
+        }
+        let messages = ctx.take_messages();
+        let toggled = messages
+            .iter()
+            .find_map(|m| m.downcast_ref::<TreeNodeToggled>())
+            .expect("TreeNodeToggled posted");
+        assert!(toggled.expanded);
+        assert_eq!(toggled.node_id, root_id);
+        let expanded = messages
+            .iter()
+            .find_map(|m| m.downcast_ref::<TreeNodeExpanded>())
+            .expect("TreeNodeExpanded posted");
+        assert_eq!(expanded.node_id, root_id);
+
+        // Collapsing posts TreeNodeCollapsed with the same id.
+        let mut ctx = EventCtx::default();
+        {
+            let mut __w = crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            tree.toggle_selected(&mut __w);
+        }
+        let messages = ctx.take_messages();
+        let collapsed = messages
+            .iter()
+            .find_map(|m| m.downcast_ref::<TreeNodeCollapsed>())
+            .expect("TreeNodeCollapsed posted");
+        assert_eq!(collapsed.node_id, root_id);
     }
 }

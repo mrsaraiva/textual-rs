@@ -695,6 +695,7 @@ mod tests {
                     index: 1,
                     label: "alpha.txt".to_string(),
                     data: None,
+                    node_id: crate::widgets::TreeNodeId::default(),
                 },
             ),
             &mut __w);
@@ -727,6 +728,7 @@ mod tests {
                     index: 1,
                     label: "nested".to_string(),
                     data: None,
+                    node_id: crate::widgets::TreeNodeId::default(),
                 },
             ),
             &mut __w);
@@ -759,6 +761,7 @@ mod tests {
                     index: 1,
                     label: "nested".to_string(),
                     expanded: true,
+                    node_id: crate::widgets::TreeNodeId::default(),
                 },
             ),
             &mut __w);
@@ -800,6 +803,7 @@ mod tests {
                     index: 1,
                     label: "nested".to_string(),
                     expanded: false,
+                    node_id: crate::widgets::TreeNodeId::default(),
                 },
             ),
             &mut __w);
@@ -816,6 +820,7 @@ mod tests {
                     index: 1,
                     label: "nested".to_string(),
                     expanded: true,
+                    node_id: crate::widgets::TreeNodeId::default(),
                 },
             ),
             &mut __w);
@@ -880,6 +885,7 @@ mod tests {
                     index: 1,
                     label: "nested".to_string(),
                     expanded: true,
+                    node_id: crate::widgets::TreeNodeId::default(),
                 },
             ),
             &mut __w);
@@ -896,6 +902,7 @@ mod tests {
                     index: 1,
                     label: "nested".to_string(),
                     expanded: false,
+                    node_id: crate::widgets::TreeNodeId::default(),
                 },
             ),
             &mut __w);

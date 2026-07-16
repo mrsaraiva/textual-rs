@@ -62,10 +62,14 @@ impl TextualApp for JsonTreeApp {
                     let json_clone = json.clone();
                     let _ = self.tree.handle().and_then(|h| {
                         h.update(app, |tree, _ctx| {
-                            if let Some(root) = tree.root_mut() {
-                                let json_node = root.add_child(TreeNode::new("JSON"));
-                                add_json(json_node, "JSON", &json_clone);
-                                root.expand();
+                            if let Some(root_id) = tree.root_id() {
+                                // Build the subtree as a declarative seed, then
+                                // insert it under the root by id (Python:
+                                // `json_node = tree.root.add("JSON")`).
+                                let mut seed = TreeNode::new("JSON");
+                                add_json(&mut seed, "JSON", &json_clone);
+                                let _ = tree.add(root_id, seed);
+                                let _ = tree.expand(root_id);
                             }
                         })
                     });
@@ -182,28 +186,31 @@ mod tests {
     fn json_tree_adds_children_under_root() {
         let mut tree = Tree::new(vec![TreeNode::new("Root").allow_expand(true)]);
         let data: Value = serde_json::from_str(r#"{"key": "value"}"#).unwrap();
-        if let Some(root) = tree.root_mut() {
-            let json_node = root.add_child(TreeNode::new("JSON"));
-            add_json(json_node, "JSON", &data);
-            root.expand();
-        }
+        let root_id = tree.root_id().expect("tree has a root");
+        let mut seed = TreeNode::new("JSON");
+        add_json(&mut seed, "JSON", &data);
+        let json_id = tree.add(root_id, seed).expect("root id resolves");
+        tree.expand(root_id).expect("root id resolves");
         // Root should still be the only root, with children added beneath it
         assert!(tree.root().is_some());
         assert_eq!(tree.root().unwrap().label(), "Root");
+        assert_eq!(tree.parent_of(json_id), Some(root_id));
     }
 
     #[test]
     fn json_tree_clear_preserves_root() {
         let mut tree = Tree::new(vec![TreeNode::new("Root").allow_expand(true)]);
         let data: Value = serde_json::from_str(r#"{"a": 1}"#).unwrap();
-        if let Some(root) = tree.root_mut() {
-            let json_node = root.add_child(TreeNode::new("JSON"));
-            add_json(json_node, "JSON", &data);
-        }
+        let root_id = tree.root_id().expect("tree has a root");
+        let mut seed = TreeNode::new("JSON");
+        add_json(&mut seed, "JSON", &data);
+        let json_id = tree.add(root_id, seed).expect("root id resolves");
         tree.clear();
-        // Root preserved, children cleared
+        // Root preserved, children cleared; the cleared subtree's ids no
+        // longer resolve (arena purge).
         assert!(tree.root().is_some());
         assert_eq!(tree.root().unwrap().label(), "Root");
+        assert!(tree.node(json_id).is_none());
     }
 
     #[test]

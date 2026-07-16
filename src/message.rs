@@ -254,12 +254,18 @@ crate::impl_message!(ListItemChildClicked);
 #[derive(Debug, Clone)]
 pub struct OptionHighlighted {
     pub index: usize,
+    /// Stable id of the highlighted option, if it has one (Python parity:
+    /// `OptionMessage.option_id`).
+    pub option_id: Option<crate::widgets::OptionId>,
 }
 crate::impl_message!(OptionHighlighted, replaceable);
 
 #[derive(Debug, Clone)]
 pub struct OptionSelected {
     pub index: usize,
+    /// Stable id of the selected option, if it has one (Python parity:
+    /// `OptionMessage.option_id`).
+    pub option_id: Option<crate::widgets::OptionId>,
 }
 crate::impl_message!(OptionSelected);
 
@@ -290,6 +296,8 @@ crate::impl_message!(SelectOverlayDismiss);
 pub struct SelectionListToggled {
     pub index: usize,
     pub selected: bool,
+    /// Stable id of the toggled selection, if it has one.
+    pub option_id: Option<crate::widgets::OptionId>,
 }
 crate::impl_message!(SelectionListToggled);
 
@@ -399,6 +407,10 @@ pub struct TreeNodeSelected {
     pub label: String,
     /// Optional user data from the selected TreeNode.
     pub data: Option<String>,
+    /// Stable id of the selected node (Python carries the node object; the
+    /// id is the ownable Rust equivalent). `TreeNodeId::default()` (the null
+    /// key) when identity is unavailable.
+    pub node_id: crate::widgets::TreeNodeId,
 }
 crate::impl_message!(TreeNodeSelected);
 
@@ -408,6 +420,8 @@ pub struct TreeNodeActivated {
     pub label: String,
     /// Optional user data from the activated TreeNode.
     pub data: Option<String>,
+    /// Stable id of the activated node.
+    pub node_id: crate::widgets::TreeNodeId,
 }
 crate::impl_message!(TreeNodeActivated);
 
@@ -416,6 +430,8 @@ pub struct TreeNodeToggled {
     pub index: usize,
     pub label: String,
     pub expanded: bool,
+    /// Stable id of the toggled node.
+    pub node_id: crate::widgets::TreeNodeId,
 }
 crate::impl_message!(TreeNodeToggled);
 
@@ -423,6 +439,8 @@ crate::impl_message!(TreeNodeToggled);
 pub struct TreeNodeCollapsed {
     pub index: usize,
     pub label: String,
+    /// Stable id of the collapsed node.
+    pub node_id: crate::widgets::TreeNodeId,
 }
 crate::impl_message!(TreeNodeCollapsed);
 
@@ -430,6 +448,8 @@ crate::impl_message!(TreeNodeCollapsed);
 pub struct TreeNodeExpanded {
     pub index: usize,
     pub label: String,
+    /// Stable id of the expanded node.
+    pub node_id: crate::widgets::TreeNodeId,
 }
 crate::impl_message!(TreeNodeExpanded);
 
@@ -437,6 +457,8 @@ crate::impl_message!(TreeNodeExpanded);
 pub struct TreeNodeHighlighted {
     pub index: usize,
     pub label: String,
+    /// Stable id of the highlighted node.
+    pub node_id: crate::widgets::TreeNodeId,
 }
 crate::impl_message!(TreeNodeHighlighted, replaceable);
 

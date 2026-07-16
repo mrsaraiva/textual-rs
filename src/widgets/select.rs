@@ -684,7 +684,7 @@ mod tests {
         let mut selctx = EventCtx::default();
         {
             let mut w = WidgetCtx::__from_dispatch(NodeId::default(), &mut selctx);
-            sel.on_message(&MessageEvent::new(NodeId::default(), OptionSelected { index: 2 }), &mut w);
+            sel.on_message(&MessageEvent::new(NodeId::default(), OptionSelected { index: 2, option_id: None }), &mut w);
         }
         assert!(!sel.is_open());
         assert_eq!(sel.value(), Some(&2));
@@ -705,7 +705,7 @@ mod tests {
         {
             let mut w = WidgetCtx::__from_dispatch(NodeId::default(), &mut ctx);
             // Row 0 = blank.
-            sel.on_message(&MessageEvent::new(NodeId::default(), OptionSelected { index: 0 }), &mut w);
+            sel.on_message(&MessageEvent::new(NodeId::default(), OptionSelected { index: 0, option_id: None }), &mut w);
         }
         assert!(sel.value().is_none());
     }

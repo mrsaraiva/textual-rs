@@ -32,6 +32,46 @@ impl From<&str> for OptionId {
     }
 }
 
+/// `HashMap<OptionId, usize>` lookups by `&str` (sound: `OptionId` is a
+/// single-field `String` newtype whose derived `Hash`/`Eq` delegate to the
+/// inner string, matching `str`'s).
+impl std::borrow::Borrow<str> for OptionId {
+    fn borrow(&self) -> &str {
+        &self.0
+    }
+}
+
+/// Typed errors for the `OptionList` identity API.
+///
+/// Mirrors Python's `OptionListError` hierarchy (`DuplicateID`,
+/// `OptionDoesNotExist`): lookups and CRUD return `Result` with these variants
+/// instead of raising.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OptionListError {
+    /// An option with this id already exists (Python `DuplicateID`).
+    DuplicateId(OptionId),
+    /// No option has this id (Python `OptionDoesNotExist`, by id).
+    UnknownId(OptionId),
+    /// No option exists at this index (Python `OptionDoesNotExist`, by index).
+    IndexOutOfBounds(usize),
+}
+
+impl std::fmt::Display for OptionListError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::DuplicateId(id) => {
+                write!(f, "an option with id {:?} already exists", id.as_str())
+            }
+            Self::UnknownId(id) => write!(f, "there is no option with id {:?}", id.as_str()),
+            Self::IndexOutOfBounds(index) => {
+                write!(f, "there is no option at index {index}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for OptionListError {}
+
 /// Rich content for an `OptionItem` option row.
 ///
 /// An option can hold either a [`Text`] value (pre-rendered, cheap to clone,
@@ -272,6 +312,28 @@ impl OptionItem {
 
     pub fn string_id(&self) -> Option<&str> {
         self.id().map(OptionId::as_str)
+    }
+
+    /// Replace this option's prompt in place (Python `Option._set_prompt`).
+    ///
+    /// Any rich `content` is cleared: the replacement prompt is the new visual,
+    /// exactly as Python's `_set_prompt` swaps the whole `_prompt` visual.
+    /// No-op on a separator.
+    pub fn set_prompt(&mut self, new_prompt: impl Into<String>) {
+        if let Self::Option {
+            prompt, content, ..
+        } = self
+        {
+            *prompt = new_prompt.into();
+            *content = None;
+        }
+    }
+
+    /// Set this option's disabled state in place. No-op on a separator.
+    pub fn set_disabled(&mut self, new_disabled: bool) {
+        if let Self::Option { disabled, .. } = self {
+            *disabled = new_disabled;
+        }
     }
 }
 

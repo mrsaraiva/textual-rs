@@ -7,9 +7,11 @@ use crate::message::*;
 #[path = "toggle_option.rs"]
 pub(crate) mod toggle_option;
 
+use std::collections::HashMap;
+
 use super::{NodeSeed, ScrollBar, Widget, helpers::adjust_line_length_no_bg};
 use toggle_option::OptionCursorState;
-pub use toggle_option::{OptionContent, OptionId, OptionItem};
+pub use toggle_option::{OptionContent, OptionId, OptionItem, OptionListError};
 
 pub(crate) const OPTION_LIST_VSCROLLBAR_ID: &str = "__option_list_vscrollbar";
 
@@ -120,6 +122,11 @@ fn finalize_highlight_line(line: &[Segment], width: usize, fill: rich_rs::Style)
 #[widget(Focus, Interactive, Layout, Scrollable)]
 pub struct OptionList {
     items: Vec<OptionItem>,
+    /// Stable-id registry: option id -> current index in `items`. Python folds
+    /// `_id_to_option` + `_option_to_index` into this single map; it is
+    /// lookup-only (`items` remains the single source of order) and is shifted
+    /// on removal exactly like `_option_list.py`'s `_option_to_index`.
+    id_to_index: HashMap<OptionId, usize>,
     cursor: OptionCursorState,
     disabled: bool,
     offset: usize,
@@ -155,6 +162,7 @@ impl OptionList {
         };
         Self {
             items: Vec::new(),
+            id_to_index: HashMap::new(),
             cursor: OptionCursorState::default(),
             disabled: false,
             offset: 0,
@@ -176,11 +184,41 @@ impl OptionList {
     }
 
     /// Create an `OptionList` pre-populated with items.
+    ///
+    /// # Panics
+    ///
+    /// Panics if two items carry the same id. Python parity: `OptionList(...)`
+    /// raises `DuplicateID` out of `__init__`; construction-time duplicates are
+    /// programmer error, not recoverable state. Use the incremental
+    /// [`Self::add_option`] / [`Self::add_options`] family for fallible adds.
     pub fn with_items(items: Vec<OptionItem>) -> Self {
         let mut list = Self::new();
+        list.id_to_index = match Self::build_registry(&items) {
+            Ok(map) => map,
+            Err(OptionListError::DuplicateId(id)) => {
+                panic!(
+                    "OptionList::with_items: duplicate option id {:?}",
+                    id.as_str()
+                )
+            }
+            Err(other) => panic!("OptionList::with_items: {other}"),
+        };
         list.items = items;
         list.cursor.set_highlighted(list.first_selectable());
         list
+    }
+
+    /// Build an id registry for `items`, rejecting duplicate ids.
+    fn build_registry(items: &[OptionItem]) -> Result<HashMap<OptionId, usize>, OptionListError> {
+        let mut map = HashMap::new();
+        for (index, item) in items.iter().enumerate() {
+            if let Some(id) = item.id() {
+                if map.insert(id.clone(), index).is_some() {
+                    return Err(OptionListError::DuplicateId(id.clone()));
+                }
+            }
+        }
+        Ok(map)
     }
 
     /// Builder: set the scroll step (number of rows per scroll tick).
@@ -197,38 +235,92 @@ impl OptionList {
 
     // ── Public API ──────────────────────────────────────────────────
 
-    /// Add a selectable option.
-    pub fn add_option(&mut self, prompt: impl Into<String>, id: Option<OptionId>, disabled: bool) {
+    /// Register `item`'s id (rejecting duplicates before any mutation) and
+    /// append it, moving the highlight onto the first selectable item added to
+    /// a highlight-less list.
+    fn push_item(&mut self, item: OptionItem) -> Result<(), OptionListError> {
+        if let Some(id) = item.id() {
+            if self.id_to_index.contains_key(id.as_str()) {
+                return Err(OptionListError::DuplicateId(id.clone()));
+            }
+            self.id_to_index.insert(id.clone(), self.items.len());
+        }
         let was_empty = self.cursor.highlighted().is_none();
-        self.items.push(OptionItem::Option {
+        let selectable = item.is_selectable();
+        self.items.push(item);
+        if was_empty && selectable {
+            self.cursor.set_highlighted(Some(self.items.len() - 1));
+        }
+        Ok(())
+    }
+
+    /// Add a selectable option.
+    ///
+    /// Returns `Err(OptionListError::DuplicateId)` if an option with the same
+    /// id already exists (Python `DuplicateID`); the list is not modified.
+    pub fn add_option(
+        &mut self,
+        prompt: impl Into<String>,
+        id: Option<OptionId>,
+        disabled: bool,
+    ) -> Result<(), OptionListError> {
+        self.push_item(OptionItem::Option {
             prompt: prompt.into(),
             content: None,
             id,
             disabled,
-        });
-        if was_empty && !disabled {
-            self.cursor.set_highlighted(Some(self.items.len() - 1));
+        })
+    }
+
+    /// Add a pre-built [`OptionItem`] (option or separator).
+    ///
+    /// Returns `Err(OptionListError::DuplicateId)` if the item's id collides
+    /// with an existing option; the list is not modified.
+    pub fn add_item(&mut self, item: OptionItem) -> Result<(), OptionListError> {
+        self.push_item(item)
+    }
+
+    /// Add a batch of items, mirroring Python `OptionList.add_options`.
+    ///
+    /// The whole batch is validated before any mutation (duplicate ids within
+    /// the batch or against existing options): a failing batch adds NOTHING
+    /// (Python parity, `_option_list.py` whole-batch pre-check).
+    pub fn add_options(&mut self, items: Vec<OptionItem>) -> Result<(), OptionListError> {
+        {
+            let mut incoming: std::collections::HashSet<&str> = std::collections::HashSet::new();
+            for item in &items {
+                if let Some(id) = item.id() {
+                    if self.id_to_index.contains_key(id.as_str()) || !incoming.insert(id.as_str())
+                    {
+                        return Err(OptionListError::DuplicateId(id.clone()));
+                    }
+                }
+            }
         }
+        for item in items {
+            self.push_item(item)
+                .expect("pre-validated batch cannot collide");
+        }
+        Ok(())
     }
 
     /// Add a selectable option with rich [`Text`] content.
+    ///
+    /// Returns `Err(OptionListError::DuplicateId)` on id collision; the list
+    /// is not modified.
     pub fn add_rich_option(
         &mut self,
         label: impl Into<String>,
         content: Text,
         id: Option<OptionId>,
         disabled: bool,
-    ) {
-        let was_empty = self.cursor.highlighted().is_none();
-        self.items.push(OptionItem::Option {
+    ) -> Result<(), OptionListError> {
+        self.push_item(OptionItem::Option {
             prompt: label.into(),
             content: Some(OptionContent::Text(content)),
             id,
             disabled,
-        });
-        if was_empty && !disabled {
-            self.cursor.set_highlighted(Some(self.items.len() - 1));
-        }
+        })
     }
 
     /// Add a selectable option with arbitrary [`Renderable`] content.
@@ -236,23 +328,22 @@ impl OptionList {
     /// The renderable is stored as `Arc<dyn Renderable>` and rendered live at
     /// the runtime widget width. Use this for `Table`, `Panel`, and other
     /// multi-row or dynamically-sized renderables.
+    ///
+    /// Returns `Err(OptionListError::DuplicateId)` on id collision; the list
+    /// is not modified.
     pub fn add_renderable_option(
         &mut self,
         label: impl Into<String>,
         renderable: impl Renderable + 'static,
         id: Option<OptionId>,
         disabled: bool,
-    ) {
-        let was_empty = self.cursor.highlighted().is_none();
-        self.items.push(OptionItem::Option {
+    ) -> Result<(), OptionListError> {
+        self.push_item(OptionItem::Option {
             prompt: label.into(),
             content: Some(OptionContent::Renderable(std::sync::Arc::new(renderable))),
             id,
             disabled,
-        });
-        if was_empty && !disabled {
-            self.cursor.set_highlighted(Some(self.items.len() - 1));
-        }
+        })
     }
 
     /// Add a visual separator.
@@ -263,6 +354,7 @@ impl OptionList {
     /// Remove all items from the list.
     pub fn clear_options(&mut self) {
         self.items.clear();
+        self.id_to_index.clear();
         self.cursor.clear();
         self.offset = 0;
         self.hovered_index = None;
@@ -314,12 +406,185 @@ impl OptionList {
     }
 
     /// Replace all items at once.
+    ///
+    /// # Panics
+    ///
+    /// Panics if two items carry the same id (same policy as
+    /// [`Self::with_items`]: wholesale replacement with duplicate ids is
+    /// programmer error, mirroring Python's raise out of `__init__`).
     pub fn set_items(&mut self, items: Vec<OptionItem>) {
+        self.id_to_index = match Self::build_registry(&items) {
+            Ok(map) => map,
+            Err(OptionListError::DuplicateId(id)) => {
+                panic!(
+                    "OptionList::set_items: duplicate option id {:?}",
+                    id.as_str()
+                )
+            }
+            Err(other) => panic!("OptionList::set_items: {other}"),
+        };
         self.items = items;
         self.cursor.set_highlighted(self.first_selectable());
         self.offset = 0;
         self.hovered_index = None;
         self.ensure_visible();
+    }
+
+    // ── Key-based CRUD (Python `_option_list.py` identity API) ─────────
+
+    /// Get an option by its id (Python `get_option`).
+    pub fn get_option_by_id(&self, id: &str) -> Result<&OptionItem, OptionListError> {
+        let index = self.get_option_index(id)?;
+        Ok(&self.items[index])
+    }
+
+    /// Get the current index of the option with the given id
+    /// (Python `get_option_index`).
+    pub fn get_option_index(&self, id: &str) -> Result<usize, OptionListError> {
+        self.id_to_index
+            .get(id)
+            .copied()
+            .ok_or_else(|| OptionListError::UnknownId(OptionId::from(id)))
+    }
+
+    /// Get an option by index, with a typed error for a bad index
+    /// (Python `get_option_at_index`). The `Option`-returning
+    /// [`Self::get_option`] remains for source compatibility.
+    pub fn get_option_at_index(&self, index: usize) -> Result<&OptionItem, OptionListError> {
+        self.items
+            .get(index)
+            .ok_or(OptionListError::IndexOutOfBounds(index))
+    }
+
+    /// Remove the option with the given id (Python `remove_option`).
+    pub fn remove_option(&mut self, id: &str) -> Result<(), OptionListError> {
+        let index = self.get_option_index(id)?;
+        self.remove_option_inner(index);
+        Ok(())
+    }
+
+    /// Remove the option at the given index (Python `remove_option_at_index`).
+    pub fn remove_option_at_index(&mut self, index: usize) -> Result<(), OptionListError> {
+        if index >= self.items.len() {
+            return Err(OptionListError::IndexOutOfBounds(index));
+        }
+        self.remove_option_inner(index);
+        Ok(())
+    }
+
+    /// Removal core, mirroring Python `_remove_option`: drop hover, remove the
+    /// item, unregister its id, shift the registry entries after it down by
+    /// one, then revalidate the highlight (`self.highlighted = self.highlighted`
+    /// through `validate_highlighted`: `None` when empty, clamped to the last
+    /// index otherwise) and re-clamp scroll state.
+    ///
+    /// KNOWN PARITY GAP (documented in the key-identity spec): Python posts
+    /// `OptionHighlighted` via the reactive watcher when removal moves the
+    /// highlight; this ctx-less method cannot post. Owned by the
+    /// fine-grained-messages work item.
+    fn remove_option_inner(&mut self, index: usize) {
+        debug_assert!(index < self.items.len());
+        self.hovered_index = None;
+        let removed = self.items.remove(index);
+        if let Some(id) = removed.id() {
+            self.id_to_index.remove(id.as_str());
+        }
+        for stored in self.id_to_index.values_mut() {
+            if *stored > index {
+                *stored -= 1;
+            }
+        }
+        let revalidated = if self.items.is_empty() {
+            None
+        } else {
+            self.cursor
+                .highlighted()
+                .map(|h| h.min(self.items.len() - 1))
+        };
+        self.cursor.set_highlighted(revalidated);
+        self.ensure_visible();
+    }
+
+    /// Replace the prompt of the option with the given id
+    /// (Python `replace_option_prompt`). Clears any rich content so the new
+    /// prompt is the option's visual.
+    pub fn replace_option_prompt(
+        &mut self,
+        id: &str,
+        prompt: impl Into<String>,
+    ) -> Result<(), OptionListError> {
+        let index = self.get_option_index(id)?;
+        self.items[index].set_prompt(prompt);
+        Ok(())
+    }
+
+    /// Replace the prompt of the option at the given index
+    /// (Python `replace_option_prompt_at_index`).
+    pub fn replace_option_prompt_at_index(
+        &mut self,
+        index: usize,
+        prompt: impl Into<String>,
+    ) -> Result<(), OptionListError> {
+        match self.items.get_mut(index) {
+            Some(item) if !item.is_separator() => {
+                item.set_prompt(prompt);
+                Ok(())
+            }
+            _ => Err(OptionListError::IndexOutOfBounds(index)),
+        }
+    }
+
+    /// Enable the option with the given id (Python `enable_option`).
+    pub fn enable_option(&mut self, id: &str) -> Result<(), OptionListError> {
+        let index = self.get_option_index(id)?;
+        self.set_option_disabled(index, false);
+        Ok(())
+    }
+
+    /// Disable the option with the given id (Python `disable_option`).
+    pub fn disable_option(&mut self, id: &str) -> Result<(), OptionListError> {
+        let index = self.get_option_index(id)?;
+        self.set_option_disabled(index, true);
+        Ok(())
+    }
+
+    /// Enable the option at the given index (Python `enable_option_at_index`).
+    pub fn enable_option_at_index(&mut self, index: usize) -> Result<(), OptionListError> {
+        if index >= self.items.len() || self.items[index].is_separator() {
+            return Err(OptionListError::IndexOutOfBounds(index));
+        }
+        self.set_option_disabled(index, false);
+        Ok(())
+    }
+
+    /// Disable the option at the given index (Python `disable_option_at_index`).
+    pub fn disable_option_at_index(&mut self, index: usize) -> Result<(), OptionListError> {
+        if index >= self.items.len() || self.items[index].is_separator() {
+            return Err(OptionListError::IndexOutOfBounds(index));
+        }
+        self.set_option_disabled(index, true);
+        Ok(())
+    }
+
+    /// Python `_set_option_disabled`: after flipping the flag, a change to the
+    /// HIGHLIGHTED option moves the highlight to the next enabled option
+    /// (wrapping, anchor excluded; the anchor is kept when nothing else is
+    /// enabled, matching `find_next_enabled`).
+    fn set_option_disabled(&mut self, index: usize, disabled: bool) {
+        self.items[index].set_disabled(disabled);
+        if self.cursor.highlighted() == Some(index) {
+            let len = self.items.len();
+            let mut next = None;
+            for step in 1..=len {
+                let candidate = (index + step) % len;
+                if self.items[candidate].is_selectable() {
+                    next = Some(candidate);
+                    break;
+                }
+            }
+            self.cursor.set_highlighted(next.or(Some(index)));
+            self.ensure_visible();
+        }
     }
 
     // ── Internals ───────────────────────────────────────────────────
@@ -448,6 +713,12 @@ impl OptionList {
             return 1;
         }
         let content_w = self.layout_width.saturating_sub(self.option_pad_left).max(1);
+        // Fast path: a single-line prompt that fits the content width never
+        // wraps — skip the (expensive) Console render. Keeps `total_lines`
+        // (called per item on every scroll clamp) cheap for the common case.
+        if !prompt.contains('\n') && rich_rs::cell_len(prompt) <= content_w {
+            return 1;
+        }
         let console = Console::new();
         let options = ConsoleOptions {
             size: (content_w, 100),
@@ -608,15 +879,26 @@ impl OptionList {
         self.offset = self.offset.min(self.max_offset());
     }
 
+    /// The id of the option at `index`, cloned for message payloads.
+    fn option_id_at(&self, index: usize) -> Option<OptionId> {
+        self.items.get(index).and_then(|item| item.id().cloned())
+    }
+
     fn emit_highlighted(&self, ctx: &mut crate::event::WidgetCtx) {
         if let Some(index) = self.cursor.highlighted() {
-            ctx.post_message(OptionHighlighted { index });
+            ctx.post_message(OptionHighlighted {
+                index,
+                option_id: self.option_id_at(index),
+            });
         }
     }
 
     fn emit_selected(&self, ctx: &mut crate::event::WidgetCtx) {
         if let Some(index) = self.cursor.highlighted() {
-            ctx.post_message(OptionSelected { index });
+            ctx.post_message(OptionSelected {
+                index,
+                option_id: self.option_id_at(index),
+            });
         }
     }
 
@@ -1579,10 +1861,132 @@ mod tests {
             rich_rs::Text::plain("Bold"),
             Some(OptionId::new("b")),
             false,
-        );
+        )
+        .expect("no duplicate id");
         assert_eq!(list.option_count(), 1);
         assert!(list.get_option(0).unwrap().content().is_some());
         assert_eq!(list.highlighted(), Some(0));
+    }
+
+    // ── Stable-id message fields (Python test_option_messages.py port) ──
+
+    /// Keyboard highlight movement posts `OptionHighlighted` carrying the
+    /// option's stable id next to its index.
+    #[test]
+    fn keyboard_highlight_message_carries_option_id() {
+        let items: Vec<_> = (0..10)
+            .map(|n| OptionItem::with_id(n.to_string(), n.to_string()))
+            .collect();
+        let mut list = OptionList::with_items(items);
+        list.on_layout(40, 10);
+
+        let mut ctx = EventCtx::default();
+        assert!(run_action(&mut list, "cursor_down", &mut ctx));
+        let messages = ctx.take_messages();
+        let highlighted = messages
+            .iter()
+            .find_map(|m| m.downcast_ref::<OptionHighlighted>())
+            .expect("OptionHighlighted posted");
+        assert_eq!(highlighted.index, 1);
+        assert_eq!(highlighted.option_id, Some(OptionId::new("1")));
+    }
+
+    /// Selecting posts `OptionSelected` carrying the stable id; anonymous
+    /// options carry `None`.
+    #[test]
+    fn select_message_carries_option_id() {
+        let items: Vec<_> = (0..10)
+            .map(|n| OptionItem::with_id(n.to_string(), n.to_string()))
+            .collect();
+        let mut list = OptionList::with_items(items);
+        list.on_layout(40, 10);
+
+        let mut ctx = EventCtx::default();
+        assert!(run_action(&mut list, "cursor_down", &mut ctx));
+        assert!(run_action(&mut list, "select", &mut ctx));
+        let messages = ctx.take_messages();
+        let selected = messages
+            .iter()
+            .find_map(|m| m.downcast_ref::<OptionSelected>())
+            .expect("OptionSelected posted");
+        assert_eq!(selected.index, 1);
+        assert_eq!(selected.option_id, Some(OptionId::new("1")));
+
+        let mut anon = OptionList::with_items(vec![OptionItem::new("anon")]);
+        anon.on_layout(40, 10);
+        let mut ctx = EventCtx::default();
+        assert!(run_action(&mut anon, "select", &mut ctx));
+        let messages = ctx.take_messages();
+        let selected = messages
+            .iter()
+            .find_map(|m| m.downcast_ref::<OptionSelected>())
+            .expect("OptionSelected posted");
+        assert_eq!(selected.option_id, None);
+    }
+
+    /// Mouse click posts highlight-then-select, both carrying the stable id
+    /// (Python `test_click_option_with_mouse`).
+    #[test]
+    fn mouse_click_messages_carry_option_id() {
+        let items: Vec<_> = (0..10)
+            .map(|n| OptionItem::with_id(n.to_string(), n.to_string()))
+            .collect();
+        let mut list = OptionList::with_items(items);
+        list.on_layout(40, 10);
+
+        let mut ctx = EventCtx::default();
+        {
+            let mut __w =
+                crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            list.on_event(
+                &Event::MouseDown(crate::event::MouseDownEvent {
+                    target: NodeId::default(),
+                    screen_x: 2,
+                    screen_y: 1,
+                    x: 2,
+                    y: 1,
+                }),
+                &mut __w,
+            );
+        }
+        let messages = ctx.take_messages();
+        let highlighted_pos = messages.iter().position(|m| {
+            m.downcast_ref::<OptionHighlighted>()
+                .is_some_and(|h| h.index == 1 && h.option_id == Some(OptionId::new("1")))
+        });
+        let selected_pos = messages.iter().position(|m| {
+            m.downcast_ref::<OptionSelected>()
+                .is_some_and(|s| s.index == 1 && s.option_id == Some(OptionId::new("1")))
+        });
+        assert!(highlighted_pos.is_some() && selected_pos.is_some());
+        assert!(highlighted_pos < selected_pos);
+    }
+
+    /// Clicking a disabled option posts nothing
+    /// (Python `test_click_disabled_option_with_mouse`).
+    #[test]
+    fn mouse_click_on_disabled_option_posts_no_messages() {
+        let mut list = OptionList::with_items(vec![
+            OptionItem::with_id("0", "0"),
+            OptionItem::disabled_with_id("1", "1"),
+        ]);
+        list.on_layout(40, 10);
+        let mut ctx = EventCtx::default();
+        {
+            let mut __w =
+                crate::event::WidgetCtx::__from_dispatch(crate::node_id::NodeId::default(), &mut ctx);
+            list.on_event(
+                &Event::MouseDown(crate::event::MouseDownEvent {
+                    target: NodeId::default(),
+                    screen_x: 1,
+                    screen_y: 1,
+                    x: 1,
+                    y: 1,
+                }),
+                &mut __w,
+            );
+        }
+        assert!(ctx.take_messages().is_empty());
     }
 
     #[test]

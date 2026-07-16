@@ -1134,10 +1134,10 @@ mod tests {
         let headings = toc.shared_headings.read().unwrap().clone();
         let tree = MarkdownTableOfContents::build_tree_from_headings(&headings);
         if let Some(root) = tree.root() {
-            let h1 = root.children_slice();
+            let h1: Vec<_> = root.children().collect();
             assert!(!h1.is_empty());
             assert_eq!(h1[0].data(), Some("chapter"));
-            let h2_children = h1[0].children_slice();
+            let h2_children: Vec<_> = h1[0].children().collect();
             assert!(!h2_children.is_empty());
             assert_eq!(h2_children[0].data(), Some("section"));
         }
@@ -1165,6 +1165,7 @@ mod tests {
                 index: 0,
                 label: "Chapter".to_string(),
                 data: Some("chapter".to_string()),
+                node_id: crate::widgets::TreeNodeId::default(),
             },
         );
         let mut ctx = crate::event::EventCtx::default();
@@ -1216,6 +1217,7 @@ mod tests {
                 index: 0,
                 label: "Chapter".to_string(),
                 data: Some("chapter".to_string()),
+                node_id: crate::widgets::TreeNodeId::default(),
             },
         );
         let mut ctx = crate::event::EventCtx::default();
