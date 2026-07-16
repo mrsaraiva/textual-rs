@@ -11,10 +11,15 @@
 //! These tests build a real tree (which fires `on_mount`) and drain the posted
 //! mount-time messages from the command queue, plus the concrete `Select` case.
 
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use rich_rs::{Console, ConsoleOptions};
 use textual::message::SelectChanged;
 use textual::node_id::NodeId;
-use textual::runtime::{build_widget_tree_from_root, drain_mount_posts_for_test};
+use textual::runtime::{
+    build_widget_tree_from_root, drain_absorb_outcomes_for_test, drain_mount_posts_for_test,
+};
 use textual::widgets::{Container, Select, Widget};
 
 // ---------------------------------------------------------------------------
@@ -116,5 +121,106 @@ fn select_allow_blank_true_posts_nothing_at_mount() {
     assert!(
         posts.iter().all(|m| m.downcast_ref::<SelectChanged>().is_none()),
         "blank Select posts no mount-time SelectChanged"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Gap 6: build-time `on_mount` side effects beyond messages must NOT drop.
+// A worker requested from `on_mount` during the initial tree build rides the
+// per-node `AbsorbOutcome` bundle on the deferred command queue (the Python
+// `on_mount` + `@work` startup idiom).
+// ---------------------------------------------------------------------------
+
+/// Minimal arena widget whose `on_mount` requests a closure-backed worker and
+/// (optionally) posts a message, mirroring the canonical Python startup idiom.
+struct MountWorkRequester {
+    ran: Arc<AtomicBool>,
+    also_post: bool,
+}
+
+impl Widget for MountWorkRequester {
+    fn render(&self, _console: &Console, _options: &ConsoleOptions) -> rich_rs::Segments {
+        rich_rs::Segments::new()
+    }
+
+    fn style_type(&self) -> &'static str {
+        "MountWorkRequester"
+    }
+
+    fn layout_height(&self) -> Option<usize> {
+        Some(1)
+    }
+
+    fn on_mount(&mut self, ctx: &mut textual::event::WidgetCtx) {
+        let ran = Arc::clone(&self.ran);
+        ctx.request_worker_task(Some("mount-scan"), move |_cancel| {
+            ran.store(true, Ordering::SeqCst);
+            Ok(())
+        });
+        if self.also_post {
+            ctx.post_message(MountedPing { n: 42 });
+        }
+    }
+}
+
+#[test]
+fn mount_worker_request_rides_one_absorb_outcome_bundle() {
+    // Clear any stale commands left on this thread's queue by a prior test.
+    let _ = drain_absorb_outcomes_for_test();
+
+    let ran = Arc::new(AtomicBool::new(false));
+    let mut root = Container::new().with_child(MountWorkRequester {
+        ran: Arc::clone(&ran),
+        also_post: false,
+    });
+    let _tree = build_widget_tree_from_root(&mut root).expect("tree built");
+
+    let bundles = drain_absorb_outcomes_for_test();
+    assert_eq!(
+        bundles.len(),
+        1,
+        "one effectful on_mount enqueues exactly one AbsorbOutcome bundle"
+    );
+    let (node, outcome) = &bundles[0];
+    assert_ne!(*node, NodeId::default(), "bundle is labeled with its node");
+    assert_eq!(
+        outcome.worker_requests.len(),
+        1,
+        "the mount-time worker request survives the build (was dropped pre-fix)"
+    );
+    assert_eq!(outcome.worker_requests[0].name.as_deref(), Some("mount-scan"));
+    assert_eq!(
+        outcome.worker_requests[0].owner, *node,
+        "worker owner is the mounted node"
+    );
+    assert!(
+        !ran.load(Ordering::SeqCst),
+        "the worker has only been REQUESTED at build time, not spawned"
+    );
+}
+
+#[test]
+fn mount_message_and_worker_share_one_bundle_in_mount_order() {
+    let _ = drain_absorb_outcomes_for_test();
+
+    let ran = Arc::new(AtomicBool::new(false));
+    let mut root = Container::new().with_child(MountWorkRequester {
+        ran: Arc::clone(&ran),
+        also_post: true,
+    });
+    let _tree = build_widget_tree_from_root(&mut root).expect("tree built");
+
+    let bundles = drain_absorb_outcomes_for_test();
+    assert_eq!(bundles.len(), 1, "message + worker ride the SAME bundle");
+    let (node, outcome) = &bundles[0];
+    assert_eq!(outcome.worker_requests.len(), 1);
+    assert_eq!(outcome.messages.len(), 1);
+    let ping = outcome.messages[0]
+        .downcast_ref::<MountedPing>()
+        .expect("bundled message is MountedPing");
+    assert_eq!(ping.n, 42);
+    assert_eq!(
+        outcome.messages[0].sender, *node,
+        "bundled message keeps its sender (PostUp semantics at the flush)"
     );
 }

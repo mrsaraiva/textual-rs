@@ -7,6 +7,19 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### Fixed — build-time `on_mount` side effects are no longer dropped
+
+A widget mounted during the initial tree build that requested a worker (or staged
+any other `EventCtx` side effect: animation, `run_action`, recompose, app-stop)
+from `on_mount` had it silently discarded, because no `App` existed yet to absorb
+the synthesized context and only messages were salvaged. The same widget worked
+when mounted dynamically, so the canonical Python `on_mount` + `@work` startup
+idiom was lost only in the initial build. The entire mount-time outcome now routes
+through the deferred command queue as one `AbsorbOutcome` bundle per node (mount
+order preserved), absorbed by the first settled frame exactly as a live dispatch
+would. `request_stop()` from a build-time `on_mount` now stops the app (Python
+parity). A grep confirmed no existing widget staged a now-newly-live effect.
+
 ### Fixed — deferred widget commands no longer alias across screen trees
 
 `NodeId` is a slotmap key, and independent screen trees allocate identical keys,

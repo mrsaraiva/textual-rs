@@ -1,5 +1,7 @@
 use crate::css::{StyleRule, StyleSheet, node_selector_meta, resolve_node_style};
-use crate::event::{AnimationRequest, BindingHint, ClassOp, InvalidationFlags, StyleAnimationRequest};
+use crate::event::{
+    AnimationRequest, BindingHint, ClassOp, EventCtx, InvalidationFlags, StyleAnimationRequest,
+};
 use crate::message::MessageEvent;
 use crate::node_id::{NodeId, node_id_from_ffi};
 use crate::render::{DirtyRegion, FrameBuffer};
@@ -223,6 +225,51 @@ pub struct DispatchOutcome {
 impl DispatchOutcome {
     pub fn should_repaint(&self) -> bool {
         self.handled || self.repaint_requested || self.invalidation.content
+    }
+
+    /// Capture every side effect recorded on an [`EventCtx`] into one outcome
+    /// bundle, draining the ctx's queues.
+    ///
+    /// This is the SINGLE construction point for outcome-from-ctx: every place
+    /// that fires a handler against a synthesized `EventCtx` (mount hooks,
+    /// app-level tick/timer hooks, deferred `UpdateWidget` closures) must build
+    /// its outcome here, so the field set cannot drift from the dispatch path
+    /// when `EventCtx` grows a new side-effect channel.
+    ///
+    /// `default_prevented` has no `EventCtx` source (it is a message-envelope
+    /// concept) and is always `false` here.
+    pub(crate) fn from_event_ctx(ctx: &mut EventCtx) -> Self {
+        Self {
+            handled: ctx.handled(),
+            repaint_requested: ctx.repaint_requested(),
+            invalidation: ctx.invalidation(),
+            stop_requested: ctx.stop_requested(),
+            messages: ctx.take_messages(),
+            animation_requests: ctx.take_animation_requests(),
+            style_animation_requests: ctx.take_style_animation_requests(),
+            worker_requests: ctx.take_worker_requests(),
+            recompose_nodes: ctx.take_recompose_nodes(),
+            default_prevented: false,
+            class_ops: ctx.take_class_ops(),
+        }
+    }
+
+    /// True when absorbing this outcome would be a no-op: no flags set, no
+    /// invalidation requested, and every side-effect queue empty. Lets callers
+    /// skip enqueueing an `AbsorbOutcome` command for the common effect-free
+    /// `on_mount`.
+    pub(crate) fn is_empty(&self) -> bool {
+        !self.handled
+            && !self.repaint_requested
+            && !self.stop_requested
+            && !self.default_prevented
+            && self.invalidation == InvalidationFlags::default()
+            && self.messages.is_empty()
+            && self.animation_requests.is_empty()
+            && self.style_animation_requests.is_empty()
+            && self.worker_requests.is_empty()
+            && self.recompose_nodes.is_empty()
+            && self.class_ops.is_empty()
     }
 }
 

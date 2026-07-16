@@ -2330,16 +2330,21 @@ impl App {
         // jobs so blocked workers unblock.
         let _call_from_thread_guard = CallFromThreadGuard::register();
 
-        {
+        let mut root_mount_outcome = {
             // RA2.2: the app root's own mount hook now takes a `&mut WidgetCtx`.
             // The arena tree does not exist yet (built just below), so synthesize
-            // a throwaway ctx rooted at `NodeId::default()`; the root adapter's
-            // mount does app-level setup with no node-scoped side effects.
+            // a throwaway ctx rooted at `NodeId::default()`. The ctx's outcome is
+            // captured here and absorbed after the tree is built (Gap 6 drop
+            // site B): worker requests are position-free so the deferral is
+            // unobservable, and messages are staged for the first flush with
+            // sender `NodeId::default()`, which the message router already
+            // treats as app-level.
             let mut synth = EventCtx::default();
             let mut wctx = WidgetCtx::__from_dispatch(NodeId::default(), &mut synth);
             root.on_mount(&mut wctx);
             wctx.__enqueue_reactive_if_dirty();
-        }
+            DispatchOutcome::from_event_ctx(&mut synth)
+        };
 
         // Build the arena-based widget tree by extracting children from root.
         // Runtime dispatch stays tree-driven even when only the synthetic root
@@ -2358,6 +2363,34 @@ impl App {
             }
         }
         let mut pending_invalidation = PendingInvalidation::default();
+
+        // Absorb the root's own mount-ctx outcome now that the tree exists
+        // (mirrors the `on_app_mount` absorption below). Without this, worker
+        // requests, animations and messages staged in a raw root widget's
+        // `on_mount` were silently dropped (only the reactive enqueue survived).
+        // Messages are dispatched inline (not merely staged): the shared flush
+        // only drains `pending_widget_posts` when the command/reactive queue
+        // ran, and nothing here enqueues a command, so inline dispatch — exactly
+        // as the adjacent `on_app_mount` block does — guarantees delivery.
+        if !root_mount_outcome.is_empty() {
+            let messages = std::mem::take(&mut root_mount_outcome.messages);
+            self.absorb_outcome(
+                &mut root_mount_outcome,
+                &mut pending_invalidation,
+                InvalidationScope::Global,
+            );
+            let mut msg_outcome = self.dispatch_message_queue_with_runtime(root, messages);
+            self.absorb_outcome(
+                &mut msg_outcome,
+                &mut pending_invalidation,
+                InvalidationScope::Global,
+            );
+            if root_mount_outcome.stop_requested || msg_outcome.stop_requested {
+                root.on_unmount();
+                self.finish()?;
+                return Ok(());
+            }
+        }
 
         // Dispatch app-level reactive init phase.
         //
@@ -2380,28 +2413,12 @@ impl App {
             // was never pushed and the app rendered blank. The headless startup
             // (`headless_startup`) already absorbs the mount ctx the same way;
             // the live loop must match so worker-driven screen pushes land.
-            let mut mount_outcome = DispatchOutcome {
-                handled: mount_ctx.handled(),
-                repaint_requested: mount_ctx.repaint_requested(),
-                invalidation: mount_ctx.invalidation(),
-                stop_requested: mount_ctx.stop_requested(),
-                messages: mount_ctx.take_messages(),
-                animation_requests: mount_ctx.take_animation_requests(),
-                style_animation_requests: mount_ctx.take_style_animation_requests(),
-                worker_requests: mount_ctx.take_worker_requests(),
-                recompose_nodes: mount_ctx.take_recompose_nodes(),
-                default_prevented: false,
-                class_ops: mount_ctx.take_class_ops(),
-            };
+            let mut mount_outcome = DispatchOutcome::from_event_ctx(&mut mount_ctx);
             self.absorb_outcome(
                 &mut mount_outcome,
                 &mut pending_invalidation,
                 InvalidationScope::Global,
             );
-            // Explicit `ctx.animate_style(...)` requests ride the ctx separately
-            // from the numeric `animation_requests`; enqueue them too.
-            let style_anims = mount_ctx.take_style_animation_requests();
-            self.enqueue_style_animation_requests(style_anims);
             let mut msg_outcome =
                 self.dispatch_message_queue_with_runtime(root, mount_outcome.messages);
             self.absorb_outcome(
@@ -3891,19 +3908,7 @@ impl App {
                     root.on_app_timer(self, &mut __wctx);
                     __wctx.__enqueue_reactive_if_dirty();
                 }
-                let mut timer_outcome = DispatchOutcome {
-                    handled: timer_ctx.handled(),
-                    repaint_requested: timer_ctx.repaint_requested(),
-                    invalidation: timer_ctx.invalidation(),
-                    stop_requested: timer_ctx.stop_requested(),
-                    messages: timer_ctx.take_messages(),
-                    animation_requests: timer_ctx.take_animation_requests(),
-                    style_animation_requests: timer_ctx.take_style_animation_requests(),
-                    worker_requests: timer_ctx.take_worker_requests(),
-                    recompose_nodes: timer_ctx.take_recompose_nodes(),
-                    default_prevented: false,
-                    class_ops: timer_ctx.take_class_ops(),
-                };
+                let mut timer_outcome = DispatchOutcome::from_event_ctx(&mut timer_ctx);
                 self.absorb_outcome(
                     &mut timer_outcome,
                     &mut pending_invalidation,
@@ -4244,19 +4249,7 @@ impl App {
                     root.on_app_tick(self, tick, &mut __wctx);
                     __wctx.__enqueue_reactive_if_dirty();
                 }
-                let mut app_tick_outcome = DispatchOutcome {
-                    handled: app_tick_ctx.handled(),
-                    repaint_requested: app_tick_ctx.repaint_requested(),
-                    invalidation: app_tick_ctx.invalidation(),
-                    stop_requested: app_tick_ctx.stop_requested(),
-                    messages: app_tick_ctx.take_messages(),
-                    animation_requests: app_tick_ctx.take_animation_requests(),
-                    style_animation_requests: app_tick_ctx.take_style_animation_requests(),
-                    worker_requests: app_tick_ctx.take_worker_requests(),
-                    recompose_nodes: app_tick_ctx.take_recompose_nodes(),
-                    default_prevented: false,
-                    class_ops: app_tick_ctx.take_class_ops(),
-                };
+                let mut app_tick_outcome = DispatchOutcome::from_event_ctx(&mut app_tick_ctx);
                 self.absorb_outcome(
                     &mut app_tick_outcome,
                     &mut pending_invalidation,
@@ -4417,16 +4410,18 @@ impl App {
         self.headless = true;
         self.start()?;
 
-        {
+        let mut root_mount_outcome = {
             // RA2.2: the app root's own mount hook now takes a `&mut WidgetCtx`.
             // The arena tree does not exist yet (built just below), so synthesize
-            // a throwaway ctx rooted at `NodeId::default()`; the root adapter's
-            // mount does app-level setup with no node-scoped side effects.
+            // a throwaway ctx rooted at `NodeId::default()`. As in the live
+            // loop, the ctx's outcome is captured and absorbed after the tree
+            // is built (Gap 6 drop site B).
             let mut synth = EventCtx::default();
             let mut wctx = WidgetCtx::__from_dispatch(NodeId::default(), &mut synth);
             root.on_mount(&mut wctx);
             wctx.__enqueue_reactive_if_dirty();
-        }
+            DispatchOutcome::from_event_ctx(&mut synth)
+        };
         self.build_widget_tree(root);
         if let Some(tree) = self.active_widget_tree_mut() {
             let _ = sync_widget_controlled_child_display_tree(tree, root);
@@ -4441,6 +4436,19 @@ impl App {
         }
 
         let mut pending = PendingInvalidation::default();
+
+        // Absorb the root's own mount-ctx outcome now that the tree exists
+        // (mirrors the `on_app_mount` absorption below and the live loop).
+        // Messages are dispatched inline (the shared flush only drains
+        // `pending_widget_posts` when a command/reactive entry ran); a stop
+        // request is recorded stickily by `absorb_outcome` so Pilot tests
+        // observe it via `headless_stop_requested()`.
+        if !root_mount_outcome.is_empty() {
+            let messages = std::mem::take(&mut root_mount_outcome.messages);
+            self.absorb_outcome(&mut root_mount_outcome, &mut pending, InvalidationScope::Global);
+            let mut msg_outcome = self.dispatch_message_queue_with_runtime(root, messages);
+            self.absorb_outcome(&mut msg_outcome, &mut pending, InvalidationScope::Global);
+        }
         {
             let mut mount_ctx = crate::event::EventCtx::default();
             {
@@ -4453,27 +4461,8 @@ impl App {
             // particular, worker requests issued from `on_mount_with_app`
             // (e.g. questions01's `push_screen_wait` worker) reach the headless
             // worker phase via the accumulator instead of being dropped.
-            let mut mount_outcome = DispatchOutcome {
-                handled: mount_ctx.handled(),
-                repaint_requested: mount_ctx.repaint_requested(),
-                invalidation: mount_ctx.invalidation(),
-                stop_requested: mount_ctx.stop_requested(),
-                messages: mount_ctx.take_messages(),
-                animation_requests: mount_ctx.take_animation_requests(),
-                style_animation_requests: mount_ctx.take_style_animation_requests(),
-                worker_requests: mount_ctx.take_worker_requests(),
-                recompose_nodes: mount_ctx.take_recompose_nodes(),
-                default_prevented: false,
-                class_ops: mount_ctx.take_class_ops(),
-            };
+            let mut mount_outcome = DispatchOutcome::from_event_ctx(&mut mount_ctx);
             self.absorb_outcome(&mut mount_outcome, &mut pending, InvalidationScope::Global);
-            // Explicit `ctx.animate_style(...)` requests issued from
-            // `on_mount_with_app` (e.g. animation01's opacity fade) are carried
-            // on the ctx separately from the numeric `animation_requests` above;
-            // enqueue them into the animator so the animation runs under the
-            // headless pump (anchored to the manual clock).
-            let style_anims = mount_ctx.take_style_animation_requests();
-            self.enqueue_style_animation_requests(style_anims);
             let mut msg_outcome =
                 self.dispatch_message_queue_with_runtime(root, mount_outcome.messages);
             self.absorb_outcome(&mut msg_outcome, &mut pending, InvalidationScope::Global);
@@ -4579,19 +4568,7 @@ impl App {
                     root.on_app_timer(self, &mut __wctx);
                     __wctx.__enqueue_reactive_if_dirty();
                 }
-                let mut outcome = DispatchOutcome {
-                    handled: ctx.handled(),
-                    repaint_requested: ctx.repaint_requested(),
-                    invalidation: ctx.invalidation(),
-                    stop_requested: ctx.stop_requested(),
-                    messages: ctx.take_messages(),
-                    animation_requests: ctx.take_animation_requests(),
-                    style_animation_requests: ctx.take_style_animation_requests(),
-                    worker_requests: ctx.take_worker_requests(),
-                    recompose_nodes: ctx.take_recompose_nodes(),
-                    default_prevented: false,
-                    class_ops: ctx.take_class_ops(),
-                };
+                let mut outcome = DispatchOutcome::from_event_ctx(&mut ctx);
                 self.absorb_outcome(&mut outcome, pending, InvalidationScope::Global);
                 let mut msg_outcome =
                     self.dispatch_message_queue_with_runtime(root, outcome.messages);
@@ -4917,19 +4894,7 @@ impl App {
                 root.on_app_tick(self, tick, &mut __wctx);
                 __wctx.__enqueue_reactive_if_dirty();
             }
-            let mut app_tick_outcome = DispatchOutcome {
-                handled: app_tick_ctx.handled(),
-                repaint_requested: app_tick_ctx.repaint_requested(),
-                invalidation: app_tick_ctx.invalidation(),
-                stop_requested: app_tick_ctx.stop_requested(),
-                messages: app_tick_ctx.take_messages(),
-                animation_requests: app_tick_ctx.take_animation_requests(),
-                style_animation_requests: app_tick_ctx.take_style_animation_requests(),
-                worker_requests: app_tick_ctx.take_worker_requests(),
-                recompose_nodes: app_tick_ctx.take_recompose_nodes(),
-                default_prevented: false,
-                class_ops: app_tick_ctx.take_class_ops(),
-            };
+            let mut app_tick_outcome = DispatchOutcome::from_event_ctx(&mut app_tick_ctx);
             self.absorb_outcome(&mut app_tick_outcome, &mut pending, InvalidationScope::Global);
             let mut msg_outcome =
                 self.dispatch_message_queue_with_runtime(root, app_tick_outcome.messages);
@@ -9722,5 +9687,71 @@ mod tests {
             Some("frob"),
             "on_app_unhandled_action must be called with action='frob'"
         );
+    }
+
+    // Gap 6 drop site B: the ROOT widget's own `on_mount` (fired before the
+    // tree exists, in `headless_startup`/`run_widget_tree`) staged worker
+    // requests and messages on a throwaway synth ctx that kept only the
+    // reactive-dirty enqueue. Now its outcome is captured and absorbed after
+    // the tree is built, so a worker requested from a raw root's `on_mount`
+    // actually spawns and its posted message reaches the root's own handler.
+    #[derive(Debug, Clone)]
+    struct RootMountPing;
+    crate::impl_message!(RootMountPing);
+
+    struct RootMountProbe {
+        worker_ran: Arc<std::sync::atomic::AtomicBool>,
+        ping_seen: Arc<std::sync::atomic::AtomicBool>,
+    }
+
+    impl Widget for RootMountProbe {
+        fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+            Segments::new()
+        }
+
+        fn on_mount(&mut self, ctx: &mut crate::event::WidgetCtx) {
+            let ran = Arc::clone(&self.worker_ran);
+            ctx.request_worker_task(Some("root-mount-scan"), move |_cancel| {
+                ran.store(true, Ordering::SeqCst);
+                Ok(())
+            });
+            ctx.post_message(RootMountPing);
+        }
+
+        fn on_message(&mut self, message: &MessageEvent, ctx: &mut crate::event::WidgetCtx) {
+            if message.is::<RootMountPing>() {
+                self.ping_seen.store(true, Ordering::SeqCst);
+                ctx.set_handled();
+            }
+        }
+    }
+
+    #[test]
+    fn root_on_mount_worker_and_message_survive_drop_site_b() {
+        use std::sync::atomic::AtomicBool;
+
+        let worker_ran = Arc::new(AtomicBool::new(false));
+        let ping_seen = Arc::new(AtomicBool::new(false));
+        let mut root = RootMountProbe {
+            worker_ran: Arc::clone(&worker_ran),
+            ping_seen: Arc::clone(&ping_seen),
+        };
+
+        let mut app = App::new().expect("app inits for runtime tests");
+        app.set_headless_size(80, 24);
+        app.headless_startup(&mut root)
+            .expect("headless startup succeeds");
+
+        assert!(
+            worker_ran.load(Ordering::SeqCst),
+            "worker requested from the raw ROOT widget's on_mount must spawn \
+             (drop site B: was kept only as a reactive enqueue pre-fix)"
+        );
+        assert!(
+            ping_seen.load(Ordering::SeqCst),
+            "message posted from the root's on_mount must reach its handler"
+        );
+
+        let _ = app.headless_finish(&mut root);
     }
 }

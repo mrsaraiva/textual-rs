@@ -1,7 +1,9 @@
 pub(crate) mod commands;
 pub use commands::TimerTick;
 #[doc(hidden)]
-pub use commands::{drain_class_commands_for_test, drain_mount_posts_for_test};
+pub use commands::{
+    drain_absorb_outcomes_for_test, drain_class_commands_for_test, drain_mount_posts_for_test,
+};
 mod devtools;
 pub mod dispatch_ctx;
 mod event_loop;

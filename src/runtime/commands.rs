@@ -138,6 +138,23 @@ pub(crate) enum WidgetCommand {
     /// messages. The flush pushes it onto `pending_widget_posts`, which
     /// `run_event_loop_reactive_phase` bubbles from the sender.
     PostMessage(crate::message::MessageEvent),
+    /// Absorb a full [`DispatchOutcome`] captured where no `App` existed to
+    /// absorb the synthesized `EventCtx` (a build-time `on_mount` fired by
+    /// `WidgetTree::fire_mount_callbacks`). Applied by the flush via
+    /// `App::absorb_outcome`, so worker requests, animation requests, recompose
+    /// nodes, class ops, invalidation flags and stop requests all land exactly
+    /// as if the handler had run under a live dispatch; messages keep their
+    /// PostUp semantics via `pending_widget_posts` (same routing as
+    /// [`WidgetCommand::PostMessage`]).
+    ///
+    /// `node` is debug labeling only — the apply arm must NOT gate on node
+    /// liveness: a worker requested at mount outlives its node if an early
+    /// recompose unmounted it before the flush (Python parity: workers outlive
+    /// their owner unless cancelled).
+    AbsorbOutcome {
+        node: NodeId,
+        outcome: Box<DispatchOutcome>,
+    },
     /// Pause a timer by id (deferred `TimerHandle::pause`).
     PauseTimer(u64),
     /// Resume a timer by id (deferred `TimerHandle::resume`).
@@ -221,15 +238,33 @@ pub fn drain_class_commands_for_test() -> Vec<(NodeId, crate::event::ClassOp)> {
 }
 
 /// Test/observability hook: drain the deferred command queue and return the
-/// `MessageEvent`s from `PostMessage` commands (e.g. those a build-time
-/// `on_mount` posted), dropping any non-message commands. Post-RA2.3 a widget's
-/// mount-time messages route through this queue instead of a dedicated drain.
+/// `MessageEvent`s a build-time `on_mount` posted, dropping any non-message
+/// commands. Post-RA2.3 a widget's mount-time messages route through this
+/// queue instead of a dedicated drain; since the Gap 6 fix they ride the
+/// per-node `AbsorbOutcome` bundle (alongside `PostMessage`, which other
+/// enqueue sites still use), so both carriers are drained here.
 #[doc(hidden)]
 pub fn drain_mount_posts_for_test() -> Vec<crate::message::MessageEvent> {
     take_widget_commands()
         .into_iter()
+        .flat_map(|cmd| match cmd {
+            WidgetCommand::PostMessage(message) => vec![message],
+            WidgetCommand::AbsorbOutcome { outcome, .. } => outcome.messages,
+            _ => Vec::new(),
+        })
+        .collect()
+}
+
+/// Test/observability hook: drain the deferred command queue and return the
+/// `(node, outcome)` bundles from `AbsorbOutcome` commands (those a build-time
+/// `on_mount` staged via `WidgetTree::fire_mount_callbacks`), dropping any
+/// other commands.
+#[doc(hidden)]
+pub fn drain_absorb_outcomes_for_test() -> Vec<(NodeId, DispatchOutcome)> {
+    take_widget_commands()
+        .into_iter()
         .filter_map(|cmd| match cmd {
-            WidgetCommand::PostMessage(message) => Some(message),
+            WidgetCommand::AbsorbOutcome { node, outcome } => Some((node, *outcome)),
             _ => None,
         })
         .collect()
@@ -387,6 +422,21 @@ impl App {
                 // Bubble from the sender during the flush's PostUp pass.
                 self.pending_widget_posts.push(message);
             }
+            WidgetCommand::AbsorbOutcome { node, mut outcome } => {
+                crate::debug::debug_message(&format!(
+                    "[widget-command] absorb build-time on_mount outcome for {node:?}"
+                ));
+                // Messages keep their PostUp semantics (`absorb_outcome` does
+                // not route messages): stage them for the flush to bubble from
+                // their sender, exactly as `PostMessage` does.
+                let messages = std::mem::take(&mut outcome.messages);
+                self.pending_widget_posts.extend(messages);
+                // Everything else (worker requests, animation + style-animation
+                // requests, recompose nodes, class ops, invalidation, sticky
+                // stop) lands through the same absorb path a live dispatch uses.
+                // Deliberately NOT gated on `node` liveness (see the variant doc).
+                self.absorb_outcome(&mut outcome, pending, InvalidationScope::Global);
+            }
             WidgetCommand::PauseTimer(id) => {
                 self.timers.pause(id);
             }
@@ -476,19 +526,7 @@ impl App {
 
         // Absorb the synthesized EventCtx's side effects (repaint / messages /
         // class ops the closure may have requested through the EventCtx surface).
-        let mut outcome = DispatchOutcome {
-            handled: synth_event.handled(),
-            repaint_requested: synth_event.repaint_requested(),
-            invalidation: synth_event.invalidation(),
-            stop_requested: synth_event.stop_requested(),
-            messages: synth_event.take_messages(),
-            animation_requests: synth_event.take_animation_requests(),
-            style_animation_requests: synth_event.take_style_animation_requests(),
-            worker_requests: synth_event.take_worker_requests(),
-            recompose_nodes: synth_event.take_recompose_nodes(),
-            default_prevented: false,
-            class_ops: synth_event.take_class_ops(),
-        };
+        let mut outcome = DispatchOutcome::from_event_ctx(&mut synth_event);
         // PostUp: messages posted from the closure (sender = this node) are
         // stashed for the flush to bubble from the node after its rounds converge.
         if !outcome.messages.is_empty() {

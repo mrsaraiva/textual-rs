@@ -316,11 +316,8 @@ impl WidgetTree {
             // guard so `node_id()`/`node_state()` resolve inside the hook, plus a
             // fresh `WidgetCtx`. Reactive changes + enqueued commands (e.g.
             // `set_interval`) recorded here flow to the thread-local queues drained
-            // by the next shared flush (`run_event_loop_reactive_phase`). No `App`
-            // exists at this level (this runs during tree build, before the tree is
-            // installed), so the synth `EventCtx`'s message/flag side effects are
-            // not absorbed — matching the pre-merge no-ctx `on_mount()` (which had
-            // no such side effects) and the `on_mount_ctx` set_interval flow.
+            // by the next shared flush (`run_event_loop_reactive_phase`); the synth
+            // `EventCtx`'s own side effects ride the `AbsorbOutcome` bundle below.
             let Some(state) = self.arena.get(node_id).map(|n| n.state) else {
                 continue;
             };
@@ -332,14 +329,23 @@ impl WidgetTree {
                 node.widget.on_mount(&mut wctx);
             }
             wctx.__enqueue_reactive_if_dirty();
-            // No `App` exists at build time to absorb the synth `EventCtx`, so a
-            // message posted from `on_mount` (e.g. `Select`/`ListView` initial
-            // selection) is routed through the deferred command queue — the first
-            // shared flush bubbles it from this node (retires the separate
-            // mount-message drain hook).
-            for message in synth.take_messages() {
+            // No `App` exists at build time to absorb the synth `EventCtx`, so
+            // its ENTIRE outcome — messages (e.g. `Select`/`ListView` initial
+            // selection), worker requests (the canonical Python `on_mount` +
+            // `@work` startup idiom), animation/style-animation requests,
+            // recompose nodes, class ops, invalidation and stop — is routed
+            // through the deferred command queue as ONE bundle per node. The
+            // first shared flush (`run_event_loop_reactive_phase`) absorbs it
+            // via `App::absorb_outcome` exactly as a live dispatch would, with
+            // messages keeping their PostUp semantics. One bundle per node in
+            // this mount-order loop preserves mount-order FIFO.
+            let outcome = crate::runtime::DispatchOutcome::from_event_ctx(&mut synth);
+            if !outcome.is_empty() {
                 crate::runtime::commands::enqueue_widget_command(
-                    crate::runtime::commands::WidgetCommand::PostMessage(message),
+                    crate::runtime::commands::WidgetCommand::AbsorbOutcome {
+                        node: node_id,
+                        outcome: Box::new(outcome),
+                    },
                 );
             }
         }
