@@ -189,8 +189,15 @@ fn tabbed_content_default_css_styles_inactive_tab_differently_from_active_tab() 
     assert_ne!(active_style.color, inactive_style.color);
 }
 
+// Python parity (post "more ansi styles"/"content render", _tabs.py): the old
+// `Tabs:ansi` block (bright-blue underline + transparent active tab) was
+// removed. In ANSI mode the underline bar now uses
+// `Underline:ansi > .underline--bar { color: $block-cursor-background;
+// background: $border-blurred }` (active bar cells take the component `color`,
+// background cells take the component `background` as their rule foreground),
+// and the focused active tab keeps its `$block-cursor-background` fill.
 #[test]
-fn tabbed_content_ansi_uses_bright_blue_underline_and_no_active_tab_bg() {
+fn tabbed_content_ansi_underline_uses_block_cursor_bar_over_border_blurred() {
     let _guard = set_style_context(default_widget_stylesheet());
     let _pseudos = set_app_runtime_pseudos(AppRuntimePseudos {
         ansi: true,
@@ -217,19 +224,21 @@ fn tabbed_content_ansi_uses_bright_blue_underline_and_no_active_tab_bg() {
     let buf = render_tabbed_frame(&mut tabs, 24, 2);
     let active_tab_style = buf.get(1, 0).style.expect("active tab style");
     let active_underline_style = buf.get(1, 1).style.expect("active underline style");
+    let inactive_underline_style = buf.get(16, 1).style.expect("inactive underline style");
 
     let block_cursor_bg = parse_color_like("$block-cursor-background")
         .expect("block cursor background")
         .to_simple_opaque();
-    assert_ne!(active_tab_style.bgcolor, Some(block_cursor_bg));
-    assert_eq!(
-        active_underline_style.color,
-        Some(
-            parse_color_like("ansi_bright_blue")
-                .expect("ansi bright blue")
-                .to_simple_opaque()
-        )
-    );
+    // Focused active tab keeps the block-cursor fill in ANSI mode (the old
+    // `Tabs:ansi .-active { background: transparent }` override is gone).
+    assert_eq!(active_tab_style.bgcolor, Some(block_cursor_bg));
+    // Active bar cells: component `color` ($block-cursor-background), raw and
+    // undimmed (the old `Underline:ansi { text-style: dim }` is gone).
+    assert_eq!(active_underline_style.color, Some(block_cursor_bg));
+    // Background bar cells take the component `background` as their foreground
+    // ($border-blurred, or the `Tabs:focus` 30%-foreground override while
+    // focused); either way they must differ from the active bar cells.
+    assert_ne!(inactive_underline_style.color, active_underline_style.color);
 }
 
 #[test]

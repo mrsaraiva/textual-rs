@@ -24,3 +24,10 @@ meta:
 (13,0): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_style": Bool(true)}) }
 (14,0): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_style": Bool(true)}) }
 (15,0): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_style": Bool(true)}) }
+(0,2): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_style": Bool(true)}) }
+(1,2): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_style": Bool(true)}) }
+(2,2): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_style": Bool(true)}) }
+(3,2): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_style": Bool(true)}) }
+(4,2): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_style": Bool(true)}) }
+(5,2): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_style": Bool(true)}) }
+(6,2): StyleMeta { link: None, link_id: None, meta: Some({"textual:no_style": Bool(true)}) }

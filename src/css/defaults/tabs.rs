@@ -12,7 +12,10 @@ Underline {
     }
 
     &:ansi {
-        text-style: dim;
+        & > .underline--bar {
+            color: $block-cursor-background;
+            background: $border-blurred;
+        }
     }
 }
 
@@ -23,6 +26,14 @@ Tab {
     text-align: center;
     color: $foreground 50%;
     pointer: pointer;
+
+    &:ansi {
+        text-style: dim;
+
+        &.-active {
+            text-style: not dim bold;
+        }
+    }
 
     &:hover {
         color: $foreground;
@@ -72,31 +83,6 @@ Tabs {
         overflow: hidden hidden;
     }
 
-    &:ansi {
-        #tabs-list {
-            text-style: dim;
-        }
-
-        & #tabs-list > .-active {
-            text-style: not dim;
-        }
-
-        &:focus {
-            #tabs-list > .-active {
-                text-style: bold not dim;
-            }
-        }
-
-        & .underline--bar {
-            color: ansi_bright_blue;
-            background: ansi_default;
-        }
-
-        & .-active {
-            color: transparent;
-            background: transparent;
-        }
-    }
 }
 
 TabPane {

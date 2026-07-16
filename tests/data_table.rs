@@ -46,6 +46,14 @@ fn data_table_renders_header_and_rows() {
     let mut rctx = ReactiveCtx::new(NodeId::default());
     table.set_selected(1, &mut rctx);
 
+    // Snapshot meta: `textual:no_style` is expected on two regions, matching
+    // Python's component-class semantics (cells composed to FINAL colours must
+    // not be re-tinted by the widget-level `DataTable:focus { background-tint }`
+    // pass):
+    // - row y=0: the header (`.datatable--header` carries its OWN tint rule),
+    // - y=2 x=0..=6: the padded cursor cell (default cursor type is Cell and
+    //   `set_selected(1)` puts the cursor on (1, 0) = the "Beta" name cell;
+    //   Python paints it opaque `$block-cursor-background` with no extra tint).
     let buf = FrameBuffer::from_renderable(&console, &options, &table, None);
     insta::assert_snapshot!(buf.debug_dump());
 }

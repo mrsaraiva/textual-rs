@@ -7,6 +7,20 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### Fixed: Tabs/Underline ANSI default CSS realigned with current Python
+
+The `Tabs:ansi` default-CSS block (bright-blue underline via `ansi_bright_blue`,
+transparent active tab) tracked an old Python revision that Python has since
+removed. Aligned with current Python `_tabs.py`:
+
+- `Underline:ansi > .underline--bar` now uses `color: $block-cursor-background;
+  background: $border-blurred` (the old `Underline:ansi { text-style: dim }` is
+  gone, so the active underline bar is no longer dim-blended in ANSI mode).
+- `Tab:ansi` carries `text-style: dim` with `&.-active { text-style: not dim
+  bold }` (moved from the removed `Tabs:ansi #tabs-list` rules).
+- In ANSI mode the focused active tab keeps its `$block-cursor-background` fill
+  (the old `Tabs:ansi .-active { background: transparent }` override is gone).
+
 ### Changed (BREAKING-ish): fine-grained widget messages (Python message parity)
 
 Rust now emits the granular per-widget message types Python apps expect, so
