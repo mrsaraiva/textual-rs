@@ -100,3 +100,56 @@ fn input_super_left_and_alt_backspace_shortcuts_work() {
         &mut __w) };
     assert_eq!(input.text(), "alpha ");
 }
+
+// ── restrict: Python `re.fullmatch` contract (_input.py) ────────────────────
+
+fn type_chars(input: &mut Input, chars: &str) {
+    for ch in chars.chars() {
+        let mut __e = textual::event::EventCtx::default();
+        let mut __w = textual::event::WidgetCtx::__from_dispatch(
+            textual::node_id::NodeId::default(),
+            &mut __e,
+        );
+        input.on_event(&key(KeyCode::Char(ch), KeyModifiers::NONE), &mut __w);
+    }
+}
+
+#[test]
+fn input_restrict_fullmatch_accepts_all_digit_value() {
+    let mut input = Input::new().with_restrict(r"\d+");
+    let _guard = set_dispatch_recipient(make_node_id(), focused_state());
+
+    type_chars(&mut input, "123");
+    assert_eq!(input.text(), "123");
+}
+
+#[test]
+fn input_restrict_fullmatch_rejects_non_digit_chars() {
+    // Python checks `re.fullmatch(restrict, value)`: the WHOLE value must
+    // match `\d+`, so "abc" stays empty and "12a" keeps only "12".
+    let mut input = Input::new().with_restrict(r"\d+");
+    let _guard = set_dispatch_recipient(make_node_id(), focused_state());
+
+    type_chars(&mut input, "abc");
+    assert_eq!(input.text(), "");
+
+    type_chars(&mut input, "12a");
+    assert_eq!(input.text(), "12");
+}
+
+#[test]
+fn input_restrict_fullmatch_rejects_suffix_after_matching_prefix() {
+    // Regression: unanchored `is_match` accepted "123a" because it CONTAINS
+    // a `\d+` match; fullmatch semantics must reject the trailing letter.
+    let mut input = Input::new().with_restrict(r"\d+");
+    let _guard = set_dispatch_recipient(make_node_id(), focused_state());
+
+    input.insert_text_at_cursor("123");
+    assert_eq!(input.text(), "123");
+
+    type_chars(&mut input, "a");
+    assert_eq!(input.text(), "123");
+
+    input.insert_text_at_cursor("a");
+    assert_eq!(input.text(), "123");
+}

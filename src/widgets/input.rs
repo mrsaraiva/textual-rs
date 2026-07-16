@@ -258,7 +258,11 @@ impl Input {
     }
 
     pub fn with_restrict(mut self, pattern: &str) -> Self {
-        self.restrict = Regex::new(pattern).ok();
+        // Python uses `re.fullmatch` (`_input.py`): the WHOLE candidate value
+        // must match the restrict pattern. Anchor the compiled regex so every
+        // check site gets fullmatch semantics (`\A`/`\z` are the unambiguous
+        // start/end-of-text anchors, unaffected by trailing newlines).
+        self.restrict = Regex::new(&format!(r"\A(?:{pattern})\z")).ok();
         self
     }
 
@@ -329,8 +333,11 @@ impl Input {
                 break;
             }
             if let Some(ref re) = self.restrict {
+                // Candidate = current value with the accepted prefix plus this
+                // char inserted at the cursor; the restrict regex is anchored,
+                // so this is Python's `re.fullmatch(restrict, value)`.
                 let mut candidate = self.text.clone();
-                candidate.insert_str(self.cursor + filtered.len(), &filtered);
+                candidate.insert_str(self.cursor, &filtered);
                 candidate.insert(self.cursor + filtered.len(), ch);
                 if !re.is_match(&candidate) {
                     continue;

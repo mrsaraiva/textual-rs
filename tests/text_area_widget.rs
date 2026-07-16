@@ -146,3 +146,84 @@ fn text_area_super_left_and_alt_backspace_shortcuts_work() {
     }
     assert_eq!(text_area.text(), "alpha ");
 }
+
+// ── document newline style: Python `Document` contract (_document.py) ───────
+
+const NEWLINE_TEXT: &str = "I must not fear.\nFear is the mind-killer.";
+
+#[test]
+fn text_area_detects_and_round_trips_windows_newlines() {
+    // Python test_newline_windows / test_text: the text we put in is the
+    // text we get out, including the CRLF newline style.
+    let windows = NEWLINE_TEXT.replace('\n', "\r\n");
+    let text_area = TextArea::new(windows.clone());
+    assert_eq!(text_area.newline(), "\r\n");
+    assert_eq!(text_area.text(), windows);
+
+    // Trailing newline round-trips as an empty final line.
+    let with_trailing = format!("{windows}\r\n");
+    let text_area = TextArea::new(with_trailing.clone());
+    assert_eq!(text_area.text(), with_trailing);
+}
+
+#[test]
+fn text_area_newline_detection_defaults() {
+    // Python _detect_newline_style: \r\n wins, then \n, then \r, default \n.
+    assert_eq!(TextArea::new("").newline(), "\n");
+    assert_eq!(TextArea::new("no newlines here").newline(), "\n");
+    assert_eq!(TextArea::new(NEWLINE_TEXT).newline(), "\n");
+    assert_eq!(TextArea::new(NEWLINE_TEXT).text(), NEWLINE_TEXT);
+    assert_eq!(TextArea::new("a\rb").newline(), "\r");
+    assert_eq!(TextArea::new("a\rb").text(), "a\rb");
+}
+
+#[test]
+fn text_area_selected_text_carries_document_newline() {
+    // Python test_get_selected_text_multiple_lines_windows: a selection that
+    // spans a line boundary joins lines with the document newline.
+    let windows = NEWLINE_TEXT.replace('\n', "\r\n");
+    let mut text_area = TextArea::new(windows);
+    text_area.set_selection(TextAreaSelection {
+        start: TextAreaCursor { row: 0, col: 2 },
+        end: TextAreaCursor { row: 1, col: 2 },
+    });
+    assert_eq!(
+        textual::widgets::Selectable::get_selection(&text_area).as_deref(),
+        Some("must not fear.\r\nFe")
+    );
+}
+
+#[test]
+fn text_area_insert_normalizes_foreign_newlines_to_document_newline() {
+    // Python test_insert_windows_newlines: inserting \r\n text into a \n
+    // document reads back with the document's own newline.
+    let mut text_area = TextArea::new(NEWLINE_TEXT);
+    text_area.insert("\r\n\r\n\r\n");
+    assert_eq!(text_area.text(), format!("\n\n\n{NEWLINE_TEXT}"));
+}
+
+#[test]
+fn text_area_crlf_document_keeps_grapheme_cluster_editing() {
+    // Grapheme guard: \r must never leak into line storage (where it could
+    // pair into stray clusters); backspace over an emoji cluster on a CRLF
+    // document still deletes the whole cluster.
+    let mut text_area = TextArea::new("a\u{0301}👩‍🚀z\r\nsecond");
+    assert_eq!(text_area.newline(), "\r\n");
+    let _guard = set_dispatch_recipient(make_node_id(), focused_state());
+    let mut ctx = EventCtx::default();
+
+    {
+        let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx);
+        text_area.on_event(&key(KeyCode::End), &mut __w);
+    }
+    {
+        let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx);
+        text_area.on_event(&key(KeyCode::Left), &mut __w);
+    }
+    {
+        let mut __w = textual::event::WidgetCtx::__from_dispatch(textual::node_id::NodeId::default(), &mut ctx);
+        text_area.on_event(&key(KeyCode::Backspace), &mut __w);
+    }
+
+    assert_eq!(text_area.text(), "a\u{0301}z\r\nsecond");
+}

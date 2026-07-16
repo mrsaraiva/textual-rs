@@ -163,6 +163,9 @@ impl Selection {
 #[widget(Focus, Interactive, Selectable)]
 pub struct TextArea {
     lines: Vec<String>,
+    /// The newline style used by the document (Python `Document._newline`):
+    /// detected from the initial text and preserved on `text()` read-back.
+    newline: &'static str,
     cursor: Cursor,
     selection: Selection,
     language: Option<String>,
@@ -230,8 +233,10 @@ impl TextArea {
     }
 
     pub fn new(text: impl Into<String>) -> Self {
+        let text = text.into();
         let mut out = Self {
-            lines: split_lines(text.into()),
+            newline: detect_newline_style(&text),
+            lines: split_lines(text),
             cursor: Cursor::default(),
             selection: Selection::cursor(Cursor::default()),
             language: None,
@@ -519,10 +524,9 @@ impl TextArea {
     }
 
     pub fn insert(&mut self, text: &str) {
-        if text.is_empty() {
+        if !self.insert_multiline(text) {
             return;
         }
-        self.insert_str(text);
         self.preferred_col_cells = Some(self.cursor_cell_x());
         self.adjust_scroll_to_cursor();
         self.reset_blink();
@@ -545,7 +549,13 @@ impl TextArea {
     }
 
     pub fn text(&self) -> String {
-        self.lines.join("\n")
+        self.lines.join(self.newline)
+    }
+
+    /// The newline style used by this document (Python `Document.newline`):
+    /// `"\n"` by default, `"\r\n"` or `"\r"` if the initial text used it.
+    pub fn newline(&self) -> &'static str {
+        self.newline
     }
 
     fn post_changed(&self, ctx: &mut crate::event::WidgetCtx) {
@@ -750,7 +760,10 @@ impl TextArea {
         let style_map: &HashMap<String, Style> =
             theme_styles.unwrap_or(Self::default_syntax_styles());
 
-        let text = self.text();
+        // The syntax source is always LF-joined regardless of the document's
+        // newline style: `rebuild_line_offsets` assumes a 1-byte separator
+        // when mapping tree-sitter byte ranges back to (row, col).
+        let text = self.lines.join("\n");
         let mut parser = Parser::new();
         if parser.set_language(&def.language).is_err() {
             return;
@@ -1127,10 +1140,10 @@ impl TextArea {
         }
         let mut out = String::new();
         out.push_str(&self.lines[a.row][a.col..]);
-        out.push('\n');
+        out.push_str(self.newline);
         for row in a.row + 1..b.row {
             out.push_str(&self.lines[row]);
-            out.push('\n');
+            out.push_str(self.newline);
         }
         out.push_str(&self.lines[b.row][..b.col]);
         Some(out)
@@ -1145,7 +1158,7 @@ impl TextArea {
         if self.lines.len() > 1 {
             self.lines.remove(row);
             if row < self.lines.len() {
-                copied.push('\n');
+                copied.push_str(self.newline);
             }
         } else {
             self.lines[0].clear();
@@ -1160,7 +1173,11 @@ impl TextArea {
         Some(copied)
     }
 
-    fn insert_clipboard_text(&mut self, text: &str) -> bool {
+    /// Insert text that may span multiple lines. Newlines in the inserted
+    /// text (any style) are normalized into document lines; the document's
+    /// own newline style governs `text()` read-back (Python
+    /// `Document.replace_range` splits inserted text the same way).
+    fn insert_multiline(&mut self, text: &str) -> bool {
         if text.is_empty() {
             return false;
         }
@@ -1645,7 +1662,7 @@ impl crate::widgets::Interactive for TextArea {
                 return;
             }
             self.save_undo_checkpoint();
-            if self.insert_clipboard_text(&m.text) {
+            if self.insert_multiline(&m.text) {
                 self.post_changed(ctx);
                 self.preferred_col_cells = Some(self.cursor_cell_x());
                 self.adjust_scroll_to_cursor();
@@ -1935,19 +1952,44 @@ fn compose_rich(style: &Style, base_bg: Color) -> rich_rs::Style {
     rich
 }
 
+/// Detect the document's newline style (Python `_detect_newline_style`):
+/// `"\r\n"` (Windows) wins over `"\n"` (Unix), then `"\r"` (old MacOS),
+/// defaulting to `"\n"`.
+fn detect_newline_style(text: &str) -> &'static str {
+    if text.contains("\r\n") {
+        "\r\n"
+    } else if text.contains('\n') {
+        "\n"
+    } else if text.contains('\r') {
+        "\r"
+    } else {
+        "\n"
+    }
+}
+
+/// Split text into lines on any of `\r\n`, `\n`, `\r` (Python
+/// `str.splitlines` over `VALID_NEWLINES`). A trailing newline yields a
+/// trailing empty line, mirroring Python's `Document.__init__`.
 fn split_lines(text: String) -> Vec<String> {
     if text.is_empty() {
         return vec![String::new()];
     }
-    let mut lines: Vec<String> = text.split('\n').map(|s| s.to_string()).collect();
-    // Preserve trailing newline as an empty last line.
-    if text.ends_with('\n')
-        && !lines.last().is_some_and(|s| s.is_empty()) {
-            lines.push(String::new());
+    let mut lines = Vec::new();
+    let mut current = String::new();
+    let mut chars = text.chars().peekable();
+    while let Some(ch) = chars.next() {
+        match ch {
+            '\n' => lines.push(std::mem::take(&mut current)),
+            '\r' => {
+                if chars.peek() == Some(&'\n') {
+                    chars.next();
+                }
+                lines.push(std::mem::take(&mut current));
+            }
+            _ => current.push(ch),
         }
-    if lines.is_empty() {
-        lines.push(String::new());
     }
+    lines.push(current);
     lines
 }
 

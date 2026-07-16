@@ -83,6 +83,31 @@ now reports out of bounds past the last column's padded extent: hover yields no
 cell and clicks are ignored, except with a row cursor, where the out-of-bounds
 area still targets the row (column 0), mirroring Python's
 `{"row": row, "column": 0, "out_of_bounds": True}` segment meta.
+### Fixed: Input `restrict` uses fullmatch semantics
+
+The `restrict` pattern was checked with unanchored `Regex::is_match`, so a
+pattern like `\d+` accepted any value merely CONTAINING digits (e.g. typing
+`a` after `123` produced `123a`). Python checks `re.fullmatch(restrict,
+value)` (`_input.py`): the WHOLE candidate value must match. The compiled
+restrict regex is now anchored (`\A(?:pattern)\z`), giving every check site
+(typed chars, programmatic inserts, suggestion acceptance) fullmatch
+semantics. Also fixed an index bug in the per-char restrict path of
+`insert_text_at_cursor` that built the candidate value at the wrong offset
+and could panic on multi-char inserts.
+
+### Fixed: TextArea preserves Windows `\r\n` (and old-Mac `\r`) newlines
+
+Text loaded with CRLF line endings was split on `\n` only, leaving stray
+`\r` bytes inside line storage, and `text()` always re-joined with `\n`, so
+Windows documents neither round-tripped nor selected correctly. Following
+Python's `Document`, the TextArea now detects the document's newline style
+from the initial text (`\r\n` wins over `\n`, then `\r`, default `\n`),
+exposes it via `TextArea::newline()`, stores lines without any newline
+bytes, and preserves the detected style on `text()` read-back, in selected
+text spanning line boundaries, and in line-cut clipboard content. Inserted
+or pasted text with foreign newline styles is normalized into document
+lines (Python `Document.replace_range`); `TextArea::insert` now handles
+multi-line text instead of corrupting line storage with embedded newlines.
 
 ## [1.0.1] - 2026-07-16
 
