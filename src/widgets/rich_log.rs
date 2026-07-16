@@ -1026,6 +1026,43 @@ mod tests {
         assert_eq!(virtual_w, 30);
     }
 
+    /// The `min_width` default (78) is Python-faithful: Python's
+    /// `RichLog.__init__` defaults `min_width: int = 78` and applies it as a
+    /// floor on the render width (`render_width = max(render_width,
+    /// self.min_width)` in `RichLog.write`). This test locks the BUILDER
+    /// override end-to-end: with the default floor a 60-cell line rendered in
+    /// a 30-cell widget does not wrap (render width 78), while
+    /// `.min_width(10)` drops the floor below the widget width so the same
+    /// line wraps at 30 cells.
+    #[test]
+    fn min_width_builder_override_takes_effect() {
+        let console = Console::new();
+        let options = options_for(&console, 30, 10);
+        let long_line = "x".repeat(60);
+
+        // Default min_width = 78 (Python-faithful): render width is
+        // max(30, 78) = 78, the line stays physical height 1.
+        let mut log = RichLog::new().wrap(true).auto_scroll(false);
+        log.write(long_line.clone());
+        let _ = crate::widgets::Render::render(&log, &console, &options);
+        let (_, height) = log.scroll_virtual_content_size().unwrap();
+        assert_eq!(
+            height, 1,
+            "with the default 78 floor, a 60-cell line must not wrap in a 30-cell widget"
+        );
+
+        // Overridden floor: render width is max(30, 10) = 30, so the
+        // 60-cell line wraps into two physical lines.
+        let mut log = RichLog::new().wrap(true).auto_scroll(false).min_width(10);
+        log.write(long_line);
+        let _ = crate::widgets::Render::render(&log, &console, &options);
+        let (_, height) = log.scroll_virtual_content_size().unwrap();
+        assert_eq!(
+            height, 2,
+            "min_width(10) must lower the render-width floor so the line wraps at the widget width"
+        );
+    }
+
     #[test]
     fn scroll_action_posts_scrolled_message() {
         let console = Console::new();

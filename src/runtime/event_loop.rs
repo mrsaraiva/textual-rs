@@ -5434,17 +5434,34 @@ impl App {
         self.headless_stop_requested
     }
 
+    /// The currently rendered frame as plain text rows (one `String` per
+    /// screen row, styling stripped; each row is padded/cropped to the frame
+    /// width).
+    ///
+    /// Reads the same in-memory [`FrameBuffer`] as [`save_frame_svg`] and
+    /// [`frame_fingerprint`], so it works in headless (`run_test`/Pilot) mode
+    /// where nothing is written to a real terminal. Useful for dev tooling
+    /// and test assertions on visible text.
+    ///
+    /// [`FrameBuffer`]: crate::render::FrameBuffer
+    /// [`save_frame_svg`]: Self::save_frame_svg
+    /// [`frame_fingerprint`]: Self::frame_fingerprint
+    pub fn frame_plain_lines(&self) -> Vec<String> {
+        self.frame.as_plain_lines()
+    }
+
+    /// The currently rendered frame as one plain-text string:
+    /// [`frame_plain_lines`] joined with `\n`.
+    ///
+    /// [`frame_plain_lines`]: Self::frame_plain_lines
+    pub fn frame_plain_text(&self) -> String {
+        self.frame_plain_lines().join("\n")
+    }
+
     /// A cheap fingerprint of the currently rendered frame (text + per-cell
     /// foreground/background). Two equal fingerprints mean visually identical
     /// frames; a change after input proves rendered output changed. Test/Pilot
     /// helper.
-    /// The current rendered frame as plain text rows (crate-internal test/debug
-    /// helper; strips styling).
-    #[cfg(test)]
-    pub(crate) fn frame_plain_lines(&self) -> Vec<String> {
-        self.frame.as_plain_lines()
-    }
-
     pub fn frame_fingerprint(&self) -> u64 {
         use std::hash::{Hash, Hasher};
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
