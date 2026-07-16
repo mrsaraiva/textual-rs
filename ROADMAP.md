@@ -12,6 +12,84 @@ The goal here is a framework capable of powering real applications, eventually e
 
 ---
 
+## Post-1.0 status and the 1.1.0 milestone
+
+**1.0.0 shipped** (crates.io), followed by three correctness patch releases that
+closed every confirmed bug found by porting two real apps (toolong-rs,
+textual-dev-rs) and by auditing against Python Textual's own test suite:
+
+- **1.0.1** — 5 port bugs: screen CSS matching, stray `>` type name, class-op
+  relayout, unhandled-binding warning, public frame accessors.
+- **1.0.2** (+ `textual-macros` 1.0.1) — 10 audit bugs: 4 binding/dispatch, 4
+  data/list widgets, 2 input/text.
+- **1.0.3** — 3 correctness fixes distilled from design analysis of the harder
+  gaps: build-time `on_mount` side-effect drop, cross-tree command aliasing,
+  user-`layers` clobbering the system toast layer.
+
+18 confirmed bugs closed, each with a ported regression test. The release
+pipeline was hardened to publish `textual-macros` before `textual` automatically.
+
+### 1.1.0 = full Python parity depth + the extension story
+
+Decided scope (maintainer call, 2026-07-16): **full parity**, including the large
+structural items. Every fix is parity-gated (visual + pty_parity idle) and carries
+a ported regression test. Items marked **[spec]** get a Fable design/spec pass and
+maintainer review before implementation; the rest go direct to implementation.
+
+**W1 — Extension story (make third-party widgets/apps first-class)**
+- [ ] Cross-screen widget access: App-level sync (`query_on`/`with_widget_mut_on`)
+  + deferred `ctx.query_one_on` (Gap 7 B1/B2). Design done
+  (`docs/devel/DESIGN_mount_and_cross_screen.md`). [M/L]
+- [ ] Component classes for custom widgets: `COMPONENT_CLASSES` +
+  `get_component_rich_style`, so third-party widgets expose restylable internals
+  instead of hardcoding RGB. **[spec]** [M]
+- [ ] Render-time resolved-style / theme-var access + a public timer API seam
+  (retire the internal `ctx.event_ctx_mut()` backdoor). [S]
+
+**W2 — Parity foundations**
+- [ ] Action-parser fidelity: last-dot namespace split, typed-arg eval, malformed
+  input errors (unblocks typed `check_action` and the keymap subsystem). [M]
+- [ ] Validation description-priority ladder: `describe_failure` + `merge` +
+  `failure_descriptions`. [M]
+- [ ] Reactive `always_update` (derive attribute) + Suggester `use_cache`. [S]
+- [ ] Devtools framework hooks: log sink over the devtools socket + debug-channel
+  introspection + `on_tick` for inactive screens (harness work lives in
+  `textual-dev-rs`). [M]
+
+**W3 — Structural parity (the large items, all in for 1.1.0)**
+- [ ] Tree / OptionList stable key identity: `NodeID` / `RowKey` / `ColumnKey`
+  registries, `get_*_by_id`, key-based CRUD, typed not-found errors. **[spec]** [L]
+- [ ] TextArea undo/redo `EditHistory` batching: time-batch, cursor-move
+  checkpoint, char-count split, paste isolation (replaces the full-snapshot
+  stack; diverges from all 16 Python history tests today). **[spec]** [L]
+- [ ] Keymap subsystem: `BindingsMap`, `BindingDecl.id`, `apply_keymap`, clash
+  detection, `bindings_updated_signal` (user key remapping). **[spec]** [L]
+- [ ] Wrapped-line navigation under `soft_wrap`: `get_location_above/below`,
+  `WrappedDocument` / `DocumentNavigator` parity. **[spec]** [M/L]
+
+**W4 — Behavior flips (maintainer-approved)**
+- [ ] `Select.allow_blank` default `false` -> `true` (Python parity; breaking
+  default, audit examples/apps). [S]
+- [ ] Fine-grained widget messages: DataTable (Row/Cell/Column/Header/RowLabel
+  Highlighted+Selected), Collapsible (`Expanded`/`Collapsed`), SelectionList
+  (`SelectionHighlighted`), so Python-style granular `#[on(...)]` handlers
+  dispatch. [M]
+
+**W5 — Document intentional divergences (KNOWN_GAPS, no code)**
+- [ ] name-convention dispatch (`on_<ns>_<name>`) + `key_<name>` method dispatch;
+  message-class MRO inheritance; `BINDINGS` class-hierarchy inheritance /
+  `inherit_bindings`; private `_watch`/`_validate`/`_compute` + reactive
+  inheritance; the reactive deferred-phase watcher model; theme tokens vs Python
+  0.58. All deliberate consequences of Rust's flat-TypeId / compile-time-derive /
+  non-subclassing model.
+
+**Spec-first queue (Fable before implementation):** component classes, Tree/
+OptionList key identity, TextArea undo batching, keymap subsystem, wrapped-line
+navigation. Cross-screen access is already designed. Everything in W2, W4, and the
+W1 style/timer seam goes direct to implementation.
+
+---
+
 ## Phase 0: Project scaffolding
 
 | Status | Task | Notes |
