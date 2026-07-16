@@ -7,6 +7,31 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-07-16
+
+The first minor release: full Python-parity depth plus a proven extension story,
+built on the honest 1.0 gap analysis. Highlights, all parity-gated (visual +
+pty_parity) and backed by ported Python tests:
+
+- **Extension story:** cross-screen widget access, a component-class system that
+  makes widget internals CSS-restylable (DataTable and ProgressBar migrated), and
+  a public render-time style/theme seam plus first-class widget timers.
+- **Structural parity:** a slotmap Tree arena and OptionList/SelectionList key
+  identity; a real TextArea Document subsystem (delta undo with EditHistory
+  batching, true soft-wrap on by default, wrap-aware navigation); a keymap
+  subsystem for user key remapping.
+- **Typed foundations:** action-parser fidelity (typed arguments, last-dot
+  namespace, parse errors), a validation description-priority ladder, reactive
+  `always_update`, and Suggester caching.
+- **Message + behavior parity:** fine-grained widget messages (DataTable /
+  Collapsible / SelectionList), and `Select.allow_blank` now defaults to `true`.
+- **Tooling:** devtools hooks (log streaming, debug-channel introspection,
+  inactive-screen ticks).
+
+This release bundles a coordinated `textual-macros` 1.1.0 bump (action-parser and
+`always_update` changed its codegen). Several items are breaking; see the entries
+below. Intentional non-parity divergences are documented in `KNOWN_GAPS.md`.
+
 ### Fixed: Tabs/Underline ANSI default CSS realigned with current Python
 
 The `Tabs:ansi` default-CSS block (bright-blue underline via `ansi_bright_blue`,
@@ -27,7 +52,7 @@ Rust now emits the granular per-widget message types Python apps expect, so
 `#[on(Type)]` handlers dispatch at Python granularity. Three collapsed Rust-only
 message types were REMOVED in favour of the granular set:
 
-- `DataTable` — moving the cursor posts the `*Highlighted` message matching the
+- `DataTable` - moving the cursor posts the `*Highlighted` message matching the
   cursor type (`DataTableCellHighlighted` / `DataTableRowHighlighted` /
   `DataTableColumnHighlighted`), and activating it (enter/space, or clicking the
   already-highlighted position, Python `highlight_click`) posts the matching
@@ -42,11 +67,11 @@ message types were REMOVED in favour of the granular set:
   REMOVED: `DataTableCursorMoved` (use the `*Highlighted` messages) and
   `DataTableCellActivated` (use the `*Selected` messages). `DataTableHeaderSelected`
   is unchanged (it already matched Python).
-- `Collapsible` — posts state-specific `CollapsibleExpanded` /
+- `Collapsible` - posts state-specific `CollapsibleExpanded` /
   `CollapsibleCollapsed` (Python `Collapsible.Expanded` / `.Collapsed`) on user
   toggles AND on programmatic `set_collapsed`.
   REMOVED: `CollapsibleToggled` (match on the state-specific message instead).
-- `SelectionList` — new `SelectionListHighlighted { index, option_id }` (Python
+- `SelectionList` - new `SelectionListHighlighted { index, option_id }` (Python
   `SelectionList.SelectionHighlighted`) posted whenever the highlight moves
   (keyboard navigation, clicks) and for the startup highlight on mount. As in
   Python, the inner `OptionList`'s raw `OptionHighlighted` no longer escapes a
@@ -248,7 +273,7 @@ targets resolved at drain time:
   (documented on `query_one_on`): messages posted from the closure, reactive
   `watch_*` dispatch, and recompose requests are dropped with a debug log;
   direct widget mutation, class ops, styles, and repaint apply fully.
-### Changed — component-classes system, phase 1: Python virtual-node semantics (BREAKING)
+### Changed: component-classes system, phase 1: Python virtual-node semantics (BREAKING)
 
 Widget internals are now CSS-addressable the Python way. The component-class
 resolution seam (`Widget::get_component_styles` / `get_component_rich_style` /
@@ -276,7 +301,7 @@ Textual's virtual-node model:
   Python parity).
 - **Multi-name semantics.** New `resolve_component_style_merged` (and
   `Widget::get_component_styles_merged`): per-name resolution merged in
-  argument order (Python `get_component_styles(*names)` — later name wins
+  argument order (Python `get_component_styles(*names)` - later name wins
   regardless of specificity). The existing compound form (all names on one
   phantom) remains for state-marker usage (e.g. Tabs'
   `["tabs--underline", "-active"]`). New `resolve_component_style_partial`
@@ -297,7 +322,7 @@ Textual's virtual-node model:
 - The inert `&.datatable--fixed-cursor` default rule was dropped (inert in
   Python too: the virtual node is typeless).
 
-### Added — keymap subsystem, phase K1: binding identity + `BindingsMap` value type
+### Added: keymap subsystem, phase K1: binding identity + `BindingsMap` value type
 
 Port of the `BindingsMap` half of Python Textual's `binding.py`, the
 foundation for user key remapping:
@@ -324,7 +349,7 @@ foundation for user key remapping:
   port used by `App::set_keymap`/`update_keymap` (phase K2) to normalize
   keymap values (`"?,space"` -> `"question_mark,space"`).
 
-### Added — keymap subsystem, phase K2: `App` keymap storage + dispatch/hint overlay
+### Added: keymap subsystem, phase K2: `App` keymap storage + dispatch/hint overlay
 
 Users can now remap key bindings by id, mirroring Python `App.set_keymap`:
 
@@ -349,7 +374,7 @@ Users can now remap key bindings by id, mirroring Python `App.set_keymap`:
   different id / set-before-mount) and `test_binding.py`'s keymap
   normalization case, in `tests/keymap.rs`.
 
-### Added — keymap subsystem, phase K3: binding-clash delivery + signal semantics
+### Added: keymap subsystem, phase K3: binding-clash delivery + signal semantics
 
 - New public `BindingClash { node, source, binding }` payload (with the
   `BindingSource` active-vs-app-root tree discriminant, now public), reported
@@ -372,7 +397,7 @@ Users can now remap key bindings by id, mirroring Python `App.set_keymap`:
   `test_binding.py`'s two-broadcasts-for-two-`set_keymap`-calls test, plus
   clash-cadence and active-screen `BindingSource::AppRoot` guards.
 
-### Changed — validation framework: description-priority ladder (Python parity)
+### Changed: validation framework: description-priority ladder (Python parity)
 
 The validation framework now mirrors Python Textual's `validation.py` model.
 `ValidationResult` carries structured `failures: Vec<Failure>` instead of a
@@ -436,7 +461,7 @@ Migration: `parse_action(s)?`/`.ok()` instead of the old `Option`; read string
 arguments via `arg.as_str()` and integers via `arg.as_int()`; update
 `check_action` overrides to the new parameter type. `ActionArgument` and
 `ActionParseError` are exported from the prelude.
-### Added — public render-time style seam: `textual::render_context`
+### Added: public render-time style seam: `textual::render_context`
 
 Custom widgets can now ask, from inside `render()`, what the framework actually
 resolved for them, through a small documented module (also re-exported by the
@@ -455,7 +480,7 @@ prelude) instead of framework internals:
 The first two are render-scoped and return `None` outside a render call. This
 is the supported seam the 1.1 component-classes work builds on.
 
-### Added — one-shot widget timers: `WidgetCtx::set_timer`
+### Added: one-shot widget timers: `WidgetCtx::set_timer`
 
 Widgets could schedule repeating intervals via the public
 `WidgetCtx::set_interval`, but one-shot work still had no first-class seam.
@@ -466,7 +491,7 @@ fresh `WidgetCtx`. Returns the same `TimerHandle` as `set_interval`
 (`pause`/`resume`/`stop` before it fires), runs on the shared `TimerRuntime`
 (so `Pilot::advance_clock` drives it deterministically), and is purged if the
 owning node unmounts first.
-### Added — `#[reactive(always_update)]` / `#[var(always_update)]`
+### Added: `#[reactive(always_update)]` / `#[var(always_update)]`
 
 `#[derive(Reactive)]` now parses an `always_update` attribute (Python's
 `reactive(..., always_update=True)`): the generated setter bypasses the
@@ -477,7 +502,7 @@ value equals the old one. It composes with the other attributes (`layout`,
 `ReactiveFlags` but was not reachable from the derive macro. (Requires the
 matching `textual-macros` version.)
 
-### Added — `Suggester` suggestion caching (`use_cache`)
+### Added: `Suggester` suggestion caching (`use_cache`)
 
 The `Suggester` trait now mirrors Python's split between computation and the
 framework entry point: implementations provide `get_suggestion(&str)` (the
@@ -570,7 +595,7 @@ BREAKING (1.1):
 
 Perf: plain single-line prompts that fit the content width skip the Console
 render in `item_height`, keeping `total_lines` cheap for the common case.
-### Added — TextArea Document subsystem (Python `textual.document` port)
+### Added: TextArea Document subsystem (Python `textual.document` port)
 
 New `crate::document` framework module (widget-independent):
 
@@ -586,7 +611,7 @@ New `crate::document` framework module (widget-independent):
   (`MockClock` test seam; replace the whole history via
   `*text_area.history_mut() = EditHistory::with_clock(...)`).
 
-### Changed — TextArea undo/redo is delta-based (breaking)
+### Changed: TextArea undo/redo is delta-based (breaking)
 
 - The full-document-snapshot undo stack is gone. Every mutation now routes
   through a single `TextArea::edit(Edit)` funnel and is recorded as a delta
@@ -602,7 +627,7 @@ New `crate::document` framework module (widget-independent):
   `ctrl+shift+z` -> `redo` binding was added so that chord survives the
   removal of the duplicate `EditCommand::Undo/Redo` key path.
 
-### Added — TextArea soft wrap is real (and on by default)
+### Added: TextArea soft wrap is real (and on by default)
 
 `WrappedDocument` (incremental wrap caches with `wrap_range` re-wrapping
 only the edited lines) and `DocumentNavigator` (wrap-aware movement) are
@@ -625,7 +650,7 @@ wired into `TextArea`:
   `max(current visual x, last recorded x)` rule and is no longer updated by
   Up/Down themselves.
 
-### Changed — TextArea Up/Down boundary navigation (Python parity)
+### Changed: TextArea Up/Down boundary navigation (Python parity)
 
 Pressing Up on the first (wrapped) line now moves the cursor to `(0, 0)`,
 and Down on the last (wrapped) line moves to the end of the line, in both

@@ -1,6 +1,6 @@
 [package]
 name = "textual"
-version = "1.0.3"
+version = "1.1.0"
 edition = "2024"
 rust-version = "1.85.0"
 license = "MIT"
@@ -40,7 +40,7 @@ regex = "1.12"
 # via rich-rs with a superset feature set, so this adds no new build cost).
 syntect = { version = "5.3", default-features = false, features = ["default-syntaxes", "regex-onig", "parsing"] }
 open = "5.3"
-textual-macros = { version = "1.0.1", path = "textual-macros" }
+textual-macros = { version = "1.1.0", path = "textual-macros" }
 pulldown-cmark = "0.13"
 tracing = { version = "0.1", optional = true }
 
