@@ -1,9 +1,12 @@
-# Known Gaps — textual-rs (pre-1.0)
+# Known Gaps - textual-rs (as of 1.1.0)
 
-> **Status note (2026-07-02):** 1.0 has been **redefined** from "every demo passes" to
-> **"hardened core + honest gaps + proven extension story"** (see
-> `docs/devel/ROAD_TO_1.0_PIVOT.md`). Demo parity is the **verification floor**, not the release
-> gate; the demo tail ships across 1.x. This file lists the *measured* gaps against the **real-app**
+> **Status note (2026-07-16):** 1.0 through 1.1.0 are shipped. 1.0 was **redefined** from
+> "every demo passes" to **"hardened core + honest gaps + proven extension story"** (see
+> `docs/devel/ROAD_TO_1.0_PIVOT.md`); 1.1.0 delivered the extension story and deep structural
+> parity (cross-screen access, component classes, Tree/OptionList key identity, the TextArea
+> document subsystem, the keymap subsystem, typed action/validation/reactive foundations,
+> fine-grained messages). Demo parity is the **verification floor**, not the release gate; the
+> demo tail ships across 1.x. This file lists the *measured* gaps against the **real-app**
 > harness, not the retired headless estimate.
 
 Parity is measured against real Python by three harnesses:
@@ -85,13 +88,32 @@ Closed in the 1.0-candidate **third wave** (2026-07-12, the deep/upstream trio �
   Pygments and the indent-guide colour is theme-derived with Python's `DIM_FACTOR` dim pre-blend
   (`monokai.tmTheme` + `syntax.rs`), published to crates.io and bumped here.
 
-## Deferred to 1.1 (feature gaps)
+## Deferred beyond 1.1 (feature gaps)
 
-- **Inline terminal render mode** (`run(inline=True)`) — no inline render region / alt-screen
-  suppression / height clamp. Blocks `how-to/inline01`, `inline02`, `clock`. (2–3 niche demos;
+1.1.0 shipped without these (they were not in its scope); they remain deferred to a future
+release:
+
+- **Inline terminal render mode** (`run(inline=True)`) - no inline render region / alt-screen
+  suppression / height clamp. Blocks `how-to/inline01`, `inline02`, `clock`. (2-3 niche demos;
   full-screen mode is complete.)
-- **`App.suspend()`** inline-subprocess context manager — needs the inline-mode alt-screen
+- **`App.suspend()`** inline-subprocess context manager - needs the inline-mode alt-screen
   teardown/restore. Blocks `guide/app/suspend`.
+
+## 1.1.x follow-ups (small, tracked)
+
+Non-blocking items noted during the 1.1.0 release:
+
+- **DataTable `--header-cursor` / `--fixed-cursor` component classes** are declared but not yet
+  consumed by `render` (the pre-migration composition reused the base cursor/fixed styles);
+  consuming them shifts pixels (e.g. header cursor `$primary` -> `$accent-darken-1`), a
+  Python-parity behavior change deferred so it lands deliberately.
+- **`textual-macros` publishing:** the release workflow's OIDC token is not valid for the
+  `textual-macros` crate (trusted publishing is configured for `textual` only), so a macros
+  version bump must be published manually until trusted publishing is set up for `textual-macros`
+  on crates.io.
+- **CI `visual_parity`:** the styled per-cell harness needs the Python reference repo (`../textual`),
+  absent on CI, so it runs only locally; a `TEXTUAL_PY_REF` harness override would let CI check out
+  the reference and run it. `pty_parity` (committed goldens) is already a blocking CI job.
 
 ## Interactive divergence classes (the 3 `pty_interactive` `#[ignore]`s)
 
@@ -134,9 +156,11 @@ Closed in the 1.0-candidate **third wave** (2026-07-12, the deep/upstream trio �
   call `app.initialize()`, which brings up the real terminal driver and fails on headless CI with
   `Terminal(Os { WouldBlock })` (`src/runtime/event_loop.rs:8738`). CI works around this by running the
   suite under a PTY (`script -qefc 'cargo test -- --test-threads=1' /dev/null`) so the driver
-  initializes; single-threaded also avoids TTY contention. The real fix is a headless/mock driver for
-  unit tests so they run without a TTY, after which the PTY wrapper can be dropped and the CI `test` job
-  made blocking (it is `continue-on-error` today). (Diagnosed at 1.0 release.) Additionally, 3 `runtime::render::tests::{modal_screen_layer_preserves_underlay_text,
+  initializes; single-threaded also avoids TTY contention. As of 1.1.0 the CI `test` job is BLOCKING
+  and runs `--lib` plus the ~102 headless integration bins under this PTY wrapper (excluding the
+  parity harnesses and `click_actions_pty`, which spawn a real PTY / need the Python reference). The
+  real fix is still a headless/mock driver for unit tests so they run without a TTY, after which the
+  PTY wrapper could be dropped. (Diagnosed at 1.0 release; CI made blocking at 1.1.0 release.) Additionally, 3 `runtime::render::tests::{modal_screen_layer_preserves_underlay_text,
   modal_screen_layer_tints_underlay_colors, screen_stylesheet_does_not_leak_to_underlay_layer}` are
   `#[ignore]`d: their translucent-modal-over-underlay assertion needs the truecolor profile the real
   driver negotiates, which a headless PTY can't answer (it degrades to opaque). Un-ignore once the test

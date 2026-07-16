@@ -28,7 +28,7 @@ terminals. **Minimum Supported Rust Version: 1.85** (Rust 2024 edition). Built o
 
 ```toml
 [dependencies]
-textual = "1.0"
+textual = "1.1"
 ```
 
 ## A complete app
@@ -139,6 +139,10 @@ Supported selectors: type, `#id`, `.class`, pseudo-classes (`:hover`, `:focus`,
 resolve against the active theme with lighten/darken/muted derivations. Load external
 `.tcss` files and hot-reload them with `App::watch_stylesheet()`.
 
+Widgets expose their internal parts as **component classes** (`DataTable > .datatable--cursor`,
+`Bar > .bar--complete`), so an app's CSS can restyle a widget's internals without
+subclassing, and custom widgets can declare their own restylable parts.
+
 ### Themes
 
 Every colour token resolves against the active theme, so one line re-skins the whole
@@ -193,7 +197,7 @@ KeyPanel
 **Containers:** Container, ScrollView, Frame, Panel, Overlay, Constrained, Styled
 
 A few of them up close. `TextArea` is a code editor with tree-sitter syntax
-highlighting, line numbers, and selections:
+highlighting, line numbers, selections, soft-wrapping, and batched delta undo/redo:
 
 ![TextArea code editor](imgs/code_editor.svg)
 
@@ -225,7 +229,7 @@ run_test(QuestionApp { reply: None }, |pilot| {
 })?;
 ```
 
-This backs **3,100+ tests**: unit, integration, snapshot (via `insta`), and real-PTY
+This backs **3,500+ tests**: unit, integration, snapshot (via `insta`), and real-PTY
 parity harnesses that diff Rust against the actual Python Textual output cell-by-cell.
 
 ## Architecture
@@ -278,10 +282,15 @@ Narrow the output with a filter: `TEXTUAL_DEBUG_STYLE_FILTER='type=Button,class=
 
 ## Status
 
-**1.0**, the first stable release. See [`CHANGELOG.md`](CHANGELOG.md) for the release notes,
-[`KNOWN_GAPS.md`](KNOWN_GAPS.md) for the honest, tracked set of remaining divergences (all
-intentional or the deferred 1.1 inline-render feature), and [`ROADMAP.md`](ROADMAP.md) for
-1.x direction.
+**1.1**, the current stable release. 1.1 deepens Python parity and the extension story:
+cross-screen widget access, CSS-restylable widget internals (component classes), a
+slotmap-backed Tree/OptionList key-identity model, a real TextArea document subsystem
+(delta undo, soft-wrap), a keymap subsystem for user key remapping, typed
+action/validation/reactive foundations, and fine-grained widget messages. See
+[`CHANGELOG.md`](CHANGELOG.md) for the full release notes (including breaking changes),
+[`KNOWN_GAPS.md`](KNOWN_GAPS.md) for the honest, tracked set of remaining divergences
+(all intentional-by-design or deferred niche features), and [`ROADMAP.md`](ROADMAP.md)
+for direction.
 
 ## License
 
