@@ -891,3 +891,125 @@ fn mixed_watch_kinds_one_dispatch_with_app() {
     assert!(ctx2.needs_repaint(), "plain watch in _with_app should still request repaint");
     assert_eq!(app.title(), "with_app=99");
 }
+
+// ── always_update: watchers fire even on equal-value sets ──────────
+// Port of Python test_reactive.py::test_reactive_always_update.
+
+#[derive(Reactive)]
+struct AlwaysUpdateWidget {
+    #[reactive(always_update, watch, init = false)]
+    first_name: String,
+    #[reactive(watch, init = false)]
+    last_name: String,
+    calls: Vec<String>,
+}
+
+impl AlwaysUpdateWidget {
+    fn watch_first_name(&mut self, _old: &String, new: &String, _ctx: &mut ReactiveCtx) {
+        self.calls.push(format!("first_name {}", new));
+    }
+
+    fn watch_last_name(&mut self, _old: &String, new: &String, _ctx: &mut ReactiveCtx) {
+        self.calls.push(format!("last_name {}", new));
+    }
+}
+
+fn dispatch(w: &mut AlwaysUpdateWidget, ctx: &mut ReactiveCtx) {
+    let changes = ctx.take_changes();
+    w.reactive_dispatch(&changes, ctx);
+}
+
+#[test]
+fn reactive_always_update() {
+    let mut w = AlwaysUpdateWidget {
+        first_name: "Darren".into(),
+        last_name: "Burns".into(),
+        calls: Vec::new(),
+    };
+    let mut ctx = make_ctx();
+
+    // Value is the same, but always_update, so watcher called...
+    w.set_first_name("Darren".to_string(), &mut ctx);
+    dispatch(&mut w, &mut ctx);
+    assert_eq!(w.calls, vec!["first_name Darren"]);
+
+    // Value is the same, and no always_update, so watcher NOT called...
+    w.set_last_name("Burns".to_string(), &mut ctx);
+    dispatch(&mut w, &mut ctx);
+    assert_eq!(w.calls, vec!["first_name Darren"]);
+
+    // Values changed, watch method always called regardless of always_update
+    w.set_first_name("abc".to_string(), &mut ctx);
+    w.set_last_name("def".to_string(), &mut ctx);
+    dispatch(&mut w, &mut ctx);
+    assert_eq!(
+        w.calls,
+        vec!["first_name Darren", "first_name abc", "last_name def"]
+    );
+}
+
+#[test]
+fn always_update_records_change_and_repaint_on_equal_set() {
+    let mut w = AlwaysUpdateWidget {
+        first_name: "Darren".into(),
+        last_name: "Burns".into(),
+        calls: Vec::new(),
+    };
+    let mut ctx = make_ctx();
+
+    w.set_first_name("Darren".to_string(), &mut ctx);
+    assert_eq!(ctx.changes().len(), 1);
+    assert_eq!(ctx.changes()[0].field_name, "first_name");
+    assert!(ctx.changes()[0].flags.always_update);
+    assert!(
+        !ctx.changes()[0].flags.init,
+        "init = false must compose with always_update"
+    );
+    assert!(
+        ctx.needs_repaint(),
+        "always_update equal-value set still repaints"
+    );
+
+    // The equality-gated field records nothing on an equal set.
+    let mut ctx2 = make_ctx();
+    w.set_last_name("Burns".to_string(), &mut ctx2);
+    assert!(ctx2.changes().is_empty());
+}
+
+// #[var(always_update)] composes too (Python `var(default, always_update=True)`,
+// e.g. Tree.cursor_line).
+
+#[derive(Reactive)]
+struct AlwaysUpdateVarWidget {
+    #[var(always_update, watch)]
+    cursor_line: i32,
+    hits: usize,
+}
+
+impl AlwaysUpdateVarWidget {
+    fn watch_cursor_line(&mut self, _old: &i32, _new: &i32, _ctx: &mut ReactiveCtx) {
+        self.hits += 1;
+    }
+}
+
+#[test]
+fn var_always_update_fires_watcher_on_equal_set() {
+    let mut w = AlwaysUpdateVarWidget {
+        cursor_line: -1,
+        hits: 0,
+    };
+    let mut ctx = make_ctx();
+
+    w.set_cursor_line(-1, &mut ctx);
+    assert_eq!(ctx.changes().len(), 1);
+    assert!(ctx.changes()[0].flags.always_update);
+    assert!(
+        !ctx.changes()[0].flags.repaint,
+        "var flags stay repaint-free"
+    );
+    assert!(!ctx.needs_repaint());
+
+    let changes = ctx.take_changes();
+    w.reactive_dispatch(&changes, &mut ctx);
+    assert_eq!(w.hits, 1);
+}

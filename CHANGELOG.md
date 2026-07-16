@@ -101,6 +101,29 @@ fresh `WidgetCtx`. Returns the same `TimerHandle` as `set_interval`
 (`pause`/`resume`/`stop` before it fires), runs on the shared `TimerRuntime`
 (so `Pilot::advance_clock` drives it deterministically), and is purged if the
 owning node unmounts first.
+### Added — `#[reactive(always_update)]` / `#[var(always_update)]`
+
+`#[derive(Reactive)]` now parses an `always_update` attribute (Python's
+`reactive(..., always_update=True)`): the generated setter bypasses the
+equality gate, so the change is recorded and watchers fire even when the new
+value equals the old one. It composes with the other attributes (`layout`,
+`watch`, `recompose`, `init = false`, ...) via the new
+`ReactiveFlags::with_always_update()`. Previously the flag existed on
+`ReactiveFlags` but was not reachable from the derive macro. (Requires the
+matching `textual-macros` version.)
+
+### Added — `Suggester` suggestion caching (`use_cache`)
+
+The `Suggester` trait now mirrors Python's split between computation and the
+framework entry point: implementations provide `get_suggestion(&str)` (the
+computation), and the provided `suggest()` entry point normalizes the value's
+case (per a new `case_sensitive()` hook, default insensitive like Python) and
+caches results keyed by the normalized input via a new `SuggestionCache`
+returned from the `cache()` hook. `SuggestFromList` caches by default
+(Python's `use_cache=True`) and grows a `use_cache(bool)` builder to opt out.
+Breaking for custom suggesters: rename your `suggest` impl to
+`get_suggestion` (the compiler will point at it). The `suggest` shape stays
+synchronous; async `SuggestionReady` delivery remains a separate item.
 
 ## [1.0.3] - 2026-07-16
 

@@ -26,19 +26,118 @@ use super::{
 // Suggester trait + built-in implementations
 // ---------------------------------------------------------------------------
 
+/// Cache of computed suggestions, keyed by the (case-normalized) input value.
+///
+/// Mirrors Python's `Suggester.cache` (an `LRUCache(1024)`). Suggester
+/// implementations that want caching hold one of these and return it from
+/// [`Suggester::cache`]; the provided [`Suggester::suggest`] entry point
+/// consults it before calling [`Suggester::get_suggestion`].
+///
+/// Interior mutability (a `Mutex`) keeps `suggest(&self)` synchronous and
+/// `Send + Sync`. The cache is bounded at 1024 entries (Python parity); when
+/// full it is cleared rather than evicted LRU-style, which is a simple bound
+/// with the same correctness (a cache miss just recomputes).
+#[derive(Debug, Default)]
+pub struct SuggestionCache {
+    entries: std::sync::Mutex<std::collections::HashMap<String, Option<String>>>,
+}
+
+/// Maximum number of cached suggestions (matches Python's `LRUCache(1024)`).
+const SUGGESTION_CACHE_CAPACITY: usize = 1024;
+
+impl SuggestionCache {
+    /// Create an empty cache.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Cached result for `key`, if any. The outer `Option` is the cache hit;
+    /// the inner `Option<String>` is the cached suggestion (which may be
+    /// "no suggestion").
+    fn lookup(&self, key: &str) -> Option<Option<String>> {
+        let entries = match self.entries.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        entries.get(key).cloned()
+    }
+
+    /// Store a computed result for `key`.
+    fn store(&self, key: String, value: Option<String>) {
+        let mut entries = match self.entries.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        if entries.len() >= SUGGESTION_CACHE_CAPACITY {
+            entries.clear();
+        }
+        entries.insert(key, value);
+    }
+}
+
 /// Provides auto-completion suggestions for an [`Input`] widget.
 ///
 /// Implement this trait to supply custom suggestion logic.  The built-in
 /// [`SuggestFromList`] covers the common case of matching against a fixed
 /// list of strings.
+///
+/// Implementations provide [`get_suggestion`](Suggester::get_suggestion) (the
+/// computation, Python's `Suggester.get_suggestion`); the framework calls the
+/// provided [`suggest`](Suggester::suggest) entry point (Python's
+/// `Suggester._get_suggestion`), which normalizes the value's case and layers
+/// caching on top when [`cache`](Suggester::cache) returns one.
 pub trait Suggester: Send + Sync {
-    /// Return a completion suggestion for the current input `value`, or
+    /// Compute a completion suggestion for the given input `value`, or
     /// `None` if no suggestion applies.
     ///
     /// The returned string should be the **full** replacement value (not just
     /// the suffix).  For example, if the user typed `"Por"` and the
     /// suggestion is `"Portugal"`, return `Some("Portugal")`.
-    fn suggest(&self, value: &str) -> Option<String>;
+    ///
+    /// The `value` argument is lowercased by [`suggest`](Suggester::suggest)
+    /// when [`case_sensitive`](Suggester::case_sensitive) is `false`. If the
+    /// implementation is not deterministic, do not supply a cache.
+    fn get_suggestion(&self, value: &str) -> Option<String>;
+
+    /// Whether input values are case sensitive (default `false`, Python
+    /// parity). When `false`, values are lowercased before being passed to
+    /// [`get_suggestion`](Suggester::get_suggestion) and before cache lookup.
+    fn case_sensitive(&self) -> bool {
+        false
+    }
+
+    /// The suggestion cache, if this suggester caches results.
+    ///
+    /// Return `Some(&cache)` from a [`SuggestionCache`] owned by the
+    /// implementation to enable caching (Python's `use_cache=True`); the
+    /// default (`None`) disables it.
+    fn cache(&self) -> Option<&SuggestionCache> {
+        None
+    }
+
+    /// Framework entry point: return a suggestion for `value`, consulting the
+    /// cache (keyed by the case-normalized value) when one is available.
+    ///
+    /// Mirrors Python's `Suggester._get_suggestion`. Custom suggesters
+    /// normally implement [`get_suggestion`](Suggester::get_suggestion) and
+    /// leave this provided method alone.
+    fn suggest(&self, value: &str) -> Option<String> {
+        let normalized = if self.case_sensitive() {
+            value.to_string()
+        } else {
+            value.to_lowercase()
+        };
+        if let Some(cache) = self.cache() {
+            if let Some(hit) = cache.lookup(&normalized) {
+                return hit;
+            }
+            let suggestion = self.get_suggestion(&normalized);
+            cache.store(normalized, suggestion.clone());
+            suggestion
+        } else {
+            self.get_suggestion(&normalized)
+        }
+    }
 }
 
 /// A [`Suggester`] that matches against a fixed list of strings by prefix.
@@ -57,6 +156,7 @@ pub struct SuggestFromList {
     suggestions: Vec<String>,
     folded: Vec<String>,
     case_sensitive: bool,
+    cache: Option<SuggestionCache>,
 }
 
 impl SuggestFromList {
@@ -66,6 +166,9 @@ impl SuggestFromList {
     ///   (first match wins).
     /// * `case_sensitive` – when `false` (the default), incoming values are
     ///   case-folded before comparison.
+    ///
+    /// Results are cached by input value by default (Python's
+    /// `use_cache=True`); disable with [`use_cache`](Self::use_cache).
     pub fn new(
         suggestions: impl IntoIterator<Item = impl Into<String>>,
         case_sensitive: bool,
@@ -80,15 +183,29 @@ impl SuggestFromList {
             suggestions,
             folded,
             case_sensitive,
+            cache: Some(SuggestionCache::new()),
         }
+    }
+
+    /// Set whether suggestion results are cached by input value
+    /// (Python's `use_cache`; the default is `true`).
+    pub fn use_cache(mut self, use_cache: bool) -> Self {
+        self.cache = if use_cache {
+            Some(SuggestionCache::new())
+        } else {
+            None
+        };
+        self
     }
 }
 
 impl Suggester for SuggestFromList {
-    fn suggest(&self, value: &str) -> Option<String> {
+    fn get_suggestion(&self, value: &str) -> Option<String> {
         if value.is_empty() {
             return None;
         }
+        // `suggest` already normalized the value; re-normalizing here is
+        // idempotent and keeps direct `get_suggestion` calls correct.
         let needle = if self.case_sensitive {
             value.to_string()
         } else {
@@ -100,6 +217,14 @@ impl Suggester for SuggestFromList {
             }
         }
         None
+    }
+
+    fn case_sensitive(&self) -> bool {
+        self.case_sensitive
+    }
+
+    fn cache(&self) -> Option<&SuggestionCache> {
+        self.cache.as_ref()
     }
 }
 

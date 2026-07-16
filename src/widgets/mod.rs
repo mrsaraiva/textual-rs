@@ -99,7 +99,7 @@ pub(crate) use helpers::adjust_line_length_no_bg;
 pub(crate) use helpers::border_spacing_from_style;
 pub(crate) use helpers::{OutlineCell, outline_edge_cells};
 pub(crate) use helpers::crop_line_horizontal;
-pub use input::{Input, InputType, SuggestFromList, Suggester};
+pub use input::{Input, InputType, SuggestFromList, Suggester, SuggestionCache};
 pub(crate) use key_panel::KEY_PANEL_VSCROLLBAR_ID;
 pub use key_panel::{BindingsTable, KeyPanel};
 pub use layout::{Dock, DockItem, DockKind};

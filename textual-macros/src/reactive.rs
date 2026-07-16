@@ -3,9 +3,9 @@
 //! Generates getters, setters (with change detection), watcher dispatch,
 //! and computed field caching for fields annotated with `#[reactive]`,
 //! `#[reactive(layout)]`, `#[reactive(watch)]`, `#[reactive(watch_with_app)]`,
-//! `#[reactive(init = false)]`, `#[var]`, `#[var(watch)]`,
-//! `#[var(watch_with_app)]`, `#[var(init = false)]`, or
-//! `#[computed(depends_on = "field1, field2")]`.
+//! `#[reactive(init = false)]`, `#[reactive(always_update)]`, `#[var]`,
+//! `#[var(watch)]`, `#[var(watch_with_app)]`, `#[var(init = false)]`,
+//! `#[var(always_update)]`, or `#[computed(depends_on = "field1, field2")]`.
 
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
@@ -32,6 +32,10 @@ struct ReactiveField {
     recompose: bool,
     /// Whether `validate` was specified (call `validate_<field>` before store).
     validate: bool,
+    /// Whether `always_update` was specified (Python `always_update=True`):
+    /// the setter records the change and fires watchers even when the new
+    /// value equals the old one.
+    always_update: bool,
 }
 
 /// Parsed `#[computed(depends_on = "field1, field2")]` annotation.
@@ -74,8 +78,9 @@ fn parse_field_annotation(field: &syn::Field) -> Result<Option<FieldAnnotation>,
             let mut watch_with_app = false;
             let mut init_false = false;
             let mut validate = false;
+            let mut always_update = false;
 
-            // Parse optional args: watch, watch_with_app, validate, init = false
+            // Parse optional args: watch, watch_with_app, validate, always_update, init = false
             if let Meta::List(meta_list) = &attr.meta {
                 let nested = meta_list.parse_args_with(
                     syn::punctuated::Punctuated::<Meta, syn::Token![,]>::parse_terminated,
@@ -90,14 +95,14 @@ fn parse_field_annotation(field: &syn::Field) -> Result<Option<FieldAnnotation>,
                                 watch_with_app = true;
                             } else if path.is_ident("validate") {
                                 validate = true;
+                            } else if path.is_ident("always_update") {
+                                always_update = true;
                             } else {
                                 return Err(syn::Error::new_spanned(
                                     path,
                                     format!(
-                                        "unknown var attribute `{}`; expected `watch`, `watch_with_app`, `validate`, or `init = false` (note: `recompose` is only valid on `#[reactive]`, not `#[var]`)",
-                                        path.get_ident()
-                                            .map(|i| i.to_string())
-                                            .unwrap_or_default()
+                                        "unknown var attribute `{}`; expected `watch`, `watch_with_app`, `validate`, `always_update`, or `init = false` (note: `recompose` is only valid on `#[reactive]`, not `#[var]`)",
+                                        path.get_ident().map(|i| i.to_string()).unwrap_or_default()
                                     ),
                                 ));
                             }
@@ -154,6 +159,7 @@ fn parse_field_annotation(field: &syn::Field) -> Result<Option<FieldAnnotation>,
                 init_false,
                 recompose: false,
                 validate,
+                always_update,
             })));
         }
 
@@ -237,9 +243,10 @@ fn parse_field_annotation(field: &syn::Field) -> Result<Option<FieldAnnotation>,
             let mut init_false = false;
             let mut recompose = false;
             let mut validate = false;
+            let mut always_update = false;
 
             // Parse arguments if present:
-            // #[reactive(layout, watch, watch_with_app, recompose, validate, init = false)]
+            // #[reactive(layout, watch, watch_with_app, recompose, validate, always_update, init = false)]
             if let Meta::List(meta_list) = &attr.meta {
                 let nested = meta_list.parse_args_with(
                     syn::punctuated::Punctuated::<Meta, syn::Token![,]>::parse_terminated,
@@ -258,11 +265,13 @@ fn parse_field_annotation(field: &syn::Field) -> Result<Option<FieldAnnotation>,
                                 recompose = true;
                             } else if path.is_ident("validate") {
                                 validate = true;
+                            } else if path.is_ident("always_update") {
+                                always_update = true;
                             } else {
                                 return Err(syn::Error::new_spanned(
                                     path,
                                     format!(
-                                        "unknown reactive attribute `{}`; expected `layout`, `watch`, `watch_with_app`, `recompose`, `validate`, or `init = false`",
+                                        "unknown reactive attribute `{}`; expected `layout`, `watch`, `watch_with_app`, `recompose`, `validate`, `always_update`, or `init = false`",
                                         path.get_ident().map(|i| i.to_string()).unwrap_or_default()
                                     ),
                                 ));
@@ -322,6 +331,7 @@ fn parse_field_annotation(field: &syn::Field) -> Result<Option<FieldAnnotation>,
                 init_false,
                 recompose,
                 validate,
+                always_update,
             })));
         }
     }
@@ -336,7 +346,7 @@ fn parse_field_annotation(field: &syn::Field) -> Result<Option<FieldAnnotation>,
 /// `recompose` is rejected on `#[var]` during parsing, so it only applies here
 /// to `#[reactive]` fields.
 fn flags_expr(field: &ReactiveField) -> TokenStream {
-    if field.recompose && field.init_false {
+    let base = if field.recompose && field.init_false {
         quote! { textual::reactive::ReactiveFlags::reactive_recompose_no_init() }
     } else if field.recompose {
         quote! { textual::reactive::ReactiveFlags::reactive_recompose() }
@@ -352,6 +362,11 @@ fn flags_expr(field: &ReactiveField) -> TokenStream {
         quote! { textual::reactive::ReactiveFlags::reactive_no_init() }
     } else {
         quote! { textual::reactive::ReactiveFlags::reactive() }
+    };
+    if field.always_update {
+        quote! { #base.with_always_update() }
+    } else {
+        base
     }
 }
 
@@ -422,19 +437,23 @@ pub fn derive_reactive_impl(input: TokenStream) -> TokenStream {
             quote! {}
         };
 
-        accessors.push(quote! {
-            /// Generated getter for reactive field.
-            pub fn #field_ident(&self) -> &#field_ty {
-                &self.#field_ident
+        // `always_update` (Python `reactive(..., always_update=True)`) bypasses
+        // the equality gate: the change is recorded (and watchers fire) even
+        // when the new value equals the old one.
+        let set_body = if field.always_update {
+            quote! {
+                let old = self.#field_ident.clone();
+                self.#field_ident = value;
+                let new = self.#field_ident.clone();
+                ctx.record_change(
+                    #field_name_str,
+                    #f_flags_expr,
+                    Box::new(old),
+                    Box::new(new),
+                );
             }
-
-            /// Generated setter for reactive field. Records the change in
-            /// the provided [`ReactiveCtx`] if the value actually changed.
-            pub fn #setter_name(&mut self, value: #field_ty, ctx: &mut textual::reactive::ReactiveCtx)
-            where
-                #field_ty: PartialEq + Clone + Send + 'static,
-            {
-                #validate_stmt
+        } else {
+            quote! {
                 if self.#field_ident != value {
                     let old = self.#field_ident.clone();
                     self.#field_ident = value;
@@ -446,6 +465,24 @@ pub fn derive_reactive_impl(input: TokenStream) -> TokenStream {
                         Box::new(new),
                     );
                 }
+            }
+        };
+
+        accessors.push(quote! {
+            /// Generated getter for reactive field.
+            pub fn #field_ident(&self) -> &#field_ty {
+                &self.#field_ident
+            }
+
+            /// Generated setter for reactive field. Records the change in
+            /// the provided [`ReactiveCtx`] if the value actually changed
+            /// (or unconditionally for `always_update` fields).
+            pub fn #setter_name(&mut self, value: #field_ty, ctx: &mut textual::reactive::ReactiveCtx)
+            where
+                #field_ty: PartialEq + Clone + Send + 'static,
+            {
+                #validate_stmt
+                #set_body
             }
 
             /// Generated mutation notifier for a reactive field (Python

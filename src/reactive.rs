@@ -197,6 +197,18 @@ impl ReactiveFlags {
         self.recompose = false;
         self
     }
+
+    /// Return a copy of these flags with `always_update` set.
+    ///
+    /// Used by `#[derive(Reactive)]` to compose Python's
+    /// `reactive(..., always_update=True)` with any base flag preset
+    /// (`reactive`, `var`, `layout`, `recompose`, `init = false`): the
+    /// generated setter bypasses the equality gate and records the change
+    /// (firing watchers) even when the new value equals the old one.
+    pub const fn with_always_update(mut self) -> Self {
+        self.always_update = true;
+        self
+    }
 }
 
 /// Records a single field change during an event dispatch cycle.
