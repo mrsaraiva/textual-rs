@@ -43,28 +43,28 @@ maintainer review before implementation; the rest go direct to implementation.
 - [ ] Component classes for custom widgets: `COMPONENT_CLASSES` +
   `get_component_rich_style`, so third-party widgets expose restylable internals
   instead of hardcoding RGB. **[spec]** [M]
-- [ ] Render-time resolved-style / theme-var access + a public timer API seam
+- [x] Render-time resolved-style / theme-var access + a public timer API seam
   (retire the internal `ctx.event_ctx_mut()` backdoor). [S]
 
 **W2 — Parity foundations**
-- [ ] Action-parser fidelity: last-dot namespace split, typed-arg eval, malformed
+- [x] Action-parser fidelity: last-dot namespace split, typed-arg eval, malformed
   input errors (unblocks typed `check_action` and the keymap subsystem). [M]
-- [ ] Validation description-priority ladder: `describe_failure` + `merge` +
+- [x] Validation description-priority ladder: `describe_failure` + `merge` +
   `failure_descriptions`. [M]
-- [ ] Reactive `always_update` (derive attribute) + Suggester `use_cache`. [S]
+- [x] Reactive `always_update` (derive attribute) + Suggester `use_cache`. [S]
 - [ ] Devtools framework hooks: log sink over the devtools socket + debug-channel
   introspection + `on_tick` for inactive screens (harness work lives in
   `textual-dev-rs`). [M]
 
 **W3 — Structural parity (the large items, all in for 1.1.0)**
-- [ ] Tree / OptionList stable key identity: `NodeID` / `RowKey` / `ColumnKey`
+- [x] Tree / OptionList stable key identity: `NodeID` / `RowKey` / `ColumnKey`
   registries, `get_*_by_id`, key-based CRUD, typed not-found errors. **[spec]** [L]
-- [ ] TextArea undo/redo `EditHistory` batching: time-batch, cursor-move
+- [x] TextArea undo/redo `EditHistory` batching: time-batch, cursor-move
   checkpoint, char-count split, paste isolation (replaces the full-snapshot
   stack; diverges from all 16 Python history tests today). **[spec]** [L]
-- [ ] Keymap subsystem: `BindingsMap`, `BindingDecl.id`, `apply_keymap`, clash
+- [x] Keymap subsystem: `BindingsMap`, `BindingDecl.id`, `apply_keymap`, clash
   detection, `bindings_updated_signal` (user key remapping). **[spec]** [L]
-- [ ] Wrapped-line navigation under `soft_wrap`: `get_location_above/below`,
+- [x] Wrapped-line navigation under `soft_wrap`: `get_location_above/below`,
   `WrappedDocument` / `DocumentNavigator` parity. **[spec]** [M/L]
 
 **W4 — Behavior flips (maintainer-approved)**
@@ -76,7 +76,7 @@ maintainer review before implementation; the rest go direct to implementation.
   dispatch. [M]
 
 **W5 — Document intentional divergences (KNOWN_GAPS, no code)**
-- [ ] name-convention dispatch (`on_<ns>_<name>`) + `key_<name>` method dispatch;
+- [x] name-convention dispatch (`on_<ns>_<name>`) + `key_<name>` method dispatch;
   message-class MRO inheritance; `BINDINGS` class-hierarchy inheritance /
   `inherit_bindings`; private `_watch`/`_validate`/`_compute` + reactive
   inheritance; the reactive deferred-phase watcher model; theme tokens vs Python
