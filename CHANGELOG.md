@@ -7,6 +7,13 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+## [1.0.3] - 2026-07-16
+
+Third patch release. Three correctness fixes distilled from the design analysis
+of the harder framework gaps found by porting real apps: the small, well-bounded
+halves that are bugs rather than new API (the cross-screen access feature itself
+remains a 1.1 item).
+
 ### Fixed — build-time `on_mount` side effects are no longer dropped
 
 A widget mounted during the initial tree build that requested a worker (or staged
