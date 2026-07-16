@@ -414,14 +414,27 @@ impl Footer {
         let mut style = self.component_style(&["footer-key--palette-separator"], self.base_style());
         if self.hovered_item == Some(HoveredFooterItem::CommandPalette) {
             let row_bg = self.effective_row_bg();
-            let key_bg = FooterKey::new(String::new(), String::new())
+            // Mirror the composite the live-rendered hovered key cell shows:
+            // the (possibly translucent) `FooterKey:hover` BASE bg flattened
+            // over the footer row, with the `.footer-key--key` component bg
+            // (transparent by default) layered on top. The component style
+            // alone cannot carry the hover bg: the component phantom is
+            // stateless by design (widget pseudo state qualifies the PARENT
+            // meta on the selector stack, not the part itself).
+            let key = FooterKey::new(String::new(), String::new())
                 .with_command_palette(true)
                 .with_parent_bg(row_bg)
-                .with_hovered(true)
-                .component_style(&["footer-key--key"], rich_rs::Style::new())
-                .bgcolor
-                .unwrap_or(row_bg.to_simple_opaque());
-            style = style.with_bgcolor(key_bg);
+                .with_hovered(true);
+            let base_bg = key
+                .resolved_base_style()
+                .bg
+                .map(|bg| bg.flatten_over(row_bg))
+                .unwrap_or(row_bg);
+            let key_bg = crate::css::resolve_component_style(&key, &["footer-key--key"])
+                .bg
+                .map(|bg| bg.flatten_over(base_bg))
+                .unwrap_or(base_bg);
+            style = style.with_bgcolor(key_bg.to_simple_opaque());
         }
         style
     }

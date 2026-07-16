@@ -39,6 +39,18 @@ protocol revision 3; purely additive, older clients are unaffected):
   background animation/refresh keeps advancing while a screen is suspended
   (Python Textual keeps widget timers running on suspended screens). Default
   behavior is unchanged: active-screen ticking only.
+### Fixed: Footer command-palette separator loses the hovered key background
+
+- The command-palette separator cell in `Footer` regressed with the component
+  classes phase 1 seam: it no longer shared the hovered command-palette key's
+  background. The helper extracted the hover bg from a standalone
+  `.footer-key--key` component resolution, which only worked through the
+  removed phantom widget-state leak (`FooterKey:hover` matching the component
+  node itself). The separator now mirrors the live key cell's real composite:
+  the (translucent) `FooterKey:hover` BASE background flattened over the
+  footer row, with the component background layered on top. Component
+  phantoms stay stateless; widget pseudo state keeps qualifying the parent
+  meta only.
 
 ### Changed (BREAKING): `Select.allow_blank` now defaults to `true` (Python parity)
 
