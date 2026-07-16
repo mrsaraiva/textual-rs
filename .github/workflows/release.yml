@@ -58,8 +58,51 @@ jobs:
           CARGO_INCREMENTAL: "0"
         run: cargo test --test pty_parity -- --nocapture
 
+  # textual-macros is a standalone crate (not a workspace member, own Cargo.lock).
+  # It must be on crates.io BEFORE `package`/`publish` can resolve `textual`'s
+  # `textual-macros = { version = "..." }` requirement, so it publishes first.
+  publish-macros:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    needs: [pty-parity]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Read textual-macros version
+        id: version
+        run: |
+          set -euo pipefail
+          v=$(cd textual-macros && cargo metadata --no-deps --format-version 1 | \
+            python3 -c "import json,sys; print(next(p['version'] for p in json.load(sys.stdin)['packages'] if p['name']=='textual-macros'))")
+          echo "macros=$v" >> "$GITHUB_OUTPUT"
+      - name: Authenticate with crates.io
+        id: auth
+        uses: rust-lang/crates-io-auth-action@v1
+      - name: Publish textual-macros (if new) and wait for the index
+        env:
+          CARGO_INCREMENTAL: "0"
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+        run: |
+          set -euo pipefail
+          v="${{ steps.version.outputs.macros }}"
+          if curl -sfL -A "release-workflow (https://github.com/mrsaraiva)" "https://crates.io/api/v1/crates/textual-macros/${v}" >/dev/null; then
+            echo "textual-macros ${v} already published; skipping"
+          else
+            (cd textual-macros && cargo publish --allow-dirty)
+            # Wait for the sparse index to propagate so `package`/`publish` resolve it.
+            for i in $(seq 1 30); do
+              if curl -sfL "https://index.crates.io/te/xt/textual-macros" | grep -q "\"vers\":\"${v}\""; then
+                echo "index has textual-macros ${v}"; break
+              fi
+              echo "waiting for textual-macros ${v} on the index..."; sleep 10
+            done
+          fi
+
   package:
     runs-on: ubuntu-latest
+    needs: [publish-macros]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -73,48 +116,27 @@ jobs:
     permissions:
       id-token: write
       contents: read
-    needs: [package, pty-parity]
+    needs: [package]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - name: Read crate versions
-        id: versions
+      - name: Read textual version
+        id: version
         run: |
           set -euo pipefail
-          meta=$(cargo metadata --no-deps --format-version 1)
-          tv=$(echo "$meta" | python3 -c "import json,sys; pkgs=json.load(sys.stdin)['packages']; print(next(p['version'] for p in pkgs if p['name']=='textual'))")
-          mv=$(echo "$meta" | python3 -c "import json,sys; pkgs=json.load(sys.stdin)['packages']; print(next(p['version'] for p in pkgs if p['name']=='textual-macros'))")
-          echo "textual=$tv" >> "$GITHUB_OUTPUT"
-          echo "macros=$mv" >> "$GITHUB_OUTPUT"
+          v=$(cargo metadata --no-deps --format-version 1 | \
+            python3 -c "import json,sys; print(next(p['version'] for p in json.load(sys.stdin)['packages'] if p['name']=='textual'))")
+          echo "textual=$v" >> "$GITHUB_OUTPUT"
       - name: Authenticate with crates.io
         id: auth
         uses: rust-lang/crates-io-auth-action@v1
-      - name: Publish textual-macros (if new)
-        env:
-          CARGO_INCREMENTAL: "0"
-          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
-        run: |
-          set -euo pipefail
-          v="${{ steps.versions.outputs.macros }}"
-          if curl -sfL -A "release-workflow (https://github.com/mrsaraiva)" "https://crates.io/api/v1/crates/textual-macros/${v}" >/dev/null; then
-            echo "textual-macros ${v} already published; skipping"
-          else
-            cargo publish -p textual-macros --locked
-            # Wait for the sparse index to propagate so the textual publish resolves it.
-            for i in $(seq 1 30); do
-              if curl -sfL "https://index.crates.io/te/xt/textual-macros" | grep -q "\"vers\":\"${v}\""; then
-                echo "index has textual-macros ${v}"; break
-              fi
-              echo "waiting for textual-macros ${v} on the index..."; sleep 10
-            done
-          fi
       - name: Publish textual (if new)
         env:
           CARGO_INCREMENTAL: "0"
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
         run: |
           set -euo pipefail
-          v="${{ steps.versions.outputs.textual }}"
+          v="${{ steps.version.outputs.textual }}"
           if curl -sfL -A "release-workflow (https://github.com/mrsaraiva)" "https://crates.io/api/v1/crates/textual/${v}" >/dev/null; then
             echo "textual ${v} already published; skipping"
           else
@@ -125,7 +147,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    needs: [package, publish]
+    needs: [publish]
     steps:
       - uses: actions/checkout@v4
       - name: Create GitHub Release
