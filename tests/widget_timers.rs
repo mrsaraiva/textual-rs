@@ -298,6 +298,111 @@ fn recompose_mounted_widget_registers_timer_headlessly() {
     .expect("headless run_test must succeed");
 }
 
+// ===========================================================================
+// Public one-shot seam: `WidgetCtx::set_timer` (Python `self.set_timer`).
+//
+// A widget schedules a one-shot from `on_mount` through the public WidgetCtx
+// API (no `event_ctx_mut()` reach-through); the callback runs exactly once,
+// `delay` after registration, and never again.
+// ===========================================================================
+
+/// A widget that arms a one-shot at mount and counts its fires.
+struct OneShot {
+    fires: Arc<AtomicI32>,
+    handle_slot: Arc<Mutex<Option<TimerHandle>>>,
+}
+
+impl Widget for OneShot {
+    fn render(&self, _console: &Console, _options: &ConsoleOptions) -> Segments {
+        Segments::new()
+    }
+
+    fn style_type(&self) -> &'static str {
+        "OneShot"
+    }
+
+    fn on_mount(&mut self, ctx: &mut WidgetCtx) {
+        let handle = ctx.set_timer::<Self, _>(Duration::from_secs(2), |w, _wctx, tick| {
+            assert_eq!(tick.fire_count, 1, "one-shot tick reports its single fire");
+            w.fires.fetch_add(1, Ordering::SeqCst);
+        });
+        *self.handle_slot.lock().unwrap() = Some(handle);
+    }
+}
+
+struct OneShotApp {
+    fires: Arc<AtomicI32>,
+    handle_slot: Arc<Mutex<Option<TimerHandle>>>,
+}
+
+impl TextualApp for OneShotApp {
+    fn compose(&mut self) -> AppRoot {
+        AppRoot::new().with_child(OneShot {
+            fires: Arc::clone(&self.fires),
+            handle_slot: Arc::clone(&self.handle_slot),
+        })
+    }
+}
+
+#[test]
+fn set_timer_one_shot_fires_exactly_once_via_public_widget_ctx_api() {
+    let fires = Arc::new(AtomicI32::new(0));
+    let handle_slot: Arc<Mutex<Option<TimerHandle>>> = Arc::new(Mutex::new(None));
+    let app = OneShotApp {
+        fires: Arc::clone(&fires),
+        handle_slot: Arc::clone(&handle_slot),
+    };
+
+    textual::run_test(app, |pilot: &mut Pilot| {
+        pilot.pause()?;
+        assert!(
+            handle_slot.lock().unwrap().is_some(),
+            "set_timer returns a handle immediately at mount"
+        );
+        assert_eq!(fires.load(Ordering::SeqCst), 0, "no fire before the delay");
+
+        // Not yet due after 1 of the 2 seconds.
+        pilot.advance_clock(Duration::from_secs(1))?;
+        assert_eq!(fires.load(Ordering::SeqCst), 0, "not due yet at 1s of 2s");
+
+        // Crossing the deadline fires the callback once.
+        pilot.advance_clock(Duration::from_secs(1))?;
+        assert_eq!(fires.load(Ordering::SeqCst), 1, "one-shot fired at its deadline");
+
+        // Well past several would-be intervals: never fires again.
+        pilot.advance_clock(Duration::from_secs(10))?;
+        assert_eq!(fires.load(Ordering::SeqCst), 1, "one-shot never fires twice");
+
+        Ok(())
+    })
+    .expect("headless run_test must succeed");
+}
+
+#[test]
+fn set_timer_one_shot_can_be_stopped_before_firing() {
+    let fires = Arc::new(AtomicI32::new(0));
+    let handle_slot: Arc<Mutex<Option<TimerHandle>>> = Arc::new(Mutex::new(None));
+    let app = OneShotApp {
+        fires: Arc::clone(&fires),
+        handle_slot: Arc::clone(&handle_slot),
+    };
+
+    textual::run_test(app, |pilot: &mut Pilot| {
+        pilot.pause()?;
+        let handle = handle_slot.lock().unwrap().expect("timer registered at mount");
+        handle.stop();
+        pilot.pause()?; // drain the StopTimer command
+        pilot.advance_clock(Duration::from_secs(10))?;
+        assert_eq!(
+            fires.load(Ordering::SeqCst),
+            0,
+            "a stopped one-shot never fires"
+        );
+        Ok(())
+    })
+    .expect("headless run_test must succeed");
+}
+
 #[test]
 fn unmounting_widget_purges_its_timer_no_fire_after() {
     let observed = Arc::new(AtomicI32::new(i32::MIN));

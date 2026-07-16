@@ -71,6 +71,36 @@ Migration: `parse_action(s)?`/`.ok()` instead of the old `Option`; read string
 arguments via `arg.as_str()` and integers via `arg.as_int()`; update
 `check_action` overrides to the new parameter type. `ActionArgument` and
 `ActionParseError` are exported from the prelude.
+### Added — public render-time style seam: `textual::render_context`
+
+Custom widgets can now ask, from inside `render()`, what the framework actually
+resolved for them, through a small documented module (also re-exported by the
+prelude) instead of framework internals:
+
+- `render_context::resolved_style()` returns the widget's own resolved `Style`
+  (stylesheet + inline + inheritance), exactly what the framework paints with.
+- `render_context::composited_background()` returns the effective ancestor
+  surface color the widget is composited over. CSS `background` remains
+  non-inherited (`resolved_style().bg` stays `None` for a transparent widget);
+  this function exposes the render-time composition surface instead.
+- `render_context::theme_color("$accent")` resolves theme tokens (with or
+  without the `$`, including `-lighten-N`/`-darken-N` variants) against the
+  active theme; usable in any context, not just render.
+
+The first two are render-scoped and return `None` outside a render call. This
+is the supported seam the 1.1 component-classes work builds on.
+
+### Added — one-shot widget timers: `WidgetCtx::set_timer`
+
+Widgets could schedule repeating intervals via the public
+`WidgetCtx::set_interval`, but one-shot work still had no first-class seam.
+`ctx.set_timer::<Self, _>(delay, |widget, ctx, tick| ...)` (Python
+`self.set_timer`) now schedules a widget-owned one-shot: the `FnOnce` callback
+runs exactly once, `delay` after registration, with the concrete widget and a
+fresh `WidgetCtx`. Returns the same `TimerHandle` as `set_interval`
+(`pause`/`resume`/`stop` before it fires), runs on the shared `TimerRuntime`
+(so `Pilot::advance_clock` drives it deterministically), and is purged if the
+owning node unmounts first.
 
 ## [1.0.3] - 2026-07-16
 

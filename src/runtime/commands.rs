@@ -120,15 +120,19 @@ pub(crate) enum WidgetCommand {
         target: CommandTarget,
         apply: StyleApply,
     },
-    /// Register a widget-owned interval timer on the SAME `TimerRuntime` as
-    /// app-level timers (so `enable_manual_timer_clock` / `Pilot::advance_clock`
-    /// drive it deterministically). `timer_id` is pre-allocated by
-    /// `alloc_widget_timer_id` so `set_interval` can return a stable `TimerHandle`.
+    /// Register a widget-owned timer on the SAME `TimerRuntime` as app-level
+    /// timers (so `enable_manual_timer_clock` / `Pilot::advance_clock` drive it
+    /// deterministically). `timer_id` is pre-allocated by
+    /// `alloc_widget_timer_id` so `set_interval` / `set_timer` can return a
+    /// stable `TimerHandle`. `repeat = None` repeats forever
+    /// (`WidgetCtx::set_interval`); `Some(1)` is a one-shot
+    /// (`WidgetCtx::set_timer`).
     RegisterTimer {
         node: NodeId,
         timer_id: u64,
         interval: Duration,
         paused: bool,
+        repeat: Option<u64>,
         callback: WidgetTimerCallback,
     },
     /// Bubble a message from its sender node during the shared flush (PostUp).
@@ -402,12 +406,13 @@ impl App {
                 timer_id,
                 interval,
                 paused,
+                repeat,
                 callback,
             } => {
                 // Same TimerRuntime as app timers (TRAP h: manual-clock coverage).
                 let last_fire = self.timers.now();
                 self.timers
-                    .schedule_interval(timer_id, node, interval, None, paused);
+                    .schedule_interval(timer_id, node, interval, repeat, paused);
                 self.widget_timer_callbacks.insert(
                     timer_id,
                     WidgetTimerEntry {

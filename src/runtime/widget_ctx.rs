@@ -203,6 +203,54 @@ impl<'a> WidgetCtx<'a> {
             timer_id,
             interval,
             paused,
+            repeat: None,
+            callback,
+        });
+        TimerHandle::from_id(timer_id)
+    }
+
+    /// Schedule a **widget-owned one-shot timer** on this widget's node
+    /// (Python `self.set_timer`): `f` runs exactly once, `delay` after
+    /// registration, with the concrete widget `&mut W` (downcast at fire) and a
+    /// fresh `WidgetCtx`. This is the public counterpart of
+    /// [`set_interval`](Self::set_interval) for one-shot work; no
+    /// `event_ctx_mut()` reach-through is needed.
+    ///
+    /// Runs on the SAME `TimerRuntime` as app timers, so `Pilot::advance_clock`
+    /// drives it deterministically. The returned [`TimerHandle`] can
+    /// `pause()`/`resume()`/`stop()` it before it fires; after the single fire
+    /// the timer is dropped. The timer is purged if its node unmounts first.
+    /// Registration is deferred (enqueued, applied by the next flush); the
+    /// handle is valid immediately (its id is pre-allocated).
+    pub fn set_timer<W, F>(&mut self, delay: Duration, f: F) -> TimerHandle
+    where
+        W: Widget,
+        F: FnOnce(&mut W, &mut WidgetCtx, TimerTick) + Send + 'static,
+    {
+        let timer_id = alloc_widget_timer_id();
+        // The runtime callback type is `FnMut` (repeating timers); adapt the
+        // one-shot `FnOnce` through an `Option` take. The runtime never calls
+        // it twice (`repeat = Some(1)` removes the timer at its first fire).
+        let mut once = Some(f);
+        let callback: WidgetTimerCallback =
+            Box::new(move |widget: &mut dyn Widget, wctx: &mut WidgetCtx, tick: TimerTick| {
+                let Some(f) = once.take() else {
+                    return;
+                };
+                match (widget as &mut dyn Any).downcast_mut::<W>() {
+                    Some(concrete) => f(concrete, wctx, tick),
+                    None => crate::debug::debug_render(&format!(
+                        "[widget-timer] one-shot fire downcast miss: node is not {}",
+                        std::any::type_name::<W>()
+                    )),
+                }
+            });
+        enqueue_widget_command(WidgetCommand::RegisterTimer {
+            node: self.node_id(),
+            timer_id,
+            interval: delay,
+            paused: false,
+            repeat: Some(1),
             callback,
         });
         TimerHandle::from_id(timer_id)

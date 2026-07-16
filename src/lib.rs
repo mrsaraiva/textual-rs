@@ -23,6 +23,7 @@ pub mod message_handlers;
 pub mod node_id;
 pub mod reactive;
 pub mod render;
+pub mod render_context;
 pub mod renderables;
 pub mod routing;
 pub mod runtime;
@@ -101,6 +102,10 @@ pub mod prelude {
     pub use crate::reactive::{ReactiveChange, ReactiveCtx, ReactiveFlags, ReactiveWidget};
     pub use crate::signal::{Signal, SignalResponse};
     pub use crate::content::Content;
+    // Render-time resolved-style / theme-token access for custom `render()`
+    // bodies (public seam; the component-classes work consumes it). Exposed as
+    // the module so call sites read `render_context::resolved_style()`.
+    pub use crate::render_context;
     pub use crate::style::{Color, Style, TextAlign, Theme};
     pub use crate::theme::{NamedTheme, available_theme_names, get_theme, register_theme};
     pub use textual_macros::Reactive;
