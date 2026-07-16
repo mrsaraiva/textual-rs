@@ -660,17 +660,32 @@ pub(crate) fn focused_help_metadata_tree(tree: &WidgetTree) -> Option<(NodeId, S
 /// The binding key may contain comma-separated alternatives (e.g. `"j,down"`).
 /// Matching is performed against the key's `aliases()` which include the
 /// canonical name plus any alias variants.
+///
+/// A single-character non-alphanumeric alternative (`"."`, `"~"`, `"?"`) is
+/// normalized to its canonical long key name (`"full_stop"`, `"tilde"`,
+/// `"question_mark"`) before matching, mirroring Python `Binding.make_bindings`
+/// / `_character_to_key`: pressed keys carry the long name, so the raw
+/// character would otherwise never match.
 fn key_matches_binding(key: &KeyEventData, binding_key: &str) -> bool {
     let aliases = key.aliases();
-    binding_key
-        .split(',')
-        .map(str::trim)
-        .any(|alt| aliases.contains(&alt))
+    binding_key.split(',').map(str::trim).any(|alt| {
+        if aliases.contains(&alt) {
+            return true;
+        }
+        let mut chars = alt.chars();
+        match (chars.next(), chars.next()) {
+            (Some(ch), None) if !ch.is_alphanumeric() => {
+                let canonical = crate::keys::character_to_key_name(ch);
+                aliases.iter().any(|alias| *alias == canonical)
+            }
+            _ => false,
+        }
+    })
 }
 
 /// Walk the focused widget chain and find the first matching `BindingDecl`.
 ///
-/// Phase 1: priority bindings (focused→root).
+/// Phase 1: priority bindings (root→focused, Python `reversed(binding_chain)`).
 /// Phase 2: normal bindings (focused→root).
 ///
 /// Returns `(node_id, action_string)` of the first match, or `None`.
@@ -682,7 +697,7 @@ pub(crate) fn match_binding_tree(
     tree: &WidgetTree,
     key: &KeyEventData,
 ) -> Option<(NodeId, String)> {
-    match_binding_chain(tree, None, key).map(|(node, action, _src)| (node, action))
+    match_binding_chain(tree, None, key, None).map(|(node, action, _src)| (node, action))
 }
 
 /// Build the focused→root binding-resolution path for `tree`.
@@ -729,45 +744,114 @@ pub(crate) enum BindingSource {
 /// tree the source node belongs to.
 pub(crate) type BindingMatch = (NodeId, String, BindingSource);
 
+/// App-level `check_action` callback (the adapter forwards it to
+/// `TextualApp::check_action`), threaded into the binding-chain walk so
+/// app-targeted bindings are gated by the app's dynamic action state.
+pub(crate) type AppCheckAction<'a> = &'a (dyn Fn(&str, &[String]) -> Option<bool> + Send + Sync);
+
+/// `check_action` gate for one matched binding candidate.
+///
+/// Mirrors Python `App.run_action`, which resolves the action target
+/// (`_parse_action(action, default_namespace)`) and only dispatches when
+/// `action_target.check_action(name, params)` is truthy. `Some(false)` and
+/// `None` both mean "do not run" (hidden vs disabled-dimmed), and the caller
+/// continues walking the binding chain, exactly like Python's
+/// `_check_bindings` moving on when `run_action` returns `False`.
+///
+/// Target routing: an explicit `app.` namespace, or a binding declared on the
+/// app-level root node (`node_is_app`), is checked against the app's
+/// `check_action` callback when one is registered; every other binding is
+/// checked against the declaring node's own `Widget::check_action` (Python's
+/// `default_namespace`).
+fn binding_check_allows(
+    tree: &WidgetTree,
+    node_id: NodeId,
+    node_is_app: bool,
+    action: &str,
+    app_check: Option<AppCheckAction<'_>>,
+) -> bool {
+    let Some(parsed) = crate::action::parse_action(action) else {
+        // Unparseable action strings are diagnosed at dispatch time.
+        return true;
+    };
+    let app_target = node_is_app || parsed.namespace.as_deref() == Some("app");
+    if app_target && let Some(check) = app_check {
+        return check(&parsed.name, &parsed.arguments) == Some(true);
+    }
+    tree.get(node_id)
+        .map(|node| node.widget.check_action(&parsed.name, &parsed.arguments) == Some(true))
+        .unwrap_or(true)
+}
+
 /// Match a key against the full active binding chain.
 ///
 /// Faithful to Python's `App._check_bindings`, which consults
 /// `Screen._binding_chain` (focused→root) and then the App's own bindings:
 ///
-/// - First walk the active tree (focused→root, or `[root, body-root]` when
-///   unfocused), matching priority bindings then normal bindings.
-/// - Then, when a distinct `app_root` tree is supplied (i.e. a screen/mode is
-///   active and the app-root tree is *not* the active tree), walk it too so
-///   `App::BINDINGS` (e.g. `app.switch_mode`, `app.push_screen`) remain live
-///   beneath the active screen.
+/// - Priority phase: Python walks `reversed(screen._binding_chain)`, which is
+///   app → screen → ... → focused, so an App-level priority binding WINS over
+///   a screen or widget priority binding for the same key. Here that means
+///   walking the app-root chain first (root-first), then the active chain
+///   root→focused.
+/// - Normal phase: Python walks the chain focused→root, so the deepest
+///   (focused) widget wins. Here: active chain focused→root, then app-root.
 ///
 /// `app_root` must be `None` when the active tree already *is* the app-root
 /// tree (no screen pushed), to avoid double-walking it.
+///
+/// Every candidate binding is gated through `check_action`
+/// ([`binding_check_allows`]); a gated-off binding is skipped and the walk
+/// continues, so a lower-precedence binding for the same key can still fire
+/// (Python `_check_bindings` semantics).
 pub(crate) fn match_binding_chain(
     active: &WidgetTree,
     app_root: Option<&WidgetTree>,
     key: &KeyEventData,
+    app_check: Option<AppCheckAction<'_>>,
 ) -> Option<BindingMatch> {
     let active_path = binding_path(active);
     let app_path = app_root.map(binding_path).unwrap_or_default();
+    // With no separate app-root tree, the active tree's root IS the app node
+    // (the stub mirroring the app adapter's bindings).
+    let active_root_is_app = app_root.is_none();
 
-    // Phase 1: priority bindings, active chain (focused→root) then app-root.
-    for &node_id in active_path.iter().rev() {
-        if let Some(node) = active.get(node_id) {
-            for binding in node.widget.bindings() {
-                if binding.priority && key_matches_binding(key, &binding.key) {
-                    return Some((node_id, binding.action.clone(), BindingSource::Active));
+    // Phase 1: priority bindings, root→focused (Python: `reversed(binding_chain)`
+    // = app → screen → ... → focused). The app-root chain comes first so
+    // App-level priority bindings beat screen/widget priority bindings.
+    if let Some(app_tree) = app_root {
+        for &node_id in app_path.iter() {
+            if let Some(node) = app_tree.get(node_id) {
+                for binding in node.widget.bindings() {
+                    if binding.priority
+                        && key_matches_binding(key, &binding.key)
+                        && binding_check_allows(
+                            app_tree,
+                            node_id,
+                            Some(node_id) == app_tree.root(),
+                            &binding.action,
+                            app_check,
+                        )
+                    {
+                        return Some((node_id, binding.action.clone(), BindingSource::AppRoot));
+                    }
                 }
             }
         }
     }
-    if let Some(app_tree) = app_root {
-        for &node_id in app_path.iter().rev() {
-            if let Some(node) = app_tree.get(node_id) {
-                for binding in node.widget.bindings() {
-                    if binding.priority && key_matches_binding(key, &binding.key) {
-                        return Some((node_id, binding.action.clone(), BindingSource::AppRoot));
-                    }
+    for &node_id in active_path.iter() {
+        if let Some(node) = active.get(node_id) {
+            for binding in node.widget.bindings() {
+                if binding.priority
+                    && key_matches_binding(key, &binding.key)
+                    && binding_check_allows(
+                        active,
+                        node_id,
+                        active_root_is_app && Some(node_id) == active.root(),
+                        &binding.action,
+                        app_check,
+                    )
+                {
+                    return Some((node_id, binding.action.clone(), BindingSource::Active));
                 }
             }
         }
@@ -777,7 +861,16 @@ pub(crate) fn match_binding_chain(
     for &node_id in active_path.iter().rev() {
         if let Some(node) = active.get(node_id) {
             for binding in node.widget.bindings() {
-                if !binding.priority && key_matches_binding(key, &binding.key) {
+                if !binding.priority
+                    && key_matches_binding(key, &binding.key)
+                    && binding_check_allows(
+                        active,
+                        node_id,
+                        active_root_is_app && Some(node_id) == active.root(),
+                        &binding.action,
+                        app_check,
+                    )
+                {
                     return Some((node_id, binding.action.clone(), BindingSource::Active));
                 }
             }
@@ -787,7 +880,16 @@ pub(crate) fn match_binding_chain(
         for &node_id in app_path.iter().rev() {
             if let Some(node) = app_tree.get(node_id) {
                 for binding in node.widget.bindings() {
-                    if !binding.priority && key_matches_binding(key, &binding.key) {
+                    if !binding.priority
+                        && key_matches_binding(key, &binding.key)
+                        && binding_check_allows(
+                            app_tree,
+                            node_id,
+                            Some(node_id) == app_tree.root(),
+                            &binding.action,
+                            app_check,
+                        )
+                    {
                         return Some((node_id, binding.action.clone(), BindingSource::AppRoot));
                     }
                 }
@@ -2608,9 +2710,8 @@ mod binding_tests {
         let result = match_binding_tree(&tree, &key);
         assert!(result.is_some());
         let (node_id, action) = result.unwrap();
-        // Priority binding on child should be checked first (focused → root),
-        // but child has normal binding, root has priority. Priority phase checks
-        // child first (no priority there), then root (priority match!).
+        // The priority phase (root → focused) finds the root's priority
+        // binding before the child's normal binding is even considered.
         assert_eq!(action, "close_app");
         assert_eq!(node_id, root_id);
 
@@ -2817,7 +2918,7 @@ mod binding_tests {
         tree.mount(root_id, Box::new(BindingWidget::new(false, vec![])));
 
         let key = KeyEventData::from_crossterm(key_event(KeyCode::Esc, KeyModifiers::empty()));
-        let result = match_binding_chain(&tree, None, &key);
+        let result = match_binding_chain(&tree, None, &key, None);
         assert_eq!(result, Some((body_id, "app.pop_screen".to_string(), BindingSource::Active)));
     }
 
@@ -2841,7 +2942,7 @@ mod binding_tests {
         )));
 
         let key = KeyEventData::from_crossterm(key_event(KeyCode::Char('s'), KeyModifiers::empty()));
-        let result = match_binding_chain(&screen, Some(&app_root), &key);
+        let result = match_binding_chain(&screen, Some(&app_root), &key, None);
         assert_eq!(
             result,
             Some((app_node, "app.switch_mode('settings')".to_string(), BindingSource::AppRoot)),
@@ -2870,11 +2971,91 @@ mod binding_tests {
         )));
 
         let key = KeyEventData::from_crossterm(key_event(KeyCode::Char('s'), KeyModifiers::empty()));
-        let result = match_binding_chain(&screen, Some(&app_root), &key);
+        let result = match_binding_chain(&screen, Some(&app_root), &key, None);
         assert_eq!(
             result,
             Some((body_id, "screen_action".to_string(), BindingSource::Active)),
             "active-tree binding must win over an app-root binding for the same key"
+        );
+    }
+
+    /// Port of Python `test_binding_inheritance.py::test_overlapping_priority_bindings`
+    /// (keys `d` and `e`): in the PRIORITY phase Python walks
+    /// `reversed(screen._binding_chain)` = app → screen → ... → focused, so an
+    /// App-level priority binding wins over a Screen-level ("d") or focused
+    /// Widget-level ("e") priority binding for the same key. The normal phase
+    /// keeps the focused→root order (guarded by
+    /// `match_binding_priority_wins_over_normal` above and re-asserted here).
+    #[test]
+    fn match_binding_app_priority_beats_screen_and_widget_priority() {
+        // Active screen tree: screen body carries a priority "d" binding, the
+        // focused widget carries a priority "e" binding plus a NORMAL "n".
+        let mut screen = WidgetTree::new();
+        let screen_root = screen.set_root(Box::new(BindingWidget::new(false, vec![])));
+        let body_id = screen.mount(
+            screen_root,
+            Box::new(BindingWidget::new(
+                false,
+                vec![BindingDecl::new("d", "app.record('screen_d')", "d").priority()],
+            )),
+        );
+        let widget_id = screen.mount(
+            body_id,
+            Box::new(BindingWidget::new(
+                true,
+                vec![
+                    BindingDecl::new("e", "app.record('widget_e')", "e").priority(),
+                    BindingDecl::new("n", "app.record('widget_n')", "n"),
+                ],
+            )),
+        );
+        screen.set_focus_state(widget_id, true);
+
+        // App-root tree: the app declares priority "d" and "e" and a NORMAL "n".
+        let mut app_root = WidgetTree::new();
+        let app_node = app_root.set_root(Box::new(BindingWidget::new(
+            false,
+            vec![
+                BindingDecl::new("d", "record('app_d')", "d").priority(),
+                BindingDecl::new("e", "record('app_e')", "e").priority(),
+                BindingDecl::new("n", "record('app_n')", "n"),
+            ],
+        )));
+
+        // Key `d`: App priority vs Screen priority: App wins.
+        let d = KeyEventData::from_crossterm(key_event(KeyCode::Char('d'), KeyModifiers::empty()));
+        assert_eq!(
+            match_binding_chain(&screen, Some(&app_root), &d, None),
+            Some((
+                app_node,
+                "record('app_d')".to_string(),
+                BindingSource::AppRoot
+            )),
+            "App-level priority binding must beat a Screen-level priority binding"
+        );
+
+        // Key `e`: App priority vs focused Widget priority: App wins.
+        let e = KeyEventData::from_crossterm(key_event(KeyCode::Char('e'), KeyModifiers::empty()));
+        assert_eq!(
+            match_binding_chain(&screen, Some(&app_root), &e, None),
+            Some((
+                app_node,
+                "record('app_e')".to_string(),
+                BindingSource::AppRoot
+            )),
+            "App-level priority binding must beat a focused widget's priority binding"
+        );
+
+        // Key `n` (normal phase untouched): focused widget wins over the app.
+        let n = KeyEventData::from_crossterm(key_event(KeyCode::Char('n'), KeyModifiers::empty()));
+        assert_eq!(
+            match_binding_chain(&screen, Some(&app_root), &n, None),
+            Some((
+                widget_id,
+                "app.record('widget_n')".to_string(),
+                BindingSource::Active
+            )),
+            "normal-phase order (focused first) must be unchanged"
         );
     }
 

@@ -343,7 +343,12 @@ fn normalize_key_code(code: KeyCode, modifiers: KeyModifiers) -> (String, Option
 ///
 /// Uses a built-in lookup table for ASCII symbols.  Characters not in the
 /// table fall back to `"u+XXXX"` hex representation.
-fn character_to_key_name(ch: char) -> String {
+///
+/// Also used by binding matching (`key_matches_binding`) to normalize
+/// single-character binding declarations (`Binding(".", ..)`) to the canonical
+/// key name a pressed key carries (`"full_stop"`), mirroring Python
+/// `_character_to_key`.
+pub(crate) fn character_to_key_name(ch: char) -> String {
     let raw_name = match ch {
         ' ' => "space",
         '!' => "exclamation_mark",

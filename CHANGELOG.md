@@ -7,6 +7,51 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### Fixed: `#[on(Msg, selector = "...")]` selector filtering is enforced
+
+The `selector = "..."` argument of `#[on(..)]` was parsed and surfaced as a
+`__ON_SELECTOR_*` const but never consulted anywhere: the generated
+`__on_dispatch_*` gated on message TYPE only, so a selector-filtered handler
+fired for every message of that type. The generated dispatcher now matches the
+parsed selector against the message's `control_meta()` (the identity of the
+originating control) and skips the handler when it does not match, mirroring
+Python's `@on(Message, selector)` matching against `message.control`. A message
+without control metadata never satisfies a selector-filtered handler.
+Requires `textual-macros` (codegen change), so a coordinated `textual-macros`
+version bump is needed for publishing.
+
+### Fixed: App-level priority bindings win over screen/widget priority bindings
+
+The priority phase of binding resolution walked the chain focused->root, so a
+focused widget's priority binding shadowed an App-level priority binding for
+the same key. Python walks `reversed(screen._binding_chain)` (app -> screen ->
+... -> focused) for the priority phase (`App._check_bindings(priority=True)`),
+so the App wins. The priority phase now walks the app-root chain first, then
+the active chain root->focused; the normal phase keeps its focused->root order.
+Ports `test_binding_inheritance.py::test_overlapping_priority_bindings` (keys
+`d`/`e`).
+
+### Fixed: `check_action` gates keypress binding dispatch
+
+`check_action` was only consulted on the `@click`/`run_action` string-action
+path; a key bound to a dynamically-disabled action still fired on press. The
+binding-chain walk (`match_binding_chain`) now gates every candidate binding
+through the action target's `check_action` (the app's `check_action` for
+app-targeted bindings, the declaring widget's otherwise): `Some(false)` and
+`None` both suppress the action and let the walk continue to lower-precedence
+bindings, matching Python `App.run_action` returning `False` from
+`_check_bindings`. Ports `test_dynamic_bindings.py::test_dynamic_disabled`.
+
+### Fixed: punctuation / single-character bindings match their key
+
+`Binding(".", ..)` (and any other single non-alphanumeric character binding)
+never fired: the raw character was compared against the pressed key's canonical
+long name (`full_stop`), which never matched. Binding matching now normalizes
+single-character non-alphanumeric alternatives through the canonical
+character-to-key-name table (Python `_character_to_key` parity), so `"."`,
+`"~"`, `"?"` etc. match their pressed keys. Ports
+`test_keys.py::test_character_bindings`.
+
 ## [1.0.1] - 2026-07-16
 
 First patch release. Correctness fixes surfaced by porting two real third-party

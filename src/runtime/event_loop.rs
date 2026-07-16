@@ -476,7 +476,12 @@ fn dispatch_simulated_key_like_input(
 
     // Declarative bindings before raw key dispatch.
     let binding_match = app.active_widget_tree().and_then(|tree| {
-        match_binding_chain(tree, app.app_root_tree_when_screen_active(), &key)
+        match_binding_chain(
+            tree,
+            app.app_root_tree_when_screen_active(),
+            &key,
+            app.check_action_fn.as_deref(),
+        )
     });
     if let Some((binding_node_id, action_str, binding_source)) = binding_match
         && let Some(parsed) = crate::action::parse_action(&action_str)
@@ -2721,6 +2726,7 @@ impl App {
                                 tree,
                                 self.app_root_tree_when_screen_active(),
                                 &key,
+                                self.check_action_fn.as_deref(),
                             )
                             .map(|(node_id, action_str, source)| {
                                 (node_id, action_str, source, root_target)
@@ -5020,8 +5026,13 @@ impl App {
         // when unfocused) plus App::BINDINGS beneath an active screen.
         let binding_match = self.active_widget_tree().and_then(|tree| {
             let root_target = tree.root().unwrap_or_default();
-            match_binding_chain(tree, self.app_root_tree_when_screen_active(), &key)
-                .map(|(node_id, action_str, source)| (node_id, action_str, source, root_target))
+            match_binding_chain(
+                tree,
+                self.app_root_tree_when_screen_active(),
+                &key,
+                self.check_action_fn.as_deref(),
+            )
+            .map(|(node_id, action_str, source)| (node_id, action_str, source, root_target))
         });
         if let Some((binding_node_id, action_str, binding_source, root_target)) = binding_match
             && let Some(parsed) = crate::action::parse_action(&action_str)

@@ -5,11 +5,14 @@
 //! that pattern-matches against the `Message` enum and calls the original handler
 //! with the typed event payload.
 //!
-//! **Selector matching** is deferred to runtime wiring. When `selector = "..."` is
-//! specified, the macro generates a companion `const __ON_SELECTOR_<NAME>: &str`
-//! that the runtime can use for CSS selector matching. The generated dispatch
-//! method itself only gates on message type; selector filtering happens at the
-//! call site in the runtime.
+//! **Selector matching** is enforced by the generated dispatch method itself.
+//! When `selector = "..."` is specified, the dispatcher first downcasts to the
+//! message type and then matches the parsed selector against the message's
+//! [`control_meta`](textual::message::Message::control_meta) (the identity of
+//! the originating control), mirroring how Python's `@on(Message, selector)`
+//! matches the selector against `message.control`. A message without control
+//! metadata never satisfies a selector-filtered handler. The companion
+//! `const __ON_SELECTOR_<NAME>: &str` is still generated for introspection.
 
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
@@ -115,15 +118,42 @@ pub fn on_handler_impl(attr: TokenStream, item: TokenStream) -> TokenStream {
     // handler context) — its reactive mutations flow into the shared flush.
     // The `#msg_variant` is now a *type* in the caller's scope (not an enum variant),
     // so `#[on(MyCustomMessage)]` works for third-party messages too.
-    let selector_items = if let Some(ref selector_str) = args.selector {
+    let (selector_items, selector_gate) = if let Some(ref selector_str) = args.selector {
         let selector_const = format_ident!("__ON_SELECTOR_{}", fn_name.to_string().to_uppercase());
-        quote! {
+        let items = quote! {
             #[doc(hidden)]
             #[allow(non_upper_case_globals)]
             const #selector_const: &str = #selector_str;
-        }
+        };
+        // Selector gate: the handler only runs when the message's originating
+        // control (its `control_meta`) matches the declared selector, exactly
+        // as Python's `@on(Message, selector)` matches against
+        // `message.control`. A message without control metadata never matches
+        // a selector-filtered handler.
+        let gate = quote! {
+            {
+                static __ON_SELECTOR_PARSED:
+                    ::std::sync::OnceLock<textual::routing::Selector> =
+                        ::std::sync::OnceLock::new();
+                let __on_selector = __ON_SELECTOR_PARSED.get_or_init(|| {
+                    textual::routing::Selector::parse(#selector_str).unwrap_or_else(|err| {
+                        panic!(
+                            "#[on(..., selector = {:?})]: invalid selector: {}",
+                            #selector_str, err
+                        )
+                    })
+                });
+                let __on_matches = textual::message::Message::control_meta(payload)
+                    .map(|meta| __on_selector.matches(&meta))
+                    .unwrap_or(false);
+                if !__on_matches {
+                    return false;
+                }
+            }
+        };
+        (items, gate)
     } else {
-        quote! {}
+        (quote! {}, quote! {})
     };
 
     let expanded = quote! {
@@ -139,6 +169,7 @@ pub fn on_handler_impl(attr: TokenStream, item: TokenStream) -> TokenStream {
             ctx: &mut textual::event::WidgetCtx,
         ) -> bool {
             if let Some(payload) = event.downcast_ref::<#msg_variant>() {
+                #selector_gate
                 #call_expr
                 return true;
             }
@@ -202,6 +233,8 @@ mod tests {
         assert!(output_str.contains("__on_dispatch_handle_button"));
         assert!(output_str.contains("ButtonPressed"));
         assert!(!output_str.contains("__ON_SELECTOR"));
+        // No selector means no control_meta gate in the dispatcher.
+        assert!(!output_str.contains("control_meta"));
         // New signature: takes &MessageEvent + &mut WidgetCtx, not (_sender, &Message).
         assert!(output_str.contains("MessageEvent"));
         assert!(output_str.contains("WidgetCtx"));
@@ -237,6 +270,10 @@ mod tests {
         assert!(output_str.contains("__on_dispatch_handle_save"));
         assert!(output_str.contains("__ON_SELECTOR_HANDLE_SAVE"));
         assert!(output_str.contains("\"#save\""));
+        // The dispatcher must gate on the message's control identity matching
+        // the selector, not on the message type alone.
+        assert!(output_str.contains("control_meta"));
+        assert!(output_str.contains("Selector"));
         // New signature: takes &MessageEvent + &mut WidgetCtx, not (_sender, &Message).
         assert!(output_str.contains("MessageEvent"));
         assert!(output_str.contains("WidgetCtx"));

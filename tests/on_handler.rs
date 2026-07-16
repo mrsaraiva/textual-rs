@@ -129,14 +129,14 @@ fn dispatch_checkbox_ignores_button() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn selector_dispatch_matches_message_type() {
+fn selector_dispatch_matches_matching_control() {
     let mut app = MyApp::new();
     let sender = node_id_from_ffi(42);
     let event = MessageEvent::new(
         sender,
         ButtonPressed {
             description: "save".into(),
-            button_id: None,
+            button_id: Some("save".into()),
         },
     );
     let mut ectx = test_ctx();
@@ -145,6 +145,21 @@ fn selector_dispatch_matches_message_type() {
     let matched = app.__on_dispatch_handle_save(&event, &mut ctx);
     assert!(matched);
     assert_eq!(app.save_count, 1);
+}
+
+#[test]
+fn selector_dispatch_skips_message_without_control_identity() {
+    // A message with no control id must NOT satisfy a `selector = "#save"`
+    // handler. Mirrors Python where `@on(Message, selector)` matches against
+    // `message.control` and a non-matching control skips the handler.
+    let mut app = MyApp::new();
+    let event = button_event(); // button_id: None
+    let mut ectx = test_ctx();
+    let mut ctx = WidgetCtx::__from_dispatch(dummy_sender(), &mut ectx);
+
+    let matched = app.__on_dispatch_handle_save(&event, &mut ctx);
+    assert!(!matched);
+    assert_eq!(app.save_count, 0);
 }
 
 #[test]
@@ -163,6 +178,42 @@ fn selector_dispatch_ignores_wrong_type() {
 #[test]
 fn selector_const_is_generated() {
     assert_eq!(MyApp::__ON_SELECTOR_HANDLE_SAVE, "#save");
+}
+
+/// Port of Python `test_on.py::test_on_button_pressed`: with two controls, a
+/// selector-filtered handler fires ONLY for the message whose originating
+/// control matches the selector, while a type-only handler fires for every
+/// message of that type.
+#[test]
+fn selector_filters_between_two_controls() {
+    let mut app = MyApp::new();
+    let save_pressed = MessageEvent::new(
+        node_id_from_ffi(10),
+        ButtonPressed {
+            description: "save".into(),
+            button_id: Some("save".into()),
+        },
+    );
+    let cancel_pressed = MessageEvent::new(
+        node_id_from_ffi(11),
+        ButtonPressed {
+            description: "cancel".into(),
+            button_id: Some("cancel".into()),
+        },
+    );
+    let mut ectx = test_ctx();
+    let mut ctx = WidgetCtx::__from_dispatch(dummy_sender(), &mut ectx);
+
+    // Press #save: both the type-only and the "#save" handler fire.
+    app.__on_dispatch_handle_button(&save_pressed, &mut ctx);
+    app.__on_dispatch_handle_save(&save_pressed, &mut ctx);
+    // Press #cancel: only the type-only handler fires.
+    app.__on_dispatch_handle_button(&cancel_pressed, &mut ctx);
+    let cancel_matched_save = app.__on_dispatch_handle_save(&cancel_pressed, &mut ctx);
+
+    assert!(!cancel_matched_save, "#save handler must skip #cancel");
+    assert_eq!(app.button_count, 2, "type-only handler fires for both");
+    assert_eq!(app.save_count, 1, "selector handler fires only for #save");
 }
 
 // ---------------------------------------------------------------------------
