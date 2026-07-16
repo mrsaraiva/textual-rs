@@ -21,6 +21,65 @@ until the API stabilizes.
 - Doc examples `widgets/select_widget` and `widgets/select_from_values_widget`
   drop their now-redundant `.with_allow_blank(true)` calls; they rely on the
   matching default, exactly like their Python counterparts.
+### Added: cross-screen widget access, phase B1, `ScreenRef` + App-level synchronous surface
+
+Every pushed screen owns a separate arena tree, and the query/mutation
+surface used to resolve against the active tree only, so a pushed modal made
+every widget beneath it unreachable. `&mut App` outside dispatch holds no
+tree borrow (it owns every tree), so App-level cross-screen access is now
+direct and synchronous, matching Python's
+`app.get_screen("main").query_one("#log")` pattern:
+
+- New public `ScreenRef<'_>` (prelude): addresses a tree as `Active`,
+  `AppRoot` (the base tree under any stack), `Name(&str)` (topmost stacked
+  screen whose `Screen::name()` or mode name matches; collisions resolve to
+  the topmost, the Python `get_screen` semantic), or `Tree(u64)` (exact
+  `WidgetTree::tree_id()`, collision-free, never survives a pop).
+- New `App::screen_tree` / `screen_tree_mut` (resolve a `ScreenRef` to its
+  tree), `App::tree_by_id` / `tree_by_id_mut` (now public), and the
+  screen-scoped query/mutation surface `App::query_on` / `query_one_on` /
+  `with_widget_mut_on::<W>(screen, selector, f)`.
+- `with_widget_mut_on` routes through the shared scoped node-update path, so
+  a mutation on a non-active tree repaints every visible layer (an update
+  behind a translucent screen shows immediately; behind an opaque screen it
+  is state-only until reveal, both matching Python). First-cut caveats for
+  non-active trees, deferred to phase B3: reactive `watch_*` dispatch and
+  messages posted from the closure are dropped with a debug log.
+
+### Added: cross-screen widget access, phase B2, scoped deferred commands + handler-level `query_one_on`
+
+The handler-level half of cross-screen access. A handler runs while the
+runtime holds a live `&mut` borrow of the dispatching tree (the dispatch
+live-borrow invariant), so cross-screen access from handler context is
+deferred by design, riding the existing command queue with tree-scoped
+targets resolved at drain time:
+
+- New `WidgetCtx::query_one_on::<W>(screen, selector)` and
+  `ScreenMessageCtx::query_one_on` return a deferred `WidgetQuery` addressed
+  at another screen's tree; new `WidgetQuery::update_via_screen` consumes a
+  query from `Screen` handlers (which hold a `ScreenMessageCtx`). The
+  `update_via` closure runs at drain against the resolved widget IN ITS
+  OWNING TREE with a fresh `WidgetCtx`. This enables the modal-updates-base
+  pattern: a modal handler live-updates a widget on the screen beneath it.
+- `CommandTarget` selector/type targets now carry a tree scope; resolution is
+  two-step (scope to a live tree, then selector/node within it), keeping the
+  drop-never-panic contract: a screen popped before the flush, an unknown
+  screen name, or a stale node all drop with a debug log.
+- Behavior change from the 1.0.3 aliasing fix (B0): a stamped
+  `CommandTarget::Node` (e.g. `Handle::update_via`) whose live owning tree is
+  not the active tree now APPLIES in the owning tree instead of dropping; a
+  dead owning tree still drops. Self-rooted `WidgetCtx::query_one` /
+  `query_one_id` targets are now scoped to the dispatching tree, closing the
+  same slotmap-key aliasing hole for selector queries drained under a
+  different active screen.
+- Applying a command to a non-active tree requests a relayout/repaint of
+  every visible layer, so an update beneath a translucent modal is visible
+  immediately and an update beneath an opaque screen is state-only until
+  reveal (both match Python).
+- First-cut restrictions on NON-ACTIVE-tree applies, deferred to phase B3
+  (documented on `query_one_on`): messages posted from the closure, reactive
+  `watch_*` dispatch, and recompose requests are dropped with a debug log;
+  direct widget mutation, class ops, styles, and repaint apply fully.
 
 ### Added — keymap subsystem, phase K1: binding identity + `BindingsMap` value type
 

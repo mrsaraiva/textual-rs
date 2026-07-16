@@ -4,6 +4,8 @@ pub use commands::TimerTick;
 pub use commands::{
     drain_absorb_outcomes_for_test, drain_class_commands_for_test, drain_mount_posts_for_test,
 };
+mod cross_screen;
+pub use cross_screen::ScreenRef;
 mod devtools;
 pub mod dispatch_ctx;
 mod event_loop;
@@ -1385,7 +1387,7 @@ impl App {
     /// Find a widget tree by its process-unique [`WidgetTree::tree_id`], over
     /// the screen stack (top-down) plus the app-root tree. `None` when no live
     /// tree carries that id (e.g. its screen was popped).
-    pub(crate) fn tree_by_id(&self, tree_id: u64) -> Option<&WidgetTree> {
+    pub fn tree_by_id(&self, tree_id: u64) -> Option<&WidgetTree> {
         for index in (0..self.screen_stack.len()).rev() {
             if let Some(entry) = self.screen_stack.get(index)
                 && entry.widget_tree.tree_id() == tree_id
@@ -1396,6 +1398,43 @@ impl App {
         self.widget_tree
             .as_ref()
             .filter(|tree| tree.tree_id() == tree_id)
+    }
+
+    /// Mutable variant of [`Self::tree_by_id`].
+    pub fn tree_by_id_mut(&mut self, tree_id: u64) -> Option<&mut WidgetTree> {
+        let index = (0..self.screen_stack.len()).rev().find(|&i| {
+            self.screen_stack
+                .get(i)
+                .is_some_and(|entry| entry.widget_tree.tree_id() == tree_id)
+        });
+        if let Some(i) = index {
+            return self
+                .screen_stack
+                .get_mut(i)
+                .map(|entry| &mut entry.widget_tree);
+        }
+        self.widget_tree
+            .as_mut()
+            .filter(|tree| tree.tree_id() == tree_id)
+    }
+
+    /// Resolve an optional tree id to a tree: `None` means "the active tree"
+    /// (top screen, else app root), `Some(id)` the exact live tree. Shared by
+    /// the scoped node-update path (`run_on_node_widget_r_in`) and the
+    /// cross-screen surface.
+    pub(crate) fn scoped_tree(&self, tree: Option<u64>) -> Option<&WidgetTree> {
+        match tree {
+            None => self.active_widget_tree(),
+            Some(id) => self.tree_by_id(id),
+        }
+    }
+
+    /// Mutable variant of [`Self::scoped_tree`].
+    pub(crate) fn scoped_tree_mut(&mut self, tree: Option<u64>) -> Option<&mut WidgetTree> {
+        match tree {
+            None => self.active_widget_tree_mut(),
+            Some(id) => self.tree_by_id_mut(id),
+        }
     }
 
     /// Return active screen stylesheet override, when a screen is pushed.

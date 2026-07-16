@@ -17,13 +17,14 @@ use std::any::{Any, TypeId};
 use std::marker::PhantomData;
 use std::time::Duration;
 
-use super::TimerHandle;
 use super::commands::{
-    CommandTarget, TimerTick, WidgetCommand, WidgetTimerCallback, alloc_widget_timer_id,
-    enqueue_widget_command,
+    CommandTarget, RootRef, TimerTick, TreeScope, WidgetCommand, WidgetTimerCallback,
+    alloc_widget_timer_id, enqueue_widget_command,
 };
+use super::{ScreenRef, TimerHandle};
 use crate::event::WidgetCtx;
 use crate::handle::Handle;
+use crate::screen::ScreenMessageCtx;
 use crate::widgets::Widget;
 
 /// A deferred, typed single-widget query returned by [`WidgetCtx::query_one`] /
@@ -72,6 +73,20 @@ impl<W: Widget> WidgetQuery<W> {
             apply: make_update_apply::<W, F>(f),
         });
     }
+
+    /// [`update_via`](Self::update_via) for `Screen` handlers, which receive a
+    /// [`ScreenMessageCtx`] instead of a `WidgetCtx` (same deferred enqueue,
+    /// same caveats). The `_ctx` capability token proves screen-handler
+    /// context; it is intentionally unused, do not remove.
+    pub fn update_via_screen<F>(self, _ctx: &mut ScreenMessageCtx<'_>, f: F)
+    where
+        F: FnOnce(&mut W, &mut WidgetCtx) + Send + 'static,
+    {
+        enqueue_widget_command(WidgetCommand::UpdateWidget {
+            target: self.target,
+            apply: make_update_apply::<W, F>(f),
+        });
+    }
 }
 
 impl<'a> WidgetCtx<'a> {
@@ -85,7 +100,11 @@ impl<'a> WidgetCtx<'a> {
     /// for CSS-selector matching.
     pub fn query_one<W: Widget>(&self) -> WidgetQuery<W> {
         WidgetQuery::new(CommandTarget::TypeMatch {
-            root: self.node_id(),
+            // Scoped to the DISPATCHING tree (aliasing guard, same rationale as
+            // the stamped Node targets): if a different screen is on top at
+            // drain time, the query still resolves in the tree it was rooted in.
+            scope: TreeScope::dispatching(),
+            root: RootRef::Node(self.node_id()),
             ty: TypeId::of::<W>(),
         })
     }
@@ -94,7 +113,40 @@ impl<'a> WidgetCtx<'a> {
     /// resolved at drain time. Rooted at this widget's node.
     pub fn query_one_id<W: Widget>(&self, selector: &str) -> WidgetQuery<W> {
         WidgetQuery::new(CommandTarget::Selector {
-            root: self.node_id(),
+            scope: TreeScope::dispatching(),
+            root: RootRef::Node(self.node_id()),
+            sel: selector.to_string(),
+        })
+    }
+
+    /// Query the single widget matching a CSS selector on ANOTHER screen's
+    /// tree (Python `self.app.get_screen("main").query_one("#log", Log)`),
+    /// resolved at drain time against the whole addressed tree.
+    ///
+    /// This is the handler-level cross-screen surface (Phase B2 of the
+    /// cross-screen design). It cannot be synchronous: the handler runs while
+    /// the runtime holds a live `&mut` borrow of the dispatching tree, so the
+    /// update is deferred to the shared flush, where the closure runs against
+    /// the resolved widget IN ITS OWNING TREE with a fresh [`WidgetCtx`]. A
+    /// mutation on a non-active tree requests a repaint of every visible
+    /// layer, so an update beneath a translucent modal shows immediately;
+    /// beneath an opaque screen it is state-only until reveal (both match
+    /// Python).
+    ///
+    /// Screen addressing: [`ScreenRef::Active`] resolves at DRAIN time;
+    /// [`ScreenRef::Name`] resolves to the topmost matching screen; a screen
+    /// popped before the flush drops the command with a debug log (never
+    /// panics). Prefer [`ScreenRef::Tree`] when a tree id is available.
+    ///
+    /// Cross-screen caveats (first cut, owning-tree routing is a B3
+    /// follow-up): when the resolved tree is not the active tree, messages
+    /// posted from the closure and reactive `watch_*` dispatch are dropped
+    /// with a debug log; direct widget mutation, class ops, and repaint apply
+    /// fully.
+    pub fn query_one_on<W: Widget>(&self, screen: ScreenRef<'_>, selector: &str) -> WidgetQuery<W> {
+        WidgetQuery::new(CommandTarget::Selector {
+            scope: TreeScope::from_screen_ref(screen),
+            root: RootRef::TreeRoot,
             sel: selector.to_string(),
         })
     }
@@ -257,6 +309,24 @@ impl<'a> WidgetCtx<'a> {
     }
 }
 
+impl<'a> ScreenMessageCtx<'a> {
+    /// Query the single widget matching a CSS selector on another screen's
+    /// tree, from a `Screen` handler (the main cross-screen consumer: a modal
+    /// updating the screen beneath it). Same deferred semantics and caveats as
+    /// [`WidgetCtx::query_one_on`]; consume the returned query with
+    /// [`WidgetQuery::update_via_screen`].
+    ///
+    /// Defined here (not in `screen.rs`) so all `CommandTarget` construction
+    /// stays next to the queue it feeds.
+    pub fn query_one_on<W: Widget>(&self, screen: ScreenRef<'_>, selector: &str) -> WidgetQuery<W> {
+        WidgetQuery::new(CommandTarget::Selector {
+            scope: TreeScope::from_screen_ref(screen),
+            root: RootRef::TreeRoot,
+            sel: selector.to_string(),
+        })
+    }
+}
+
 impl<W: Widget> Handle<W> {
     /// Enqueue a deferred update of the handled widget via a `WidgetCtx`. Unlike
     /// [`Handle::update`] (immediate, `&mut App`), this defers to the shared
@@ -274,9 +344,9 @@ impl<W: Widget> Handle<W> {
             // Stamp the handle's carried tree identity: screens own separate
             // trees whose slotmap keys collide, so an unstamped NodeId drained
             // while a different tree is active would mutate an unrelated
-            // widget. A stamped target whose tree is not the active tree at
-            // drain is dropped with a debug log (cross-screen apply is a
-            // deferred feature).
+            // widget. A stamped target applies in its OWNING tree even when a
+            // different screen is active at drain (Phase B2 cross-screen
+            // semantics); a dead owning tree drops with a debug log.
             target: CommandTarget::Node {
                 node: self.node_id(),
                 tree: Some(self.tree_id()),
@@ -445,11 +515,12 @@ mod tests {
     }
 
     /// A stamped target whose owning tree is still alive in the app but NOT the
-    /// active tree (a screen is pushed on top) is dropped: neither the owning
-    /// tree nor the screen's same-keyed node is mutated. Cross-screen APPLY is
-    /// Phase B2; B0 only guarantees no aliasing.
+    /// active tree (a screen is pushed on top) applies in its OWNING tree
+    /// (Phase B2 cross-screen semantics), and the active screen's same-keyed
+    /// node is never aliased. Before B2 such a command was dropped (the B0
+    /// no-aliasing guarantee, which this keeps).
     #[test]
-    fn handle_update_via_drops_while_other_screen_active() {
+    fn handle_update_via_applies_to_owning_tree_while_other_screen_active() {
         let _ = take_widget_commands();
 
         let (tree_a, root_a) = build_probe_tree(1);
@@ -474,11 +545,14 @@ mod tests {
 
         flush_commands(&mut app);
 
-        // Owning (non-active) tree untouched: the command was dropped, not
-        // applied cross-screen.
+        // Owning (non-active) tree mutated: cross-screen apply landed there.
         let tree_a_ref = app.tree_by_id(tree_a_id).expect("tree A alive");
-        assert_eq!(probe_value(tree_a_ref, root_a), 1);
-        // The active screen tree's same-keyed Probe (if any) untouched too.
+        assert_eq!(
+            probe_value(tree_a_ref, root_a),
+            99,
+            "the handle's owning tree must receive the update while non-active"
+        );
+        // The active screen tree's same-keyed Probe (if any) untouched.
         let active = app.active_widget_tree().expect("active screen tree");
         assert_ne!(active.tree_id(), tree_a_id);
         if let Some(n) = active.get(handle_a.node_id())

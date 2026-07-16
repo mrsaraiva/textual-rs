@@ -72,6 +72,58 @@ pub(crate) struct WidgetTimerEntry {
     pub fire_count: u64,
 }
 
+/// Which tree a deferred command's target lives in, resolved at drain time
+/// (Phase B2 of the cross-screen design; the owned twin of the public
+/// [`ScreenRef`](crate::runtime::ScreenRef)).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum TreeScope {
+    /// The active tree at drain time (top screen, else app root).
+    Active,
+    /// The base app-root tree, regardless of pushed screens.
+    AppRoot,
+    /// The topmost stacked screen with this `Screen::name()` or mode name.
+    Name(String),
+    /// The exact live tree with this `WidgetTree::tree_id()`.
+    Tree(u64),
+}
+
+impl TreeScope {
+    /// Owned scope from a public [`ScreenRef`](crate::runtime::ScreenRef)
+    /// (enqueued targets must not borrow the caller's screen name).
+    pub(crate) fn from_screen_ref(screen: crate::runtime::ScreenRef<'_>) -> Self {
+        match screen {
+            crate::runtime::ScreenRef::Active => TreeScope::Active,
+            crate::runtime::ScreenRef::AppRoot => TreeScope::AppRoot,
+            crate::runtime::ScreenRef::Name(name) => TreeScope::Name(name.to_string()),
+            crate::runtime::ScreenRef::Tree(id) => TreeScope::Tree(id),
+        }
+    }
+
+    /// The scope of the tree currently being dispatched into: its exact
+    /// `tree_id` inside a dispatch scope (so a drain while a different screen
+    /// is on top cannot alias a same-keyed node of another tree), else the
+    /// active tree at drain (the pre-scope resolution, kept for enqueues made
+    /// outside any dispatch).
+    pub(crate) fn dispatching() -> Self {
+        match crate::runtime::dispatch_ctx::dispatch_tree_id() {
+            Some(id) => TreeScope::Tree(id),
+            None => TreeScope::Active,
+        }
+    }
+}
+
+/// The node a scoped selector/type query is rooted at, inside the scoped tree.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RootRef {
+    /// A concrete node of the scoped tree (self-rooted `WidgetCtx::query_one*`:
+    /// descendants of the querying widget only).
+    Node(NodeId),
+    /// The scoped tree's root (whole-tree search; the cross-screen
+    /// `query_one_on` form, where the querying widget's own node belongs to a
+    /// different tree).
+    TreeRoot,
+}
+
 /// Target of a deferred command. **Resolved at drain time**, never at enqueue
 /// time: the tree is borrowed during the enqueuing handler, and an earlier
 /// command in the same flush may have mounted the intended target.
@@ -87,14 +139,26 @@ pub(crate) enum CommandTarget {
     /// `NodeId` captured on one tree passes `contains()` against another tree
     /// and would mutate an unrelated widget. `None` means "the active tree at
     /// drain time" (the pre-stamp resolution, kept for enqueue sites that
-    /// legitimately target the active tree).
+    /// legitimately target the active tree). Since Phase B2 a stamped target
+    /// whose (live) owning tree is not active APPLIES in the owning tree; a
+    /// dead owning tree still drops.
     Node { node: NodeId, tree: Option<u64> },
-    /// A CSS selector resolved against the subtree rooted at `root` at drain
-    /// time. Used by `WidgetCtx::query_one_id("#id")`.
-    Selector { root: NodeId, sel: String },
-    /// The single descendant of `root` whose concrete type is `ty`, resolved by
-    /// downcast at drain time. Used by the type-form `WidgetCtx::query_one::<W>()`.
-    TypeMatch { root: NodeId, ty: TypeId },
+    /// A CSS selector resolved within `scope`'s tree under `root` at drain
+    /// time. Used by `WidgetCtx::query_one_id("#id")` (dispatching scope,
+    /// self-rooted) and `query_one_on` (screen scope, tree-rooted).
+    Selector {
+        scope: TreeScope,
+        root: RootRef,
+        sel: String,
+    },
+    /// The single descendant under `root` in `scope`'s tree whose concrete
+    /// type is `ty`, resolved by downcast at drain time. Used by the type-form
+    /// `WidgetCtx::query_one::<W>()`.
+    TypeMatch {
+        scope: TreeScope,
+        root: RootRef,
+        ty: TypeId,
+    },
 }
 
 /// A deferred DOM/cross-node side effect recorded by a handler and applied in
@@ -275,38 +339,40 @@ pub fn drain_absorb_outcomes_for_test() -> Vec<(NodeId, DispatchOutcome)> {
 }
 
 impl App {
-    /// Resolve a [`CommandTarget`] to a live node id, or `None` if the target no
-    /// longer exists / does not match (drop + debug log, **never panic**).
-    pub(crate) fn resolve_command_target(&self, target: &CommandTarget) -> Option<NodeId> {
+    /// Resolve a [`TreeScope`] to the `tree_id` of a live tree, or `None` when
+    /// no live tree matches (drop + debug log at the caller, never panic).
+    fn resolve_tree_scope(&self, scope: &TreeScope) -> Option<u64> {
+        use crate::runtime::ScreenRef;
+        match scope {
+            TreeScope::Active => self.resolve_screen_ref(ScreenRef::Active),
+            TreeScope::AppRoot => self.resolve_screen_ref(ScreenRef::AppRoot),
+            TreeScope::Name(name) => self.resolve_screen_ref(ScreenRef::Name(name)),
+            TreeScope::Tree(id) => self.resolve_screen_ref(ScreenRef::Tree(*id)),
+        }
+    }
+
+    /// Resolve a [`CommandTarget`] to `(owning tree_id, live node id)`, or
+    /// `None` if the target no longer exists / does not match (drop + debug
+    /// log, **never panic**). Two-step since Phase B2: resolve the tree scope
+    /// to a concrete live tree, then the node/selector/type within it. A scope
+    /// whose screen was popped before the flush degrades to the same
+    /// drop-with-log failure mode as a stale node.
+    pub(crate) fn resolve_command_target(&self, target: &CommandTarget) -> Option<(u64, NodeId)> {
         match target {
             CommandTarget::Node { node, tree } => {
-                let active = self.active_widget_tree()?;
-                if let Some(tree_id) = tree
-                    && active.tree_id() != *tree_id
-                {
-                    // The stamped owning tree is not the tree this command
-                    // would be applied against. Resolving the bare NodeId
-                    // against the active tree is the cross-tree aliasing bug
-                    // (slotmap keys collide across independent trees), so DROP
-                    // — never fall back. Cross-screen APPLY is Phase B2 of the
-                    // cross-screen design; until then the command is dropped
-                    // whether the owning tree is merely non-active or gone.
-                    if self.tree_by_id(*tree_id).is_some() {
-                        crate::debug::debug_message(&format!(
-                            "[widget-command] dropped: node {node:?} belongs to tree \
-                             {tree_id} which is not the active tree (cross-screen \
-                             apply is not supported yet)"
-                        ));
-                    } else {
-                        crate::debug::debug_message(&format!(
-                            "[widget-command] dropped: node {node:?}'s owning tree \
-                             {tree_id} no longer exists"
-                        ));
-                    }
+                let tree_id = match tree {
+                    None => self.active_widget_tree()?.tree_id(),
+                    Some(id) => *id,
+                };
+                let Some(owning) = self.tree_by_id(tree_id) else {
+                    crate::debug::debug_message(&format!(
+                        "[widget-command] dropped: node {node:?}'s owning tree \
+                         {tree_id} no longer exists"
+                    ));
                     return None;
-                }
-                if active.contains(*node) {
-                    Some(*node)
+                };
+                if owning.contains(*node) {
+                    Some((tree_id, *node))
                 } else {
                     crate::debug::debug_message(&format!(
                         "[widget-command] dropped: node {node:?} no longer mounted"
@@ -314,32 +380,63 @@ impl App {
                     None
                 }
             }
-            CommandTarget::Selector { root, sel } => {
-                let tree = self.active_widget_tree()?;
-                match tree.query_one_within(*root, sel) {
-                    Ok(node) => Some(node),
+            CommandTarget::Selector { scope, root, sel } => {
+                let Some(tree_id) = self.resolve_tree_scope(scope) else {
+                    crate::debug::debug_message(&format!(
+                        "[widget-command] dropped: selector {sel:?} scope {scope:?} \
+                         resolves to no live tree (screen popped before flush?)"
+                    ));
+                    return None;
+                };
+                let tree = self.tree_by_id(tree_id)?;
+                let resolved = match root {
+                    RootRef::TreeRoot => tree.query_one(sel),
+                    RootRef::Node(root) => tree.query_one_within(*root, sel),
+                };
+                match resolved {
+                    Ok(node) => Some((tree_id, node)),
                     Err(err) => {
                         crate::debug::debug_message(&format!(
-                            "[widget-command] dropped: selector {sel:?} under {root:?} did not \
-                             resolve to one node ({err:?})"
+                            "[widget-command] dropped: selector {sel:?} under {root:?} in tree \
+                             {tree_id} did not resolve to one node ({err:?})"
                         ));
                         None
                     }
                 }
             }
-            CommandTarget::TypeMatch { root, ty } => {
-                let tree = self.active_widget_tree()?;
+            CommandTarget::TypeMatch { scope, root, ty } => {
+                let Some(tree_id) = self.resolve_tree_scope(scope) else {
+                    crate::debug::debug_message(&format!(
+                        "[widget-command] dropped: query_one::<{ty:?}> scope {scope:?} \
+                         resolves to no live tree (screen popped before flush?)"
+                    ));
+                    return None;
+                };
+                let tree = self.tree_by_id(tree_id)?;
+                let root_node = match root {
+                    RootRef::TreeRoot => tree.root()?,
+                    RootRef::Node(root) => {
+                        if !tree.contains(*root) {
+                            crate::debug::debug_message(&format!(
+                                "[widget-command] dropped: query_one::<{ty:?}> root {root:?} \
+                                 no longer mounted in tree {tree_id}"
+                            ));
+                            return None;
+                        }
+                        *root
+                    }
+                };
                 let mut found: Option<NodeId> = None;
-                for node in tree.walk_depth_first(*root) {
-                    if node == *root {
+                for node in tree.walk_depth_first(root_node) {
+                    if node == root_node {
                         continue;
                     }
                     let Some(n) = tree.get(node) else { continue };
                     if (n.widget.as_ref() as &dyn Any).type_id() == *ty {
                         if found.is_some() {
                             crate::debug::debug_message(&format!(
-                                "[widget-command] dropped: query_one::<{ty:?}> under {root:?} \
-                                 matched more than one descendant"
+                                "[widget-command] dropped: query_one::<{ty:?}> under \
+                                 {root_node:?} matched more than one descendant"
                             ));
                             return None;
                         }
@@ -348,11 +445,11 @@ impl App {
                 }
                 if found.is_none() {
                     crate::debug::debug_message(&format!(
-                        "[widget-command] dropped: query_one::<{ty:?}> under {root:?} matched no \
-                         descendant"
+                        "[widget-command] dropped: query_one::<{ty:?}> under {root_node:?} \
+                         matched no descendant"
                     ));
                 }
-                found
+                found.map(|node| (tree_id, node))
             }
         }
     }
@@ -365,36 +462,41 @@ impl App {
     ) {
         match cmd {
             WidgetCommand::AddClass { target, class } => {
-                let Some(node) = self.resolve_command_target(&target) else {
+                let Some((tree_id, node)) = self.resolve_command_target(&target) else {
                     return;
                 };
-                if let Some(tree) = self.active_widget_tree_mut() {
+                if let Some(tree) = self.tree_by_id_mut(tree_id) {
                     tree.add_class(node, &class);
                 }
                 // A class flip can change descendant display/visibility and other
                 // layout-affecting CSS (Python `add_class` -> `refresh(layout=True)`).
+                // The layout flag invalidates all content regions, so a
+                // non-active-tree apply repaints every visible layer too.
                 pending.request_flags(InvalidationFlags::layout());
             }
             WidgetCommand::RemoveClass { target, class } => {
-                let Some(node) = self.resolve_command_target(&target) else {
+                let Some((tree_id, node)) = self.resolve_command_target(&target) else {
                     return;
                 };
-                if let Some(tree) = self.active_widget_tree_mut() {
+                if let Some(tree) = self.tree_by_id_mut(tree_id) {
                     tree.remove_class(node, &class);
                 }
                 pending.request_flags(InvalidationFlags::layout());
             }
             WidgetCommand::UpdateWidget { target, apply } => {
-                let Some(node) = self.resolve_command_target(&target) else {
+                let Some((tree_id, node)) = self.resolve_command_target(&target) else {
                     return;
                 };
-                self.run_on_node_widget(node, |w, ctx| apply(w, ctx), pending);
+                // Scoped apply: the closure runs against the widget in its
+                // OWNING tree (cross-screen semantics + invalidation handled by
+                // the scoped node-update path).
+                self.run_on_node_widget_r_in(Some(tree_id), node, |w, ctx| apply(w, ctx), pending);
             }
             WidgetCommand::UpdateStyles { target, apply } => {
-                let Some(node) = self.resolve_command_target(&target) else {
+                let Some((tree_id, node)) = self.resolve_command_target(&target) else {
                     return;
                 };
-                if let Some(tree) = self.active_widget_tree_mut() {
+                if let Some(tree) = self.tree_by_id_mut(tree_id) {
                     tree.update_styles(node, apply);
                 }
                 // A post-mount inline-style write can change size/spacing/visibility
@@ -488,12 +590,48 @@ impl App {
         run: impl FnOnce(&mut dyn Widget, &mut WidgetCtx) -> R,
         pending: &mut PendingInvalidation,
     ) -> Option<R> {
+        self.run_on_node_widget_r_in(None, node, run, pending)
+    }
+
+    /// Tree-scoped twin of [`run_on_node_widget_r`](Self::run_on_node_widget_r):
+    /// `tree` is `None` for the active tree (today's behavior, byte-for-byte)
+    /// or `Some(tree_id)` for an exact live tree, enabling cross-screen applies
+    /// (design note "mount_and_cross_screen", Phase B1/B2).
+    ///
+    /// Cross-tree semantics when the scoped tree is NOT the active tree:
+    /// - The closure runs against the widget in its OWNING tree; commands it
+    ///   enqueues are stamped with that tree's id (the dispatch-tree guard), so
+    ///   they resolve against the right tree at the next drain.
+    /// - Class ops recorded on the synth EventCtx are applied to the owning
+    ///   tree here (absorb_outcome would apply them to the active tree, which
+    ///   is the slotmap-key aliasing hazard).
+    /// - The reactive entry is NOT enqueued: runtime reactive dispatch
+    ///   (`dispatch_runtime_reactive_entries` / `with_node_widget_taken_dyn`)
+    ///   is active-tree-scoped, so a cross-tree entry would alias a same-keyed
+    ///   node. First cut restricts cross-screen closures to direct mutation
+    ///   plus repaint; owning-tree watcher routing is a Phase B3 follow-up.
+    /// - Messages posted from the closure are dropped with a loud debug log:
+    ///   `pending_widget_posts` bubbles against the active tree, which would
+    ///   misroute or alias. Owning-tree PostUp bubbling is a B3 follow-up.
+    /// - A full relayout + repaint is requested so the compositor repaints
+    ///   every visible layer (an update behind a translucent screen shows
+    ///   immediately; behind an opaque screen it is state-only until reveal).
+    pub(crate) fn run_on_node_widget_r_in<R>(
+        &mut self,
+        tree: Option<u64>,
+        node: NodeId,
+        run: impl FnOnce(&mut dyn Widget, &mut WidgetCtx) -> R,
+        pending: &mut PendingInvalidation,
+    ) -> Option<R> {
         // Node interaction state for the dispatch guard (so `self.node_id()` /
         // `node_state()` are correct inside the closure).
         let (state, tree_id) = {
-            let tree = self.active_widget_tree()?;
-            (tree.get(node)?.state, tree.tree_id())
+            let scoped = self.scoped_tree(tree)?;
+            (scoped.get(node)?.state, scoped.tree_id())
         };
+        let is_active_tree = self
+            .active_widget_tree()
+            .is_some_and(|t| t.tree_id() == tree_id);
         let _guard = super::dispatch_ctx::set_dispatch_recipient(node, state);
         // Stamp the dispatching tree so `CommandTarget::Node`s enqueued from the
         // closure carry their owning tree's identity (aliasing guard).
@@ -507,8 +645,8 @@ impl App {
         let mut wctx = WidgetCtx::new(node, &mut synth_event);
 
         let mut result: Option<R> = None;
-        if let Some(tree) = self.active_widget_tree_mut()
-            && let Some(n) = tree.get_mut(node)
+        if let Some(scoped) = self.scoped_tree_mut(tree)
+            && let Some(n) = scoped.get_mut(node)
         {
             result = Some(run(n.widget.as_mut(), &mut wctx));
         }
@@ -524,19 +662,78 @@ impl App {
             || reactive.needs_styles()
             || reactive.has_messages()
         {
-            crate::reactive::enqueue_runtime_reactive_entry(
-                crate::reactive::RuntimeReactiveEntry::new(node, reactive),
-            );
+            if is_active_tree {
+                crate::reactive::enqueue_runtime_reactive_entry(
+                    crate::reactive::RuntimeReactiveEntry::new(node, reactive),
+                );
+            } else {
+                // Runtime reactive dispatch is active-tree-scoped; enqueueing a
+                // cross-tree node would alias a same-keyed active-tree node.
+                // Direct widget mutation already happened; the full
+                // invalidation below carries the visible effect. Watcher
+                // routing for cross-screen closures is a B3 follow-up.
+                crate::debug::debug_message(&format!(
+                    "[cross-screen] reactive changes recorded on node {node:?} of \
+                     non-active tree {tree_id} were not watcher-dispatched \
+                     (cross-screen watch_* routing is a deferred follow-up)"
+                ));
+            }
         }
 
         // Absorb the synthesized EventCtx's side effects (repaint / messages /
         // class ops the closure may have requested through the EventCtx surface).
         let mut outcome = DispatchOutcome::from_event_ctx(&mut synth_event);
-        // PostUp: messages posted from the closure (sender = this node) are
-        // stashed for the flush to bubble from the node after its rounds converge.
-        if !outcome.messages.is_empty() {
-            self.pending_widget_posts
-                .append(&mut outcome.messages);
+        if is_active_tree {
+            // PostUp: messages posted from the closure (sender = this node) are
+            // stashed for the flush to bubble from the node after its rounds
+            // converge.
+            if !outcome.messages.is_empty() {
+                self.pending_widget_posts.append(&mut outcome.messages);
+            }
+        } else {
+            // Messages would bubble against the ACTIVE tree (misroute/alias);
+            // drop loudly. Owning-tree PostUp bubbling is a B3 follow-up.
+            if !outcome.messages.is_empty() {
+                crate::debug::debug_message(&format!(
+                    "[cross-screen] DROPPED {} message(s) posted from a closure \
+                     targeting node {node:?} of non-active tree {tree_id} \
+                     (owning-tree message bubbling is a deferred follow-up)",
+                    outcome.messages.len()
+                ));
+                outcome.messages.clear();
+            }
+            // Class ops must land on the OWNING tree (absorb_outcome applies
+            // them to the active tree).
+            let class_ops = std::mem::take(&mut outcome.class_ops);
+            if !class_ops.is_empty() {
+                if let Some(owning) = self.tree_by_id_mut(tree_id) {
+                    for (op_node, op) in class_ops {
+                        match op {
+                            crate::event::ClassOp::Add(c) => owning.add_class(op_node, &c),
+                            crate::event::ClassOp::Remove(c) => owning.remove_class(op_node, &c),
+                        }
+                    }
+                }
+                pending.request_flags(InvalidationFlags::layout());
+            }
+            // The recompose machinery resolves nodes against the active tree;
+            // a cross-tree recompose request would alias. Drop loudly (B3).
+            let recompose = std::mem::take(&mut outcome.recompose_nodes);
+            if !recompose.is_empty() {
+                crate::debug::debug_message(&format!(
+                    "[cross-screen] DROPPED {} recompose request(s) from a closure \
+                     targeting non-active tree {tree_id} (cross-screen recompose \
+                     is a deferred follow-up)",
+                    recompose.len()
+                ));
+            }
+            // Repaint whatever is visible: the compositor re-renders every
+            // visible layer under a full invalidation, so a base-screen update
+            // behind a translucent modal shows immediately.
+            if result.is_some() {
+                pending.request_flags(InvalidationFlags::layout());
+                pending.request_full_content();
+            }
         }
         self.absorb_outcome(&mut outcome, pending, InvalidationScope::Global);
         result

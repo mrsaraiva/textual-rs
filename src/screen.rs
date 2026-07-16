@@ -510,6 +510,20 @@ impl ScreenStack {
         self.top().and_then(|e| e.with_screen(|s| s.name().to_string()))
     }
 
+    /// Find the `WidgetTree::tree_id` of the topmost stacked screen whose
+    /// [`Screen::name`] or mode name (from `switch_mode`) equals `name`.
+    ///
+    /// Top-down search: name collisions resolve to the topmost match, the
+    /// Python `get_screen` semantic for installed screens. Consumed by the
+    /// cross-screen surface (`ScreenRef::Name` resolution).
+    pub(crate) fn find_tree_id_by_name(&self, name: &str) -> Option<u64> {
+        self.screens.iter().rev().find_map(|entry| {
+            let matches = entry.mode_name.as_deref() == Some(name)
+                || entry.with_screen(|s| s.name() == name).unwrap_or(false);
+            matches.then(|| entry.widget_tree.tree_id())
+        })
+    }
+
     fn push_inner(
         &mut self,
         screen: Box<dyn Screen>,

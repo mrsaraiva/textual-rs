@@ -47,7 +47,7 @@ pub use keys::KeyEventData;
 pub use node_id::{NodeId, node_id_from_ffi, node_id_to_ffi};
 pub use reactive::ReactiveCtx;
 pub use reactive::ReactiveWidget;
-pub use runtime::{App, DomQuery, DomQueryMut, TimerHandle, TimerTick};
+pub use runtime::{App, DomQuery, DomQueryMut, ScreenRef, TimerHandle, TimerTick};
 pub use screen::{Screen, ScreenMessageCtx, ScreenResult, ScreenResultCallback, ScreenStack};
 pub use style::{Color, Style, Theme};
 pub use theme::{NamedTheme, available_theme_names, get_theme, register_theme};
@@ -98,7 +98,7 @@ pub mod prelude {
     // that drives trees directly imports them via `textual::runtime::{...}`.
     pub use crate::runtime::{
         App, BindingClash, BindingSource, CallFromThreadError, DomQuery, DomQueryMut,
-        PushScreenWaitError, TimerHandle, TimerTick, WidgetQuery,
+        PushScreenWaitError, ScreenRef, TimerHandle, TimerTick, WidgetQuery,
     };
     pub use crate::screen::{
         Screen, ScreenMessageCtx, ScreenResult, ScreenResultCallback, ScreenStack,
