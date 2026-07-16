@@ -182,6 +182,17 @@ fn suspend_process_default() -> io::Result<()> {
     ))
 }
 
+/// Truthy env-flag check: `1`/`true`/`yes`/`on` (case-insensitive) enable it.
+fn env_flag(name: &str) -> bool {
+    std::env::var(name)
+        .ok()
+        .map(|value| {
+            let value = value.trim().to_ascii_lowercase();
+            matches!(value.as_str(), "1" | "true" | "yes" | "on")
+        })
+        .unwrap_or(false)
+}
+
 /// Snapshot-style query result over arena node ids.
 #[derive(Debug, Clone)]
 pub struct DomQuery {
@@ -801,6 +812,15 @@ pub struct App {
     /// `run_test` runs, which would otherwise contend with other tests sharing
     /// the singleton. Unregistered in `headless_finish`.
     headless_ui_thread_registered: bool,
+    /// Opt-in: deliver the per-frame widget tick (`Widget::on_tick`) to
+    /// inactive screens too: the app-root tree under a pushed screen stack
+    /// plus every stacked screen below the top. Off by default (active-screen
+    /// ticking only). Python Textual keeps widget timers running on suspended
+    /// screens; this flag brings the Rust frame tick to the same availability
+    /// for background animation/refresh, without changing the default.
+    /// Initialized from `TEXTUAL_TICK_INACTIVE_SCREENS`, settable via
+    /// [`App::set_tick_inactive_screens`].
+    tick_inactive_screens: bool,
     /// Worker registry used by the headless [`Pilot`] pump.
     ///
     /// The live event loop (`run_with`) owns a function-local [`WorkerRegistry`]
@@ -924,6 +944,7 @@ impl App {
             headless_suspend_count: 0,
             headless_tick: 0,
             headless_ui_thread_registered: false,
+            tick_inactive_screens: env_flag("TEXTUAL_TICK_INACTIVE_SCREENS"),
             headless_worker_registry: None,
             pending_highlight_clear: None,
             widget_tree: None,
@@ -1365,6 +1386,26 @@ impl App {
         } else {
             Ok(())
         }
+    }
+
+    /// Opt in to (or back out of) frame ticks for inactive screens.
+    ///
+    /// By default the per-frame widget tick (`Widget::on_tick`) reaches only
+    /// the active screen's tree. When enabled, background trees receive the
+    /// same tick: the app-root tree under a pushed screen stack plus every
+    /// stacked screen below the top, so background animation/refresh keeps
+    /// advancing while a screen is suspended. (Python Textual keeps widget
+    /// timers running on suspended screens; this exposes the equivalent
+    /// control for the Rust frame tick.) Also settable at launch via the
+    /// `TEXTUAL_TICK_INACTIVE_SCREENS` env flag.
+    pub fn set_tick_inactive_screens(&mut self, enabled: bool) {
+        self.tick_inactive_screens = enabled;
+    }
+
+    /// Whether inactive screens currently receive the per-frame widget tick.
+    /// See [`App::set_tick_inactive_screens`].
+    pub fn tick_inactive_screens(&self) -> bool {
+        self.tick_inactive_screens
     }
 
     /// Return the active widget tree (top screen tree when a screen is pushed,

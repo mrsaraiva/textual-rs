@@ -3529,7 +3529,7 @@ pub fn run_layout_pass(tree: &mut WidgetTree, viewport: (u16, u16)) {
     apply_host_scrollbar_layout(tree, viewport);
 
     // Optional per-node rect trace for layout debugging.
-    if std::env::var("TEXTUAL_DEBUG_LAYOUT_FILE").is_ok() {
+    if crate::debug::channel_enabled(crate::debug::DebugChannel::Layout) {
         let walk = tree.walk_depth_first(root_id);
         debug_layout(&format!(
             "[layout_tree] viewport={}x{} nodes={}",

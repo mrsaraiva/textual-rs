@@ -1471,7 +1471,7 @@ impl crate::widgets::Render for ScrollView {
             }
             return out;
         }
-        if std::env::var("TEXTUAL_DEBUG_LAYOUT_FILE").is_ok() {
+        if crate::debug::channel_enabled(crate::debug::DebugChannel::Layout) {
             debug_layout(&format!(
                 "[scroll] id={} viewport=({}, {}) offset=({}, {})",
                 0u64, width, viewport_height, self.offset_x, self.offset_y
@@ -1529,7 +1529,7 @@ impl crate::widgets::Render for ScrollView {
                 target_width,
             )
             .max(viewport_w);
-            if std::env::var("TEXTUAL_DEBUG_LAYOUT_FILE").is_ok() {
+            if crate::debug::channel_enabled(crate::debug::DebugChannel::Layout) {
                 debug_layout(&format!(
                     "[scroll] id={} child render_width={} constraints=({:?},{:?})",
                     0u64, render_width, constraints.min_width, constraints.max_width

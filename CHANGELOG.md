@@ -7,6 +7,39 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### Added: devtools hooks (log streaming, debug-channel introspection, inactive-screen ticks)
+
+Framework-side hooks for the external `textual-dev-rs` harness (devtools
+protocol revision 3; purely additive, older clients are unaffected):
+
+- Log sink over the devtools socket: new `LOGS` streaming request. The first
+  `DATA` frame replays a bounded backlog (500 records), then one frame per
+  record; records are `unix_millis<TAB>channel<TAB>message` lines, ready for a
+  live log pane. Every `TEXTUAL_DEBUG_*` channel can feed the stream, and the
+  new public `textual::debug::log(...)` is an app-facing log call (the
+  analogue of Python's `self.log(...)`) on the always-streaming `app` channel
+  (optional file sink via `TEXTUAL_DEBUG_APP_FILE`). Zero-cost when no
+  devtools server is running.
+- Debug-channel introspection and control: new `CHANNELS` request lists every
+  debug channel with its stream state and env-configured log file; new
+  `DEBUG_CHANNEL <name> <on|off>` request toggles a channel's streaming at
+  runtime (file logging stays env-gated). Channels that gate expensive line
+  formatting now honor the runtime toggle, so the harness can switch e.g. the
+  `style` or `layout` firehose on/off without relaunching the app. Public
+  Rust surface: `debug::DebugChannel`, `debug::channel_states`,
+  `debug::set_channel_streaming`, `debug::channel_streaming`.
+- Protocol versioning: `INFO` responses and `<pid>.instance` discovery files
+  now carry `protocol=3` (absent means the pre-revision protocol); revisions
+  only add request types and key=value fields.
+- Frame ticks for inactive screens (opt-in):
+  `App::set_tick_inactive_screens(true)` (or the
+  `TEXTUAL_TICK_INACTIVE_SCREENS` env flag) delivers the per-frame widget
+  tick (`Widget::on_tick`) to background trees too (the app-root tree under
+  a pushed screen stack plus every stacked screen below the top), so
+  background animation/refresh keeps advancing while a screen is suspended
+  (Python Textual keeps widget timers running on suspended screens). Default
+  behavior is unchanged: active-screen ticking only.
+
 ### Changed (BREAKING): `Select.allow_blank` now defaults to `true` (Python parity)
 
 - `Select::new(..)` now defaults `allow_blank = true`, matching Python

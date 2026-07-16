@@ -50,7 +50,7 @@ pub(super) fn selector_chain_string(chain: &SelectorChain) -> String {
 }
 
 pub(super) fn style_debug_matches(meta: &SelectorMeta) -> bool {
-    if std::env::var("TEXTUAL_DEBUG_STYLE_FILE").is_err() {
+    if !crate::debug::channel_enabled(crate::debug::DebugChannel::Style) {
         return false;
     }
     static FILTERS: OnceLock<Vec<String>> = OnceLock::new();

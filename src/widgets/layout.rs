@@ -471,7 +471,7 @@ impl crate::widgets::Render for Row {
             }
         }
 
-        if std::env::var("TEXTUAL_DEBUG_LAYOUT_FILE").is_ok() {
+        if crate::debug::channel_enabled(crate::debug::DebugChannel::Layout) {
             debug_layout(&format!(
                 "[row] id={} viewport=({}, {}) children={} fixed_total={}",
                 0u64, width, height_limit, count, fixed_total
@@ -508,7 +508,7 @@ impl crate::widgets::Render for Row {
             })
             .collect();
 
-        if std::env::var("TEXTUAL_DEBUG_LAYOUT_FILE").is_ok() {
+        if crate::debug::channel_enabled(crate::debug::DebugChannel::Layout) {
             debug_layout(&format!(
                 "[row] id={} widths={:?} remaining={} flex_count={} base={} remainder={}",
                 0u64, widths, remaining, flex_count, base, remainder

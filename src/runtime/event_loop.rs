@@ -1779,6 +1779,28 @@ fn transition_timing_to_ease(timing: crate::style::TransitionTiming) -> Animatio
     }
 }
 
+/// Deliver a frame tick to every active arena widget of `tree` (and any cover
+/// widget, the `loading` overlay). Shared by the live loop's active-tree
+/// tick, the headless `advance_ticks` analogue, and the opt-in
+/// inactive-screen tick path.
+fn deliver_frame_tick(tree: &mut crate::widget_tree::WidgetTree, tick: u64) {
+    let Some(tree_root) = tree.root() else {
+        return;
+    };
+    for node in tree.walk_depth_first(tree_root) {
+        if let Some(widget_node) = tree.get_mut(node) {
+            if widget_node.widget.is_active() {
+                widget_node.widget.on_tick(tick);
+            }
+            if let Some(cover) = widget_node.cover_widget.as_mut()
+                && cover.is_active()
+            {
+                cover.on_tick(tick);
+            }
+        }
+    }
+}
+
 fn sanitize_snapshot_field(value: &str) -> String {
     value
         .chars()
@@ -2012,6 +2034,26 @@ impl App {
             }
         }
         false
+    }
+
+    /// Deliver the frame tick to background (inactive) trees when
+    /// [`App::set_tick_inactive_screens`] is enabled: the app-root tree under
+    /// a pushed screen stack plus every stacked screen below the top. No-op
+    /// while the screen stack is empty (the app-root tree IS the active tree)
+    /// or when the opt-in is off.
+    fn deliver_background_screen_ticks(&mut self, tick: u64) {
+        if !self.tick_inactive_screens || self.screen_stack.is_empty() {
+            return;
+        }
+        if let Some(tree) = self.widget_tree.as_mut() {
+            deliver_frame_tick(tree, tick);
+        }
+        let top = self.screen_stack.len() - 1;
+        for index in 0..top {
+            if let Some(entry) = self.screen_stack.get_mut(index) {
+                deliver_frame_tick(&mut entry.widget_tree, tick);
+            }
+        }
     }
 
     fn publish_devtools_snapshot(&mut self, root: &mut dyn Widget) {
@@ -4241,22 +4283,11 @@ impl App {
                 // the frame tick through it. Deliver the tick to every ACTIVE
                 // arena widget (and any cover widget — the `loading` overlay),
                 // mirroring `headless_advance_ticks`.
-                if let Some(tree) = self.active_widget_tree_mut()
-                    && let Some(tree_root) = tree.root()
-                {
-                    for node in tree.walk_depth_first(tree_root) {
-                        if let Some(widget_node) = tree.get_mut(node) {
-                            if widget_node.widget.is_active() {
-                                widget_node.widget.on_tick(tick);
-                            }
-                            if let Some(cover) = widget_node.cover_widget.as_mut()
-                                && cover.is_active()
-                            {
-                                cover.on_tick(tick);
-                            }
-                        }
-                    }
+                if let Some(tree) = self.active_widget_tree_mut() {
+                    deliver_frame_tick(tree, tick);
                 }
+                // Opt-in: inactive screens tick too (background animation).
+                self.deliver_background_screen_ticks(tick);
 
                 let mut app_tick_ctx = EventCtx::default();
                 {
@@ -4880,24 +4911,11 @@ impl App {
             // the widgets that actually animate (LoadingIndicator, …) live in the
             // arena tree, so deliver the tick to every active arena node too.
             root.on_tick(tick);
-            if let Some(tree) = self.active_widget_tree_mut()
-                && let Some(tree_root) = tree.root()
-            {
-                for node in tree.walk_depth_first(tree_root) {
-                    if let Some(widget_node) = tree.get_mut(node) {
-                        let widget = &mut widget_node.widget;
-                        if widget.is_active() {
-                            widget.on_tick(tick);
-                        }
-                        // Cover widgets (the `loading` overlay) animate too.
-                        if let Some(cover) = widget_node.cover_widget.as_mut()
-                            && cover.is_active()
-                        {
-                            cover.on_tick(tick);
-                        }
-                    }
-                }
+            if let Some(tree) = self.active_widget_tree_mut() {
+                deliver_frame_tick(tree, tick);
             }
+            // Opt-in: inactive screens tick too (mirrors the live loop).
+            self.deliver_background_screen_ticks(tick);
             // Any on-tick widget repaint is content-level; request it so the
             // pump re-renders and the rendered frame reflects the new phase.
             pending.request_full_content();
