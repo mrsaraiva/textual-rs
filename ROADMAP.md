@@ -70,7 +70,7 @@ maintainer review before implementation; the rest go direct to implementation.
 **W4 — Behavior flips (maintainer-approved)**
 - [x] `Select.allow_blank` default `false` -> `true` (Python parity; breaking
   default, audit examples/apps). [S]
-- [ ] Fine-grained widget messages: DataTable (Row/Cell/Column/Header/RowLabel
+- [x] Fine-grained widget messages: DataTable (Row/Cell/Column/Header/RowLabel
   Highlighted+Selected), Collapsible (`Expanded`/`Collapsed`), SelectionList
   (`SelectionHighlighted`), so Python-style granular `#[on(...)]` handlers
   dispatch. [M]
