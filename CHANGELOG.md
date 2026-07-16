@@ -7,6 +7,29 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-07-16
+
+First patch release. Correctness fixes surfaced by porting two real third-party
+apps (a log viewer and a dev-tooling harness) onto the published 1.0 crate.
+
+### Fixed — concrete screen type CSS selectors match
+
+Per-screen CSS type selectors (e.g. `GotoScreen { ... }`) never matched because
+the screen host node hardcoded its CSS type to `Screen` / `ModalScreen` and never
+carried the concrete screen struct name, silently breaking modal-screen layouts.
+`Screen::style_type()` now defaults to the concrete type's short name and its
+alias chain returns the base names (modal: `ModalScreen`, `Screen`; non-modal:
+`Screen`), matching Python's `_css_type_names` MRO shape so the concrete name and
+the base names all match.
+
+### Fixed — root widget type names no longer carry a stray `>`
+
+The default `style_type()` derivation did `rsplit("::")` without stripping the
+generic suffix, so an app root of type `TextualAppAdapter<FiveByFiveApp>` reported
+`FiveByFiveApp>` (trailing angle bracket). A shared `short_type_name()` helper now
+strips `<...>` before segmenting; the app root reports its app class name, mirroring
+Python `type(self).__name__`.
+
 ### Fixed — app-level query class ops relayout automatically
 
 `app.query_mut(sel)?.add_class(..)` (and `remove_class` / `set_class` /
@@ -34,6 +57,15 @@ warning on the input debug channel (`TEXTUAL_DEBUG_INPUT_FILE`) naming the
 action and its source node, and records it on a bounded test-observable buffer
 (`runtime::take_unhandled_binding_reports()`, `#[doc(hidden)]`). Default
 behavior for the key (fall-through to raw dispatch) is unchanged.
+
+### Added — public plain-text frame accessors
+
+`App::frame_plain_lines()` (one `String` per screen row, styling stripped, padded
+to frame width) and `App::frame_plain_text()` (those lines joined with newlines)
+expose the rendered frame as text through the public API, alongside the existing
+`save_frame_svg` / `frame_fingerprint` / `frame_cell_bg`. They read the in-memory
+frame buffer, so they work in headless (`run_test` / Pilot) mode. Useful for
+dev-tooling harnesses that read frame contents programmatically.
 
 ## [1.0.0] - 2026-07-14
 
