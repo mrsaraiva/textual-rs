@@ -47,6 +47,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      # The 103 integration binaries plus the lib suite fill the default runner
+      # disk (~14 GB). Reclaim the preinstalled toolchains we do not use.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android \
+            /opt/hostedtoolcache/CodeQL /usr/local/share/boost "$AGENT_TOOLSDIRECTORY" || true
+          sudo docker image prune -a -f || true
+          df -h /
       - name: Cache cargo
         uses: actions/cache@v4
         with:
