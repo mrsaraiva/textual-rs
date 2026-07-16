@@ -7,6 +7,39 @@ until the API stabilizes.
 
 ## [Unreleased]
 
+### Changed — validation framework: description-priority ladder (Python parity)
+
+The validation framework now mirrors Python Textual's `validation.py` model.
+`ValidationResult` carries structured `failures: Vec<Failure>` instead of a
+bare list of strings; `Failure` records the failing `value`, a `FailureKind`
+(the port of Python's `Failure` subclasses such as `Number.NotANumber`), and
+the resolved `description`. A failure's human-readable description is chosen
+by Python's priority ladder: an explicit description set on the `Failure`
+inside `validate()` wins, else the validator's `failure_description`
+(constructor override, exposed via `with_failure_description(..)` on the
+built-in validators), else the validator's new `describe_failure(&Failure)`
+hook. The `Validator` trait gains `failure_description()`,
+`describe_failure()`, `success()`, `failure(Failure)`, and
+`resolve_failure(Failure)` (all defaulted; `validate` remains the only
+required method). `ValidationResult::merge(results)` aggregates multiple
+validator results (Input/MaskedInput now use it for their `-valid`/`-invalid`
+flow), and `failure_descriptions()` extracts the resolved description strings.
+
+Breaking notes:
+- `ValidationResult.is_valid` and `.failure_descriptions` were public fields;
+  they are now methods (`is_valid()`, `failure_descriptions()`).
+- `ValidationResult::failure(..)` now takes `Vec<Failure>` (Python parity)
+  instead of a message string; custom validators should return
+  `self.failure(Failure::new().with_description(..))` from `validate()`.
+- Built-in validators now produce Python-exact default messages, e.g.
+  `Integer`: "Must be a valid integer." (previously `Number` reported
+  "Value is not a number." and a bespoke "Value is required." for empty
+  input; both are now "Must be a valid number.", matching Python).
+- `Length` now counts characters (Python `len(str)` parity), not bytes.
+- `Number`, `Integer`, `Length`, and `Url` gained a `failure_description`
+  override slot and therefore no longer derive `Copy` (still `Clone`).
+- `Failure` and `FailureKind` are exported from the prelude.
+
 ## [1.0.3] - 2026-07-16
 
 Third patch release. Three correctness fixes distilled from the design analysis

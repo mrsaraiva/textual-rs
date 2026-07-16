@@ -5,7 +5,7 @@ use std::time::Instant;
 
 use crate::event::Event;
 use crate::message::*;
-use crate::validation::{ValidationResult, ValidatorRef};
+use crate::validation::{Failure, ValidationResult, ValidatorRef};
 
 use super::{
     NodeSeed, NodeState, Widget,
@@ -247,7 +247,13 @@ impl Template {
         if self.check(&padded, false) {
             ValidationResult::success()
         } else {
-            ValidationResult::failure("Value does not match template!")
+            // Python parity: `_Template` sets this description inside
+            // `validate()` (top rung of the description-priority ladder).
+            ValidationResult::failure(vec![
+                Failure::new()
+                    .with_value(value)
+                    .with_description("Value does not match template!"),
+            ])
         }
     }
 
@@ -645,31 +651,19 @@ impl MaskedInput {
 
         let template_result = self.template.validate(&value_str);
 
-        let mut failures: Vec<String> = Vec::new();
-        if !template_result.is_valid {
-            failures.extend(template_result.failure_descriptions);
-        }
-        for validator in &self.validators {
-            let result = validator.validate(&value_str);
-            if !result.is_valid {
-                failures.extend(result.failure_descriptions);
-            }
-        }
-
-        self.validation_result = if failures.is_empty() {
-            ValidationResult::success()
-        } else {
-            ValidationResult {
-                is_valid: false,
-                failure_descriptions: failures,
-            }
-        };
+        self.validation_result = ValidationResult::merge(
+            std::iter::once(template_result).chain(
+                self.validators
+                    .iter()
+                    .map(|validator| validator.validate(&value_str)),
+            ),
+        );
 
         let trimmed = value_str.trim().is_empty();
         if trimmed {
             self.set_class("-valid", false);
             self.set_class("-invalid", false);
-        } else if self.validation_result.is_valid {
+        } else if self.validation_result.is_valid() {
             self.set_class("-valid", true);
             self.set_class("-invalid", false);
         } else {
@@ -1200,27 +1194,27 @@ mod tests {
     #[test]
     fn template_validation_pass() {
         let t = Template::parse("999");
-        assert!(t.validate("123").is_valid);
+        assert!(t.validate("123").is_valid());
     }
 
     #[test]
     fn template_validation_fail_incomplete() {
         let t = Template::parse("999");
-        assert!(!t.validate("12").is_valid);
+        assert!(!t.validate("12").is_valid());
     }
 
     #[test]
     fn template_validation_fail_wrong_char() {
         let t = Template::parse("999");
-        assert!(!t.validate("abc").is_valid);
+        assert!(!t.validate("abc").is_valid());
     }
 
     #[test]
     fn template_optional_not_required() {
         let t = Template::parse("990");
         // First two digits required, third optional.
-        assert!(t.validate("12").is_valid);
-        assert!(!t.validate("1").is_valid);
+        assert!(t.validate("12").is_valid());
+        assert!(!t.validate("1").is_valid());
     }
 
     #[test]

@@ -62,10 +62,10 @@ impl TextualApp for InputValidationApp {
         validation: &ValidationResult,
         ctx: &mut textual::event::WidgetCtx,
     ) {
-        let next = if validation.is_valid {
+        let next = if validation.is_valid() {
             Vec::new()
         } else {
-            validation.failure_descriptions.clone()
+            validation.failure_descriptions()
         };
         *self.pretty_str.lock().unwrap_or_else(|e| e.into_inner()) = format!("{:?}", next);
         // Python's `Pretty.update()` refreshes with `layout=True` — the new repr
@@ -91,9 +91,9 @@ struct Palindrome;
 impl Validator for Palindrome {
     fn validate(&self, value: &str) -> ValidationResult {
         if is_palindrome(value) {
-            ValidationResult::success()
+            self.success()
         } else {
-            ValidationResult::failure("That's not a palindrome :/")
+            self.failure(Failure::new().with_description("That's not a palindrome :/"))
         }
     }
 }

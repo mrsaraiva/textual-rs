@@ -111,7 +111,8 @@ pub mod prelude {
         run_textual_app_or_snapshot_with_output, run_textual_app_with_output,
     };
     pub use crate::validation::{
-        Function, Integer, Length, Number, Regex, Url, ValidationResult, Validator, ValidatorRef,
+        Failure, FailureKind, Function, Integer, Length, Number, Regex, Url, ValidationResult,
+        Validator, ValidatorRef,
     };
     pub use crate::widget_tree::{LifecycleEvent, QueryError, WidgetNode, WidgetTree};
     // NOTE (Widget trait split): the authoring capability traits (`Render`,

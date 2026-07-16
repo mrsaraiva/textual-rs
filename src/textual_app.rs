@@ -1706,7 +1706,7 @@ mod tests {
         ) {
             self.hooks
                 .input_changed
-                .replace((value.to_string(), validation.is_valid));
+                .replace((value.to_string(), validation.is_valid()));
         }
 
         fn on_input_submitted(&mut self, value: &str, _ctx: &mut crate::event::WidgetCtx) {

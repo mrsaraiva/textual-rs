@@ -597,27 +597,16 @@ impl Input {
             return;
         }
 
-        let mut failures: Vec<String> = Vec::new();
-        for validator in &self.validators {
-            let result = validator.validate(&self.text);
-            if !result.is_valid {
-                failures.extend(result.failure_descriptions);
-            }
-        }
-
-        self.validation_result = if failures.is_empty() {
-            ValidationResult::success()
-        } else {
-            ValidationResult {
-                is_valid: false,
-                failure_descriptions: failures,
-            }
-        };
+        self.validation_result = ValidationResult::merge(
+            self.validators
+                .iter()
+                .map(|validator| validator.validate(&self.text)),
+        );
 
         if self.text.trim().is_empty() {
             self.set_class("-valid", false);
             self.set_class("-invalid", false);
-        } else if self.validation_result.is_valid {
+        } else if self.validation_result.is_valid() {
             self.set_class("-valid", true);
             self.set_class("-invalid", false);
         } else {
