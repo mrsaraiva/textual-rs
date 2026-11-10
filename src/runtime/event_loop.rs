@@ -2368,6 +2368,30 @@ impl App {
         Ok(())
     }
 
+    /// How long the live loop may block waiting for input: until the next
+    /// tick, animation frame, or timer, or not at all when invalidation is
+    /// pending. Binding actions and app custom actions dispatch through
+    /// early-continue paths that skip the input-priority render, so the next
+    /// pass must draw their effect instead of sleeping until the next tick.
+    fn input_poll_timeout(
+        &self,
+        tick_timeout: Duration,
+        pending: &PendingInvalidation,
+    ) -> Duration {
+        if pending.is_dirty() {
+            return Duration::ZERO;
+        }
+        let timeout = self
+            .animator
+            .next_timeout(Instant::now())
+            .map(|anim_timeout| tick_timeout.min(anim_timeout))
+            .unwrap_or(tick_timeout);
+        self.timers
+            .next_timeout(self.timers.now())
+            .map(|timer_timeout| timeout.min(timer_timeout))
+            .unwrap_or(timeout)
+    }
+
     pub async fn run_widget_tree(&mut self, root: &mut dyn Widget) -> crate::Result<()> {
         if !self.running {
             return Err(crate::Error::RuntimeStopped);
@@ -2582,7 +2606,6 @@ impl App {
             if self.apply_devtools_commands(root, &mut pending_invalidation) {
                 break 'event_loop;
             }
-            let now = Instant::now();
             let has_runtime_animation = self.animator.has_animations();
             let tick_rate = if has_runtime_animation || prev_any_active {
                 active_tick_rate
@@ -2590,24 +2613,7 @@ impl App {
                 idle_tick_rate
             };
             let tick_timeout = tick_rate.saturating_sub(last_tick.elapsed());
-            let timeout = self
-                .animator
-                .next_timeout(now)
-                .map(|anim_timeout| tick_timeout.min(anim_timeout))
-                .unwrap_or(tick_timeout);
-            let timeout = self
-                .timers
-                .next_timeout(self.timers.now())
-                .map(|timer_timeout| timeout.min(timer_timeout))
-                .unwrap_or(timeout);
-            // Early-continue paths (binding actions, custom app actions) leave
-            // invalidation pending without rendering; draw it now instead of
-            // sleeping until the next tick or input event.
-            let timeout = if pending_invalidation.is_dirty() {
-                Duration::ZERO
-            } else {
-                timeout
-            };
+            let timeout = self.input_poll_timeout(tick_timeout, &pending_invalidation);
             let poll_started = Instant::now();
             let input_event = if let Some(pending) = pending_input_event.take() {
                 Some(pending)
@@ -9676,6 +9682,21 @@ mod tests {
             pings.load(Ordering::SeqCst),
             1,
             "closure-posted Ping bubbled from the child up to the PostSink ancestor"
+        );
+    }
+
+    #[test]
+    fn input_poll_timeout_does_not_wait_while_invalidation_is_pending() {
+        let app = test_app_with_tree(crate::widget_tree::WidgetTree::new());
+        let tick = std::time::Duration::from_millis(100);
+        let mut pending = super::PendingInvalidation::default();
+        assert_eq!(app.input_poll_timeout(tick, &pending), tick);
+
+        // A binding action's early-continue leaves layout pending unrendered.
+        pending.request_flags(crate::event::InvalidationFlags::layout());
+        assert_eq!(
+            app.input_poll_timeout(tick, &pending),
+            std::time::Duration::ZERO
         );
     }
 
