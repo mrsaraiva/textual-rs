@@ -1385,7 +1385,9 @@ fn render_tree_node(
     }
 
     // P2-34: Paint keylines between children (after children are rendered).
-    if let Some(ref keyline) = node_keyline {
+    // They lie inside this node's rect, so there is nothing to paint when the
+    // node is off-screen.
+    if on_screen && let Some(ref keyline) = node_keyline {
         paint_keylines(
             tree,
             node_id,
