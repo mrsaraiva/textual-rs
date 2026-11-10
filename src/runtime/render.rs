@@ -264,6 +264,22 @@ fn scrollbar_drag_trace_enabled() -> bool {
     })
 }
 
+/// The last stylesheet merged by [`App::stylesheet_for_layer`], with the sheets
+/// it was merged from. Holding clones of the inputs keeps their rule
+/// allocations shared, so any later mutation of an input copies it
+/// (`Arc::make_mut`) and stops matching by pointer.
+struct LayeredStylesheet {
+    default: StyleSheet,
+    app: StyleSheet,
+    screen: Option<StyleSheet>,
+    merged: StyleSheet,
+}
+
+thread_local! {
+    static LAYERED_STYLESHEET: std::cell::RefCell<Option<LayeredStylesheet>> =
+        const { std::cell::RefCell::new(None) };
+}
+
 impl App {
     pub fn render(&mut self, renderable: &dyn Renderable) -> crate::Result<()> {
         self.refresh_size()?;
@@ -530,13 +546,36 @@ impl App {
         Ok(())
     }
 
-    fn stylesheet_for_layer(&self, screen_sheet: Option<&StyleSheet>) -> StyleSheet {
-        let mut sheet = self.default_stylesheet.clone();
-        sheet.extend(&self.stylesheet);
-        if let Some(screen_sheet) = screen_sheet {
-            sheet.extend(screen_sheet);
-        }
-        sheet
+    /// The default, app, and (optional) screen stylesheets merged in cascade
+    /// order. The merge is memoized: the runtime asks for it several times per
+    /// frame, and copying every rule each time was a measurable share of it.
+    pub(super) fn stylesheet_for_layer(&self, screen_sheet: Option<&StyleSheet>) -> StyleSheet {
+        LAYERED_STYLESHEET.with(|cache| {
+            let mut cache = cache.borrow_mut();
+            if let Some(cached) = cache.as_ref().filter(|cached| {
+                cached.default.same_rules(&self.default_stylesheet)
+                    && cached.app.same_rules(&self.stylesheet)
+                    && match (&cached.screen, screen_sheet) {
+                        (Some(cached), Some(screen)) => cached.same_rules(screen),
+                        (None, None) => true,
+                        _ => false,
+                    }
+            }) {
+                return cached.merged.clone();
+            }
+            let mut merged = self.default_stylesheet.clone();
+            merged.extend(&self.stylesheet);
+            if let Some(screen_sheet) = screen_sheet {
+                merged.extend(screen_sheet);
+            }
+            *cache = Some(LayeredStylesheet {
+                default: self.default_stylesheet.clone(),
+                app: self.stylesheet.clone(),
+                screen: screen_sheet.cloned(),
+                merged: merged.clone(),
+            });
+            merged
+        })
     }
 
     fn screen_layer_background_is_opaque(&self, index: usize) -> bool {
