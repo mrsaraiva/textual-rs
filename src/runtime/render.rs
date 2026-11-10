@@ -331,15 +331,19 @@ impl App {
     }
 
     pub fn render_widget(&mut self, widget: &mut dyn Widget) -> crate::Result<()> {
-        self.render_widget_with_regions(widget, None, true)
+        self.render_widget_with_regions(widget, None, true)?;
+        Ok(())
     }
 
+    /// Renders one frame. Returns whether tree layout may have changed (a
+    /// layout pass ran, or a resolved style change affected layout), i.e.
+    /// whether widgets need fresh layout info afterwards.
     pub(super) fn render_widget_with_regions(
         &mut self,
         widget: &mut dyn Widget,
         dirty_regions: Option<&[DirtyRegion]>,
         layout_invalidation: bool,
-    ) -> crate::Result<()> {
+    ) -> crate::Result<bool> {
         self.refresh_size()?;
         let _active = set_app_active(self.app_active);
         let _pseudo_state = set_app_runtime_pseudos(AppRuntimePseudos {
@@ -368,7 +372,7 @@ impl App {
         widget: &mut dyn Widget,
         dirty_regions: Option<&[DirtyRegion]>,
         layout_invalidation: bool,
-    ) -> crate::Result<()> {
+    ) -> crate::Result<bool> {
         let (width, height) = self.options.size;
         let base_style = self.theme.base.to_rich();
         let mut next = FrameBuffer::new(width, height, base_style);
@@ -527,7 +531,7 @@ impl App {
             self.apply_layout_info(widget, &self.hit_test);
         }
         self.frame = next;
-        Ok(())
+        Ok(layout_invalidation || layout_affected_style_change)
     }
 
     fn stylesheet_for_layer(&self, screen_sheet: Option<&StyleSheet>) -> StyleSheet {

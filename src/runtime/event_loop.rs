@@ -4124,8 +4124,9 @@ impl App {
                 let layout_invalidation = pending_invalidation.flags.layout
                     || pending_invalidation.flags.style
                     || self.resized_since_last_render;
-                self.render_widget_with_regions(root, regions.as_deref(), layout_invalidation)?;
-                self.apply_layout_info_to_tree();
+                if self.render_widget_with_regions(root, regions.as_deref(), layout_invalidation)? {
+                    self.apply_layout_info_to_tree();
+                }
                 self.publish_devtools_snapshot(root);
                 pending_invalidation = PendingInvalidation::default();
                 rendered_immediately_for_input = true;
@@ -4266,8 +4267,9 @@ impl App {
                 let layout_invalidation = pending_invalidation.flags.layout
                     || pending_invalidation.flags.style
                     || self.resized_since_last_render;
-                self.render_widget_with_regions(root, regions.as_deref(), layout_invalidation)?;
-                self.apply_layout_info_to_tree();
+                if self.render_widget_with_regions(root, regions.as_deref(), layout_invalidation)? {
+                    self.apply_layout_info_to_tree();
+                }
                 self.publish_devtools_snapshot(root);
                 pending_invalidation = PendingInvalidation::default();
                 normal_render_us = render_started.elapsed().as_micros();
@@ -4382,8 +4384,13 @@ impl App {
                     let layout_invalidation = pending_invalidation.flags.layout
                         || pending_invalidation.flags.style
                         || self.resized_since_last_render;
-                    self.render_widget_with_regions(root, regions.as_deref(), layout_invalidation)?;
-                    self.apply_layout_info_to_tree();
+                    if self.render_widget_with_regions(
+                        root,
+                        regions.as_deref(),
+                        layout_invalidation,
+                    )? {
+                        self.apply_layout_info_to_tree();
+                    }
                     self.publish_devtools_snapshot(root);
                     pending_invalidation = PendingInvalidation::default();
                     tick_render_us = render_started.elapsed().as_micros();
@@ -4773,8 +4780,9 @@ impl App {
                 let layout_invalidation = pending.flags.layout
                     || pending.flags.style
                     || self.resized_since_last_render;
-                self.render_widget_with_regions(root, regions.as_deref(), layout_invalidation)?;
-                self.apply_layout_info_to_tree();
+                if self.render_widget_with_regions(root, regions.as_deref(), layout_invalidation)? {
+                    self.apply_layout_info_to_tree();
+                }
                 *pending = PendingInvalidation::default();
             }
 
