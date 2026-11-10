@@ -280,9 +280,21 @@ impl ComputedStyleCache {
         changed
     }
 
-    pub(super) fn get(&mut self, widget_id: NodeId, key: &ComputedStyleKey) -> Option<Style> {
+    pub(super) fn get(
+        &mut self,
+        widget_id: NodeId,
+        meta: &SelectorMeta,
+        ancestors: &[SelectorMeta],
+        parent_style: Option<&Style>,
+        inline_style: Option<&Style>,
+    ) -> Option<Style> {
         if let Some(entry) = self.entries.get(&widget_id) {
-            if &entry.key == key {
+            let key = &entry.key;
+            if key.meta == *meta
+                && key.parent_style.as_ref() == parent_style
+                && key.inline_style.as_ref() == inline_style
+                && key.ancestors == ancestors
+            {
                 self.stats.hits = self.stats.hits.saturating_add(1);
                 return Some(entry.resolved.clone());
             }

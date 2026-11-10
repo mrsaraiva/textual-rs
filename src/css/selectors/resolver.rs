@@ -238,15 +238,31 @@ pub(crate) fn resolve_node_style(tree: &WidgetTree, node_id: NodeId, meta: &Sele
     } else {
         node.widget.style()
     };
+    // Probe the cache against the live stacks by reference; the key is only
+    // cloned on a miss (cloning the ancestor chain on every hit was most of the
+    // per-node cost of a render pass).
+    let cached = SELECTOR_STACK.with(|ancestors| {
+        STYLE_STACK.with(|styles| {
+            COMPUTED_STYLE_CACHE.with(|cache| {
+                cache.borrow_mut().get(
+                    node_id,
+                    meta,
+                    &ancestors.borrow(),
+                    styles.borrow().last(),
+                    node_inline.as_ref(),
+                )
+            })
+        })
+    });
+    if let Some(cached) = cached {
+        return cached;
+    }
     let key = super::context::ComputedStyleKey {
         meta: meta.clone(),
         ancestors: SELECTOR_STACK.with(|stack| stack.borrow().clone()),
         parent_style: STYLE_STACK.with(|stack| stack.borrow().last().cloned()),
         inline_style: node_inline.clone(),
     };
-    if let Some(cached) = COMPUTED_STYLE_CACHE.with(|cache| cache.borrow_mut().get(node_id, &key)) {
-        return cached;
-    }
     let sheet_style = STYLE_CONTEXT
         .with(|ctx| {
             ctx.borrow()
