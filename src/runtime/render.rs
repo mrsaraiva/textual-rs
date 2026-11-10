@@ -893,10 +893,24 @@ fn render_tree_node(
     // cells, preserving real content), mirroring Python's whole-inner-area hatch.
     let mut deferred_hatch: Option<(Hatch, Option<Color>, i32, i32, usize, usize, ClipRect)> = None;
 
-    if should_render {
-        let dest_x = i32::from(rect.x0) + ctx.origin_x;
-        let dest_y = i32::from(rect.y0) + ctx.origin_y;
-
+    let dest_x = i32::from(rect.x0) + ctx.origin_x;
+    let dest_y = i32::from(rect.y0) + ctx.origin_y;
+    // Skip rendering this node's own content when it lies wholly outside the
+    // clip (e.g. scrolled out of view): it would be cropped away entirely.
+    // Its children are still visited.
+    let on_screen = ctx
+        .clip
+        .intersect(ClipRect::for_frame(frame))
+        .and_then(|clip| {
+            clip.intersect(ClipRect {
+                x0: dest_x,
+                y0: dest_y,
+                x1: dest_x + w as i32,
+                y1: dest_y + h as i32,
+            })
+        })
+        .is_some();
+    if should_render && on_screen {
         // Create options sized to this widget's layout rect.
         let mut opts = rich_rs::ConsoleOptions::default();
         opts.size = (w, h);
@@ -3852,6 +3866,56 @@ mod tests {
             dump.contains("HI"),
             "composed child (HI) must also be drawn on top; got:\n{dump}"
         );
+    }
+
+    #[test]
+    fn widgets_outside_the_viewport_are_not_rendered() {
+        // Only widgets that intersect the visible area render their content;
+        // the compositor would crop the rest away anyway.
+        use crate::widget_tree::WidgetTree;
+        use crate::widgets::AppRoot;
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        struct Counted(Arc<AtomicUsize>);
+        impl crate::widgets::Widget for Counted {
+            fn render(&self, _: &rich_rs::Console, _: &rich_rs::ConsoleOptions) -> Segments {
+                self.0.fetch_add(1, Ordering::Relaxed);
+                let mut out = Segments::new();
+                out.push(Segment::new("C"));
+                out
+            }
+            fn style_type(&self) -> &'static str {
+                "Counted"
+            }
+        }
+
+        let mut tree = WidgetTree::new();
+        let root = tree.set_root(Box::new(AppRoot::new()));
+        // Three 3-row widgets in a 5-row frame: rows 0-2 (visible), 3-5
+        // (partly visible) and 6-8 (off-screen).
+        let counts: Vec<Arc<AtomicUsize>> = (0..3).map(|_| Arc::default()).collect();
+        for count in &counts {
+            tree.mount(root, Box::new(Counted(count.clone())));
+        }
+        let mut sheet = crate::css::default_widget_stylesheet();
+        sheet.extend(&crate::css::StyleSheet::parse("Counted { height: 3; }"));
+
+        let console = rich_rs::Console::new();
+        let mut root_widget = AppRoot::new();
+        let frame = render_tree_to_frame_with_stylesheet(
+            &mut tree,
+            &mut root_widget,
+            &console,
+            10,
+            5,
+            sheet,
+        );
+
+        let renders: Vec<usize> = counts.iter().map(|c| c.load(Ordering::Relaxed)).collect();
+        assert_eq!(renders, [1, 1, 0], "only on-screen widgets render");
+        assert_eq!(frame.get(0, 0).text, "C");
+        assert_eq!(frame.get(0, 3).text, "C");
     }
 
     #[test]
