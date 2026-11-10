@@ -2600,6 +2600,14 @@ impl App {
                 .next_timeout(self.timers.now())
                 .map(|timer_timeout| timeout.min(timer_timeout))
                 .unwrap_or(timeout);
+            // Early-continue paths (binding actions, custom app actions) leave
+            // invalidation pending without rendering; draw it now instead of
+            // sleeping until the next tick or input event.
+            let timeout = if pending_invalidation.is_dirty() {
+                Duration::ZERO
+            } else {
+                timeout
+            };
             let poll_started = Instant::now();
             let input_event = if let Some(pending) = pending_input_event.take() {
                 Some(pending)
