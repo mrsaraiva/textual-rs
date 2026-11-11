@@ -2631,11 +2631,7 @@ impl App {
             if let Some(input_event) = input_event {
                 let input_started = Instant::now();
                 handled_input_this_loop = true;
-                let mut sheet = self.default_stylesheet.clone();
-                sheet.extend(&self.stylesheet);
-                if let Some(screen_sheet) = self.active_screen_stylesheet() {
-                    sheet.extend(screen_sheet);
-                }
+                let sheet = self.stylesheet_for_layer(self.active_screen_stylesheet());
                 let _active = set_app_active(self.app_active);
                 let _pseudo_state = set_app_runtime_pseudos(AppRuntimePseudos {
                     dark: self.dark_mode,
@@ -4260,11 +4256,7 @@ impl App {
             }
 
             if last_tick.elapsed() >= tick_rate {
-                let mut sheet = self.default_stylesheet.clone();
-                sheet.extend(&self.stylesheet);
-                if let Some(screen_sheet) = self.active_screen_stylesheet() {
-                    sheet.extend(screen_sheet);
-                }
+                let sheet = self.stylesheet_for_layer(self.active_screen_stylesheet());
                 let _active = set_app_active(self.app_active);
                 let _pseudo_state = set_app_runtime_pseudos(AppRuntimePseudos {
                     dark: self.dark_mode,
@@ -4433,11 +4425,7 @@ impl App {
     /// Set up the headless style context (default + app + screen stylesheets and
     /// runtime pseudo-state) for the duration of a closure that mutates state.
     fn with_headless_style_context<R>(&mut self, f: impl FnOnce(&mut Self) -> R) -> R {
-        let mut sheet = self.default_stylesheet.clone();
-        sheet.extend(&self.stylesheet);
-        if let Some(screen_sheet) = self.active_screen_stylesheet() {
-            sheet.extend(screen_sheet);
-        }
+        let sheet = self.stylesheet_for_layer(self.active_screen_stylesheet());
         let _active = set_app_active(self.app_active);
         let _pseudo_state = set_app_runtime_pseudos(AppRuntimePseudos {
             dark: self.dark_mode,
@@ -5878,11 +5866,7 @@ impl App {
     }
 
     fn dispatch_style_transition_requests(&mut self, root: &dyn Widget) {
-        let mut sheet = self.default_stylesheet.clone();
-        sheet.extend(&self.stylesheet);
-        if let Some(screen_sheet) = self.active_screen_stylesheet() {
-            sheet.extend(screen_sheet);
-        }
+        let sheet = self.stylesheet_for_layer(self.active_screen_stylesheet());
         let _active = set_app_active(self.app_active);
         let _pseudo_state = set_app_runtime_pseudos(AppRuntimePseudos {
             dark: self.dark_mode,
@@ -6750,11 +6734,7 @@ impl App {
     /// pipeline (`render.rs`). This method handles only the tree-based path
     /// so compose()-created widgets also receive layout geometry.
     fn apply_layout_info_to_tree(&mut self) {
-        let mut sheet = self.default_stylesheet.clone();
-        sheet.extend(&self.stylesheet);
-        if let Some(screen_sheet) = self.active_screen_stylesheet() {
-            sheet.extend(screen_sheet);
-        }
+        let sheet = self.stylesheet_for_layer(self.active_screen_stylesheet());
         let _active = set_app_active(self.app_active);
         let _pseudo_state = set_app_runtime_pseudos(AppRuntimePseudos {
             dark: self.dark_mode,

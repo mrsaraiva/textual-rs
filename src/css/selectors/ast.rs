@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::style::Style;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -94,9 +96,18 @@ pub struct StyleRule {
     pub(super) is_default: bool,
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+/// A list of style rules. The rules are shared copy-on-write, so cloning a
+/// sheet (the runtime installs one as the style context for every pass) is
+/// cheap, and comparing a sheet with a clone of itself does not walk the rules.
+#[derive(Debug, Clone, Default)]
 pub struct StyleSheet {
-    pub(super) rules: Vec<StyleRule>,
+    pub(super) rules: Arc<Vec<StyleRule>>,
+}
+
+impl PartialEq for StyleSheet {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.rules, &other.rules) || self.rules == other.rules
+    }
 }
 
 impl StyleSheet {
@@ -104,12 +115,18 @@ impl StyleSheet {
         Self::default()
     }
 
+    /// Whether both sheets share the same rules allocation, i.e. one is an
+    /// unmodified clone of the other.
+    pub(crate) fn same_rules(&self, other: &StyleSheet) -> bool {
+        Arc::ptr_eq(&self.rules, &other.rules)
+    }
+
     pub fn extend(&mut self, other: &StyleSheet) {
-        self.rules.extend(other.rules.iter().cloned());
+        Arc::make_mut(&mut self.rules).extend(other.rules.iter().cloned());
     }
 
     pub fn add_rule(&mut self, selector: StyleSelector, style: Style) {
-        self.rules.push(StyleRule {
+        Arc::make_mut(&mut self.rules).push(StyleRule {
             selector_chain: SelectorChain {
                 parts: vec![selector],
                 combinators: Vec::new(),
@@ -122,7 +139,7 @@ impl StyleSheet {
     /// Mark every rule in this sheet as widget-DEFAULT_CSS (lower cascade
     /// layer than user CSS, mirroring Python's `is_default_rules`).
     pub fn mark_default(&mut self) {
-        for rule in &mut self.rules {
+        for rule in Arc::make_mut(&mut self.rules) {
             rule.is_default = true;
         }
     }

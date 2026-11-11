@@ -182,7 +182,7 @@ fn append_style_rules(
 ) {
     for selector in selectors {
         if let Some(selector_chain) = parse_selector_chain(selector) {
-            sheet.rules.push(StyleRule {
+            std::sync::Arc::make_mut(&mut sheet.rules).push(StyleRule {
                 selector_chain,
                 style: style.clone(),
                 is_default: false,
