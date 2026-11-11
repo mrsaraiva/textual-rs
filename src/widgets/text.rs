@@ -2665,9 +2665,9 @@ impl crate::widgets::Interactive for Markdown {
                 self.set_markup(new_content);
             }
         }
-        if width > 1 {
-            let layout_width = usize::from(width);
-            self.layout_width = layout_width;
+        // `set_markup` already re-measured; only a width change needs another.
+        if width > 1 && usize::from(width) != self.layout_width {
+            self.layout_width = usize::from(width);
             self.recompute_intrinsic_height();
         }
     }
